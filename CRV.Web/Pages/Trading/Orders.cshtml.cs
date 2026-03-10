@@ -20,7 +20,8 @@ public class OrdersModel : PageModel
     private readonly IConfiguration          _config;
     private readonly ILogger<OrdersModel>    _log;
 
-    public string CurrentBroker => _cfgSvc.Current.Broker;
+    /// <summary>The broker whose order book is being displayed (exec broker, not data broker).</summary>
+    public string CurrentBroker => _cfgSvc.Current.EffectiveExecBroker;
     public string CurrentTicker => _cfgSvc.Current.Ticker;
 
     public List<string> Messages { get; } = new();
@@ -97,7 +98,7 @@ public class OrdersModel : PageModel
                 "TradeStation" => await ManualBrokerOps.CancelOrderTradeStationAsync(_ts, orderId),
                 "Schwab"       => await ManualBrokerOps.CancelOrderSchwabAsync(_schwab, cfg.AccountId, orderId),
                 "Tradovate" => await ManualBrokerOps.CancelOrderTradovateAsync(_tv, orderId),
-                _              => await ManualBrokerOps.CancelOrderMockAsync(orderId)
+                _              => await ManualBrokerOps.CancelOrderMockAsync(orderId, _mockExec)
             };
             Messages.Add(result);
         }

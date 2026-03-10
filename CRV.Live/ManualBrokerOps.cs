@@ -433,8 +433,12 @@ public static class ManualBrokerOps
         return Task.FromResult(orders);
     }
 
-    public static Task<string> CancelOrderMockAsync(string orderId)
-        => Task.FromResult($"Mock: cancel order {orderId} (no-op)");
+    public static Task<string> CancelOrderMockAsync(string orderId, MockBrokerExecutor? exec = null)
+    {
+        if (exec == null) return Task.FromResult($"Mock: cancel order {orderId} (no executor)");
+        exec.CancelOrder(orderId);
+        return Task.FromResult($"Mock order {orderId} cancelled.");
+    }
 
     // ── Positions — Tradovate ─────────────────────────────────────
 
