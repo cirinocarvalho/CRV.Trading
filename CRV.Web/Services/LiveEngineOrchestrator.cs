@@ -223,6 +223,14 @@ public class LiveEngineOrchestrator : BackgroundService
                 }, ct);
             };
 
+            // If the executor is MockBrokerExecutor, evaluate fills on every L1 tick
+            // (MockBrokerExecutor is internally thread-safe — no engineLock needed here)
+            if (executor is MockBrokerExecutor mockExec)
+            {
+                feed.OnPriceTick += (price, time) =>
+                    mockExec.EvaluateFills(cfg.Ticker, price, time);
+            }
+
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");
 
             // Schwab CHART_FUTURES has no barsback replay — we must REST-backfill historical
