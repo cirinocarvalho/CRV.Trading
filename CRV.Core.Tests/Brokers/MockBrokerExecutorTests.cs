@@ -63,4 +63,29 @@ public class MockBrokerExecutorTests
         exec.CancelOrder(workingId);
         Assert.Equal("CANCELED", exec.GetOrders().Single(o => o.OrderId == workingId).Status);
     }
+
+    [Fact]
+    public async Task OnBESignal_MovesCorrectSetupStopPrice()
+    {
+        var exec = Build();
+
+        // Setup A entry
+        var sigA = new EntrySignal(SetupId.A, Direction.Long, 20500m, 20400m, 21500m, 20900m, 2, DateTime.UtcNow);
+        await exec.OnEntrySignalAsync(sigA);
+
+        // Setup B entry
+        var sigB = new EntrySignal(SetupId.B, Direction.Long, 20950m, 20850m, 21200m, 21100m, 1, DateTime.UtcNow);
+        await exec.OnEntrySignalAsync(sigB);
+
+        // BE move on Setup A — stop should move to 20500 (entry price)
+        var beSig = new BESignal(SetupId.A, Direction.Long, 20500m, 20500m, 2, DateTime.UtcNow);
+        await exec.OnBESignalAsync(beSig);
+
+        var orders   = exec.GetOrders();
+        var stopA    = orders.Single(o => o.Symbol == "A" && o.Status == "WORKING" && o.StopPrice.HasValue);
+        var stopB    = orders.Single(o => o.Symbol == "B" && o.Status == "WORKING" && o.StopPrice.HasValue);
+
+        Assert.Equal(20500m, stopA.StopPrice); // Setup A stop moved to BE
+        Assert.Equal(20850m, stopB.StopPrice); // Setup B stop unchanged
+    }
 }

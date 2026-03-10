@@ -102,11 +102,15 @@ public class MockBrokerExecutor : IOrderExecutor
     public Task OnBESignalAsync(BESignal sig)
     {
         _log.LogInformation("[MOCK] MOVE_BE Setup={S} → {P}", sig.Setup, sig.NewStop);
-        // Move the open stop order to the new stop price (breakeven)
+        // Move the open stop order for this specific setup to the new stop price (breakeven)
+        var setupSymbol = sig.Setup.ToString();
         lock (_lock)
         {
             var stopOrder = _orders.FirstOrDefault(o =>
-                o.Status == "WORKING" && o.StopPrice.HasValue && o.OcoGroupId != null);
+                o.Symbol == setupSymbol &&
+                o.Status == "WORKING"  &&
+                o.StopPrice.HasValue   &&
+                o.OcoGroupId != null);
             if (stopOrder != null)
                 stopOrder.StopPrice = sig.NewStop;
         }
@@ -188,7 +192,18 @@ public class MockBrokerExecutor : IOrderExecutor
         lock (_lock)
         {
             var o = _orders.FirstOrDefault(o => o.OrderId == orderId);
-            if (o?.Status == "WORKING") o.Status = "CANCELED";
+            if (o == null)
+            {
+                _log.LogWarning("[MOCK] CancelOrder: order {Id} not found", orderId);
+                return;
+            }
+            if (o.Status != "WORKING")
+            {
+                _log.LogWarning("[MOCK] CancelOrder: order {Id} is already {Status}, cannot cancel",
+                    orderId, o.Status);
+                return;
+            }
+            o.Status = "CANCELED";
         }
     }
 
