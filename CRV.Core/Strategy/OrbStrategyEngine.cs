@@ -141,8 +141,9 @@ public class OrbStrategyEngine
     /// <summary>
     /// Evaluate entry and exit conditions against a realtime L1 price tick.
     /// Only active after EnableTickMode() has been called.
-    /// Thread-safe: uses the same in-memory state as ProcessBarAsync.
-    /// Must NOT be called concurrently with ProcessBarAsync on the same engine instance.
+    /// WARNING: NOT thread-safe. Shares mutable state with ProcessBarAsync.
+    /// The caller MUST serialize all calls to this method and ProcessBarAsync
+    /// (e.g., via SemaphoreSlim(1,1)) to prevent race conditions.
     /// </summary>
     public async Task ProcessPriceTickAsync(decimal price, DateTime utcTime)
     {
@@ -295,6 +296,34 @@ public class OrbStrategyEngine
         bool hitTarget = longB ? price >= _tgtB  : price <= _tgtB;
         if (!hitStop && !hitTarget) return;
 
+        // Partial fill check (price-based)
+        bool partJustHit = false;
+        if (_cfg.UsePartialB && !_partHitB)
+        {
+            bool hitPartial = longB ? price >= _partialB : price <= _partialB;
+            if (hitPartial && !hitTarget) // partial without full close
+            {
+                partJustHit = true;
+                _partHitB   = true;
+                int half    = (int)Math.Floor(_cfg.Contracts * 0.5);
+                var psig    = new PartialSignal(SetupId.B, longB ? Direction.Long : Direction.Short,
+                    _partialB, half, _cfg.Contracts - half, _entB, utcTime);
+                await _executor.OnPartialSignalAsync(psig);
+                await _sink.OnPartialAsync(psig);
+                AddAlert("PARTIAL", SetupId.B, $"Partial @ {_partialB:F2}", "yellow");
+                if (_cfg.UseBeB)
+                {
+                    var besig = new BESignal(SetupId.B, longB ? Direction.Long : Direction.Short,
+                        _entB, _entB, psig.ContractsRemaining, utcTime);
+                    _stopB = _entB;
+                    await _executor.OnBESignalAsync(besig);
+                    await _sink.OnBEMoveAsync(besig);
+                    AddAlert("MOVE_BE", SetupId.B, $"Stop → BE {_entB:F2}", "yellow");
+                }
+                if (!hitTarget && !hitStop) return; // partial only, trade still open
+            }
+        }
+
         ExitReason reason = hitTarget ? ExitReason.Target : ExitReason.Stop;
         decimal    exitPx = hitTarget ? _tgtB : _stopB;
         decimal    pnl    = (longB ? exitPx - _entB : _entB - exitPx) * _cfg.PointValue * _cfg.Contracts;
@@ -304,7 +333,7 @@ public class OrbStrategyEngine
         _tradeCountB++;
         if (hitTarget) { _stickyTgtB = true; _exitBarIdxB = _barIndex; }
         else           { _stickyStpB = true; _exitBarIdxB = _barIndex; }
-        await BookExitB(reason, exitPx, utcTime, longB);
+        await BookExitB(reason, exitPx, utcTime, longB, sameBarPartial: partJustHit);
     }
 
     private async Task TryEntryBFromTick(decimal ep, bool isLong, DateTime utcTime)
