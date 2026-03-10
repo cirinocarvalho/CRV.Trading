@@ -211,14 +211,16 @@ public class LiveEngineOrchestrator : BackgroundService
             _engine.EnableTickMode();
             feed.OnPriceTick += (price, time) =>
             {
+                var engine = _engine;
+                if (engine == null) return;
                 _ = Task.Run(async () =>
                 {
                     if (!await engineLock.WaitAsync(500, ct)) return; // skip if engine is busy > 500ms
-                    try   { await _engine.ProcessPriceTickAsync(price, time); }
+                    try   { await engine.ProcessPriceTickAsync(price, time); }
                     catch (OperationCanceledException) { }
                     catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
                     finally { engineLock.Release(); }
-                });
+                }, ct);
             };
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");

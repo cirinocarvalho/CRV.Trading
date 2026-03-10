@@ -363,9 +363,10 @@ public class SchwabBarFeed : IBarFeed
                     foreach (var row in l1.EnumerateArray())
                         if (row.TryGetProperty("3", out var last) && last.GetDecimal() > 0)
                         {
-                            var lp = last.GetDecimal();
-                            builder.OnTick(lp, 0, DateTime.UtcNow);
-                            OnPriceTick?.Invoke(lp, DateTime.UtcNow);
+                            var lp  = last.GetDecimal();
+                            var now = DateTime.UtcNow;
+                            builder.OnTick(lp, 0, now);
+                            OnPriceTick?.Invoke(lp, now);
                         }
             }
         }
