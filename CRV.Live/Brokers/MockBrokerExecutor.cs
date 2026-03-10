@@ -137,7 +137,11 @@ public class MockBrokerExecutor : IOrderExecutor
     /// any that have crossed their trigger level. OCO partners of a filled order
     /// are immediately CANCELED. Thread-safe.
     /// </summary>
-    public void EvaluateFills(string symbol, decimal price, DateTime utcNow)
+    /// <remarks>
+    /// All WORKING orders are evaluated regardless of symbol — correct for a
+    /// single-instrument executor where every order is for the same instrument.
+    /// </remarks>
+    public void EvaluateFills(decimal price, DateTime utcNow)
     {
         if (price <= 0) return;
         lock (_lock)

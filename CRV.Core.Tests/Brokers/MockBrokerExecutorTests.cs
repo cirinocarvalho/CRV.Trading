@@ -29,7 +29,7 @@ public class MockBrokerExecutorTests
         exec.SimulateOrder("NQH26", "BUY", 2, null, 20500m, "oco1");
         exec.SimulateOrder("NQH26", "SELL", 2, 21000m, null, "oco1");
 
-        exec.EvaluateFills("NQH26", 20501m, DateTime.UtcNow);
+        exec.EvaluateFills(20501m, DateTime.UtcNow);
 
         var orders   = exec.GetOrders();
         var filled   = orders.Single(o => o.StopPrice == 20500m);
@@ -45,7 +45,7 @@ public class MockBrokerExecutorTests
         exec.SimulateOrder("NQH26", "SELL", 2, 21000m, null, "oco1");
         exec.SimulateOrder("NQH26", "SELL", 2, null, 20400m, "oco1");
 
-        exec.EvaluateFills("NQH26", 21001m, DateTime.UtcNow);
+        exec.EvaluateFills(21001m, DateTime.UtcNow);
 
         var orders = exec.GetOrders();
         Assert.Equal("FILLED",   orders[0].Status);

@@ -228,7 +228,7 @@ public class LiveEngineOrchestrator : BackgroundService
             if (executor is MockBrokerExecutor mockExec)
             {
                 feed.OnPriceTick += (price, time) =>
-                    mockExec.EvaluateFills(cfg.Ticker, price, time);
+                    mockExec.EvaluateFills(price, time);
             }
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");
