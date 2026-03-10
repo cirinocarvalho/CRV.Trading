@@ -132,9 +132,11 @@ public class OrbStrategyEngine
     private bool _tickModeEnabled = false;
 
     /// <summary>
-    /// Enable tick-based entry/exit evaluation for live trading.
-    /// When enabled, ProcessPriceTickAsync evaluates entries/exits on each L1 price tick.
-    /// Backtest leaves this false and uses bar-close evaluation only.
+    /// Enable tick-based entry/exit evaluation.
+    /// When enabled, <see cref="ProcessPriceTickAsync"/> evaluates entries/exits on each price tick
+    /// and <see cref="ProcessBarAsync"/> only updates indicators and arm state (skips bar-level
+    /// entry/exit).  Used for both live trading (L1 ticks) and backtest tick simulation
+    /// (1-min OHLC prices fired as four sequential ticks per bar).
     /// </summary>
     public void EnableTickMode() => _tickModeEnabled = true;
 
@@ -548,28 +550,32 @@ public class OrbStrategyEngine
                     }
                 }
 
-                bool canEnterA  = _cfg.AllowBothSameBar || !_enteredThisBar;
-                decimal pbPts   = orbRange * _cfg.PullbackPct;
-                decimal longPb  = LevelCalculator.RoundToTick(orbHigh - pbPts, _cfg.TickSize);
-                decimal shortPb = LevelCalculator.RoundToTick(orbLow  + pbPts, _cfg.TickSize);
+                // Bar-level entry — skipped in tick mode (handled by ProcessPriceTickAsync)
+                if (!_tickModeEnabled)
+                {
+                    bool canEnterA  = _cfg.AllowBothSameBar || !_enteredThisBar;
+                    decimal pbPts   = orbRange * _cfg.PullbackPct;
+                    decimal longPb  = LevelCalculator.RoundToTick(orbHigh - pbPts, _cfg.TickSize);
+                    decimal shortPb = LevelCalculator.RoundToTick(orbLow  + pbPts, _cfg.TickSize);
 
-                if (_cfg.IsAggressiveA)
-                {
-                    if (_stA == 1 && canEnterA) await TryEntryA(bar, _armEntryA, true, orbRange);
-                    else if (_stA == -1 && canEnterA) await TryEntryA(bar, _armEntryA, false, orbRange);
-                }
-                else
-                {
-                    if (_stA == 1 && canEnterA && bar.Low <= longPb + tickTol)
-                        await TryEntryA(bar, longPb, true, orbRange);
-                    else if (_stA == -1 && canEnterA && bar.High >= shortPb - tickTol)
-                        await TryEntryA(bar, shortPb, false, orbRange);
+                    if (_cfg.IsAggressiveA)
+                    {
+                        if (_stA == 1 && canEnterA) await TryEntryA(bar, _armEntryA, true, orbRange);
+                        else if (_stA == -1 && canEnterA) await TryEntryA(bar, _armEntryA, false, orbRange);
+                    }
+                    else
+                    {
+                        if (_stA == 1 && canEnterA && bar.Low <= longPb + tickTol)
+                            await TryEntryA(bar, longPb, true, orbRange);
+                        else if (_stA == -1 && canEnterA && bar.High >= shortPb - tickTol)
+                            await TryEntryA(bar, shortPb, false, orbRange);
+                    }
                 }
             }
         }
 
-        // ── Exit (runs when active — including same bar as entry) ──
-        if (_activeA)
+        // ── Exit (bar mode only; tick mode uses ProcessPriceTickAsync) ──────
+        if (_activeA && !_tickModeEnabled)
         {
             bool isLong   = _stA == 2;
             bool prevPart = _partHitA;
@@ -725,28 +731,36 @@ public class OrbStrategyEngine
 
                 if (_cfg.IsAggressiveB)
                 {
-                    if (_stB == 1 && canEnterB)
+                    // Bar-level entry — skipped in tick mode (handled by ProcessPriceTickAsync)
+                    if (!_tickModeEnabled)
                     {
-                        decimal ep = _armEntryB > 0 ? _armEntryB : orbHigh;
-                        await TryEntryB(bar, ep, true, orbRange, orbMid);
-                    }
-                    else if (_stB == -1 && canEnterB)
-                    {
-                        decimal ep = _armEntryB > 0 ? _armEntryB : orbLow;
-                        await TryEntryB(bar, ep, false, orbRange, orbMid);
+                        if (_stB == 1 && canEnterB)
+                        {
+                            decimal ep = _armEntryB > 0 ? _armEntryB : orbHigh;
+                            await TryEntryB(bar, ep, true, orbRange, orbMid);
+                        }
+                        else if (_stB == -1 && canEnterB)
+                        {
+                            decimal ep = _armEntryB > 0 ? _armEntryB : orbLow;
+                            await TryEntryB(bar, ep, false, orbRange, orbMid);
+                        }
                     }
                 }
                 else
                 {
-                    // Conservative — retest zone
+                    // Conservative — retest-zone state transitions always run (arm → retest → de-arm)
                     decimal retestW = orbRange * _cfg.RetestPct;
                     if (_stB == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW) _stB = 2;
                     if (_stB == -1 && bar.High >= orbLow - retestW && bar.Low <= orbLow + retestW) _stB = -2;
 
-                    if (_stB == 2 && bar.Close > orbHigh && canEnterB)
-                        await TryEntryB(bar, orbHigh, true, orbRange, orbMid);
-                    else if (_stB == -2 && bar.Close < orbLow && canEnterB)
-                        await TryEntryB(bar, orbLow, false, orbRange, orbMid);
+                    // Bar-level entry — skipped in tick mode (handled by ProcessPriceTickAsync)
+                    if (!_tickModeEnabled)
+                    {
+                        if (_stB == 2 && bar.Close > orbHigh && canEnterB)
+                            await TryEntryB(bar, orbHigh, true, orbRange, orbMid);
+                        else if (_stB == -2 && bar.Close < orbLow && canEnterB)
+                            await TryEntryB(bar, orbLow, false, orbRange, orbMid);
+                    }
 
                     if (_stB == 2  && bar.Close < orbMid) _stB = 0;
                     if (_stB == -2 && bar.Close > orbMid) _stB = 0;
@@ -754,8 +768,8 @@ public class OrbStrategyEngine
             }
         }
 
-        // ── Exit (runs when active — including same bar as entry) ──
-        if (_activeB)
+        // ── Exit (bar mode only; tick mode uses ProcessPriceTickAsync) ──────
+        if (_activeB && !_tickModeEnabled)
         {
             bool isLong   = _stB == 3;
             bool prevPart = _partHitB;
