@@ -32,6 +32,7 @@ public class StrategyConfigTests
         TargetPctA       = 100,
         PartialPctA      = 50,
         EnableB          = true,
+        StopPctB         = 0.50m,
         RetestPct        = 0.05m,
         MinRrB           = 1.5m,
         MaxTradesB       = 5,
