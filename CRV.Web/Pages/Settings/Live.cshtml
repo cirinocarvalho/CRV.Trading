@@ -1,0 +1,514 @@
+@page "/settings/live"
+@model CRV.Web.Pages.Settings.LiveModel
+@{
+    ViewData["Title"] = "Live Settings";
+    ViewData["Page"]  = "live-settings";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+    <h5 class="mb-0"><i class="bi bi-sliders me-2 text-warning"></i>Live Trading Settings</h5>
+    @if (Model.Saved)
+    {
+        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Saved</span>
+    }
+    <small class="text-muted" style="font-size:0.75rem">
+        Last saved: <span class="font-monospace">@Model.Config.UpdatedAt.ToLocalTime().ToString("MM/dd HH:mm:ss")</span>
+    </small>
+    <span class="badge @(Model.IsRunning ? "bg-success" : "bg-secondary") ms-auto">
+        <i class="bi bi-circle-fill me-1" style="font-size:0.6rem"></i>@Model.EngineStatus
+    </span>
+</div>
+
+<!-- ── Engine Start / Stop ──────────────────────────────────── -->
+<div class="d-flex gap-2 mb-3">
+    @if (!Model.IsRunning)
+    {
+        <form method="post" asp-page-handler="Start">
+            <button type="submit" class="btn btn-success btn-sm fw-bold">
+                <i class="bi bi-play-fill me-1"></i>Start Engine
+            </button>
+        </form>
+    }
+    else
+    {
+        <form method="post" asp-page-handler="Stop">
+            <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                <i class="bi bi-stop-fill me-1"></i>Stop Engine
+            </button>
+        </form>
+    }
+    <small class="text-muted align-self-center">
+        Save settings first, then start the engine. Account IDs are read from
+        <code>appsettings.json</code> / user-secrets (<code>Schwab:AccountId</code>,
+        <code>TradeStation:AccountId</code>, <code>Tradovate:AccountId</code>).
+    </small>
+</div>
+
+<!-- ── Broker Auth Status ───────────────────────────────────── -->
+<div class="alert @(Model.SchwabConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-2" role="alert">
+    <i class="bi @(Model.SchwabConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+    <span class="me-auto">
+        <strong>Schwab:</strong>
+        @if (Model.SchwabConnected)
+        {
+            <span>Authorized — tokens stored and ready.</span>
+        }
+        else
+        {
+            <span>Not connected. Schwab live trading requires OAuth2 authorization.</span>
+        }
+    </span>
+    <a href="/auth/schwab" class="btn btn-sm @(Model.SchwabConnected ? "btn-outline-success" : "btn-warning") fw-bold">
+        <i class="bi bi-shield-lock me-1"></i>
+        @(Model.SchwabConnected ? "Manage" : "Connect Schwab")
+    </a>
+</div>
+
+<div class="alert @(Model.TsConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-2" role="alert">
+    <i class="bi @(Model.TsConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+    <span class="me-auto">
+        <strong>TradeStation:</strong>
+        @if (Model.TsConnected)
+        {
+            <span>Authorized — tokens stored and ready.</span>
+        }
+        else
+        {
+            <span>Not connected. TradeStation live trading requires OAuth2 authorization.</span>
+        }
+    </span>
+    <a href="/auth/tradestation" class="btn btn-sm @(Model.TsConnected ? "btn-outline-success" : "btn-warning") fw-bold">
+        <i class="bi bi-shield-lock me-1"></i>
+        @(Model.TsConnected ? "Manage" : "Connect TradeStation")
+    </a>
+</div>
+
+<div class="alert @(Model.TvConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-3" role="alert">
+    <i class="bi @(Model.TvConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+    <span class="me-auto">
+        <strong>Tradovate:</strong>
+        @if (Model.TvConnected)
+        {
+            <span>Connected — tokens valid and ready.</span>
+        }
+        else
+        {
+            <span>Not connected. Click Connect to authenticate with your Tradovate credentials.</span>
+        }
+    </span>
+    <a href="/auth/tradovate" class="btn btn-sm @(Model.TvConnected ? "btn-outline-success" : "btn-warning") fw-bold">
+        <i class="bi bi-shield-lock me-1"></i>
+        @(Model.TvConnected ? "Manage" : "Connect Tradovate")
+    </a>
+</div>
+
+<form method="post" novalidate>
+
+<div asp-validation-summary="All" class="alert alert-danger py-2 small mb-3" style="display:@(ViewData.ModelState.IsValid ? "none" : "block")"></div>
+
+<div class="row g-3">
+
+<!-- ── Left column ──────────────────────────────────────────── -->
+<div class="col-12 col-xl-4">
+
+    <div class="settings-section">
+        <h6><i class="bi bi-currency-dollar me-1"></i>Instrument</h6>
+
+        <!-- Grouped instrument selector -->
+        <div class="mb-2">
+            <label class="form-label small">Instrument</label>
+            <select id="instr-select" class="form-select form-select-sm" onchange="instrOnChange()">
+                <optgroup label="Mini">
+                    <option value="NQ">NQ  — E-mini Nasdaq-100</option>
+                    <option value="ES">ES  — E-mini S&amp;P 500</option>
+                    <option value="GC">GC  — Gold</option>
+                    <option value="CL">CL  — Crude Oil</option>
+                </optgroup>
+                <optgroup label="Micro">
+                    <option value="MNQ">MNQ — Micro Nasdaq-100</option>
+                    <option value="MES">MES — Micro S&amp;P 500</option>
+                    <option value="MGC">MGC — Micro Gold</option>
+                    <option value="MCL">MCL — Micro Crude Oil</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <!-- Active contract display -->
+        <div class="mb-2">
+            <label class="form-label small">Active Contract</label>
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
+                <input id="instr-contract" class="form-control form-control-sm font-monospace fw-bold" readonly />
+                <span class="input-group-text text-muted small" id="instr-pv-label">—</span>
+            </div>
+            <!-- Hidden form values submitted to server -->
+            <input type="hidden" name="Config.Ticker"       id="instr-ticker-hidden" value="@Model.Config.Ticker" />
+            <input type="hidden" name="Config.Exchange"     value="CME" />
+            <input type="hidden" name="Config.PointValue"   id="instr-pv-hidden"     value="@Model.Config.PointValue" />
+            <!-- PullbackPct is not shown in the UI (derived from ModeA) but must be preserved -->
+            <input type="hidden" name="Config.PullbackPct"  id="instr-pullback-pct"  value="@Model.Config.PullbackPct" />
+        </div>
+
+        <div class="row g-2">
+            <div class="col-12 col-md-6">
+                <label class="form-label small">Data Broker</label>
+                <select name="Config.Broker" class="form-select form-select-sm">
+                    <option value="Schwab"       selected="@(Model.Config.Broker=="Schwab"       ? "selected" : null)">Schwab</option>
+                    <option value="TradeStation" selected="@(Model.Config.Broker=="TradeStation" ? "selected" : null)">TradeStation</option>
+                    <option value="Tradovate"    selected="@(Model.Config.Broker=="Tradovate"    ? "selected" : null)">Tradovate</option>
+                    <option value="Mock"         selected="@(Model.Config.Broker=="Mock"         ? "selected" : null)">Mock (Paper)</option>
+                </select>
+                <div class="form-text text-muted" style="font-size:.7rem">Market data + bar feed</div>
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small">Exec Broker</label>
+                <select name="Config.ExecBroker" class="form-select form-select-sm">
+                    <option value=""             selected="@(string.IsNullOrEmpty(Model.Config.ExecBroker) ? "selected" : null)">Same as Data</option>
+                    <option value="Schwab"       selected="@(Model.Config.ExecBroker=="Schwab"       ? "selected" : null)">Schwab</option>
+                    <option value="TradeStation" selected="@(Model.Config.ExecBroker=="TradeStation" ? "selected" : null)">TradeStation</option>
+                    <option value="Tradovate"    selected="@(Model.Config.ExecBroker=="Tradovate"    ? "selected" : null)">Tradovate</option>
+                    <option value="Mock"         selected="@(Model.Config.ExecBroker=="Mock"         ? "selected" : null)">Mock (Paper)</option>
+                </select>
+                <div class="form-text text-muted" style="font-size:.7rem">Order execution (leave empty = same)</div>
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Tick Size</label>
+                <input name="Config.TickSize" id="instr-tick-sz" type="number" step="any"
+                       value="@Model.Config.TickSize" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="mt-2 form-text text-muted small">
+            Account IDs: set <code>Schwab:AccountId</code> / <code>TradeStation:AccountId</code>
+            / <code>Tradovate:AccountId</code> in <code>appsettings.json</code>.
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h6><i class="bi bi-clock me-1"></i>Timeframes & Sessions</h6>
+        <div class="mb-2">
+            <label class="form-label small">Execution TF (minutes)</label>
+            <select name="Config.ExecutionTFMinutes" class="form-select form-select-sm">
+                <option value="1"  selected="@(Model.Config.ExecutionTFMinutes==1  ? "selected" : null)">1 minute</option>
+                <option value="2"  selected="@(Model.Config.ExecutionTFMinutes==2  ? "selected" : null)">2 minutes</option>
+                <option value="5"  selected="@(Model.Config.ExecutionTFMinutes==5  ? "selected" : null)">5 minutes</option>
+                <option value="15" selected="@(Model.Config.ExecutionTFMinutes==15 ? "selected" : null)">15 minutes</option>
+                <option value="30" selected="@(Model.Config.ExecutionTFMinutes==30 ? "selected" : null)">30 minutes</option>
+                <option value="60" selected="@(Model.Config.ExecutionTFMinutes==60 ? "selected" : null)">60 minutes</option>
+            </select>
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">ORB Start</label>
+                <input name="Config.OrbStart" type="time" value="@Model.Config.OrbStart.ToString("HH:mm")" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">ORB End</label>
+                <input name="Config.OrbEnd" type="time" value="@Model.Config.OrbEnd.ToString("HH:mm")" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">RTH Start</label>
+                <input name="Config.RthStart" type="time" value="@Model.Config.RthStart.ToString("HH:mm")" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">RTH End</label>
+                <input name="Config.RthEnd" type="time" value="@Model.Config.RthEnd.ToString("HH:mm")" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="mt-2">
+            <label class="form-label small">Timezone</label>
+            <select name="Config.Timezone" class="form-select form-select-sm">
+                <option value="America/New_York"    selected="@(Model.Config.Timezone=="America/New_York"    ? "selected" : null)">America/New_York (ET)</option>
+                <option value="America/Chicago"     selected="@(Model.Config.Timezone=="America/Chicago"     ? "selected" : null)">America/Chicago (CT)</option>
+                <option value="America/Los_Angeles" selected="@(Model.Config.Timezone=="America/Los_Angeles" ? "selected" : null)">America/Los_Angeles (PT)</option>
+                <option value="UTC"                 selected="@(Model.Config.Timezone=="UTC"                 ? "selected" : null)">UTC</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h6><i class="bi bi-shield-exclamation me-1"></i>Trade Filters</h6>
+        <div class="mb-2">
+            <label class="form-label small">Min ORB/ATR Ratio</label>
+            <input name="Config.AtrFilterPct" type="number" step="any" value="@Model.Config.AtrFilterPct" class="form-control form-control-sm" />
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">Cutoff Hour</label>
+                <input name="Config.CutoffHour" type="number" min="10" max="15" value="@Model.Config.CutoffHour" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Cutoff Minute</label>
+                <input name="Config.CutoffMinute" type="number" min="0" max="59" value="@Model.Config.CutoffMinute" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Max Daily Loss ($)</label>
+                <input name="Config.MaxDailyLoss" type="number" step="50" value="@Model.Config.MaxDailyLoss" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Commission ($/side)</label>
+                <input name="Config.CommissionPerSide" type="number" step="0.25" value="@Model.Config.CommissionPerSide" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="mt-2 d-flex flex-column gap-2">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseVwap" value="true" id="chk-vwap" @(Model.Config.UseVwap ? "checked" : "") />
+                <input type="hidden" name="Config.UseVwap" value="false" />
+                <label class="form-check-label small" for="chk-vwap">VWAP Filter</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseOrbClose" value="true" id="chk-orbclose" @(Model.Config.UseOrbClose ? "checked" : "") />
+                <input type="hidden" name="Config.UseOrbClose" value="false" />
+                <label class="form-check-label small" for="chk-orbclose">ORB Close Direction Filter</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseDailyLossLimit" value="true" id="chk-dd" @(Model.Config.UseDailyLossLimit ? "checked" : "") />
+                <input type="hidden" name="Config.UseDailyLossLimit" value="false" />
+                <label class="form-check-label small" for="chk-dd">Daily Loss Limit</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseTimeFilter" value="true" id="chk-time" @(Model.Config.UseTimeFilter ? "checked" : "") />
+                <input type="hidden" name="Config.UseTimeFilter" value="false" />
+                <label class="form-check-label small" for="chk-time">Time Filter (cutoff)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.AllowBothSameBar" value="true" id="chk-both" @(Model.Config.AllowBothSameBar ? "checked" : "") />
+                <input type="hidden" name="Config.AllowBothSameBar" value="false" />
+                <label class="form-check-label small" for="chk-both">Allow Both Setups Same Bar</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.CloseAtRthClose" value="true" id="chk-rthclose" @(Model.Config.CloseAtRthClose ? "checked" : "") />
+                <input type="hidden" name="Config.CloseAtRthClose" value="false" />
+                <label class="form-check-label small" for="chk-rthclose">Close Open Trades at RTH End</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h6><i class="bi bi-stack me-1"></i>Position Sizing</h6>
+        <div class="row g-2">
+            <div class="col-4">
+                <label class="form-label small">Base Cts</label>
+                <input name="Config.Contracts" type="number" min="1" max="10" value="@Model.Config.Contracts" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+                <label class="form-label small">Hi-Vol Mult</label>
+                <input name="Config.HiVolMult" type="number" step="0.5" min="1" max="5" value="@Model.Config.HiVolMult" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+                <label class="form-label small">Max Cts Cap</label>
+                <input name="Config.MaxContracts" type="number" min="1" max="50" value="@Model.Config.MaxContracts" class="form-control form-control-sm" />
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ── Middle column: Setup A ───────────────────────────────── -->
+<div class="col-12 col-md-6 col-xl-4">
+    <div class="settings-section">
+        <h6><i class="bi bi-arrow-return-left me-1"></i>Setup A — Pullback to Mid [XACUZZY]</h6>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="Config.EnableA" value="true" id="chk-enA" @(Model.Config.EnableA ? "checked" : "") />
+            <input type="hidden" name="Config.EnableA" value="false" />
+            <label class="form-check-label small fw-bold" for="chk-enA">Enable Setup A</label>
+        </div>
+        <div class="mb-2">
+            <label class="form-label small">Mode</label>
+            <select name="Config.ModeA" class="form-select form-select-sm">
+                <option value="Conservative" selected="@(Model.Config.ModeA=="Conservative" ? "selected" : null)">Conservative (50% pullback)</option>
+                <option value="Aggressive"   selected="@(Model.Config.ModeA=="Aggressive"   ? "selected" : null)">Aggressive (25% pullback)</option>
+            </select>
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">Max Trades/Day</label>
+                <input name="Config.MaxTradesA" type="number" min="0" max="20" value="@Model.Config.MaxTradesA" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Min R:R</label>
+                <input name="Config.MinRrA" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrA" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Target (% ORB)</label>
+                <select name="Config.TargetPctA" class="form-select form-select-sm">
+                    @foreach (var v in new[]{25,50,100,150,200,250,300,350,400,450,500})
+                    {
+                        <option value="@v" selected="@(Model.Config.TargetPctA==v ? "selected" : null)">@v%</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Partial At (% of target)</label>
+                <select name="Config.PartialPctA" class="form-select form-select-sm">
+                    <option value="25" selected="@(Model.Config.PartialPctA==25 ? "selected" : null)">25%</option>
+                    <option value="50" selected="@(Model.Config.PartialPctA==50 ? "selected" : null)">50%</option>
+                    <option value="75" selected="@(Model.Config.PartialPctA==75 ? "selected" : null)">75%</option>
+                </select>
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Near Threshold (% ORB)</label>
+                <input name="Config.NearPct" type="number" step="any" value="@Model.Config.NearPct" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Stop Distance (% ORB)</label>
+                <input name="Config.StopPctA" type="number" step="any" value="@Model.Config.StopPctA" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Entry Tick Offset</label>
+                <input name="Config.EntryTickOffsetA" type="number" min="0" max="20" value="@Model.Config.EntryTickOffsetA" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 d-flex align-items-end">
+                <span class="form-text text-muted small mb-1">+ticks in trade direction</span>
+            </div>
+        </div>
+        <div class="mt-2 d-flex flex-column gap-2">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UsePartialA" value="true" id="chk-partA" @(Model.Config.UsePartialA ? "checked" : "") />
+                <input type="hidden" name="Config.UsePartialA" value="false" />
+                <label class="form-check-label small" for="chk-partA">Partial Exit at ORBhigh/low</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseBeA" value="true" id="chk-beA" @(Model.Config.UseBeA ? "checked" : "") />
+                <input type="hidden" name="Config.UseBeA" value="false" />
+                <label class="form-check-label small" for="chk-beA">Move Stop to Breakeven at Partial</label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Right column: Setup B ────────────────────────────────── -->
+<div class="col-12 col-md-6 col-xl-4">
+    <div class="settings-section">
+        <h6><i class="bi bi-arrow-up-right me-1"></i>Setup B — Breakout Retest [BONGA]</h6>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="Config.EnableB" value="true" id="chk-enB" @(Model.Config.EnableB ? "checked" : "") />
+            <input type="hidden" name="Config.EnableB" value="false" />
+            <label class="form-check-label small fw-bold" for="chk-enB">Enable Setup B</label>
+        </div>
+        <div class="mb-2">
+            <label class="form-label small">Mode</label>
+            <select name="Config.ModeB" class="form-select form-select-sm">
+                <option value="Conservative" selected="@(Model.Config.ModeB=="Conservative" ? "selected" : null)">Conservative (3-step)</option>
+                <option value="Aggressive"   selected="@(Model.Config.ModeB=="Aggressive"   ? "selected" : null)">Aggressive (first close)</option>
+            </select>
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">Max Trades/Day</label>
+                <input name="Config.MaxTradesB" type="number" min="0" max="20" value="@Model.Config.MaxTradesB" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Min R:R</label>
+                <input name="Config.MinRrB" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrB" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label class="form-label small">Target (% ORB)</label>
+                <select name="Config.TargetPctB" class="form-select form-select-sm">
+                    @foreach (var v in new[]{25,50,100,150,200,250,300,350,400,450,500})
+                    {
+                        <option value="@v" selected="@(Model.Config.TargetPctB==v ? "selected" : null)">@v%</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Partial At (% of target)</label>
+                <select name="Config.PartialPctB" class="form-select form-select-sm">
+                    <option value="25" selected="@(Model.Config.PartialPctB==25 ? "selected" : null)">25%</option>
+                    <option value="50" selected="@(Model.Config.PartialPctB==50 ? "selected" : null)">50%</option>
+                    <option value="75" selected="@(Model.Config.PartialPctB==75 ? "selected" : null)">75%</option>
+                </select>
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-4">
+                <label class="form-label small">Stop Dist (% ORB)</label>
+                <input name="Config.StopPctB" type="number" step="any" min="0.01" value="@Model.Config.StopPctB" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+                <label class="form-label small">Retest Zone (% ORB)</label>
+                <input name="Config.RetestPct" type="number" step="any" value="@Model.Config.RetestPct" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+                <label class="form-label small">Entry Tick Offset</label>
+                <input name="Config.EntryTickOffsetB" type="number" min="0" max="20" value="@Model.Config.EntryTickOffsetB" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="mt-2 d-flex flex-column gap-2">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UsePartialB" value="true" id="chk-partB" @(Model.Config.UsePartialB ? "checked" : "") />
+                <input type="hidden" name="Config.UsePartialB" value="false" />
+                <label class="form-check-label small" for="chk-partB">Partial Exit at midpoint</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseBeB" value="true" id="chk-beB" @(Model.Config.UseBeB ? "checked" : "") />
+                <input type="hidden" name="Config.UseBeB" value="false" />
+                <label class="form-check-label small" for="chk-beB">Move Stop to Breakeven at Partial</label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save button -->
+    <button type="submit" class="btn btn-warning w-100 fw-bold mt-2">
+        <i class="bi bi-floppy me-2"></i>Save Live Settings
+    </button>
+    <div class="small text-muted mt-2 text-center">
+        Changes take effect on the next bar. Active trades are not affected.
+    </div>
+</div>
+
+</div>
+</form>
+
+@section Scripts {
+<script src="~/js/crv-instruments.js" asp-append-version="true"></script>
+<script>
+// ── Instrument selector for Live Settings ─────────────────────
+function instrOnChange() {
+    const base = document.getElementById('instr-select').value;
+    const info = window.CRV_findInstrument(base);
+    if (!info) return;
+    const ticker = window.CRV_activeContract(base);
+    document.getElementById('instr-contract').value  = ticker;
+    document.getElementById('instr-ticker-hidden').value = ticker;
+    document.getElementById('instr-pv-hidden').value    = info.pointValue;
+    document.getElementById('instr-pv-label').textContent = '$' + info.pointValue + '/pt';
+    document.getElementById('instr-tick-sz').value       = info.tickSize;
+}
+
+// Initialise display-only elements on page load.
+// Do NOT call instrOnChange() — that would overwrite saved TickSize / PointValue
+// with catalog defaults. Instead, only update the contract ticker to the current
+// front month (the saved ticker may be stale after rollover).
+(function () {
+    const ticker = document.getElementById('instr-ticker-hidden').value;
+    const base   = window.CRV_parseBase(ticker);
+
+    // Sync the instrument dropdown to the saved base code
+    if (base) document.getElementById('instr-select').value = base;
+
+    // Show the current front-month contract (recalculated, not the stale saved value)
+    const frontMonth = base ? window.CRV_activeContract(base) : ticker;
+    document.getElementById('instr-contract').value      = frontMonth;
+    document.getElementById('instr-ticker-hidden').value = frontMonth;
+
+    // Point-value badge from the saved server value — no catalog overwrite
+    const pvHidden = document.getElementById('instr-pv-hidden').value;
+    document.getElementById('instr-pv-label').textContent = pvHidden ? '$' + pvHidden + '/pt' : '—';
+})();
+</script>
+}
