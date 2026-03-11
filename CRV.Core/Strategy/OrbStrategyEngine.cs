@@ -282,7 +282,7 @@ public class OrbStrategyEngine
             {
                 // Conservative B: enter when price retests the ORB breakout level (orbHigh / orbLow).
                 // Entry = orbHigh (Long) or orbLow (Short), matching bar-mode TryEntryB.
-                // Stop = orbMid (from CalcLevelsB).  Entry ≠ Stop → non-zero risk → valid RR.
+                // Stop = entry ± orbRange * StopPctB (from CalcLevelsB).  Default 0.50 → orbMid equivalent.
                 // Bug fixed: previously used orbMid as entry, making entry == stop → risk = 0 → RR = 0
                 // → all trades filtered out by MinRrB even with EntryTickOffsetB = 0.
                 decimal retestDist = orbRange * _cfg.RetestPct;
@@ -351,7 +351,7 @@ public class OrbStrategyEngine
             ep = LevelCalculator.RoundToTick(isLong ? ep + off : ep - off, _cfg.TickSize);
         }
         var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
-            _cfg.TargetPctB, _cfg.PartialPctB, _orb.OrbRange, _orb.OrbMid, _cfg.TickSize);
+            _cfg.TargetPctB, _cfg.PartialPctB, _orb.OrbRange, _cfg.StopPctB, _cfg.TickSize);
         if (rr < _cfg.MinRrB) return;
 
         _entB = ep; _stopB = sl; _tgtB = tp; _partialB = pp;
@@ -710,7 +710,6 @@ public class OrbStrategyEngine
     {
         decimal orbHigh  = _orb.OrbHigh;
         decimal orbLow   = _orb.OrbLow;
-        decimal orbMid   = _orb.OrbMid;
         decimal orbRange = _orb.OrbRange;
 
         // ── Entry (runs when not yet active) ──────────────────────
@@ -742,12 +741,12 @@ public class OrbStrategyEngine
                         if (_stB == 1 && canEnterB)
                         {
                             decimal ep = _armEntryB > 0 ? _armEntryB : orbHigh;
-                            await TryEntryB(bar, ep, true, orbRange, orbMid);
+                            await TryEntryB(bar, ep, true, orbRange);
                         }
                         else if (_stB == -1 && canEnterB)
                         {
                             decimal ep = _armEntryB > 0 ? _armEntryB : orbLow;
-                            await TryEntryB(bar, ep, false, orbRange, orbMid);
+                            await TryEntryB(bar, ep, false, orbRange);
                         }
                     }
                 }
@@ -762,13 +761,13 @@ public class OrbStrategyEngine
                     if (!_tickModeEnabled)
                     {
                         if (_stB == 2 && bar.Close > orbHigh && canEnterB)
-                            await TryEntryB(bar, orbHigh, true, orbRange, orbMid);
+                            await TryEntryB(bar, orbHigh, true, orbRange);
                         else if (_stB == -2 && bar.Close < orbLow && canEnterB)
-                            await TryEntryB(bar, orbLow, false, orbRange, orbMid);
+                            await TryEntryB(bar, orbLow, false, orbRange);
                     }
 
-                    if (_stB == 2  && bar.Close < orbMid) _stB = 0;
-                    if (_stB == -2 && bar.Close > orbMid) _stB = 0;
+                    if (_stB == 2  && bar.Close < _orb.OrbMid) _stB = 0;
+                    if (_stB == -2 && bar.Close > _orb.OrbMid) _stB = 0;
                 }
             }
         }
@@ -826,7 +825,7 @@ public class OrbStrategyEngine
         }
     }
 
-    private async Task TryEntryB(Bar bar, decimal ep, bool isLong, decimal orbRange, decimal orbMid)
+    private async Task TryEntryB(Bar bar, decimal ep, bool isLong, decimal orbRange)
     {
         // Apply entry tick offset: Long → price + ticks, Short → price - ticks
         if (_cfg.EntryTickOffsetB != 0 && _cfg.TickSize > 0)
@@ -837,7 +836,7 @@ public class OrbStrategyEngine
         }
 
         var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
-            _cfg.TargetPctB, _cfg.PartialPctB, orbRange, orbMid, _cfg.TickSize);
+            _cfg.TargetPctB, _cfg.PartialPctB, orbRange, _cfg.StopPctB, _cfg.TickSize);
         if (rr < _cfg.MinRrB) return;
 
         _entB = ep; _stopB = sl; _tgtB = tp; _partialB = pp;
@@ -980,11 +979,10 @@ public class OrbStrategyEngine
                 if (!_cfg.IsAggressiveB)
                 {
                     decimal retestW = orbRange * _cfg.RetestPct;
-                    decimal orbMid  = _orb.OrbMid;
                     if (_stB == 1  && bar.Low  <= orbHigh + retestW && bar.High >= orbHigh - retestW) _stB = 2;
                     if (_stB == -1 && bar.High >= orbLow  - retestW && bar.Low  <= orbLow  + retestW) _stB = -2;
-                    if (_stB == 2  && bar.Close < orbMid) _stB = 0;
-                    if (_stB == -2 && bar.Close > orbMid) _stB = 0;
+                    if (_stB == 2  && bar.Close < _orb.OrbMid) _stB = 0;
+                    if (_stB == -2 && bar.Close > _orb.OrbMid) _stB = 0;
                 }
             }
         }
