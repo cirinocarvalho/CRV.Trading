@@ -270,7 +270,7 @@ public class OrbStrategyEngine
         decimal tickTol  = _cfg.TickSize * 2;
 
         // ── Entry: armed/retest state ────────────────────────────
-        // _stB: ±1=Armed (above/below ORB), ±2=Retest (price returned near orbMid)
+        // _stB: ±1=Armed (above/below ORB), ±2=Retest (price returned near orbHigh/orbLow)
         if (!_activeB && canEnter && (_stB == 1 || _stB == -1 || _stB == 2 || _stB == -2))
         {
             bool isLong = _stB > 0;
@@ -280,13 +280,18 @@ public class OrbStrategyEngine
             }
             else
             {
-                // Conservative B: enter when price returns near orbMid (retest)
+                // Conservative B: enter when price retests the ORB breakout level (orbHigh / orbLow).
+                // Entry = orbHigh (Long) or orbLow (Short), matching bar-mode TryEntryB.
+                // Stop = orbMid (from CalcLevelsB).  Entry ≠ Stop → non-zero risk → valid RR.
+                // Bug fixed: previously used orbMid as entry, making entry == stop → risk = 0 → RR = 0
+                // → all trades filtered out by MinRrB even with EntryTickOffsetB = 0.
                 decimal retestDist = orbRange * _cfg.RetestPct;
-                decimal orbMid     = _orb.OrbMid;
-                if (isLong  && price <= orbMid + retestDist + tickTol)
-                    await TryEntryBFromTick(orbMid, true, utcTime);
-                else if (!isLong && price >= orbMid - retestDist - tickTol)
-                    await TryEntryBFromTick(orbMid, false, utcTime);
+                decimal orbHigh    = _orb.OrbHigh;
+                decimal orbLow     = _orb.OrbLow;
+                if (isLong  && price <= orbHigh + retestDist + tickTol)
+                    await TryEntryBFromTick(orbHigh, true, utcTime);
+                else if (!isLong && price >= orbLow - retestDist - tickTol)
+                    await TryEntryBFromTick(orbLow, false, utcTime);
             }
             return;
         }
