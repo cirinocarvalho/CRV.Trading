@@ -97,31 +97,11 @@ public class TickEvalTests
     }
 
     [Fact]
-    public async Task PriceTick_AggressiveArmedLong_BarAlreadyEnters_TickDoesNotDoubleEnter()
+    public async Task PriceTick_AggressiveArmedLong_FirstTickEnters_SecondTickNoDoubleEntry()
     {
-        var cfg = CfgA();
-        cfg.ModeA = "Aggressive"; // enters immediately on bar close when armed
-        var eng = BuildEngine(cfg, out var sink, out _);
-        eng.EnableTickMode();
-
-        var day = new DateTime(2026, 3, 10);
-        await FeedOrbBars(eng, 21000m, 20000m, day);
-
-        // Aggressive arm bar → entry fires on bar close (via ProcessBarAsync)
-        var armBar = new Bar(
-            new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
-            20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
-        await eng.ProcessBarAsync(armBar);
-        Assert.Single(sink.Entries); // entered on bar
-
-        // Subsequent price ticks should NOT create a second entry
-        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
-        Assert.Single(sink.Entries); // still just 1 entry
-    }
-
-    [Fact]
-    public async Task PriceTick_ActiveLong_ExitsAtStop()
-    {
+        // In tick mode, bar-level entry is always skipped — even for Aggressive mode.
+        // The arm bar sets stA=1 (Armed); the FIRST subsequent price tick fires entry.
+        // A second tick must NOT create a duplicate entry.
         var cfg = CfgA();
         cfg.ModeA = "Aggressive";
         var eng = BuildEngine(cfg, out var sink, out _);
@@ -134,10 +114,39 @@ public class TickEvalTests
             new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
             20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
         await eng.ProcessBarAsync(armBar);
+        Assert.Empty(sink.Entries); // tick mode: bar only arms, does NOT enter
+
+        // First tick → entry fires (aggressive: any tick while armed triggers entry)
+        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
+        Assert.Single(sink.Entries);
+
+        // Second tick → must NOT produce a second entry (position already active)
+        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 1, DateTimeKind.Utc));
+        Assert.Single(sink.Entries); // still just 1 entry
+    }
+
+    [Fact]
+    public async Task PriceTick_ActiveLong_ExitsAtStop()
+    {
+        // Bar arms → first tick enters → stop tick exits.
+        var cfg = CfgA();
+        cfg.ModeA = "Aggressive";
+        var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
+
+        var day = new DateTime(2026, 3, 10);
+        await FeedOrbBars(eng, 21000m, 20000m, day);
+
+        var armBar = new Bar(
+            new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
+            20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
+        await eng.ProcessBarAsync(armBar);
+        // Entry via first tick (aggressive)
+        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
         Assert.Single(sink.Entries);
 
         decimal stop = sink.Entries[0].Stop;
-        // Price ticks below stop → should exit
+        // Price tick below stop → should exit at stop
         await eng.ProcessPriceTickAsync(stop - 1m, new DateTime(2026, 3, 10, 14, 7, 0, DateTimeKind.Utc));
 
         Assert.Single(sink.Exits);
@@ -147,6 +156,7 @@ public class TickEvalTests
     [Fact]
     public async Task PriceTick_ActiveLong_ExitsAtTarget()
     {
+        // Bar arms → first tick enters → target tick exits.
         var cfg = CfgA();
         cfg.ModeA = "Aggressive";
         var eng = BuildEngine(cfg, out var sink, out _);
@@ -159,8 +169,11 @@ public class TickEvalTests
             new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
             20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
         await eng.ProcessBarAsync(armBar);
+        // Entry via first tick (aggressive)
+        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
 
         decimal target = sink.Entries[0].Target;
+        // Price tick above target → should exit at target
         await eng.ProcessPriceTickAsync(target + 1m, new DateTime(2026, 3, 10, 14, 7, 0, DateTimeKind.Utc));
 
         Assert.Single(sink.Exits);

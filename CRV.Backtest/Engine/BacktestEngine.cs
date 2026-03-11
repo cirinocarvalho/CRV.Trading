@@ -86,15 +86,18 @@ public class BacktestEngine
                 }
                 else
                 {
-                    // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation
+                    // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
+                    //    Each OHLC tick gets a distinct sub-second offset within the bar's minute
+                    //    (O=+0s, H=+15s, L=+30s, C=+45s) so entry and exit timestamps are
+                    //    distinguishable even when they fall in the same 1-min bar.
                     foreach (var (o, h, l, c, t) in pending)
                     {
                         prices.UpdatePrice(_cfg.Ticker, o);
-                        await engine.ProcessPriceTickAsync(o, t);
-                        await engine.ProcessPriceTickAsync(h, t);
-                        await engine.ProcessPriceTickAsync(l, t);
+                        await engine.ProcessPriceTickAsync(o, t);                       // Open  +0s
+                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));        // High  +15s
+                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));        // Low   +30s
                         prices.UpdatePrice(_cfg.Ticker, c);
-                        await engine.ProcessPriceTickAsync(c, t);
+                        await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));        // Close +45s
                     }
                     // 2. Process the completed TF bar to update indicators and arm state
                     prices.UpdatePrice(_cfg.Ticker, bClose);
@@ -143,11 +146,11 @@ public class BacktestEngine
                 foreach (var (o, h, l, c, t) in pending)
                 {
                     prices.UpdatePrice(_cfg.Ticker, o);
-                    await engine.ProcessPriceTickAsync(o, t);
-                    await engine.ProcessPriceTickAsync(h, t);
-                    await engine.ProcessPriceTickAsync(l, t);
+                    await engine.ProcessPriceTickAsync(o, t);                       // Open  +0s
+                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));        // High  +15s
+                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));        // Low   +30s
                     prices.UpdatePrice(_cfg.Ticker, c);
-                    await engine.ProcessPriceTickAsync(c, t);
+                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));        // Close +45s
                 }
                 prices.UpdatePrice(_cfg.Ticker, bClose);
                 await engine.ProcessBarAsync(tfBar, ct);

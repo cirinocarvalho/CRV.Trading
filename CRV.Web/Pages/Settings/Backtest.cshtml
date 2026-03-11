@@ -1,0 +1,322 @@
+@page "/settings/backtest"
+@model CRV.Web.Pages.Settings.BacktestSettingsModel
+@using CRV.Backtest.Engine
+@using CRV.Backtest.Results
+@using CRV.Core.Models
+@{
+    ViewData["Title"] = "Backtest";
+    ViewData["Page"]  = "backtest-settings";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "pnl-zero";
+    string Pnl(decimal v)    => (v >= 0 ? "+" : "") + v.ToString("C0");
+
+    // Eastern Time — handles EST/EDT automatically
+    TimeZoneInfo etTz;
+    try   { etTz = TimeZoneInfo.FindSystemTimeZoneById("America/New_York"); }
+    catch { etTz = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); }
+    string ToEt(DateTime utc)     => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d HH:mm:ss");
+    string ToEtTime(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm:ss");
+    string ToEtLabel(DateTime utc)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(utc, etTz);
+        return local.IsDaylightSavingTime() ? "EDT" : "EST";
+    }
+}
+
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+    <h5 class="mb-0"><i class="bi bi-clock-history me-2 text-warning"></i>Backtest</h5>
+    @if (Model.Result != null)
+    {
+        <span class="badge bg-dark border border-secondary font-monospace ms-auto small">
+            @Model.Result.Config.Ticker
+            &nbsp;&middot;&nbsp;@Model.Result.BtConfig.From.ToString("MMM d yyyy") &rarr; @Model.Result.BtConfig.To.ToString("MMM d yyyy")
+            &nbsp;&middot;&nbsp;ran @ToEtTime(Model.Result.GeneratedAt) @ToEtLabel(Model.Result.GeneratedAt)
+        </span>
+    }
+</div>
+
+@if (!ModelState.IsValid)
+{
+    <div class="alert alert-danger small py-2 mb-3">
+        @foreach (var e in ModelState.Values.SelectMany(v => v.Errors))
+        {
+            <div>@e.ErrorMessage</div>
+        }
+    </div>
+}
+
+<div class="row g-3">
+
+    <div class="col-12 col-xl-4">
+        <form method="post">
+            <div class="settings-section">
+                <h6><i class="bi bi-database me-1"></i>Data Source</h6>
+                <div class="mb-2">
+                    <label class="form-label small">Source</label>
+                    <select name="Config.DataSource" id="dataSource" class="form-select form-select-sm">
+                        <option value="CSV"          selected="@(Model.Config.DataSource == "CSV")">CSV File</option>
+                        <option value="Schwab"       selected="@(Model.Config.DataSource == "Schwab")">Schwab REST API</option>
+                        <option value="TradeStation" selected="@(Model.Config.DataSource == "TradeStation")">TradeStation REST API</option>
+                        <option value="Tradovate"    selected="@(Model.Config.DataSource == "Tradovate")">Tradovate WebSocket</option>
+                    </select>
+                </div>
+                <div id="csv-upload" class="mb-2">
+                    <label class="form-label small">CSV File Path</label>
+                    <input name="Config.CsvPath" type="text" value="@Model.Config.CsvPath"
+                           placeholder="Data/NQ_1min.csv"
+                           class="form-control form-control-sm font-monospace" />
+                    <div class="form-text text-muted small">Server file path &mdash; relative to app folder or absolute. Columns: datetime,open,high,low,close,volume</div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label small">From</label>
+                        <input name="Config.From" type="date" value="@Model.Config.From.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">To</label>
+                        <input name="Config.To" type="date" value="@Model.Config.To.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+                    </div>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h6><i class="bi bi-gear me-1"></i>Simulation</h6>
+                <div class="mb-2">
+                    <label class="form-label small">Execution TF</label>
+                    <select name="Config.ExecutionTFMinutes" class="form-select form-select-sm">
+                        <option value="1"  selected="@(Model.Config.ExecutionTFMinutes == 1  ? "selected" : null)">1 minute</option>
+                        <option value="2"  selected="@(Model.Config.ExecutionTFMinutes == 2  ? "selected" : null)">2 minutes</option>
+                        <option value="5"  selected="@(Model.Config.ExecutionTFMinutes == 5  ? "selected" : null)">5 minutes</option>
+                        <option value="15" selected="@(Model.Config.ExecutionTFMinutes == 15 ? "selected" : null)">15 minutes</option>
+                        <option value="30" selected="@(Model.Config.ExecutionTFMinutes == 30 ? "selected" : null)">30 minutes</option>
+                        <option value="60" selected="@(Model.Config.ExecutionTFMinutes == 60 ? "selected" : null)">60 minutes</option>
+                    </select>
+                    <div class="form-text text-muted small">CSV bars are resampled to this TF automatically.</div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Fill Mode</label>
+                    <select name="Config.FillMode" class="form-select form-select-sm">
+                        <option value="AtClose"      selected="@(Model.Config.FillMode == FillMode.AtClose)">At Bar Close (conservative)</option>
+                        <option value="AtTouch"      selected="@(Model.Config.FillMode == FillMode.AtTouch)">At Price Touch (default)</option>
+                        <option value="WithSlippage" selected="@(Model.Config.FillMode == FillMode.WithSlippage)">With Slippage</option>
+                    </select>
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label small">Slippage (ticks)</label>
+                        <input name="Config.SlippageTicks" type="number" min="0" max="10" value="@Model.Config.SlippageTicks" class="form-control form-control-sm" />
+                    </div>
+                    <div class="col-6" id="warmup-row">
+                        <label class="form-label small">Warmup Bars <span class="text-muted small">(CSV only)</span></label>
+                        <select name="Config.WarmupBars" class="form-select form-select-sm">
+                            <option value="0"  selected="@(Model.Config.WarmupBars == 0  ? "selected" : null)">0 — none</option>
+                            <option value="14" selected="@(Model.Config.WarmupBars == 14 ? "selected" : null)">14 — ATR warmup</option>
+                        </select>
+                        <div class="form-text text-muted small">Broker sources always use 0.</div>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-warning w-100 fw-bold">
+                <i class="bi bi-play-fill me-2"></i>Run Backtest
+            </button>
+            <div class="text-muted small mt-2 text-center">
+                Uses strategy config from <a href="/settings/live" class="text-warning">Live Settings</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-12 col-xl-8">
+        @if (Model.Result == null)
+        {
+            <div class="settings-section d-flex flex-column align-items-center justify-content-center py-5 text-center opacity-50">
+                <i class="bi bi-bar-chart-line" style="font-size:3rem;color:#ffd700;"></i>
+                <div class="mt-3 text-muted">Configure a run and click <strong>Run Backtest</strong></div>
+                <div class="text-muted small mt-1">Equity curve, per-setup breakdown, and full trade log will appear here</div>
+            </div>
+        }
+        else
+        {
+            var r = Model.Result;
+            <div class="row g-2">
+                @foreach (var card in new[] {
+                    (Title: "Total",   Icon: "bi-bar-chart-fill",            M: r.Total),
+                    (Title: "Setup A [XACUZZY]", Icon: "bi-triangle-fill",              M: r.SetupA),
+                    (Title: "Setup B [BONGA]", Icon: "bi-arrow-up-right-circle-fill", M: r.SetupB),
+                })
+                {
+                    var m = card.M;
+                    <div class="col-12 col-md-4">
+                        <div class="settings-section h-100">
+                            <h6><i class="bi @card.Icon me-1"></i>@card.Title</h6>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Trades</span><span class="font-monospace small">@m.TotalTrades</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Win Rate</span>
+                                <span class="font-monospace small @(m.WinRate >= 50 ? "pnl-pos" : "pnl-neg")">@m.WinRate.ToString("F1")%</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Net P&amp;L</span>
+                                <span class="font-monospace small @PnlCls(m.NetPnl)">@Pnl(m.NetPnl)</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Profit Factor</span>
+                                <span class="font-monospace small @(m.ProfitFactor >= 1.5m ? "pnl-pos" : m.ProfitFactor < 1 && m.TotalTrades > 0 ? "pnl-neg" : "")">@(m.Losses == 0 && m.TotalTrades > 0 ? "∞" : m.ProfitFactor.ToString("F2"))</span>
+            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Avg R</span><span class="font-monospace small @PnlCls(m.AvgR)">@m.AvgR.ToString("F2")R</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Max DD</span><span class="font-monospace small pnl-neg">-@m.MaxDrawdown.ToString("C0")</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Avg Win</span><span class="font-monospace small pnl-pos">@m.AvgWin.ToString("C0")</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Avg Loss</span><span class="font-monospace small pnl-neg">@m.AvgLoss.ToString("C0")</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Consec W / L</span><span class="font-monospace small">@m.MaxConsecWins / @m.MaxConsecLosses</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Long / Short</span><span class="font-monospace small">@m.LongTrades / @m.ShortTrades</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small">Tgt / Stp / EOD</span><span class="font-monospace small">@m.TargetExits / @m.StopExits / @m.SessionEndExits</span>
+                            </div>
+                            <div class="d-flex justify-content-between py-1">
+                                <span class="text-muted small">Commission</span><span class="font-monospace small pnl-neg">-@m.TotalCommission.ToString("C0")</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (Model.Result != null)
+{
+    var r = Model.Result;
+    <div class="settings-section mt-3">
+        <h6 class="mb-3">
+            <i class="bi bi-graph-up me-1"></i>Equity Curve
+            <span class="text-muted fw-normal small ms-2">@r.EquityCurve.Count points</span>
+            <span class="badge ms-2 @(r.Total.NetPnl >= 0 ? "bg-success" : "bg-danger") font-monospace small">@Pnl(r.Total.NetPnl)</span>
+        </h6>
+        <canvas id="equity-chart" style="max-height:220px;"></canvas>
+    </div>
+    <div class="settings-section mt-3">
+        <div class="d-flex align-items-center mb-2">
+            <h6 class="mb-0"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
+            <span class="badge bg-secondary font-monospace ms-2">@r.Trades.Count trades</span>
+            <span class="ms-2 small text-muted">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
+        </div>
+        <div class="table-responsive" style="max-height:460px;overflow-y:auto;">
+            <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
+                    <tr>
+                        <th>#</th><th>In (@(Model.Result != null ? ToEtLabel(Model.Result.Trades.FirstOrDefault()?.EnteredAt ?? DateTime.UtcNow) : "ET"))</th><th>Out</th><th>Setup</th><th>Dir</th>
+                        <th class="text-end">Entry</th><th class="text-end">Exit</th>
+                        <th class="text-end">Stop</th><th class="text-end">Target</th>
+                        <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
+                        <th class="text-end">Gross</th><th class="text-end">Comm</th>
+                        <th class="text-end">Net</th><th class="text-end">R</th><th>Dur</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int rowNum = 0; }
+                    @foreach (var t in r.Trades.OrderBy(t => t.EnteredAt))
+                    {
+                        rowNum++;
+                        string rowCls = t.IsWin ? "table-success bg-opacity-10" : "table-danger bg-opacity-10";
+                        string reasonBadge = t.ExitReason switch
+                        {
+                            ExitReason.Target     => "bg-success",
+                            ExitReason.Stop       => "bg-danger",
+                            _                     => "bg-secondary"
+                        };
+                        <tr class="@rowCls">
+                            <td class="td-dim">@rowNum</td>
+                            <td class="td-time">@ToEt(t.EnteredAt)</td>
+                            <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
+                            <td><span class="badge @(t.Setup == SetupId.A ? "bg-info text-dark" : "bg-warning text-dark")">@t.Setup</span></td>
+                            <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@t.EffectiveDirection</td>
+                            <td class="text-end">@t.Entry.ToString("F2")</td>
+                            <td class="text-end">@t.Exit.ToString("F2")</td>
+                            <td class="text-end td-dim">@t.InitialStop.ToString("F2")</td>
+                            <td class="text-end td-dim">@t.Target.ToString("F2")</td>
+                            <td class="text-end">@t.Contracts</td>
+                            <td class="text-center">@if (t.PartialFilled) { <i class="bi bi-check-lg text-dark"></i> } else { <span class="td-dim">&#x2014;</span> }</td>
+                            <td><span class="badge @reasonBadge small">@t.ExitReason</span></td>
+                            <td class="text-end @(t.GrossPnl >= 0 ? "pnl-pos" : "pnl-neg")">@Pnl(t.GrossPnl)</td>
+                            <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
+                            <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
+                            <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
+                            <td class="td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const src      = document.getElementById('dataSource');
+    const csvDiv   = document.getElementById('csv-upload');
+    const warmupRow = document.getElementById('warmup-row');
+    function toggle() {
+        const isCsv = src.value === 'CSV';
+        csvDiv.style.display    = isCsv ? '' : 'none';
+        warmupRow.style.opacity = isCsv ? '1' : '0.4';
+        warmupRow.title         = isCsv ? '' : 'Warmup bars are ignored for broker data sources';
+    }
+    src.addEventListener('change', toggle);
+    toggle();
+}());
+
+@if (Model.Result?.EquityCurve?.Count > 0)
+{
+    var curve      = Model.Result.EquityCurve;
+    var lastEquity = (double)curve[^1].Equity;
+    <text>
+(function () {
+    const labels    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(curve.Select(p => p.Time.ToString("M/d"))));
+    const values    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(curve.Select(p => (double)p.Equity)));
+    const positive  = @(lastEquity >= 0 ? "true" : "false");
+    const lineColor = positive ? '#00ff88' : '#ff4466';
+    const fillColor = positive ? 'rgba(0,255,136,.07)' : 'rgba(255,68,102,.07)';
+    new Chart(document.getElementById('equity-chart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Equity', data: values, borderColor: lineColor, backgroundColor: fillColor,
+                  borderWidth: 2, pointRadius: values.length <= 80 ? 3 : 0, pointHoverRadius: 5, fill: true, tension: 0.15 },
+                { label: 'Zero',   data: new Array(values.length).fill(0),
+                  borderColor: 'rgba(255,255,255,.18)', borderDash: [4,4], borderWidth: 1, pointRadius: 0, fill: false },
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ctx.datasetIndex === 0
+                    ? ' $' + ctx.parsed.y.toLocaleString('en-US', { maximumFractionDigits: 0 }) : null } }
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 14, color: '#666', font: { size: 11 } }, grid: { color: '#1a1d24' } },
+                y: { ticks: { color: '#666', font: { size: 11 }, callback: v => '$' + v.toLocaleString() }, grid: { color: '#1a1d24' } },
+            },
+        },
+    });
+}());
+    </text>
+}
+</script>
+}
