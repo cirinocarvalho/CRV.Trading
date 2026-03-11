@@ -235,14 +235,57 @@ public class TickEvalTests
         // No exception = fix is present and working
     }
 
+    // ── Regression: partial exit must fire via tick mode ──────
+    [Fact]
+    public async Task PriceTick_ActiveLong_PartialExitFires_NotBlockedByEarlyReturn()
+    {
+        // Bug: the guard "if (!hitStop && !hitTarget) return" in EvalTickSetupA fires
+        // BEFORE the partial-level check, so partial is never evaluated when only the
+        // partial price is touched.  This test was red before the fix.
+        var cfg = CfgA();
+        cfg.ModeA       = "Aggressive";
+        cfg.UsePartialA = true;
+        cfg.UseBeA      = false;   // keep BE off so stop doesn't move
+        var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
+
+        var day = new DateTime(2026, 3, 10);
+        // ORB: High=21000 Low=20000 Range=1000
+        await FeedOrbBars(eng, 21000m, 20000m, day);
+
+        // Arm bar (aggressive) → arms without entering
+        var armBar = new Bar(
+            new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
+            20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
+        await eng.ProcessBarAsync(armBar);
+
+        // Entry tick → aggressive: enters at _armEntryA=20900
+        await eng.ProcessPriceTickAsync(20950m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
+        Assert.Single(sink.Entries);
+
+        // Partial level: entry(20900) + range(1000) * targetPct(100%) * partialPct(50%) = 21400
+        decimal partial = sink.Entries[0].Partial;   // 21400
+        decimal target  = sink.Entries[0].Target;    // 21900
+
+        // Tick that hits partial but stays below target
+        decimal partialHitPrice = partial + 0.25m;   // 21400.25 — above partial, below target
+        Assert.True(partialHitPrice < target, "test setup: partial tick must be below target");
+        await eng.ProcessPriceTickAsync(partialHitPrice,
+            new DateTime(2026, 3, 10, 14, 7, 0, DateTimeKind.Utc));
+
+        Assert.Single(sink.Partials);    // partial signal MUST fire
+        Assert.Empty(sink.Exits);        // trade still open (partial, not full exit)
+    }
+
     // ── Test doubles ──────────────────────────────────────────
     public class TestSink : IStrategyEventSink
     {
-        public List<EntrySignal> Entries = new();
-        public List<ExitSignal>  Exits   = new();
-        public Task OnEntryAsync(EntrySignal s)              { Entries.Add(s); return Task.CompletedTask; }
-        public Task OnExitAsync(ExitSignal s, TradeRecord t) { Exits.Add(s);   return Task.CompletedTask; }
-        public Task OnPartialAsync(PartialSignal s)          => Task.CompletedTask;
+        public List<EntrySignal>   Entries  = new();
+        public List<ExitSignal>    Exits    = new();
+        public List<PartialSignal> Partials = new();
+        public Task OnEntryAsync(EntrySignal s)              { Entries.Add(s);  return Task.CompletedTask; }
+        public Task OnExitAsync(ExitSignal s, TradeRecord t) { Exits.Add(s);    return Task.CompletedTask; }
+        public Task OnPartialAsync(PartialSignal s)          { Partials.Add(s); return Task.CompletedTask; }
         public Task OnBEMoveAsync(BESignal s)                => Task.CompletedTask;
         public Task OnSnapshotAsync(EngineSnapshot s)        => Task.CompletedTask;
     }

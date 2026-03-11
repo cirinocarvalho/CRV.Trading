@@ -193,36 +193,36 @@ public class OrbStrategyEngine
         // ── Exit: active position ────────────────────────────────
         if (!_activeA) return;
         bool long_ = _stA == 2;
-        bool hitStop   = long_ ? price <= _stopA : price >= _stopA;
-        bool hitTarget = long_ ? price >= _tgtA  : price <= _tgtA;
-        if (!hitStop && !hitTarget) return;
+        bool hitStop      = long_ ? price <= _stopA    : price >= _stopA;
+        bool hitTarget    = long_ ? price >= _tgtA     : price <= _tgtA;
+        // Include partial level in the early-return guard so the partial block below is
+        // reachable even when neither stop nor target has been hit yet.
+        bool hitPartialPx = _cfg.UsePartialA && !_partHitA &&
+                            (long_ ? price >= _partialA : price <= _partialA);
+        if (!hitStop && !hitTarget && !hitPartialPx) return;
 
         // Partial fill check (price-based)
         bool partJustHit = false;
-        if (_cfg.UsePartialA && !_partHitA)
+        if (hitPartialPx && !hitTarget) // partial without full close
         {
-            bool hitPartial = long_ ? price >= _partialA : price <= _partialA;
-            if (hitPartial && !hitTarget) // partial without full close
+            partJustHit = true;
+            _partHitA   = true;
+            int half    = (int)Math.Floor(_cfg.Contracts * 0.5);
+            var psig    = new PartialSignal(SetupId.A, long_ ? Direction.Long : Direction.Short,
+                _partialA, half, _cfg.Contracts - half, _entA, utcTime);
+            await _executor.OnPartialSignalAsync(psig);
+            await _sink.OnPartialAsync(psig);
+            AddAlert("PARTIAL", SetupId.A, $"Partial @ {_partialA:F2}", "yellow");
+            if (_cfg.UseBeA)
             {
-                partJustHit = true;
-                _partHitA   = true;
-                int half    = (int)Math.Floor(_cfg.Contracts * 0.5);
-                var psig    = new PartialSignal(SetupId.A, long_ ? Direction.Long : Direction.Short,
-                    _partialA, half, _cfg.Contracts - half, _entA, utcTime);
-                await _executor.OnPartialSignalAsync(psig);
-                await _sink.OnPartialAsync(psig);
-                AddAlert("PARTIAL", SetupId.A, $"Partial @ {_partialA:F2}", "yellow");
-                if (_cfg.UseBeA)
-                {
-                    var besig = new BESignal(SetupId.A, long_ ? Direction.Long : Direction.Short,
-                        _entA, _entA, psig.ContractsRemaining, utcTime);
-                    _stopA = _entA;
-                    await _executor.OnBESignalAsync(besig);
-                    await _sink.OnBEMoveAsync(besig);
-                    AddAlert("MOVE_BE", SetupId.A, $"Stop → BE {_entA:F2}", "yellow");
-                }
-                if (!hitTarget && !hitStop) return; // partial only, trade still open
+                var besig = new BESignal(SetupId.A, long_ ? Direction.Long : Direction.Short,
+                    _entA, _entA, psig.ContractsRemaining, utcTime);
+                _stopA = _entA;
+                await _executor.OnBESignalAsync(besig);
+                await _sink.OnBEMoveAsync(besig);
+                AddAlert("MOVE_BE", SetupId.A, $"Stop → BE {_entA:F2}", "yellow");
             }
+            if (!hitTarget && !hitStop) return; // partial only, trade still open
         }
 
         ExitReason reason = hitTarget ? ExitReason.Target : ExitReason.Stop;
@@ -299,36 +299,36 @@ public class OrbStrategyEngine
         // ── Exit: active position ────────────────────────────────
         if (!_activeB) return;
         bool longB = _stB == 3;
-        bool hitStop   = longB ? price <= _stopB : price >= _stopB;
-        bool hitTarget = longB ? price >= _tgtB  : price <= _tgtB;
-        if (!hitStop && !hitTarget) return;
+        bool hitStop      = longB ? price <= _stopB    : price >= _stopB;
+        bool hitTarget    = longB ? price >= _tgtB     : price <= _tgtB;
+        // Include partial level in the early-return guard so the partial block below is
+        // reachable even when neither stop nor target has been hit yet.
+        bool hitPartialPx = _cfg.UsePartialB && !_partHitB &&
+                            (longB ? price >= _partialB : price <= _partialB);
+        if (!hitStop && !hitTarget && !hitPartialPx) return;
 
         // Partial fill check (price-based)
         bool partJustHit = false;
-        if (_cfg.UsePartialB && !_partHitB)
+        if (hitPartialPx && !hitTarget) // partial without full close
         {
-            bool hitPartial = longB ? price >= _partialB : price <= _partialB;
-            if (hitPartial && !hitTarget) // partial without full close
+            partJustHit = true;
+            _partHitB   = true;
+            int half    = (int)Math.Floor(_cfg.Contracts * 0.5);
+            var psig    = new PartialSignal(SetupId.B, longB ? Direction.Long : Direction.Short,
+                _partialB, half, _cfg.Contracts - half, _entB, utcTime);
+            await _executor.OnPartialSignalAsync(psig);
+            await _sink.OnPartialAsync(psig);
+            AddAlert("PARTIAL", SetupId.B, $"Partial @ {_partialB:F2}", "yellow");
+            if (_cfg.UseBeB)
             {
-                partJustHit = true;
-                _partHitB   = true;
-                int half    = (int)Math.Floor(_cfg.Contracts * 0.5);
-                var psig    = new PartialSignal(SetupId.B, longB ? Direction.Long : Direction.Short,
-                    _partialB, half, _cfg.Contracts - half, _entB, utcTime);
-                await _executor.OnPartialSignalAsync(psig);
-                await _sink.OnPartialAsync(psig);
-                AddAlert("PARTIAL", SetupId.B, $"Partial @ {_partialB:F2}", "yellow");
-                if (_cfg.UseBeB)
-                {
-                    var besig = new BESignal(SetupId.B, longB ? Direction.Long : Direction.Short,
-                        _entB, _entB, psig.ContractsRemaining, utcTime);
-                    _stopB = _entB;
-                    await _executor.OnBESignalAsync(besig);
-                    await _sink.OnBEMoveAsync(besig);
-                    AddAlert("MOVE_BE", SetupId.B, $"Stop → BE {_entB:F2}", "yellow");
-                }
-                if (!hitTarget && !hitStop) return; // partial only, trade still open
+                var besig = new BESignal(SetupId.B, longB ? Direction.Long : Direction.Short,
+                    _entB, _entB, psig.ContractsRemaining, utcTime);
+                _stopB = _entB;
+                await _executor.OnBESignalAsync(besig);
+                await _sink.OnBEMoveAsync(besig);
+                AddAlert("MOVE_BE", SetupId.B, $"Stop → BE {_entB:F2}", "yellow");
             }
+            if (!hitTarget && !hitStop) return; // partial only, trade still open
         }
 
         ExitReason reason = hitTarget ? ExitReason.Target : ExitReason.Stop;
