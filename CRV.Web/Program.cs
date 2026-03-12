@@ -115,6 +115,7 @@ builder.Services.AddSingleton<MockBrokerExecutor>();
 builder.Services.AddSingleton<LiveEngineOrchestrator>();
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<LiveEngineOrchestrator>());
+builder.Services.AddSingleton<SnapshotBroadcastService>();
 
 // ── Backtest ──────────────────────────────────────────────────
 builder.Services.AddSingleton<BacktestRunnerService>();

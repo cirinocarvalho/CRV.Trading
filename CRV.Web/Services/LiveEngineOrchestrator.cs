@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using CRV.Backtest.DataLoaders;
 using CRV.Core.Interfaces;
 using CRV.Core.Models;
@@ -24,6 +25,7 @@ public class LiveEngineOrchestrator : BackgroundService
     private readonly IConfiguration    _config;
     private readonly ILogger           _log;
 
+    private readonly object            _lifecycleLock = new();
     private CancellationTokenSource?   _cts;
     private Task?                      _engineTask;
     private EngineSnapshot?            _lastSnapshot;
@@ -34,10 +36,20 @@ public class LiveEngineOrchestrator : BackgroundService
     public EngineSnapshot? LastSnapshot => _lastSnapshot;
 
     /// <summary>Request an immediate market exit for the active Setup A trade (applied on next bar).</summary>
-    public void ForceExitSetupA() => _engine?.RequestForceExitA();
+    public void ForceExitSetupA()
+    {
+        OrbStrategyEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        eng?.RequestForceExitA();
+    }
 
     /// <summary>Request an immediate market exit for the active Setup B trade (applied on next bar).</summary>
-    public void ForceExitSetupB() => _engine?.RequestForceExitB();
+    public void ForceExitSetupB()
+    {
+        OrbStrategyEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        eng?.RequestForceExitB();
+    }
 
     public LiveEngineOrchestrator(IServiceProvider sp, IConfiguration config, ILogger<LiveEngineOrchestrator> log)
     {
@@ -53,32 +65,37 @@ public class LiveEngineOrchestrator : BackgroundService
         return Task.CompletedTask;
     }
 
-    public async Task StartAsync(StrategyConfig cfg)
+    public Task StartAsync(StrategyConfig cfg)
     {
-        if (IsRunning)
+        lock (_lifecycleLock)
         {
-            _log.LogWarning("Engine already running — stop it first.");
-            return;
+            if (IsRunning)
+            {
+                _log.LogWarning("Engine already running — stop it first.");
+                return Task.CompletedTask;
+            }
+
+            _log.LogInformation("Starting live engine for {Ticker}", cfg.Ticker);
+            Status    = "Starting...";
+            _cts      = new CancellationTokenSource();
+            IsRunning = true;
+
+            _engineTask = Task.Run(() => RunEngineAsync(cfg, _cts.Token));
+            Status = "Live";
         }
-
-        _log.LogInformation("Starting live engine for {Ticker}", cfg.Ticker);
-        Status    = "Starting...";
-        _cts      = new CancellationTokenSource();
-        IsRunning = true;
-
-        _engineTask = Task.Run(() => RunEngineAsync(cfg, _cts.Token));
-        Status = "Live";
-
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     public void StopEngine()
     {
-        if (!IsRunning) return;
-        _cts?.Cancel();
-        IsRunning = false;
-        Status    = "Stopped";
-        _log.LogInformation("Live engine stopped.");
+        lock (_lifecycleLock)
+        {
+            if (!IsRunning) return;
+            _cts?.Cancel();
+            IsRunning = false;
+            Status    = "Stopped";
+            _log.LogInformation("Live engine stopped.");
+        }
     }
 
     private async Task RunEngineAsync(StrategyConfig cfg, CancellationToken ct)
@@ -120,7 +137,12 @@ public class LiveEngineOrchestrator : BackgroundService
                 ? new SourceOverrideSink(sink, "mock")
                 : sink;
 
-            var wrappedSink = new SnapshotCachingSink(activeSink, snap => { _lastSnapshot = snap; });
+            var broadcast = scope.ServiceProvider.GetRequiredService<SnapshotBroadcastService>();
+            var wrappedSink = new SnapshotCachingSink(activeSink, snap =>
+            {
+                _lastSnapshot = snap;
+                broadcast.Publish(snap);
+            });
 
             // ── Order executor — selected by EffectiveExecBroker ────
             IOrderExecutor executor;
@@ -135,20 +157,25 @@ public class LiveEngineOrchestrator : BackgroundService
                     var execCfg = cfg.Clone();
                     execCfg.AccountId = execAccountId;
 
+                    var httpFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
                     executor = execBroker switch
                     {
                         "TradeStation" => new TradeStationExecutor(
                             scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
                             execCfg,
-                            scope.ServiceProvider.GetRequiredService<ILogger<TradeStationExecutor>>()),
+                            scope.ServiceProvider.GetRequiredService<ILogger<TradeStationExecutor>>(),
+                            httpFactory),
                         "Tradovate" => new TradovateExecutor(
                             scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
                             execCfg,
-                            scope.ServiceProvider.GetRequiredService<ILogger<TradovateExecutor>>()),
+                            scope.ServiceProvider.GetRequiredService<ILogger<TradovateExecutor>>(),
+                            scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
+                            httpFactory),
                         _ => (IOrderExecutor) new SchwabExecutor(
                             scope.ServiceProvider.GetRequiredService<SchwabAuthService>(),
                             execCfg,
-                            scope.ServiceProvider.GetRequiredService<ILogger<SchwabExecutor>>()),
+                            scope.ServiceProvider.GetRequiredService<ILogger<SchwabExecutor>>(),
+                            httpFactory),
                     };
                 }
                 catch (Exception ex)
@@ -172,12 +199,14 @@ public class LiveEngineOrchestrator : BackgroundService
             IBarFeed feed;
             try
             {
+                var feedHttpFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
                 feed = cfg.Broker switch
                 {
                     "TradeStation" => (IBarFeed) new TradeStationBarFeed(
                         scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
                         cfg, prices,
-                        scope.ServiceProvider.GetRequiredService<ILogger<TradeStationBarFeed>>()),
+                        scope.ServiceProvider.GetRequiredService<ILogger<TradeStationBarFeed>>(),
+                        feedHttpFactory),
                     "Tradovate" => new TradovateBarFeed(
                         scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
                         cfg, prices,
@@ -201,27 +230,48 @@ public class LiveEngineOrchestrator : BackgroundService
                 cfg.Broker, execBroker, execAccountId);
 
             // ── Run ─────────────────────────────────────────────────
-            _engine = new OrbStrategyEngine(cfg, executor, wrappedSink, prices,
+            var newEngine = new OrbStrategyEngine(cfg, executor, wrappedSink, prices,
                 scope.ServiceProvider.GetRequiredService<ILogger<OrbStrategyEngine>>());
+            lock (_lifecycleLock) { _engine = newEngine; }
 
             // Serialize bar processing and tick evaluation — they share all engine state
             var engineLock = new SemaphoreSlim(1, 1);
 
             // Enable tick-based entry/exit and wire L1 ticks → ProcessPriceTickAsync
+            // Use a bounded channel so ticks queue (up to 64 deep) instead of dropping.
+            // Only the latest tick matters for price eval, so BoundedChannelFullMode.DropOldest
+            // keeps the queue from growing unbounded while preserving the freshest price.
             _engine.EnableTickMode();
+            var tickCh = Channel.CreateBounded<(decimal price, DateTime time)>(
+                new BoundedChannelOptions(64)
+                {
+                    FullMode     = BoundedChannelFullMode.DropOldest,
+                    SingleWriter = false,
+                    SingleReader = true
+                });
+            long _ticksDropped = 0;
+
             feed.OnPriceTick += (price, time) =>
             {
-                var engine = _engine;
-                if (engine == null) return;
-                _ = Task.Run(async () =>
+                if (!tickCh.Writer.TryWrite((price, time)))
+                    Interlocked.Increment(ref _ticksDropped);
+            };
+
+            // Single consumer drains the tick channel sequentially — no Task.Run per tick
+            var tickTask = Task.Run(async () =>
+            {
+                await foreach (var (price, time) in tickCh.Reader.ReadAllAsync(ct))
                 {
-                    if (!await engineLock.WaitAsync(500, ct)) return; // skip if engine is busy > 500ms
+                    OrbStrategyEngine? engine;
+                    lock (_lifecycleLock) { engine = _engine; }
+                    if (engine == null) break;
+                    await engineLock.WaitAsync(ct);
                     try   { await engine.ProcessPriceTickAsync(price, time); }
-                    catch (OperationCanceledException) { }
+                    catch (OperationCanceledException) { break; }
                     catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
                     finally { engineLock.Release(); }
-                }, ct);
-            };
+                }
+            }, ct);
 
             // If the executor is MockBrokerExecutor, evaluate fills on every L1 tick
             // (MockBrokerExecutor is internally thread-safe — no engineLock needed here)
@@ -264,7 +314,12 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
                 finally { engineLock.Release(); }
             }
-            _engine = null;
+            lock (_lifecycleLock) { _engine = null; }
+            tickCh.Writer.TryComplete();
+            try { await tickTask; } catch { /* already cancelled */ }
+            var dropped = Interlocked.Read(ref _ticksDropped);
+            if (dropped > 0)
+                _log.LogWarning("Tick channel dropped {Count} ticks (channel full) during session.", dropped);
         }
         catch (OperationCanceledException)
         {
@@ -282,7 +337,7 @@ public class LiveEngineOrchestrator : BackgroundService
         }
         finally
         {
-            _engine = null;
+            lock (_lifecycleLock) { _engine = null; }
         }
     }
 
@@ -332,6 +387,7 @@ public class LiveEngineOrchestrator : BackgroundService
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Backfilling…", ct);
 
             var lf = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var hf = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
             IAsyncEnumerable<Bar> bars;
 
             if (cfg.Broker == "TradeStation")
@@ -339,7 +395,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 var auth   = scope.ServiceProvider.GetRequiredService<TradeStationAuthService>();
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new TradeStationHistoricalLoader(
-                    token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl);
+                    token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
                 bars = loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
             }
             else if (cfg.Broker == "Schwab")
@@ -347,7 +403,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new SchwabHistoricalLoader(
-                    token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl);
+                    token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
                 bars = loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
             }
             // Tradovate historical loader: add in Task 14
