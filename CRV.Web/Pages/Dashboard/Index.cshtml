@@ -1,0 +1,519 @@
+@page "/dashboard"
+@model CRV.Web.Pages.Dashboard.IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["Page"]  = "dashboard";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<!-- ── Top bar: Ticker + time + DD status + stream health ──── -->
+<div class="d-flex align-items-center gap-3 mb-3">
+    <h5 class="mb-0 font-monospace text-warning" id="dash-ticker">@Model.Config.Ticker</h5>
+    @if (Model.IsNearRoll)
+    {
+        <span class="badge bg-warning text-dark" title="Contract is near quarterly roll date. Active front-month: @Model.ActiveContract">
+            <i class="bi bi-exclamation-triangle me-1"></i>ROLL SOON → @Model.ActiveContract
+        </span>
+    }
+    <span class="badge bg-dark border border-secondary font-monospace" id="dash-time">--:--:-- ET</span>
+    <span class="badge" id="dash-dd-badge">OK</span>
+    <span class="badge setup-idle" id="dash-session-badge">—</span>
+    <!-- Stream health indicator -->
+    <span class="d-flex align-items-center gap-1 ms-2" id="stream-health" title="WebSocket stream status">
+        <span class="stream-dot" id="stream-dot"></span>
+        <span class="font-monospace text-light small" id="stream-price">—</span>
+        <span class="text-muted small" id="stream-age"></span>
+    </span>
+    <span class="ms-auto text-muted small">Execution TF: <strong class="text-light">@Model.Config.ExecutionTFMinutes min</strong>
+        &nbsp;|&nbsp; ORB: <strong class="text-light">@Model.Config.OrbStart.ToString("HH:mm")–@Model.Config.OrbEnd.ToString("HH:mm")</strong></span>
+</div>
+
+<!-- ── Row 1: Daily stats ────────────────────────────────────── -->
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Today P&L</div>
+            <div class="stat-value font-monospace" id="stat-today-pnl">$0</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Win Rate</div>
+            <div class="stat-value" id="stat-winrate">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Trades</div>
+            <div class="stat-value" id="stat-trades">0</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Max DD</div>
+            <div class="stat-value text-warning font-monospace" id="stat-maxdd">$0</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center" title="E = (Win% × AvgWin) − (Loss% × AvgLoss)">
+            <div class="stat-label">Expectancy</div>
+            <div class="stat-value font-monospace" id="stat-expectancy">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-lg-2">
+        <div class="card p-3 text-center">
+            <div class="stat-label">DD Limit</div>
+            <div class="stat-value font-monospace" id="stat-dd-pct">0%</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 2: Setup A + Setup B ──────────────────────────────── -->
+<div class="row g-3 mb-3">
+    <!-- Setup A -->
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-triangle-fill text-warning"></i>
+                <span class="fw-bold text-warning">Setup A — Pullback [XACUZZY]</span>
+                <span class="badge" id="enabled-a">ON</span>
+                <span class="badge ms-auto" id="status-a">IDLE</span>
+                <span class="text-muted small" id="count-a">[0/@Model.Config.MaxTradesA]</span>
+                <button id="btn-exit-a" class="btn btn-danger btn-sm d-none py-0 px-2"
+                        onclick="forceExit('A')" title="Force exit Setup A at market">
+                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 trade-table" id="table-a">
+                    <tbody>
+                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="a-dir">—</td></tr>
+                        <tr><td class="text-muted">Entry</td><td id="a-entry" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Stop</td><td id="a-stop" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Partial (50%)</td><td id="a-partial" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Target</td><td id="a-target" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Contracts</td><td id="a-cts" class="font-monospace">—</td></tr>
+                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="a-expectancy" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="a-unreal" class="font-monospace fw-bold">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup B -->
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-arrow-up-right-circle-fill text-warning"></i>
+                <span class="fw-bold text-warning">Setup B — Breakout [BONGA]</span>
+                <span class="badge" id="enabled-b">ON</span>
+                <span class="badge ms-auto" id="status-b">IDLE</span>
+                <span class="text-muted small" id="count-b">[0/@Model.Config.MaxTradesB]</span>
+                <button id="btn-exit-b" class="btn btn-danger btn-sm d-none py-0 px-2"
+                        onclick="forceExit('B')" title="Force exit Setup B at market">
+                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 trade-table" id="table-b">
+                    <tbody>
+                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="b-dir">—</td></tr>
+                        <tr><td class="text-muted">Entry</td><td id="b-entry" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Stop</td><td id="b-stop" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Partial (50%)</td><td id="b-partial" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Target</td><td id="b-target" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted">Contracts</td><td id="b-cts" class="font-monospace">—</td></tr>
+                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="b-expectancy" class="font-monospace">—</td></tr>
+                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="b-unreal" class="font-monospace fw-bold">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 3: ORB info + VWAP/ATR ────────────────────────────── -->
+<div class="row g-3 mb-3">
+    <div class="col-12 col-md-6">
+        <div class="card p-3">
+            <div class="stat-label mb-2">ORB Quality</div>
+            <div class="d-flex gap-3 font-monospace small">
+                <div>High: <strong id="orb-high" class="text-warning">—</strong></div>
+                <div>Low: <strong id="orb-low" class="text-warning">—</strong></div>
+                <div>Mid: <strong id="orb-mid" class="text-secondary">—</strong></div>
+                <div>Range: <strong id="orb-range" class="text-light">—</strong></div>
+            </div>
+            <div class="mt-2">
+                <span class="badge" id="orb-quality-badge">Building...</span>
+                <span class="badge ms-1" id="orb-close-badge">—</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">VWAP</div>
+            <div class="stat-value font-monospace" id="stat-vwap">—</div>
+            <div class="small" id="stat-vwap-pos">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">ATR(14)</div>
+            <div class="stat-value font-monospace" id="stat-atr">—</div>
+            <div class="small text-muted" id="stat-orb-atr-ratio">vs ORB —</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 4: Alerts feed + Today's trades ───────────────────── -->
+<div class="row g-3">
+    <div class="col-12 col-lg-5">
+        <div class="card">
+            <div class="card-header d-flex align-items-center">
+                <i class="bi bi-broadcast me-2 text-success"></i>
+                <span class="fw-bold">Alerts Feed</span>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearAlerts()">Clear</button>
+            </div>
+            <div class="alert-feed p-0" id="alert-feed">
+                <div class="alert-item info" data-placeholder>
+                    <span class="text-muted">--:--:--</span> Waiting for engine...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex align-items-center">
+                <i class="bi bi-list-ul me-2 text-info"></i>
+                <span class="fw-bold">Today's Trades</span>
+                <span class="badge bg-dark ms-2 font-monospace" id="today-trade-count">0 trades</span>
+            </div>
+            <div style="overflow-x:auto; max-height:320px; overflow-y:auto;">
+                <table class="table table-sm mb-0 trade-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th><th>Setup</th><th>Dir</th>
+                            <th>Entry</th><th>Exit</th><th>Reason</th><th>Net P&L</th><th>R</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trade-tbody">
+                        <tr><td colspan="8" class="text-center text-muted py-3">No trades today</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+@Html.AntiForgeryToken()
+<script>
+// ─────────────────────────────────────────────────────────────
+// Dashboard JavaScript — subscribes to crv:update / crv:alert
+// events dispatched by crv-hub.js when SignalR messages arrive.
+// All property names match EngineSnapshot JSON (camelCase).
+// ─────────────────────────────────────────────────────────────
+
+const maxDailyLoss = @Model.Config.MaxDailyLoss;
+let _lastAlertCount = 0;  // track how many alerts we've already rendered
+
+// Seed ON/OFF badges from server-rendered config before first SignalR snapshot
+(function () {
+    const aOn = @(Model.Config.EnableA ? "true" : "false");
+    const bOn = @(Model.Config.EnableB ? "true" : "false");
+    ["a","b"].forEach((id, i) => {
+        const el = document.getElementById("enabled-" + id);
+        if (!el) return;
+        const on = id === "a" ? aOn : bOn;
+        el.textContent = on ? "ON" : "OFF";
+        el.className   = "badge " + (on ? "bg-success" : "bg-secondary");
+        if (!on) {
+            const card = el.closest(".card");
+            if (card) card.style.opacity = "0.45";
+        }
+    });
+}());
+
+document.addEventListener("crv:update", e => updateDashboard(e.detail));
+document.addEventListener("crv:alert",  e => addAlert(e.detail));
+
+// Show engine status changes in the alert feed and clear the placeholder
+document.addEventListener("crv:status", e => {
+    const status = e.detail;
+    _clearPlaceholder();
+    const isLive = status === "Live";
+    const div = document.createElement("div");
+    div.className = "alert-item " + (isLive ? "entry" : "info");
+    div.innerHTML = `<span class="text-muted">${_etNow()}</span> Engine: <strong>${status}</strong>`;
+    const feed = document.getElementById("alert-feed");
+    if (feed) feed.insertBefore(div, feed.firstChild);
+});
+
+// ET clock + stream health age
+let _lastUpdateMs = 0;
+setInterval(() => {
+    document.getElementById("dash-time").textContent = _etNow() + " ET";
+    // Update stream age indicator
+    if (_lastUpdateMs > 0) {
+        const ageSec = Math.floor((Date.now() - _lastUpdateMs) / 1000);
+        const dot = document.getElementById("stream-dot");
+        const ageEl = document.getElementById("stream-age");
+        if (dot) {
+            if (ageSec <= 60)       dot.className = "stream-dot live";
+            else if (ageSec <= 300) dot.className = "stream-dot stale";
+            else                    dot.className = "stream-dot";
+        }
+        if (ageEl) {
+            if (ageSec < 5) ageEl.textContent = "";
+            else if (ageSec < 60) ageEl.textContent = ageSec + "s ago";
+            else if (ageSec < 3600) ageEl.textContent = Math.floor(ageSec / 60) + "m ago";
+            else ageEl.textContent = Math.floor(ageSec / 3600) + "h ago";
+        }
+    }
+}, 1000);
+
+// ── Helpers ───────────────────────────────────────────────────
+function _etNow() {
+    return new Date().toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false });
+}
+function _clearPlaceholder() {
+    document.querySelector("#alert-feed [data-placeholder]")?.remove();
+}
+function fmtDol(v) {
+    if (v == null) return "—";
+    const s = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return (v >= 0 ? "+$" : "−$") + s;
+}
+function pnlCls(v) { return "stat-value font-monospace " + (v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "pnl-zero"); }
+function setText(id, text, cls) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text ?? "—";
+    if (cls != null) el.className = cls;
+}
+
+// ── Main update ───────────────────────────────────────────────
+function updateDashboard(d) {
+    if (!d) return;
+    _clearPlaceholder();   // remove "Waiting for engine..." on first live snapshot
+
+    // ── Stream health ─────────────────────────────────────────
+    if (d.lastPrice > 0) setText("stream-price", d.lastPrice.toFixed(2));
+    if (d.lastUpdate) {
+        _lastUpdateMs = new Date(d.lastUpdate).getTime();
+        // If server sends UTC without Z suffix, handle it
+        if (_lastUpdateMs < Date.now() - 86400000) _lastUpdateMs = Date.now();
+    } else {
+        _lastUpdateMs = Date.now();
+    }
+
+    // ── Daily P&L stats ──────────────────────────────────────
+    const pnl = d.todayPnl ?? 0;
+    setText("stat-today-pnl", fmtDol(pnl), pnlCls(pnl));
+
+    const trades = d.todayTrades ?? 0;
+    const wins   = d.todayWins   ?? 0;
+    setText("stat-trades",  trades);
+    setText("stat-winrate", trades > 0 ? Math.round(wins / trades * 100) + "%" : "—");
+    setText("stat-maxdd",   "$" + Math.abs(d.todayMaxDD ?? 0).toFixed(0));
+
+    // Expectancy — show "—" when 0 (no trades yet for that scope)
+    setText("stat-expectancy", d.expectancy ? fmtDol(d.expectancy) : "—",
+            d.expectancy ? pnlCls(d.expectancy) : "stat-value font-monospace");
+    setText("a-expectancy", d.expectancyA ? fmtDol(d.expectancyA) : "—",
+            d.expectancyA ? pnlCls(d.expectancyA) + " font-monospace" : "font-monospace");
+    setText("b-expectancy", d.expectancyB ? fmtDol(d.expectancyB) : "—",
+            d.expectancyB ? pnlCls(d.expectancyB) + " font-monospace" : "font-monospace");
+
+    // ── Daily loss bar ───────────────────────────────────────
+    const ddUsed  = Math.min(Math.abs(pnl < 0 ? pnl : 0), maxDailyLoss);
+    const ddPct   = maxDailyLoss > 0 ? Math.round(ddUsed / maxDailyLoss * 100) : 0;
+    const ddBadge  = document.getElementById("dash-dd-badge");
+    const ddPctCls = "stat-value font-monospace " + (ddPct > 80 ? "pnl-neg" : ddPct > 50 ? "text-warning" : "");
+    setText("stat-dd-pct", ddPct + "%", ddPctCls);
+    if (ddBadge) {
+        const halted = d.tradingHalted ?? false;
+        ddBadge.textContent = halted ? "DD HALTED" : "OK";
+        ddBadge.className   = "badge " + (halted ? "badge-halted" : "bg-success text-dark");
+    }
+
+    // ── Session state badge ──────────────────────────────────
+    const sessBadge = document.getElementById("dash-session-badge");
+    if (sessBadge) {
+        if (d.sessionEnded)                        { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
+        else if (d.pastCutoffA && d.pastCutoffB)   { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
+        else if (d.pastCutoffA)                    { sessBadge.textContent = "CUTOFF (A)";    sessBadge.className = "badge setup-armed"; }
+        else if (d.pastCutoffB)                    { sessBadge.textContent = "CUTOFF (B)";    sessBadge.className = "badge setup-armed"; }
+        else if (d.orbFormed)                      { sessBadge.textContent = "TRADING";       sessBadge.className = "badge badge-live"; }
+        else                                       { sessBadge.textContent = "ORB FORMING";   sessBadge.className = "badge setup-idle"; }
+    }
+
+    // ── Setup panels ─────────────────────────────────────────
+    // d.setupA / d.setupB are ActiveTradeView objects (null when idle/armed/retest)
+    updateSetup("a", d.setupA, d.setupAState, d.setupAEnabled !== false, d.pastCutoffA, d.sessionEnded);
+    updateSetup("b", d.setupB, d.setupBState, d.setupBEnabled !== false, d.pastCutoffB, d.sessionEnded);
+
+    // ── ORB ──────────────────────────────────────────────────
+    setText("orb-high",  d.orbHigh  > 0 ? d.orbHigh.toFixed(2)  : "—");
+    setText("orb-low",   d.orbLow   > 0 ? d.orbLow.toFixed(2)   : "—");
+    setText("orb-mid",   d.orbMid   > 0 ? d.orbMid.toFixed(2)   : "—");
+    setText("orb-range", d.orbRange > 0 ? d.orbRange.toFixed(2) + " pts" : "—");
+
+    const orbQuality = document.getElementById("orb-quality-badge");
+    if (orbQuality) {
+        if (d.orbRange > 0) {
+            orbQuality.textContent = d.orbBullClose ? "Bull Close" : d.orbBearClose ? "Bear Close" : "Neutral";
+            orbQuality.className   = "badge " + (d.orbBullClose ? "bg-success" : d.orbBearClose ? "bg-danger" : "bg-secondary");
+        } else {
+            orbQuality.textContent = "Building...";
+            orbQuality.className   = "badge bg-secondary";
+        }
+    }
+
+    // ── VWAP / ATR ───────────────────────────────────────────
+    setText("stat-vwap", d.vwap > 0 ? d.vwap.toFixed(2) : "—");
+    if (d.vwap > 0 && d.lastPrice > 0) {
+        const above = d.lastPrice > d.vwap;
+        setText("stat-vwap-pos", above ? "Above VWAP" : "Below VWAP",
+            "small " + (above ? "pnl-pos" : "pnl-neg"));
+    }
+    setText("stat-atr",  d.atr  > 0 ? d.atr.toFixed(2)  : "—");
+    if (d.orbAtrRatio > 0)
+        setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
+
+    // ── Alerts from snapshot ─────────────────────────────────
+    const alerts = d.recentAlerts;
+    if (alerts && alerts.length > _lastAlertCount) {
+        // Render only new alerts; snapshot order is oldest→newest so
+        // insertBefore(firstChild) naturally puts newest at top.
+        const newAlerts = alerts.slice(_lastAlertCount);
+        // Sort oldest-first so prepending yields newest-on-top
+        newAlerts.sort((a, b) => new Date(a.time) - new Date(b.time));
+        for (const al of newAlerts) addAlert(al);
+        _lastAlertCount = alerts.length;
+    }
+}
+
+// ── Force Exit ────────────────────────────────────────────────
+async function forceExit(setup) {
+    const btn = document.getElementById("btn-exit-" + setup.toLowerCase());
+    if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+    try {
+        const tok = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? "";
+        const r   = await fetch("?handler=ForceExit" + setup, {
+            method: "POST",
+            headers: { "RequestVerificationToken": tok, "Content-Type": "application/json" }
+        });
+        if (r.ok) {
+            addAlert({ type: "EXIT", setup: setup, time: new Date().toLocaleTimeString(), message: "Force exit requested — will execute on next bar" });
+        }
+    } catch (e) {
+        console.error("Force exit error:", e);
+    } finally {
+        if (btn) { btn.disabled = false; }
+    }
+}
+
+// ── Setup state badge ─────────────────────────────────────────
+// state: A: 0=Idle ±1=Armed ±2=Active   B: 0=Idle ±1=Armed ±2=Retest ±3=Active
+function _setupBadge(id, state) {
+    const abs  = Math.abs(state);
+    const dir  = state > 0 ? "LONG" : state < 0 ? "SHORT" : null;
+    if (state === 0)                   return { text: "IDLE",                     cls: "badge setup-idle"   };
+    if (abs === 1)                     return { text: `▶ ARMED ${dir}`,           cls: "badge setup-armed"  };
+    if (id === "b" && abs === 2)       return { text: `↩ RETEST ${dir}`,          cls: "badge setup-retest" };
+    /* active */                       return { text: `● ${dir} ACTIVE`,          cls: "badge " + (state > 0 ? "setup-long" : "setup-short") };
+}
+
+// ── Setup panel renderer ──────────────────────────────────────
+// trade = ActiveTradeView | null,  state = integer from setupAState / setupBState
+// enabled = bool from setupAEnabled / setupBEnabled
+// pastCutoff / sessionEnded = booleans to override badge when time has passed
+function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded) {
+    const statusEl  = document.getElementById("status-" + id);
+    const enabledEl = document.getElementById("enabled-" + id);
+    const exitBtn   = document.getElementById("btn-exit-" + id);
+    const card      = statusEl?.closest(".card");
+
+    // ON / OFF badge
+    if (enabledEl) {
+        enabledEl.textContent = enabled ? "ON" : "OFF";
+        enabledEl.className   = "badge " + (enabled ? "bg-success" : "bg-secondary");
+    }
+
+    // When disabled, show DISABLED in status badge and dim the card
+    if (!enabled) {
+        if (statusEl) { statusEl.textContent = "DISABLED"; statusEl.className = "badge bg-secondary ms-auto"; }
+        if (exitBtn)  exitBtn.classList.add("d-none");
+        if (card)     card.style.opacity = "0.45";
+        ["dir","entry","stop","partial","target","cts","unreal"].forEach(f => setText(id + "-" + f, "—"));
+        return;
+    }
+
+    if (card) card.style.opacity = "";  // restore if re-enabled
+
+    if (!trade) {
+        // Override state badge when past cutoff or session ended
+        let badge;
+        if (sessionEnded)   badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
+        else if (pastCutoff) badge = { text: "CUTOFF",        cls: "badge setup-armed" };
+        else                 badge = _setupBadge(id, state ?? 0);
+        if (statusEl) { statusEl.textContent = badge.text; statusEl.className = badge.cls; }
+        if (exitBtn)  exitBtn.classList.add("d-none");
+        ["dir","entry","stop","partial","target","cts","unreal"].forEach(f => setText(id + "-" + f, "—"));
+        // Expectancy persists (updated by updateDashboard from snapshot totals)
+        return;
+    }
+
+    // Direction enum: 0 = Long, 1 = Short
+    const isLong = trade.direction === 0;
+    if (statusEl) {
+        statusEl.textContent = "● " + (isLong ? "LONG" : "SHORT") + " ACTIVE";
+        statusEl.className   = "badge " + (isLong ? "setup-long" : "setup-short");
+    }
+
+    if (exitBtn) exitBtn.classList.remove("d-none");
+    setText(id + "-dir",     isLong ? "▲ LONG" : "▼ SHORT", isLong ? "pnl-pos" : "pnl-neg");
+    setText(id + "-entry",   trade.entry?.toFixed(2) ?? "—");
+    // currentStop is the correct field name (may be BE-adjusted)
+    const stopLabel = (trade.currentStop?.toFixed(2) ?? "—") + (trade.partialFilled ? " (BE)" : "");
+    setText(id + "-stop", stopLabel);
+    setText(id + "-partial", (trade.partial?.toFixed(2) ?? "—") + (trade.partialFilled ? " ✓" : ""));
+    setText(id + "-target",  trade.target?.toFixed(2) ?? "—");
+    const rem = trade.partialFilled ? trade.remainingContracts : trade.contracts;
+    setText(id + "-cts",   rem + "/" + trade.contracts);
+    setText(id + "-unreal", fmtDol(trade.unrealizedPnl));
+}
+
+// ── Alert feed ────────────────────────────────────────────────
+function addAlert(a) {
+    const feed = document.getElementById("alert-feed");
+    if (!feed) return;
+    _clearPlaceholder();
+    // Determine CSS class from alert type
+    const t = a.type ?? "";
+    const cls = t === "ENTRY" ? "entry" : t === "EXIT" ? "exit"
+              : t === "ORB" || t === "ARMED" ? "info" : "partial";
+    // Format time — may be ISO string from server or pre-formatted string
+    let timeStr = "";
+    if (a.time) {
+        const d = new Date(a.time);
+        timeStr = isNaN(d) ? a.time : d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false });
+    }
+    // Format setup — enum 0=A, 1=B, or string
+    const setup = typeof a.setup === "number" ? (a.setup === 0 ? "A" : "B") : (a.setup ?? "");
+    const div  = document.createElement("div");
+    div.className = "alert-item " + cls;
+    div.innerHTML = `<span class="text-muted">${timeStr}</span> <strong>[${setup}]</strong> ${a.message ?? ""}`;
+    feed.insertBefore(div, feed.firstChild);
+    while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+}
+
+function clearAlerts() {
+    const feed = document.getElementById("alert-feed");
+    if (feed) feed.innerHTML = "";
+}
+</script>
+}
