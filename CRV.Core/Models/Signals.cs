@@ -1,7 +1,7 @@
 namespace CRV.Core.Models;
 
 // ── Enums ────────────────────────────────────────────────────
-public enum SetupId    { A, B }
+public enum SetupId    { A, B, C, D, F }
 public enum Direction  { Long, Short }
 public enum ExitReason { Target, Stop, SessionEnd, Manual }
 
@@ -104,6 +104,9 @@ public class EngineSnapshot
     public bool       IsLive         { get; set; }
     public ActiveTradeView? SetupA   { get; set; }
     public ActiveTradeView? SetupB   { get; set; }
+    public ActiveTradeView? SetupC   { get; set; }
+    public ActiveTradeView? SetupD   { get; set; }
+    public ActiveTradeView? SetupF   { get; set; }
 
     // Daily P&L stats
     public decimal    TodayPnl        { get; set; }
@@ -116,6 +119,9 @@ public class EngineSnapshot
     public decimal    Expectancy      { get; set; }
     public decimal    ExpectancyA     { get; set; }
     public decimal    ExpectancyB     { get; set; }
+    public decimal    ExpectancyC     { get; set; }
+    public decimal    ExpectancyD     { get; set; }
+    public decimal    ExpectancyF     { get; set; }
 
     // Daily loss limit
     public decimal    DailyLossLimit { get; set; }
@@ -144,23 +150,38 @@ public class EngineSnapshot
     public bool       PastCutoff     { get; set; }
     public bool       PastCutoffA    { get; set; }
     public bool       PastCutoffB    { get; set; }
+    public bool       PastCutoffC    { get; set; }
+    public bool       PastCutoffD    { get; set; }
+    public bool       PastCutoffF    { get; set; }
     public bool       SessionEnded   { get; set; }
 
     // Setup enabled flags (from StrategyConfig.EnableA / EnableB)
     public bool SetupAEnabled { get; set; } = true;
     public bool SetupBEnabled { get; set; } = true;
+    public bool SetupCEnabled { get; set; }
+    public bool SetupDEnabled { get; set; }
+    public bool SetupFEnabled { get; set; }
 
     // Setup state machine values (from OrbStrategyEngine._stA / _stB)
     // A: 0=Idle  ±1=Armed  ±2=Active
     // B: 0=Idle  ±1=Armed  ±2=Retest  ±3=Active
     public int  SetupAState { get; set; }
     public int  SetupBState { get; set; }
+    public int  SetupCState { get; set; }
+    public int  SetupDState { get; set; }
+    public int  SetupFState { get; set; }
 
     // Sticky exit chart markers (true on exit bar only)
     public bool StickyTgtA { get; set; }
     public bool StickyStpA { get; set; }
     public bool StickyTgtB { get; set; }
     public bool StickyStpB { get; set; }
+    public bool StickyTgtC { get; set; }
+    public bool StickyStpC { get; set; }
+    public bool StickyTgtD { get; set; }
+    public bool StickyStpD { get; set; }
+    public bool StickyTgtF { get; set; }
+    public bool StickyStpF { get; set; }
 
     // ── Module outputs ───────────────────────────────────────
     // Session

@@ -79,6 +79,16 @@ public class StrategyConfig
     /// </summary>
     public int     EntryTickOffsetA { get; set; } = 0;
 
+    // Per-setup filters / sizing (A)
+    public int     ContractsA       { get; set; } = 2;
+    public decimal HiVolMultA       { get; set; } = 1.0m;
+    public int     MaxContractsA    { get; set; } = 2;
+    public bool    UseVwapA         { get; set; } = true;
+    public bool    UseOrbCloseA     { get; set; } = false;
+    public int     CutoffHourA      { get; set; } = 14;
+    public int     CutoffMinuteA    { get; set; } = 30;
+    public bool    CloseAtRthCloseA { get; set; } = true;
+
     // ── Setup B — Breakout Retest ─────────────────────────────
     public bool    EnableB         { get; set; } = true;
     public string  ModeB           { get; set; } = "Conservative";
@@ -104,6 +114,74 @@ public class StrategyConfig
     /// Default 0.50 is identical to the legacy orbMid stop for a symmetric ORB.
     /// </summary>
     public decimal StopPctB        { get; set; } = 0.50m;
+
+    // Per-setup filters / sizing (B)
+    public int     ContractsB       { get; set; } = 2;
+    public decimal HiVolMultB       { get; set; } = 1.0m;
+    public int     MaxContractsB    { get; set; } = 2;
+    public bool    UseVwapB         { get; set; } = true;
+    public bool    UseOrbCloseB     { get; set; } = false;
+    public int     CutoffHourB      { get; set; } = 14;
+    public int     CutoffMinuteB    { get; set; } = 30;
+    public bool    CloseAtRthCloseB { get; set; } = true;
+
+    // ── Setup C — Sweep Reversal ──────────────────────────────
+    public bool    EnableC              { get; set; } = false;
+    public decimal SweepMinPenetration  { get; set; } = 0.50m;   // ticks past level
+    public decimal SweepMinBodyReject   { get; set; } = 1.00m;   // points rejection
+    public decimal SweepEqualTolerance  { get; set; } = 2.00m;   // equal-level tolerance
+    public int     SweepConfirmBars     { get; set; } = 1;
+
+    // Per-setup trade management (C)
+    public int     ContractsC       { get; set; } = 2;
+    public decimal HiVolMultC       { get; set; } = 1.0m;
+    public int     MaxContractsC    { get; set; } = 2;
+    public int     MaxTradesC       { get; set; } = 3;
+    public int     PartialPctC      { get; set; } = 50;
+    public bool    UsePartialC      { get; set; } = true;
+    public bool    UseBeC           { get; set; } = true;
+    public decimal MinRrC           { get; set; } = 1.5m;
+    public int     CutoffHourC      { get; set; } = 14;
+    public int     CutoffMinuteC    { get; set; } = 30;
+    public bool    CloseAtRthCloseC { get; set; } = true;
+
+    // ── Setup D — Opening Drive Pullback ────────────────────
+    public bool    EnableD              { get; set; } = false;
+    public decimal DriveRangeAtrMult    { get; set; } = 0.80m;   // ORB range vs ATR threshold
+    public decimal DriveMaxPullback     { get; set; } = 0.35m;   // max VWAP pullback fraction
+    public int     DriveBullBearRatio   { get; set; } = 2;       // bull:bear bar ratio
+
+    // Per-setup trade management (D)
+    public int     ContractsD       { get; set; } = 2;
+    public decimal HiVolMultD       { get; set; } = 1.0m;
+    public int     MaxContractsD    { get; set; } = 2;
+    public int     MaxTradesD       { get; set; } = 3;
+    public int     PartialPctD      { get; set; } = 50;
+    public bool    UsePartialD      { get; set; } = true;
+    public bool    UseBeD           { get; set; } = true;
+    public decimal MinRrD           { get; set; } = 1.5m;
+    public int     CutoffHourD      { get; set; } = 14;
+    public int     CutoffMinuteD    { get; set; } = 30;
+    public bool    CloseAtRthCloseD { get; set; } = true;
+
+    // ── Setup F — Midday VWAP Reversion ─────────────────────
+    public bool    EnableF              { get; set; } = false;
+    public int     TrendDayThreshold    { get; set; } = 4;       // score >= this = trend day
+    public decimal ShallowPullbackMax   { get; set; } = 0.35m;   // max pullback fraction
+    public int     VwapDevPeriod        { get; set; } = 20;      // VWAP deviation lookback
+
+    // Per-setup trade management (F)
+    public int     ContractsF       { get; set; } = 2;
+    public decimal HiVolMultF       { get; set; } = 1.0m;
+    public int     MaxContractsF    { get; set; } = 2;
+    public int     MaxTradesF       { get; set; } = 3;
+    public int     PartialPctF      { get; set; } = 50;
+    public bool    UsePartialF      { get; set; } = true;
+    public bool    UseBeF           { get; set; } = true;
+    public decimal MinRrF           { get; set; } = 1.5m;
+    public int     CutoffHourF      { get; set; } = 14;
+    public int     CutoffMinuteF    { get; set; } = 30;
+    public bool    CloseAtRthCloseF { get; set; } = true;
 
     // ── Forced Exit ───────────────────────────────────────────
     public bool    CloseAtRthClose { get; set; } = true;
@@ -189,6 +267,12 @@ public class StrategyConfig
                 errors.Add("PartialPctA must be between 0 and 100.");
             if (EntryTickOffsetA < 0)
                 errors.Add("EntryTickOffsetA must be non-negative.");
+            if (ContractsA <= 0)
+                errors.Add("ContractsA must be positive.");
+            if (CutoffHourA < 0 || CutoffHourA > 23)
+                errors.Add("CutoffHourA must be 0-23.");
+            if (CutoffMinuteA < 0 || CutoffMinuteA > 59)
+                errors.Add("CutoffMinuteA must be 0-59.");
         }
 
         if (EnableB)
@@ -207,6 +291,60 @@ public class StrategyConfig
                 errors.Add("EntryTickOffsetB must be non-negative.");
             if (StopPctB <= 0)
                 errors.Add("StopPctB must be positive.");
+            if (ContractsB <= 0)
+                errors.Add("ContractsB must be positive.");
+            if (CutoffHourB < 0 || CutoffHourB > 23)
+                errors.Add("CutoffHourB must be 0-23.");
+            if (CutoffMinuteB < 0 || CutoffMinuteB > 59)
+                errors.Add("CutoffMinuteB must be 0-59.");
+        }
+
+        if (EnableC)
+        {
+            if (ContractsC <= 0)
+                errors.Add("ContractsC must be positive.");
+            if (MaxTradesC < 0)
+                errors.Add("MaxTradesC must be non-negative.");
+            if (PartialPctC <= 0 || PartialPctC >= 100)
+                errors.Add("PartialPctC must be between 0 and 100.");
+            if (MinRrC <= 0)
+                errors.Add("MinRrC must be positive.");
+            if (CutoffHourC < 0 || CutoffHourC > 23)
+                errors.Add("CutoffHourC must be 0-23.");
+            if (CutoffMinuteC < 0 || CutoffMinuteC > 59)
+                errors.Add("CutoffMinuteC must be 0-59.");
+        }
+
+        if (EnableD)
+        {
+            if (ContractsD <= 0)
+                errors.Add("ContractsD must be positive.");
+            if (MaxTradesD < 0)
+                errors.Add("MaxTradesD must be non-negative.");
+            if (PartialPctD <= 0 || PartialPctD >= 100)
+                errors.Add("PartialPctD must be between 0 and 100.");
+            if (MinRrD <= 0)
+                errors.Add("MinRrD must be positive.");
+            if (CutoffHourD < 0 || CutoffHourD > 23)
+                errors.Add("CutoffHourD must be 0-23.");
+            if (CutoffMinuteD < 0 || CutoffMinuteD > 59)
+                errors.Add("CutoffMinuteD must be 0-59.");
+        }
+
+        if (EnableF)
+        {
+            if (ContractsF <= 0)
+                errors.Add("ContractsF must be positive.");
+            if (MaxTradesF < 0)
+                errors.Add("MaxTradesF must be non-negative.");
+            if (PartialPctF <= 0 || PartialPctF >= 100)
+                errors.Add("PartialPctF must be between 0 and 100.");
+            if (MinRrF <= 0)
+                errors.Add("MinRrF must be positive.");
+            if (CutoffHourF < 0 || CutoffHourF > 23)
+                errors.Add("CutoffHourF must be 0-23.");
+            if (CutoffMinuteF < 0 || CutoffMinuteF > 59)
+                errors.Add("CutoffMinuteF must be 0-59.");
         }
 
         return errors;
