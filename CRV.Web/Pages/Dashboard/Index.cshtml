@@ -166,7 +166,42 @@
     </div>
 </div>
 
-<!-- ── Row 4: Alerts feed + Today's trades ───────────────────── -->
+<!-- ── Row 4: Module Outputs ──────────────────────────────────── -->
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Session</div>
+            <div class="stat-value font-monospace" id="stat-session">—</div>
+            <div class="small text-muted" id="stat-session-range">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">VWAP State</div>
+            <div class="stat-value font-monospace" id="stat-vwap-state">—</div>
+            <div class="small" id="stat-vwap-bands">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Trend Score</div>
+            <div class="d-flex justify-content-center gap-2">
+                <span class="font-monospace"><span class="text-success">▲</span> <span id="stat-trend-bull">0</span></span>
+                <span class="font-monospace"><span class="text-danger">▼</span> <span id="stat-trend-bear">0</span></span>
+            </div>
+            <div class="small" id="stat-trend-label">—</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 text-center">
+            <div class="stat-label">Active Setup</div>
+            <div class="stat-value font-monospace" id="stat-active-setup">—</div>
+            <div class="small" id="stat-sweep-info">—</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 5: Alerts feed + Today's trades ───────────────────── -->
 <div class="row g-3">
     <div class="col-12 col-lg-5">
         <div class="card">
@@ -382,6 +417,45 @@ function updateDashboard(d) {
     setText("stat-atr",  d.atr  > 0 ? d.atr.toFixed(2)  : "—");
     if (d.orbAtrRatio > 0)
         setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
+
+    // ── Module outputs ───────────────────────────────────────
+    setText("stat-session", d.currentSession || "—");
+    if (d.sessionHigh > 0)
+        setText("stat-session-range",
+            "H: " + d.sessionHigh.toFixed(2) + " L: " + (d.sessionLow > 0 ? d.sessionLow.toFixed(2) : "—"));
+
+    // VWAP state
+    var vwapLabels = { "2": "Extended▲", "1": "Accept▲", "0": "Neutral", "-1": "Accept▼", "-2": "Extended▼" };
+    var vwapColors = { "2": "pnl-pos", "1": "pnl-pos", "0": "", "-1": "pnl-neg", "-2": "pnl-neg" };
+    setText("stat-vwap-state", vwapLabels[String(d.vwapState)] || "—", vwapColors[String(d.vwapState)] || "");
+    if (d.vwapUpper1 > 0)
+        setText("stat-vwap-bands",
+            "±1σ: " + d.vwapUpper1.toFixed(1) + " / " + d.vwapLower1.toFixed(1));
+
+    // Trend score
+    setText("stat-trend-bull", d.trendScoreBull != null ? d.trendScoreBull : 0);
+    setText("stat-trend-bear", d.trendScoreBear != null ? d.trendScoreBear : 0);
+    var trendLabel = d.trendScoreBull >= 4 ? "TREND DAY ▲" : d.trendScoreBear >= 4 ? "TREND DAY ▼" : "Rotational";
+    var trendClass = d.trendScoreBull >= 4 ? "pnl-pos" : d.trendScoreBear >= 4 ? "pnl-neg" : "text-muted";
+    setText("stat-trend-label", trendLabel, "small " + trendClass);
+
+    // Active setups
+    var activeSetup = "—";
+    if (d.setupCBull) activeSetup = "C ▲ Sweep Rev";
+    else if (d.setupCBear) activeSetup = "C ▼ Sweep Rev";
+    else if (d.setupDBull) activeSetup = "D ▲ Drive PB";
+    else if (d.setupDBear) activeSetup = "D ▼ Drive PB";
+    else if (d.setupFBull) activeSetup = "F ▲ VWAP Rev";
+    else if (d.setupFBear) activeSetup = "F ▼ VWAP Rev";
+    setText("stat-active-setup", activeSetup);
+
+    // Sweep info + opening drive
+    var infoStr = "";
+    if (d.lastSweep) infoStr += d.lastSweep;
+    if (d.openingDriveBull) infoStr += (infoStr ? " | " : "") + "Drive ▲";
+    if (d.openingDriveBear) infoStr += (infoStr ? " | " : "") + "Drive ▼";
+    if (d.asiaCompressed) infoStr += (infoStr ? " | " : "") + "Asia ◆";
+    setText("stat-sweep-info", infoStr || "—", "small text-muted");
 
     // ── Alerts from snapshot ─────────────────────────────────
     const alerts = d.recentAlerts;
