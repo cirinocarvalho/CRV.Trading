@@ -137,11 +137,9 @@ public class LiveEngineOrchestrator : BackgroundService
                 ? new SourceOverrideSink(sink, "mock")
                 : sink;
 
-            var broadcast = scope.ServiceProvider.GetRequiredService<SnapshotBroadcastService>();
             var wrappedSink = new SnapshotCachingSink(activeSink, snap =>
             {
                 _lastSnapshot = snap;
-                broadcast.Publish(snap);
             });
 
             // ── Order executor — selected by EffectiveExecBroker ────
@@ -233,6 +231,21 @@ public class LiveEngineOrchestrator : BackgroundService
             var newEngine = new OrbStrategyEngine(cfg, executor, wrappedSink, prices,
                 scope.ServiceProvider.GetRequiredService<ILogger<OrbStrategyEngine>>());
             lock (_lifecycleLock) { _engine = newEngine; }
+
+            // Seed module historical levels from daily bars
+            try
+            {
+                var dailyBars = await feed.FetchDailyBarsAsync(cfg.Ticker, 30, ct);
+                if (dailyBars.Count > 0)
+                {
+                    _log.LogInformation("Seeded {Count} daily bars for module levels", dailyBars.Count);
+                    newEngine.SeedModuleHistory(dailyBars);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning("Failed to fetch daily bars for modules: {Err}", ex.Message);
+            }
 
             // Serialize bar processing and tick evaluation — they share all engine state
             var engineLock = new SemaphoreSlim(1, 1);

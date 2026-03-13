@@ -13,6 +13,10 @@ public interface IBarFeed
     /// access to shared state (e.g., via SemaphoreSlim).
     /// </summary>
     event Action<decimal, DateTime>? OnPriceTick;
+
+    /// <summary>Fetch historical daily bars for seeding module levels. Returns empty if not supported.</summary>
+    Task<IReadOnlyList<Bar>> FetchDailyBarsAsync(string ticker, int count, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<Bar>>(Array.Empty<Bar>());
 }
 
 public interface IOrderExecutor
