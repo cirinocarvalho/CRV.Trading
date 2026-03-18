@@ -3,7 +3,7 @@ namespace CRV.Core.Models;
 // ── Enums ────────────────────────────────────────────────────
 public enum SetupId    { A, B, C, D, F }
 public enum Direction  { Long, Short }
-public enum ExitReason { Target, Stop, SessionEnd, Manual }
+public enum ExitReason { Target, Stop, SessionEnd, Manual, AdverseTime }
 
 // ── Live signals fired by the strategy engine ─────────────────
 public record EntrySignal(
@@ -14,7 +14,8 @@ public record EntrySignal(
     decimal   Target,
     decimal   Partial,
     int       Contracts,
-    DateTime  Time);
+    DateTime  Time,
+    string    OrderType = "Market");  // "Market" or "Limit"
 
 public record ExitSignal(
     SetupId    Setup,
@@ -115,6 +116,18 @@ public class EngineSnapshot
     public int        TodayLosses     { get; set; }
     public decimal    TodayMaxDD      { get; set; }
 
+    // Per-setup trade counts
+    public int        TradeCountA     { get; set; }
+    public int        MaxTradesA      { get; set; }
+    public int        TradeCountB     { get; set; }
+    public int        MaxTradesB      { get; set; }
+    public int        TradeCountC     { get; set; }
+    public int        MaxTradesC      { get; set; }
+    public int        TradeCountD     { get; set; }
+    public int        MaxTradesD      { get; set; }
+    public int        TradeCountF     { get; set; }
+    public int        MaxTradesF      { get; set; }
+
     // Expectancy (total + per setup)
     public decimal    Expectancy      { get; set; }
     public decimal    ExpectancyA     { get; set; }
@@ -154,6 +167,7 @@ public class EngineSnapshot
     public bool       PastCutoffD    { get; set; }
     public bool       PastCutoffF    { get; set; }
     public bool       SessionEnded   { get; set; }
+    public string     ActiveSessionId { get; set; } = "";
 
     // Setup enabled flags (from StrategyConfig.EnableA / EnableB)
     public bool SetupAEnabled { get; set; } = true;
@@ -217,6 +231,12 @@ public class EngineSnapshot
     public bool    SetupDBear      { get; set; }
     public bool    SetupFBull      { get; set; }
     public bool    SetupFBear      { get; set; }
+
+    // Signal Strength (each 0–5, composite = average)
+    public decimal DriveScore      { get; set; }
+    public decimal SweepScore      { get; set; }
+    public decimal VwapDevScore    { get; set; }
+    public decimal SignalStrength  { get; set; }
 
     public List<AlertEvent> RecentAlerts { get; set; } = new();
 }
