@@ -884,8 +884,10 @@ public class OrbStrategyEngine
         var localTime = TimeOnly.FromDateTime(local);
 
         bool newDay = tradingDate != _lastDate;
-        if (newDay)
+        if (newDay && !_sessionManagedMode)
         {
+            // Legacy single-session path (backtest, non-SessionManager live).
+            // When SessionManager is active, it calls Reconfigure/ResetDaily instead.
             _log.LogInformation("New trading session {Date} for {Ticker} (local: {LocalTime})",
                 tradingDate.ToString("yyyy-MM-dd"), _cfg.Ticker, local.ToString("HH:mm"));
             _lastDate    = tradingDate;
@@ -928,6 +930,10 @@ public class OrbStrategyEngine
             _openingDrive.NewSession(tradingDate);
             _trendDay.NewSession(tradingDate);
             _compositeSetups.Reset();
+        }
+        else if (newDay)
+        {
+            _lastDate = tradingDate;  // track date even in managed mode
         }
 
         // First live bar/tick after warmup — fire summary alerts immediately
