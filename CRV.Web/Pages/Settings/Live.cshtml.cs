@@ -21,6 +21,8 @@ public class LiveModel : PageModel
     private readonly ILogger<LiveModel>      _log;
 
     [BindProperty] public StrategyConfig Config { get; set; } = new();
+    public List<SessionConfig> Sessions { get; set; } = new();
+    [BindProperty] public string SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh
     public bool   Saved           => TempData["live_saved"] is not null;
     public bool   IsRunning       => _orchestrator.IsRunning;
@@ -28,6 +30,17 @@ public class LiveModel : PageModel
     public bool   SchwabConnected => _schwab.IsAuthenticated;
     public bool   TsConnected     => _ts.IsAuthenticated;
     public bool   TvConnected     => _tv.IsAuthenticated;
+
+    public DateTime PreviousTradingDay
+    {
+        get
+        {
+            var d = DateTime.Today.AddDays(-1);
+            while (d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+                d = d.AddDays(-1);
+            return d;
+        }
+    }
 
     public LiveModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator orchestrator,
                      SchwabAuthService schwab, TradeStationAuthService ts,
@@ -63,7 +76,11 @@ public class LiveModel : PageModel
         }
     }
 
-    public void OnGet() => Config = _cfgSvc.Current.Clone();
+    public void OnGet()
+    {
+        Config = _cfgSvc.Current.Clone();
+        Sessions = Config.Sessions ?? SessionConfig.CreateDefaults(Config);
+    }
 
     public IActionResult OnPost()
     {
@@ -93,6 +110,13 @@ public class LiveModel : PageModel
             Config.Broker, Config.Ticker, Config.Contracts,
             Config.ModeA, Config.PullbackPct, Config.MaxTradesA,
             Config.ModeB, Config.MaxTradesB);
+
+        try
+        {
+            var sessions = System.Text.Json.JsonSerializer.Deserialize<List<SessionConfig>>(SessionsJson);
+            if (sessions != null) Config.Sessions = sessions;
+        }
+        catch { /* ignore invalid JSON on save */ }
 
         _cfgSvc.Update(Config);
         TempData["live_saved"] = "1";
