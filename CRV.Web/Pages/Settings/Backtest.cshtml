@@ -115,6 +115,16 @@
                         <div class="form-text text-muted small">Broker sources always use 0.</div>
                     </div>
                 </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label small">Session</label>
+                    <select name="Config.BacktestSession" class="form-select form-select-sm">
+                        <option value="All"    selected="@(Model.Config.BacktestSession == "All"    ? "selected" : null)">All Sessions</option>
+                        <option value="Asia"   selected="@(Model.Config.BacktestSession == "Asia"   ? "selected" : null)">Asia</option>
+                        <option value="London" selected="@(Model.Config.BacktestSession == "London" ? "selected" : null)">London</option>
+                        <option value="NY"     selected="@(Model.Config.BacktestSession == "NY"     ? "selected" : null)">NY (default)</option>
+                    </select>
+                    <div class="form-text text-muted small">Filter backtest to a specific session, or run all enabled sessions.</div>
+                </div>
             </div>
             <button type="submit" class="btn btn-warning w-100 fw-bold">
                 <i class="bi bi-play-fill me-2"></i>Run Backtest
@@ -139,9 +149,12 @@
             var r = Model.Result;
             <div class="row g-2">
                 @foreach (var card in new[] {
-                    (Title: "Total",   Icon: "bi-bar-chart-fill",            M: r.Total),
+                    (Title: "Total",             Icon: "bi-bar-chart-fill",             M: r.Total),
                     (Title: "Setup A [XACUZZY]", Icon: "bi-triangle-fill",              M: r.SetupA),
-                    (Title: "Setup B [BONGA]", Icon: "bi-arrow-up-right-circle-fill", M: r.SetupB),
+                    (Title: "Setup B [BONGA]",   Icon: "bi-arrow-up-right-circle-fill", M: r.SetupB),
+                    (Title: "Setup C [SWEEP]",   Icon: "bi-arrow-repeat",               M: r.SetupC),
+                    (Title: "Setup D [DRIVE]",   Icon: "bi-lightning-fill",             M: r.SetupD),
+                    (Title: "Setup F [VWAP]",    Icon: "bi-graph-down-arrow",           M: r.SetupF),
                 })
                 {
                     var m = card.M;
@@ -161,7 +174,7 @@
                             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Profit Factor</span>
-                                <span class="font-monospace small @(m.ProfitFactor >= 1.5m ? "pnl-pos" : m.ProfitFactor < 1 && m.TotalTrades > 0 ? "pnl-neg" : "")">@(m.Losses == 0 && m.TotalTrades > 0 ? "∞" : m.ProfitFactor.ToString("F2"))</span>
+                                <span class="font-monospace small @(m.ProfitFactor >= 1.5m ? "pnl-pos" : m.ProfitFactor < 1 && m.TotalTrades > 0 ? "pnl-neg" : "")">@(m.ProfitFactor == 0 && m.NetPnl > 0 ? "∞" : m.ProfitFactor.ToString("F2"))</span>
             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Avg R</span><span class="font-monospace small @PnlCls(m.AvgR)">@m.AvgR.ToString("F2")R</span>
@@ -174,6 +187,10 @@
                             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Avg Loss</span><span class="font-monospace small pnl-neg">@m.AvgLoss.ToString("C0")</span>
+                            </div>
+                            <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                <span class="text-muted small" title="E = (Win% × AvgWin) − (Loss% × AvgLoss)">Expectancy</span>
+                                <span class="font-monospace small @PnlCls(m.Expectancy)">@Pnl(m.Expectancy)</span>
                             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Consec W / L</span><span class="font-monospace small">@m.MaxConsecWins / @m.MaxConsecLosses</span>
@@ -211,17 +228,18 @@
             <h6 class="mb-0"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
             <span class="badge bg-secondary font-monospace ms-2">@r.Trades.Count trades</span>
             <span class="ms-2 small text-muted">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
+            <button type="button" class="btn btn-sm btn-outline-light ms-auto" onclick="exportTradesCsv()"><i class="bi bi-download me-1"></i>CSV</button>
         </div>
         <div class="table-responsive" style="max-height:460px;overflow-y:auto;">
             <table class="table table-sm table-hover trade-table font-monospace mb-0">
                 <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
                     <tr>
-                        <th>#</th><th>In (@(Model.Result != null ? ToEtLabel(Model.Result.Trades.FirstOrDefault()?.EnteredAt ?? DateTime.UtcNow) : "ET"))</th><th>Out</th><th>Setup</th><th>Dir</th>
+                        <th>#</th><th>In (@(Model.Result != null ? ToEtLabel(Model.Result.Trades.FirstOrDefault()?.EnteredAt ?? DateTime.UtcNow) : "ET"))</th><th>Out</th><th>Dur</th><th>Setup</th><th>Dir</th>
                         <th class="text-end">Entry</th><th class="text-end">Exit</th>
                         <th class="text-end">Stop</th><th class="text-end">Target</th>
                         <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
                         <th class="text-end">Gross</th><th class="text-end">Comm</th>
-                        <th class="text-end">Net</th><th class="text-end">R</th><th>Dur</th>
+                        <th class="text-end">Net</th><th class="text-end">R</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -240,7 +258,8 @@
                             <td class="td-dim">@rowNum</td>
                             <td class="td-time">@ToEt(t.EnteredAt)</td>
                             <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
-                            <td><span class="badge @(t.Setup == SetupId.A ? "bg-info text-dark" : "bg-warning text-dark")">@t.Setup</span></td>
+                            <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
+                            <td><span class="badge bg-warning text-dark">@t.Setup</span></td>
                             <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@t.EffectiveDirection</td>
                             <td class="text-end">@t.Entry.ToString("F2")</td>
                             <td class="text-end">@t.Exit.ToString("F2")</td>
@@ -253,7 +272,6 @@
                             <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
                             <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
                             <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
-                            <td class="td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
                         </tr>
                     }
                 </tbody>
@@ -317,6 +335,26 @@
     });
 }());
     </text>
+}
+
+function exportTradesCsv() {
+    const table = document.querySelector('.trade-table');
+    if (!table) return;
+    const lines = [];
+    table.querySelectorAll('tr').forEach(row => {
+        const vals = Array.from(row.querySelectorAll('th, td')).map(c => {
+            let t = c.innerText.replace(/"/g, '""').trim();
+            return '"' + t + '"';
+        });
+        lines.push(vals.join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'backtest_trades.csv';
+    a.click();
+    URL.revokeObjectURL(url);
 }
 </script>
 }

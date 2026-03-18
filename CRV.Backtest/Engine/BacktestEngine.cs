@@ -22,6 +22,13 @@ public class BacktestConfig
     /// CSV bars are resampled to this TF automatically.
     /// </summary>
     public int      ExecutionTFMinutes { get; set; } = 1;
+    /// <summary>
+    /// Which session(s) to include in the backtest.
+    /// "All" runs all enabled sessions via SessionManager.
+    /// "Asia", "London", or "NY" filters to that single session only.
+    /// Default "NY" preserves backward-compatible single-session behaviour.
+    /// </summary>
+    public string   BacktestSession  { get; set; } = "NY";
 }
 
 /// <summary>Runs historical bars through OrbStrategyEngine and collects trade results.</summary>
@@ -58,6 +65,21 @@ public class BacktestEngine
         // instead, four OHLC ticks per input bar drive entries and exits.
         engine.EnableTickMode();
 
+        // ── Multi-session setup ──────────────────────────────────────────
+        var sessions = _cfg.Sessions ?? SessionConfig.CreateDefaults(_cfg);
+        var backtestSession = _btCfg.BacktestSession ?? "NY";
+        if (!string.Equals(backtestSession, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            var target = Enum.Parse<SessionId>(backtestSession, ignoreCase: true);
+            sessions = sessions
+                .Where(s => s.SessionId == target)
+                .Select(s => { s.Enabled = true; return s; })
+                .ToList();
+        }
+        var sessionMgr   = new SessionManager(sessions);
+        var tz           = TimeZoneInfo.FindSystemTimeZoneById(_cfg.Timezone);
+        DateTime lastDailyReset = DateTime.MinValue;
+
         int tfMinutes = Math.Max(1, _btCfg.ExecutionTFMinutes);
 
         // ── Inline execution-TF bucket state ──────────────────────
@@ -71,6 +93,30 @@ public class BacktestEngine
 
         await foreach (var bar in bars.WithCancellation(ct))
         {
+            // ── Session transitions ────────────────────────────────────
+            var local     = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
+            var localTime = TimeOnly.FromDateTime(local);
+            var tradingDate = _cfg.TradingDate(local);
+
+            if (tradingDate != lastDailyReset)
+            {
+                lastDailyReset = tradingDate;
+                engine.ResetDaily();
+            }
+
+            var (transition, session) = sessionMgr.CheckTransition(localTime);
+            switch (transition)
+            {
+                case TransitionType.SessionStarted:
+                    engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
+                    break;
+                case TransitionType.SessionEnded:
+                    await engine.ForceExitAllAsync();
+                    engine.SetIdle();
+                    break;
+            }
+            // ──────────────────────────────────────────────────────────
+
             var key      = BucketStart(bar.Time, tfMinutes);
             bool newBkt  = bucketKey == null || key != bucketKey;
 
@@ -88,14 +134,24 @@ public class BacktestEngine
                 {
                     // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
                     //    Each OHLC tick gets a distinct sub-second offset within the bar's minute
-                    //    (O=+0s, H=+15s, L=+30s, C=+45s) so entry and exit timestamps are
-                    //    distinguishable even when they fall in the same 1-min bar.
+                    //    so entry and exit timestamps are distinguishable.
+                    //    Tick order depends on bar direction:
+                    //      Bullish (C>=O): O→L→H→C  (price dips first, then rallies)
+                    //      Bearish (C<O):  O→H→L→C  (price rallies first, then sells off)
                     foreach (var (o, h, l, c, t) in pending)
                     {
                         prices.UpdatePrice(_cfg.Ticker, o);
                         await engine.ProcessPriceTickAsync(o, t);                       // Open  +0s
-                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));        // High  +15s
-                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));        // Low   +30s
+                        if (c >= o)
+                        {   // Bullish: O → L → H → C
+                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(15));
+                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(30));
+                        }
+                        else
+                        {   // Bearish: O → H → L → C
+                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));
+                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));
+                        }
                         prices.UpdatePrice(_cfg.Ticker, c);
                         await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));        // Close +45s
                     }
@@ -146,11 +202,15 @@ public class BacktestEngine
                 foreach (var (o, h, l, c, t) in pending)
                 {
                     prices.UpdatePrice(_cfg.Ticker, o);
-                    await engine.ProcessPriceTickAsync(o, t);                       // Open  +0s
-                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));        // High  +15s
-                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));        // Low   +30s
+                    await engine.ProcessPriceTickAsync(o, t);
+                    if (c >= o)
+                    {   await engine.ProcessPriceTickAsync(l, t.AddSeconds(15));
+                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(30)); }
+                    else
+                    {   await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));
+                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30)); }
                     prices.UpdatePrice(_cfg.Ticker, c);
-                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));        // Close +45s
+                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));
                 }
                 prices.UpdatePrice(_cfg.Ticker, bClose);
                 await engine.ProcessBarAsync(tfBar, ct);
@@ -181,11 +241,11 @@ internal class BacktestExecutor : IOrderExecutor
     public BacktestExecutor(BacktestConfig btCfg, StrategyConfig cfg, BacktestSink sink)
     { _btCfg = btCfg; _cfg = cfg; _sink = sink; }
 
-    public Task OnEntrySignalAsync(EntrySignal sig)
+    public Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         var filled = sig with { Entry = ApplySlip(sig.Entry, sig.Direction == Direction.Long) };
         _sink.RecordEntry(filled);
-        return Task.CompletedTask;
+        return Task.FromResult<decimal?>(null);
     }
     public Task OnPartialSignalAsync(PartialSignal sig) => Task.CompletedTask;
     public Task OnBESignalAsync(BESignal sig)           => Task.CompletedTask;
