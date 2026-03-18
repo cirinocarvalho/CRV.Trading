@@ -15,7 +15,8 @@ public record EntrySignal(
     decimal   Partial,
     int       Contracts,
     DateTime  Time,
-    string    OrderType = "Market");  // "Market" or "Limit"
+    string    OrderType = "Market",   // "Market" or "Limit"
+    string    SessionId = "NY");      // "Asia" | "London" | "NY"
 
 public record ExitSignal(
     SetupId    Setup,
