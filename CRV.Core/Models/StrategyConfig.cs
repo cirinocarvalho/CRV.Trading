@@ -22,6 +22,12 @@ public class StrategyConfig
     public TimeOnly RthEnd         { get; set; } = new(16, 0);
 
     /// <summary>
+    /// Minutes before RthEnd to force-close all active trades (default 0 = close at RthEnd).
+    /// Example: 15 means exit all positions at 15:45 when RthEnd is 16:00.
+    /// </summary>
+    public int     ExitMinutesBefore { get; set; } = 0;
+
+    /// <summary>
     /// Hour (local) when the futures session starts (default 18 = 6 PM ET for CME).
     /// Bars at or after this hour belong to the NEXT trading day.
     /// Used to reset ORB, VWAP, daily stats, and setup state.
@@ -51,6 +57,17 @@ public class StrategyConfig
     public string  ExecAccountId   { get; set; } = "";       // Exec broker account; empty = use AccountId
     public decimal CommissionPerSide { get; set; } = 2.25m;
 
+    // ── Replay ───────────────────────────────────────────────
+    public DateTime? ReplayDate        { get; set; }
+    public int       ReplaySpeed       { get; set; } = 100;
+    public int       ReplayBalance     { get; set; } = 50000;
+    public bool      SaveReplayTrades  { get; set; } = false;
+
+    // ── Multi-Session ──────────────────────────────────────────
+    [System.Text.Json.Serialization.JsonIgnore]
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public List<SessionConfig>? Sessions { get; set; }
+
     // ── Computed helpers (not persisted) ─────────────────────────────────────
     [System.Text.Json.Serialization.JsonIgnore]
     public string EffectiveExecBroker =>
@@ -63,7 +80,8 @@ public class StrategyConfig
     public bool    EnableA         { get; set; } = true;
     public string  ModeA           { get; set; } = "Conservative";
     public int     MaxTradesA      { get; set; } = 5;
-    public decimal NearPct         { get; set; } = 0.15m;
+    public decimal NearPct         { get; set; } = 0.15m;   // legacy — alias for NearPctA (EF column kept for compat)
+    public decimal NearPctA        { get; set; } = 0.15m;
     public decimal PullbackPct     { get; set; } = 0.50m;
     public decimal StopPctA        { get; set; } = 0.10m;
     public int     TargetPctA      { get; set; } = 100;
@@ -79,6 +97,14 @@ public class StrategyConfig
     /// </summary>
     public int     EntryTickOffsetA { get; set; } = 0;
 
+    /// <summary>Order type for Setup A entries: "Market" or "Limit". Default "Market".</summary>
+    public string  OrderTypeA      { get; set; } = "Market";
+
+    /// <summary>Fixed partial exit contracts for Setup A. 0 = auto (50% floor).</summary>
+    public int     PartialCtsA      { get; set; } = 0;
+    /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
+    public int     MaxAdverseMinutesA { get; set; } = 0;
+
     // Per-setup filters / sizing (A)
     public int     ContractsA       { get; set; } = 2;
     public decimal HiVolMultA       { get; set; } = 1.0m;
@@ -93,6 +119,7 @@ public class StrategyConfig
     public bool    EnableB         { get; set; } = true;
     public string  ModeB           { get; set; } = "Conservative";
     public int     MaxTradesB      { get; set; } = 5;
+    public decimal NearPctB        { get; set; } = 0.15m;
     public decimal RetestPct       { get; set; } = 0.05m;
     public int     TargetPctB      { get; set; } = 100;
     public int     PartialPctB     { get; set; } = 50;
@@ -106,6 +133,14 @@ public class StrategyConfig
     /// Positive values push the entry in the trade direction (improves fill probability).
     /// </summary>
     public int     EntryTickOffsetB { get; set; } = 0;
+
+    /// <summary>Order type for Setup B entries: "Market" or "Limit". Default "Market".</summary>
+    public string  OrderTypeB      { get; set; } = "Market";
+
+    /// <summary>Fixed partial exit contracts for Setup B. 0 = auto (50% floor).</summary>
+    public int     PartialCtsB      { get; set; } = 0;
+    /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
+    public int     MaxAdverseMinutesB { get; set; } = 0;
 
     /// <summary>
     /// Stop distance for Setup B as a fraction of ORB range (default 0.50 = 50%).
@@ -138,12 +173,17 @@ public class StrategyConfig
     public int     MaxContractsC    { get; set; } = 2;
     public int     MaxTradesC       { get; set; } = 3;
     public int     PartialPctC      { get; set; } = 50;
+    /// <summary>Fixed partial exit contracts for Setup C. 0 = auto (50% floor).</summary>
+    public int     PartialCtsC      { get; set; } = 0;
+    /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
+    public int     MaxAdverseMinutesC { get; set; } = 0;
     public bool    UsePartialC      { get; set; } = true;
     public bool    UseBeC           { get; set; } = true;
     public decimal MinRrC           { get; set; } = 1.5m;
     public int     CutoffHourC      { get; set; } = 14;
     public int     CutoffMinuteC    { get; set; } = 30;
     public bool    CloseAtRthCloseC { get; set; } = true;
+    public string  OrderTypeC       { get; set; } = "Market";
 
     // ── Setup D — Opening Drive Pullback ────────────────────
     public bool    EnableD              { get; set; } = false;
@@ -157,12 +197,17 @@ public class StrategyConfig
     public int     MaxContractsD    { get; set; } = 2;
     public int     MaxTradesD       { get; set; } = 3;
     public int     PartialPctD      { get; set; } = 50;
+    /// <summary>Fixed partial exit contracts for Setup D. 0 = auto (50% floor).</summary>
+    public int     PartialCtsD      { get; set; } = 0;
+    /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
+    public int     MaxAdverseMinutesD { get; set; } = 0;
     public bool    UsePartialD      { get; set; } = true;
     public bool    UseBeD           { get; set; } = true;
     public decimal MinRrD           { get; set; } = 1.5m;
     public int     CutoffHourD      { get; set; } = 14;
     public int     CutoffMinuteD    { get; set; } = 30;
     public bool    CloseAtRthCloseD { get; set; } = true;
+    public string  OrderTypeD       { get; set; } = "Market";
 
     // ── Setup F — Midday VWAP Reversion ─────────────────────
     public bool    EnableF              { get; set; } = false;
@@ -176,12 +221,17 @@ public class StrategyConfig
     public int     MaxContractsF    { get; set; } = 2;
     public int     MaxTradesF       { get; set; } = 3;
     public int     PartialPctF      { get; set; } = 50;
+    /// <summary>Fixed partial exit contracts for Setup F. 0 = auto (50% floor).</summary>
+    public int     PartialCtsF      { get; set; } = 0;
+    /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
+    public int     MaxAdverseMinutesF { get; set; } = 0;
     public bool    UsePartialF      { get; set; } = true;
     public bool    UseBeF           { get; set; } = true;
     public decimal MinRrF           { get; set; } = 1.5m;
     public int     CutoffHourF      { get; set; } = 14;
     public int     CutoffMinuteF    { get; set; } = 30;
     public bool    CloseAtRthCloseF { get; set; } = true;
+    public string  OrderTypeF       { get; set; } = "Market";
 
     // ── Forced Exit ───────────────────────────────────────────
     public bool    CloseAtRthClose { get; set; } = true;
@@ -239,7 +289,7 @@ public class StrategyConfig
             errors.Add("MaxContracts must be >= Contracts.");
         if (CommissionPerSide < 0)
             errors.Add("CommissionPerSide must be non-negative.");
-        var validBrokers = new[] { "Schwab", "TradeStation", "Tradovate", "Mock" };
+        var validBrokers = new[] { "Schwab", "TradeStation", "Tradovate", "TradovateReplay", "Mock" };
         if (!string.IsNullOrWhiteSpace(ExecBroker) && !validBrokers.Contains(ExecBroker))
             errors.Add($"ExecBroker must be one of: {string.Join(", ", validBrokers)}.");
         if (CutoffHour < 0 || CutoffHour > 23)
@@ -253,8 +303,8 @@ public class StrategyConfig
         {
             if (StopPctA <= 0)
                 errors.Add("StopPctA must be positive.");
-            if (NearPct <= 0 || NearPct > 1)
-                errors.Add("NearPct must be between 0 and 1.");
+            if (NearPctA <= 0 || NearPctA > 1)
+                errors.Add("NearPctA must be between 0 and 1.");
             if (PullbackPct <= 0 || PullbackPct > 1)
                 errors.Add("PullbackPct must be between 0 and 1.");
             if (MinRrA <= 0)
@@ -269,6 +319,8 @@ public class StrategyConfig
                 errors.Add("EntryTickOffsetA must be non-negative.");
             if (ContractsA <= 0)
                 errors.Add("ContractsA must be positive.");
+            if (PartialCtsA > 0 && PartialCtsA >= ContractsA)
+                errors.Add("PartialCtsA must be less than ContractsA.");
             if (CutoffHourA < 0 || CutoffHourA > 23)
                 errors.Add("CutoffHourA must be 0-23.");
             if (CutoffMinuteA < 0 || CutoffMinuteA > 59)
@@ -277,6 +329,8 @@ public class StrategyConfig
 
         if (EnableB)
         {
+            if (NearPctB <= 0 || NearPctB > 1)
+                errors.Add("NearPctB must be between 0 and 1.");
             if (RetestPct <= 0 || RetestPct > 1)
                 errors.Add("RetestPct must be between 0 and 1.");
             if (MinRrB <= 0)
@@ -293,6 +347,8 @@ public class StrategyConfig
                 errors.Add("StopPctB must be positive.");
             if (ContractsB <= 0)
                 errors.Add("ContractsB must be positive.");
+            if (PartialCtsB > 0 && PartialCtsB >= ContractsB)
+                errors.Add("PartialCtsB must be less than ContractsB.");
             if (CutoffHourB < 0 || CutoffHourB > 23)
                 errors.Add("CutoffHourB must be 0-23.");
             if (CutoffMinuteB < 0 || CutoffMinuteB > 59)
@@ -303,6 +359,8 @@ public class StrategyConfig
         {
             if (ContractsC <= 0)
                 errors.Add("ContractsC must be positive.");
+            if (PartialCtsC > 0 && PartialCtsC >= ContractsC)
+                errors.Add("PartialCtsC must be less than ContractsC.");
             if (MaxTradesC < 0)
                 errors.Add("MaxTradesC must be non-negative.");
             if (PartialPctC <= 0 || PartialPctC >= 100)
@@ -319,6 +377,8 @@ public class StrategyConfig
         {
             if (ContractsD <= 0)
                 errors.Add("ContractsD must be positive.");
+            if (PartialCtsD > 0 && PartialCtsD >= ContractsD)
+                errors.Add("PartialCtsD must be less than ContractsD.");
             if (MaxTradesD < 0)
                 errors.Add("MaxTradesD must be non-negative.");
             if (PartialPctD <= 0 || PartialPctD >= 100)
@@ -335,6 +395,8 @@ public class StrategyConfig
         {
             if (ContractsF <= 0)
                 errors.Add("ContractsF must be positive.");
+            if (PartialCtsF > 0 && PartialCtsF >= ContractsF)
+                errors.Add("PartialCtsF must be less than ContractsF.");
             if (MaxTradesF < 0)
                 errors.Add("MaxTradesF must be non-negative.");
             if (PartialPctF <= 0 || PartialPctF >= 100)
