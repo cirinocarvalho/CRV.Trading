@@ -35,20 +35,44 @@ public class LiveEngineOrchestrator : BackgroundService
     public string   Status       { get; private set; } = "Stopped";
     public EngineSnapshot? LastSnapshot => _lastSnapshot;
 
-    /// <summary>Request an immediate market exit for the active Setup A trade (applied on next bar).</summary>
-    public void ForceExitSetupA()
+    /// <summary>Force-exit Setup A immediately at current market price.</summary>
+    public async Task ForceExitSetupA()
     {
         OrbStrategyEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }
-        eng?.RequestForceExitA();
+        if (eng != null) await eng.RequestForceExitA();
     }
 
-    /// <summary>Request an immediate market exit for the active Setup B trade (applied on next bar).</summary>
-    public void ForceExitSetupB()
+    /// <summary>Force-exit Setup B immediately at current market price.</summary>
+    public async Task ForceExitSetupB()
     {
         OrbStrategyEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }
-        eng?.RequestForceExitB();
+        if (eng != null) await eng.RequestForceExitB();
+    }
+
+    /// <summary>Force-exit Setup C immediately at current market price.</summary>
+    public async Task ForceExitSetupC()
+    {
+        OrbStrategyEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        if (eng != null) await eng.RequestForceExitC();
+    }
+
+    /// <summary>Force-exit Setup D immediately at current market price.</summary>
+    public async Task ForceExitSetupD()
+    {
+        OrbStrategyEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        if (eng != null) await eng.RequestForceExitD();
+    }
+
+    /// <summary>Force-exit Setup F immediately at current market price.</summary>
+    public async Task ForceExitSetupF()
+    {
+        OrbStrategyEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        if (eng != null) await eng.RequestForceExitF();
     }
 
     public LiveEngineOrchestrator(IServiceProvider sp, IConfiguration config, ILogger<LiveEngineOrchestrator> log)
@@ -113,7 +137,7 @@ public class LiveEngineOrchestrator : BackgroundService
             {
                 "TradeStation" => _config["TradeStation:AccountId"] ?? cfg.AccountId,
                 "Schwab"       => _config["Schwab:AccountId"]       ?? cfg.AccountId,
-                "Tradovate"    => _config["Tradovate:AccountId"]    ?? cfg.AccountId,
+                "Tradovate" or "TradovateReplay" => _config["Tradovate:AccountId"] ?? cfg.AccountId,
                 _              => cfg.AccountId
             };
 
@@ -123,7 +147,7 @@ public class LiveEngineOrchestrator : BackgroundService
             {
                 "TradeStation" => _config["TradeStation:AccountId"] ?? cfg.AccountId,
                 "Schwab"       => _config["Schwab:AccountId"]       ?? cfg.AccountId,
-                "Tradovate"    => _config["Tradovate:AccountId"]    ?? cfg.AccountId,
+                "Tradovate" or "TradovateReplay" => _config["Tradovate:AccountId"] ?? cfg.AccountId,
                 _              => cfg.AccountId
             };
             if (!string.IsNullOrWhiteSpace(cfg.ExecAccountId))
@@ -135,7 +159,11 @@ public class LiveEngineOrchestrator : BackgroundService
             // When exec broker is Mock, wrap the sink to tag all completed trades with Source="mock"
             IStrategyEventSink activeSink = execBroker == "Mock"
                 ? new SourceOverrideSink(sink, "mock")
-                : sink;
+                : execBroker == "TradovateReplay"
+                    ? (cfg.SaveReplayTrades
+                        ? new SourceOverrideSink(sink, "replay")
+                        : (IStrategyEventSink) new ReplayFilterSink(new SourceOverrideSink(sink, "replay"), _log))
+                    : sink;
 
             var wrappedSink = new SnapshotCachingSink(activeSink, snap =>
             {
@@ -162,6 +190,12 @@ public class LiveEngineOrchestrator : BackgroundService
                             scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
                             execCfg,
                             scope.ServiceProvider.GetRequiredService<ILogger<TradeStationExecutor>>(),
+                            httpFactory),
+                        "TradovateReplay" => new TradovateExecutor(
+                            CreateReplayAuthService(scope),
+                            execCfg,
+                            scope.ServiceProvider.GetRequiredService<ILogger<TradovateExecutor>>(),
+                            scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
                             httpFactory),
                         "Tradovate" => new TradovateExecutor(
                             scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
@@ -205,6 +239,7 @@ public class LiveEngineOrchestrator : BackgroundService
                         cfg, prices,
                         scope.ServiceProvider.GetRequiredService<ILogger<TradeStationBarFeed>>(),
                         feedHttpFactory),
+                    "TradovateReplay" => CreateReplayBarFeed(scope, cfg, prices),
                     "Tradovate" => new TradovateBarFeed(
                         scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
                         cfg, prices,
@@ -247,6 +282,40 @@ public class LiveEngineOrchestrator : BackgroundService
                 _log.LogWarning("Failed to fetch daily bars for modules: {Err}", ex.Message);
             }
 
+            // Multi-session support
+            var sessions = cfg.Sessions ?? SessionConfig.CreateDefaults(cfg);
+            var sessionMgr = new SessionManager(sessions);
+
+            DateTime lastDailyReset = DateTime.MinValue;
+
+            async Task CheckSessionTransitionAsync(DateTime barTimeUtc)
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(cfg.Timezone);
+                var local = TimeZoneInfo.ConvertTimeFromUtc(barTimeUtc, tz);
+                var localTime = TimeOnly.FromDateTime(local);
+
+                // Daily reset at TradingDate boundary (before first session of the day)
+                var tradingDate = cfg.TradingDate(local);
+                if (tradingDate != lastDailyReset)
+                {
+                    lastDailyReset = tradingDate;
+                    newEngine.ResetDaily();
+                }
+
+                var (transition, session) = sessionMgr.CheckTransition(localTime);
+                switch (transition)
+                {
+                    case TransitionType.SessionStarted:
+                        var flat = session!.ToLegacyConfig(cfg);
+                        newEngine.Reconfigure(flat, session.SessionId);
+                        break;
+                    case TransitionType.SessionEnded:
+                        await newEngine.ForceExitAllAsync();
+                        newEngine.SetIdle();
+                        break;
+                }
+            }
+
             // Serialize bar processing and tick evaluation — they share all engine state
             var engineLock = new SemaphoreSlim(1, 1);
 
@@ -279,7 +348,11 @@ public class LiveEngineOrchestrator : BackgroundService
                     lock (_lifecycleLock) { engine = _engine; }
                     if (engine == null) break;
                     await engineLock.WaitAsync(ct);
-                    try   { await engine.ProcessPriceTickAsync(price, time); }
+                    try
+                    {
+                        await CheckSessionTransitionAsync(time);
+                        await engine.ProcessPriceTickAsync(price, time);
+                    }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
                     finally { engineLock.Release(); }
@@ -311,7 +384,10 @@ public class LiveEngineOrchestrator : BackgroundService
             // built-in history replay (TS barsback=20) and must be treated as warmup — builds
             // ORB/ATR/VWAP without firing orders or consuming the trade-count budget.
             // Bars at or after the cutoff are live and run the full strategy.
-            var warmupCutoffUtc = DateTime.UtcNow.AddMinutes(-cfg.ExecutionTFMinutes);
+            var warmupCutoffUtc = (cfg.Broker == "TradovateReplay" && cfg.ReplayDate.HasValue
+                ? cfg.ReplayDate.Value.ToUniversalTime()
+                : DateTime.UtcNow)
+                .AddMinutes(-cfg.ExecutionTFMinutes);
 
             await foreach (var bar in feed.StreamAsync(ct))
             {
@@ -320,6 +396,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 await engineLock.WaitAsync(ct);
                 try
                 {
+                    await CheckSessionTransitionAsync(bar.Time);
                     if (bar.IsConfirmed && bar.Time < warmupCutoffUtc)
                         await _engine.WarmupBarAsync(bar, ct);
                     else
@@ -355,6 +432,55 @@ public class LiveEngineOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Creates a TradovateAuthService configured for the replay endpoint.
+    /// </summary>
+    private TradovateAuthService CreateReplayAuthService(IServiceScope scope)
+    {
+        return new TradovateAuthService(
+            _config["Tradovate:Username"] ?? "",
+            _config["Tradovate:Password"] ?? "",
+            int.TryParse(_config["Tradovate:Cid"], out var cid) ? cid : 0,
+            _config["Tradovate:Secret"] ?? "",
+            _config["Tradovate:DeviceId"] ?? "",
+            _config["Tradovate:AppId"] ?? "CRVBot",
+            Path.Combine(Path.GetTempPath(), "crv-tradovate-replay-tokens.json"),
+            apiBaseUrl: "https://replay.tradovateapi.com/v1",
+            mdWssUrl: "wss://replay.tradovateapi.com/v1/websocket",
+            httpFactory: scope.ServiceProvider.GetRequiredService<IHttpClientFactory>(),
+            log: scope.ServiceProvider.GetRequiredService<ILogger<TradovateAuthService>>());
+    }
+
+    /// <summary>
+    /// Creates a TradovateBarFeed configured for replay with clock init and chart start override.
+    /// </summary>
+    private IBarFeed CreateReplayBarFeed(IServiceScope scope, StrategyConfig cfg, ILastPriceProvider prices)
+    {
+        var replayAuth = CreateReplayAuthService(scope);
+        var feed = new TradovateBarFeed(replayAuth, cfg, prices,
+            scope.ServiceProvider.GetRequiredService<ILogger<TradovateBarFeed>>());
+
+        var replayDate = cfg.ReplayDate ?? DateTime.UtcNow.AddDays(-1);
+        feed.ChartStartOverride = replayDate.ToUniversalTime();
+        feed.PostAuthAction = async (ws, ct) =>
+        {
+            var clockReq = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                startTimestamp = replayDate.ToUniversalTime().ToString("O"),
+                speed          = cfg.ReplaySpeed,
+                initialBalance = cfg.ReplayBalance
+            });
+            var frame = $"replay/initializeclock\n2\n\n{clockReq}";
+            await ws.SendAsync(
+                System.Text.Encoding.UTF8.GetBytes(frame),
+                System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
+            _log.LogInformation("Replay clock initialized: {Date} speed={Speed}% balance=${Bal}",
+                replayDate, cfg.ReplaySpeed, cfg.ReplayBalance);
+        };
+
+        return feed;
+    }
+
+    /// <summary>
     /// Fetches today's closed bars from the broker REST API and feeds them to the engine
     /// so the ORB and ATR are fully warm when the engine starts mid-session.
     /// Returns the number of bars fed, or 0 if backfill was skipped / failed.
@@ -369,6 +495,14 @@ public class LiveEngineOrchestrator : BackgroundService
             var nowUtc = DateTime.UtcNow;
             var nowEt  = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, etTz);
             var today  = nowEt.Date;
+
+            // Try to restore ORB from cache (streaming-derived, not REST)
+            var cached = OrbStateCacheService.Load(cfg.Ticker, today);
+            if (cached != null)
+            {
+                engine.RestoreOrb(cached);
+                _log.LogInformation("ORB restored from cache for {Ticker}", cfg.Ticker);
+            }
 
             var orbStartEt = today.Add(cfg.OrbStart.ToTimeSpan());
 
@@ -413,6 +547,14 @@ public class LiveEngineOrchestrator : BackgroundService
             }
             else if (cfg.Broker == "Schwab")
             {
+                // Validate the configured ticker is the current active contract
+                var root = FuturesSymbol.RootSymbol(cfg.Ticker);
+                var active = ContractRollCalendar.ActiveContract(root);
+                if (!string.Equals(FuturesSymbol.Normalize(cfg.Ticker), active, StringComparison.OrdinalIgnoreCase))
+                    _log.LogWarning(
+                        "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
+                        cfg.Ticker, active);
+
                 var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new SchwabHistoricalLoader(
@@ -420,17 +562,37 @@ public class LiveEngineOrchestrator : BackgroundService
                 bars = loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
             }
             // Tradovate historical loader: add in Task 14
-            else if (cfg.Broker == "Tradovate") return 0; // warmup via stream's built-in history
+            else if (cfg.Broker is "Tradovate" or "TradovateReplay") return 0; // warmup via stream's built-in history
             else return 0;
 
             int count = 0;
+            int skipped = 0;
+            Bar? prevBar = null;
             await foreach (var bar in bars.WithCancellation(ct))
             {
+                // Detect intra-session price jumps >10% between consecutive bars (stale/wrong contract data).
+                // Only check same-day bars — cross-session gaps are normal.
+                if (prevBar != null && prevBar.Close > 0 && bar.Open > 0 && prevBar.Time.Date == bar.Time.Date)
+                {
+                    decimal pctChange = Math.Abs(bar.Open - prevBar.Close) / prevBar.Close;
+                    if (pctChange > 0.10m)
+                    {
+                        _log.LogWarning(
+                            "Backfill anomaly: intra-session price jump {Pct:P1} between {T1:u} C={C1:F2} and {T2:u} O={O2:F2} — skipping bar (possible stale contract data from broker)",
+                            pctChange, prevBar.Time, prevBar.Close, bar.Time, bar.Open);
+                        skipped++;
+                        continue;
+                    }
+                }
+
                 // WarmupBarAsync builds ORB/ATR/VWAP without running strategy logic,
                 // so historical bars do not fire orders or consume the trade-count budget.
                 await engine.WarmupBarAsync(bar, ct);
+                prevBar = bar;
                 count++;
             }
+            if (skipped > 0)
+                _log.LogWarning("Backfill: skipped {Skipped} anomalous bars (possible wrong contract data)", skipped);
             return count;
         }
         catch (Exception ex)
@@ -465,6 +627,34 @@ internal class SourceOverrideSink : IStrategyEventSink
     {
         t.Source = _source; // override before persistence
         return _inner.OnExitAsync(s, t);
+    }
+}
+
+/// <summary>
+/// Wraps IStrategyEventSink to suppress trade persistence while keeping
+/// dashboard snapshots and engine signals flowing. Used when SaveReplayTrades=false.
+/// </summary>
+internal class ReplayFilterSink : IStrategyEventSink
+{
+    private readonly IStrategyEventSink _inner;
+    private readonly ILogger _log;
+
+    public ReplayFilterSink(IStrategyEventSink inner, ILogger log)
+    {
+        _inner = inner;
+        _log   = log;
+    }
+
+    public Task OnEntryAsync(EntrySignal s)          => _inner.OnEntryAsync(s);
+    public Task OnPartialAsync(PartialSignal s)      => _inner.OnPartialAsync(s);
+    public Task OnBEMoveAsync(BESignal s)            => _inner.OnBEMoveAsync(s);
+    public Task OnSnapshotAsync(EngineSnapshot snap) => _inner.OnSnapshotAsync(snap);
+
+    public Task OnExitAsync(ExitSignal s, TradeRecord t)
+    {
+        _log.LogInformation("[REPLAY] Trade completed but NOT persisted: {Setup} {Dir} {Entry}→{Exit} PnL={Pnl:F2}",
+            t.Setup, t.Direction, t.Entry, t.Exit, t.NetPnl);
+        return Task.CompletedTask;
     }
 }
 
