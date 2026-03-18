@@ -4,7 +4,7 @@ namespace CRV.Core.Modules;
 
 public class TrendDayFilter : IEngineModule
 {
-    private readonly ModuleConfig _cfg;
+    private ModuleConfig _cfg;
 
     public int BullScore { get; private set; }
     public int BearScore { get; private set; }
@@ -15,6 +15,9 @@ public class TrendDayFilter : IEngineModule
     {
         _cfg = cfg;
     }
+
+    /// <summary>Update module parameters for a new session config.</summary>
+    public void Reconfigure(ModuleConfig cfg) => _cfg = cfg;
 
     public void Update(
         bool openingDriveBull, bool openingDriveBear,

@@ -15,7 +15,7 @@ public enum VwapState
 public class VwapModel : IEngineModule
 {
     private readonly VwapIndicator _vwap = new();
-    private readonly ModuleConfig _cfg;
+    private ModuleConfig _cfg;
     private readonly List<decimal> _deviations = new();
 
     // VWAP value and bands
@@ -51,6 +51,9 @@ public class VwapModel : IEngineModule
     {
         _cfg = cfg;
     }
+
+    /// <summary>Update module parameters for a new session config.</summary>
+    public void Reconfigure(ModuleConfig cfg) => _cfg = cfg;
 
     public void OnBar(Bar bar, DateTime tradingDate)
     {

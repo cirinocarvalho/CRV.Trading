@@ -14,7 +14,7 @@ public enum SessionType
 
 public class SessionEngine : IEngineModule
 {
-    private readonly ModuleConfig _cfg;
+    private ModuleConfig _cfg;
     private readonly TimeZoneInfo _tz;
 
     // Current session high/low (full day)
@@ -62,6 +62,9 @@ public class SessionEngine : IEngineModule
         _cfg = cfg;
         _tz  = FindTz(cfg.Timezone);
     }
+
+    /// <summary>Update module parameters for a new session config.</summary>
+    public void Reconfigure(ModuleConfig cfg) => _cfg = cfg;
 
     public void OnBar(Bar bar, DateTime tradingDate)
     {

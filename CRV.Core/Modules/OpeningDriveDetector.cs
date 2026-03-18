@@ -4,7 +4,7 @@ namespace CRV.Core.Modules;
 
 public class OpeningDriveDetector : IEngineModule
 {
-    private readonly ModuleConfig _cfg;
+    private ModuleConfig _cfg;
 
     private int _bullCount;
     private int _bearCount;
@@ -26,6 +26,9 @@ public class OpeningDriveDetector : IEngineModule
     {
         _cfg = cfg;
     }
+
+    /// <summary>Update module parameters for a new session config.</summary>
+    public void Reconfigure(ModuleConfig cfg) => _cfg = cfg;
 
     /// <summary>Call for each bar during the ORB window to accumulate bull/bear counts and track drive range.</summary>
     public void AccumulateOrbBar(Bar bar)

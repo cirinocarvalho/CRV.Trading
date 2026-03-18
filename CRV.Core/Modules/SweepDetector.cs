@@ -16,7 +16,7 @@ public record SweepEvent(decimal Level, SweepType Type, SweepDirection Direction
 
 public class SweepDetector : IEngineModule
 {
-    private readonly ModuleConfig _cfg;
+    private ModuleConfig _cfg;
 
     // Fixed levels set externally
     private decimal _pdh, _pdl, _pwh, _pwl, _pmh, _pml;
@@ -39,6 +39,9 @@ public class SweepDetector : IEngineModule
     {
         _cfg = cfg;
     }
+
+    /// <summary>Update module parameters for a new session config.</summary>
+    public void Reconfigure(ModuleConfig cfg) => _cfg = cfg;
 
     public void SetLevels(
         decimal pdh, decimal pdl,
