@@ -1147,6 +1147,7 @@ public class OrbStrategyEngine
             {
                 TradingDate = bar.Time.Date,
                 Symbol      = _cfg.Ticker,
+                SessionId   = _activeSessionId,
                 OrbHigh     = _orb.OrbHigh,
                 OrbLow      = _orb.OrbLow,
                 CloseRelPct = _orb.CloseRelPct,
