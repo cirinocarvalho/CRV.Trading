@@ -1,0 +1,115 @@
+@page "/dashboard/sessions"
+@model CRV.Web.Pages.Dashboard.SessionsModel
+@{
+    ViewData["Title"] = "Session Detail";
+    ViewData["Page"]  = "sessions";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<div class="d-flex align-items-center gap-3 mb-3">
+    <h4 class="mb-0">Session Detail</h4>
+    <a href="/dashboard" class="btn btn-outline-secondary btn-sm ms-auto">
+        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+    </a>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="sessionDetailTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#det-Asia" type="button" role="tab">
+            Asia <span class="badge bg-secondary">@Model.AsiaTrades.Count</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#det-London" type="button" role="tab">
+            London <span class="badge bg-secondary">@Model.LondonTrades.Count</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#det-NY" type="button" role="tab">
+            NY <span class="badge bg-secondary">@Model.NYTrades.Count</span>
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    @{
+        var sessionData = new (string Id, List<CRV.Core.Models.TradeRecord> Trades, bool IsActive)[]
+        {
+            ("Asia",   Model.AsiaTrades,   true),
+            ("London", Model.LondonTrades, false),
+            ("NY",     Model.NYTrades,     false)
+        };
+    }
+    @foreach (var session in sessionData)
+    {
+        <div class="tab-pane fade @(session.IsActive ? "show active" : "")" id="det-@session.Id" role="tabpanel">
+            @if (session.Trades.Count == 0)
+            {
+                <p class="text-muted mt-3">No trades this session.</p>
+            }
+            else
+            {
+                var wins   = session.Trades.Count(t => t.IsWin);
+                var losses = session.Trades.Count - wins;
+                var pnl    = session.Trades.Sum(t => t.NetPnl);
+                <div class="row g-2 mb-3 mt-2">
+                    <div class="col-6 col-md-3">
+                        <div class="card p-2 text-center">
+                            <div class="text-muted small">Trades</div>
+                            <div class="fs-5 fw-bold">@session.Trades.Count</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-2 text-center">
+                            <div class="text-muted small">Wins</div>
+                            <div class="fs-5 fw-bold text-success">@wins</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-2 text-center">
+                            <div class="text-muted small">Losses</div>
+                            <div class="fs-5 fw-bold text-danger">@losses</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-2 text-center">
+                            <div class="text-muted small">Net PnL</div>
+                            <div class="fs-5 fw-bold @(pnl >= 0 ? "text-success" : "text-danger")">@pnl.ToString("C0")</div>
+                        </div>
+                    </div>
+                </div>
+                <table class="table table-sm table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>Setup</th>
+                            <th>Dir</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>PnL</th>
+                            <th>R</th>
+                            <th>Exit Reason</th>
+                            <th>Time</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in session.Trades)
+                        {
+                            <tr class="@(t.IsWin ? "table-success" : "table-danger")">
+                                <td>@t.Setup</td>
+                                <td>@t.Direction</td>
+                                <td class="font-monospace">@t.Entry.ToString("F2")</td>
+                                <td class="font-monospace">@t.Exit.ToString("F2")</td>
+                                <td class="font-monospace">@t.NetPnl.ToString("C0")</td>
+                                <td class="font-monospace">@t.RMultiple.ToString("F2")</td>
+                                <td>@t.ExitReason</td>
+                                <td class="font-monospace">@t.EnteredAt.ToString("HH:mm")</td>
+                                <td class="font-monospace">@t.Duration.ToString(@"mm\:ss")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+</div>
