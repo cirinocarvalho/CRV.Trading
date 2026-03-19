@@ -20,7 +20,7 @@ Two new setups integrated into `OrbStrategyEngine` using the same field pattern,
 
 **File:** `CRV.Core/Modules/FalseBreakoutDetector.cs`
 
-Stateful module implementing `IEngineModule`. Contains two internal trackers:
+Stateful module implementing `IEngineModule`. Has its own `Reconfigure(ModuleConfig cfg, StrategyConfig strCfg)` public method (like `SessionEngine.Reconfigure`) — NOT on the `IEngineModule` interface. The `StrategyConfig` parameter provides access to `FB*` module params. Contains two internal trackers:
 
 ### 1.1 RangeBreakoutTracker (internal class)
 
@@ -60,9 +60,11 @@ Shared logic for both range sources. Each tracker holds:
 
 **OrbTracker:** Reference levels = `OrbHigh`/`OrbLow` from `OrbCalculator`. Locked when ORB is formed.
 
-**SessionRangeTracker:** Reference levels from `SessionEngine`:
-- During London session: `AsiaHigh`/`AsiaLow` (locked at Asia end)
-- During NY session: `LondonHigh`/`LondonLow` (locked at London end)
+**SessionRangeTracker:** Reference levels snapshotted from `SessionEngine` at session boundaries. `SessionEngine` updates its `AsiaHigh`/`AsiaLow` and `LondonHigh`/`LondonLow` continuously, so the detector must capture locked snapshots:
+- On London session start: snapshot `AsiaHigh`/`AsiaLow` → `LockedRangeHigh`/`LockedRangeLow`
+- On NY session start: snapshot `LondonHigh`/`LondonLow` → `LockedRangeHigh`/`LockedRangeLow`
+
+The detector's `OnSessionStart(SessionEngine sessionEngine, SessionType newSession)` method captures these snapshots. Called from `OrbStrategyEngine.Reconfigure()` when session transitions occur.
 
 ### 1.5 Compound Signal
 
@@ -86,7 +88,17 @@ public bool IsCompoundFakeout =>
 
 ### 1.7 Reset
 
-`NewSession()` clears both trackers. `Reconfigure()` updates config and recomputes `MaxBarsAllowed`.
+`NewSession()` clears both trackers and locked range snapshots. `Reconfigure(ModuleConfig, StrategyConfig)` updates config and recomputes `MaxBarsAllowed` from `FB*` params and `ExecutionTFMinutes`.
+
+### 1.8 Dependencies & Coupling
+
+The module receives external state as parameters to `OnBar`, not via held references:
+```csharp
+void OnBar(Bar bar, DateTime tradingDate,
+           decimal orbHigh, decimal orbLow, bool orbFormed,
+           decimal vwap, int trendBullScore, int trendBearScore);
+```
+This keeps the module decoupled from `OrbCalculator`, `VwapModel`, and `TrendDayFilter` instances. The engine passes these values from its own module instances.
 
 ## 2. Engine State Machines
 
@@ -120,13 +132,17 @@ When `_stC == ±1`:
 - **Long entry:** tick price crosses above ORB low (was false break below)
 - **Short entry:** tick price crosses below ORB high (was false break above)
 - Apply `NearPctC` guard — reject if price too far from arm level
-- Calculate levels: `StopPctC`/`TargetPctC`/`PartialPctC` of ORB range (C) or session range (D)
-- Stop reference: tracker's `SweepLow` (long) or `SweepHigh` (short), offset by `StopPctC`
+- Apply `EntryTickOffsetC` — adjust entry price by N ticks
+- Calculate levels using `LevelCalculator.CalcLevels(entry, isLong, StopPctC, TargetPctC, PartialPctC, rangeSize, tickSize)` where `rangeSize` = ORB range (C) or locked session range (D). Stop/target/partial are percentages of this range, applied from the entry price — same math as A/B.
 - Fire `EntrySignal(Setup: SetupId.C, ...)` → `IOrderExecutor.OnEntrySignalAsync`
 - Apply fill price, fire `IStrategyEventSink.OnEntryAsync`
 - Set `_stC = ±2`, record entry fields
 
-### 2.5 Exit Logic
+### 2.5 Interaction with Setup A/B
+
+Setup C/D can be active simultaneously with A/B on the same instrument. No mutual exclusion — each setup manages its own trade independently. This matches the existing A+B behavior (both can be active at the same time).
+
+### 2.6 Exit Logic
 
 Identical to A/B — no new exit mechanics:
 - Partial hit → `PartialSignal` → `OnPartialSignalAsync`
@@ -137,7 +153,7 @@ Identical to A/B — no new exit mechanics:
 - RTH close force-exit (`CloseAtRthCloseC`)
 - Manual force-exit via dashboard button
 
-### 2.6 Engine Fields (per setup, same pattern as A/B)
+### 2.7 Engine Fields (per setup, same pattern as A/B)
 
 ```
 _stC, _entC, _stopC, _tgtC, _partialC, _initStopC, _activeC,
@@ -146,6 +162,25 @@ _stickyTgtC, _stickyStpC, _exitBarIdxC, _bullTradedC, _bearTradedC, _ctsC
 ```
 
 Same set duplicated for D.
+
+### 2.8 Engine Integration Points
+
+These existing engine methods must include C/D cases:
+
+| Method | C/D Addition |
+|--------|-------------|
+| `Reconfigure()` | Reset `_pastCutoffC/D`, `_tradeCountC/D`, win/loss/PnL counters for C/D. Call `_falseBreakout.OnSessionStart()` with session range snapshot. |
+| `ResetDaily()` | Reset all C/D fields via `ResetSetupC()`/`ResetSetupD()`. Call `_falseBreakout.NewSession()`. |
+| `ForceExitAllAsync()` | Check `_activeC`/`_activeD`, call `ForceExitC(bar)`/`ForceExitD(bar)`. Set `_forceExitC`/`_forceExitD` in fallback path. |
+| `ApplyFillPrice()` | Add `SetupId.C` and `SetupId.D` cases to adjust `_entC`/`_stopC`/`_tgtC`/`_partialC` (and D) on broker fill. |
+| `ProcessBarInternalAsync()` | Call `ProcessSetupC()`/`ProcessSetupD()` after module updates. Add C/D cutoff checks, adverse timeout, RTH force-exit. |
+| `ProcessPriceTickAsync()` | Call `EvalTickSetupC()`/`EvalTickSetupD()` gated on `EnableC`/`EnableD` + `!_pastCutoffC/D`. Add adverse timeout tick checks. |
+| `PublishSnapshot()` | Populate all C/D snapshot fields. |
+| Legacy daily reset (non-SessionManager path) | Call `ResetSetupC()`/`ResetSetupD()`. |
+
+### 2.9 Compound Fakeout
+
+`IsCompoundFakeout` from the detector is purely informational — exposed in `EngineSnapshot` for dashboard display. No effect on sizing or entry logic in this version.
 
 ## 3. Config & SessionConfig
 
@@ -157,12 +192,13 @@ EnableC, ContractsC, MaxContractsC, HiVolMultC, MaxTradesC,
 StopPctC, TargetPctC, NearPctC, PartialPctC, PartialCtsC,
 MinRrC, UsePartialC, UseBeC, AllowRearmAfterBeC,
 CutoffHourC, CutoffMinuteC, CloseAtRthCloseC, OrderTypeC,
-MaxAdverseMinutesC
+MaxAdverseMinutesC, EntryTickOffsetC
 ```
+Same set for D. `EntryTickOffsetC`/`EntryTickOffsetD` follow the same pattern as A/B for tick-level entry price adjustment.
 
 ### 3.2 SessionConfig
 
-New classes `SetupConfigC` and `SetupConfigD` extending `SetupConfigBase`. No extra fields beyond base — false breakout detection params are module-level, not per-session.
+New classes `SetupConfigC` and `SetupConfigD` extending `SetupConfigBase`. Include `EntryTickOffset` (inherited pattern from A/B) plus the standard base fields (`Enabled`, `Contracts`, `PartialCts`, `PartialPct`, `StopPct`, `TargetPct`, `NearPct`, `MinRr`, etc.). False breakout detection params (`FB*`) are module-level on `StrategyConfig`, not per-session.
 
 ```csharp
 public SetupConfigC SetupC { get; set; } = new();
@@ -296,4 +332,6 @@ Backtest UI: add C/D to setup filter dropdown on results page.
 - `CRV.Web/Pages/Settings/Live.cshtml` — C/D form sections + FB module params
 - `CRV.Web/Pages/Settings/Live.cshtml.cs` — C/D session config handling
 - `CRV.Web/wwwroot/js/crv-hub.js` — C/D snapshot handling
+- `CRV.Web/Services/SignalREventSink.cs` — relay C/D snapshot fields to hub
+- `CRV.Web/Services/SnapshotBroadcastService.cs` — include C/D in broadcast
 - `CRV.Web/Pages/Backtest/*.cshtml` — setup filter dropdown
