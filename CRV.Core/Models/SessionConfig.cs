@@ -20,6 +20,7 @@ public abstract class SetupConfigBase
     public bool    CloseAtRthClose    { get; set; } = true;
     public bool    UsePartial         { get; set; } = true;
     public bool    UseBe              { get; set; } = true;
+    public bool    AllowRearmAfterBE  { get; set; } = true;
     public int     MaxAdverseMinutes  { get; set; } = 0;
     public decimal HiVolMult          { get; set; } = 1.0m;
     public int     MaxContracts       { get; set; } = 2;
@@ -57,32 +58,24 @@ public class SetupConfigB : SetupConfigBase
     public bool    UseOrbClose        { get; set; } = false;
 }
 
-// ── Setup C — Sweep Reversal ────────────────────────────────────────────────
+// ── Setup C — ORB False Breakout ─────────────────────────────────────────────
 
 public class SetupConfigC : SetupConfigBase
 {
-    public decimal SweepMinPenetration  { get; set; } = 0.50m;
-    public decimal SweepMinBodyReject   { get; set; } = 1.00m;
-    public decimal SweepEqualTolerance  { get; set; } = 2.00m;
-    public int     SweepConfirmBars     { get; set; } = 1;
+    public decimal NearPct          { get; set; } = 0.15m;
+    public decimal StopPct          { get; set; } = 0.10m;
+    public int     TargetPct        { get; set; } = 100;
+    public int     EntryTickOffset  { get; set; } = 0;
 }
 
-// ── Setup D — Opening Drive Pullback ────────────────────────────────────────
+// ── Setup D — Session Range False Breakout ───────────────────────────────────
 
 public class SetupConfigD : SetupConfigBase
 {
-    public decimal DriveRangeAtrMult  { get; set; } = 0.80m;
-    public decimal DriveMaxPullback   { get; set; } = 0.35m;
-    public int     DriveBullBearRatio { get; set; } = 2;
-}
-
-// ── Setup F — Midday VWAP Reversion ────────────────────────────────────────
-
-public class SetupConfigF : SetupConfigBase
-{
-    public int     TrendDayThreshold  { get; set; } = 4;
-    public decimal ShallowPullbackMax { get; set; } = 0.35m;
-    public int     VwapDevPeriod      { get; set; } = 20;
+    public decimal NearPct          { get; set; } = 0.15m;
+    public decimal StopPct          { get; set; } = 0.10m;
+    public int     TargetPct        { get; set; } = 100;
+    public int     EntryTickOffset  { get; set; } = 0;
 }
 
 // ── Session-level config ────────────────────────────────────────────────────
@@ -104,7 +97,6 @@ public class SessionConfig
     public SetupConfigB SetupB        { get; set; } = new();
     public SetupConfigC SetupC        { get; set; } = new();
     public SetupConfigD SetupD        { get; set; } = new();
-    public SetupConfigF SetupF        { get; set; } = new();
 
     // ── ToLegacyConfig ─────────────────────────────────────────────────────
     /// <summary>
@@ -136,6 +128,7 @@ public class SessionConfig
         c.CloseAtRthCloseA  = SetupA.CloseAtRthClose;
         c.UsePartialA       = SetupA.UsePartial;
         c.UseBeA            = SetupA.UseBe;
+        c.AllowRearmAfterBeA = SetupA.AllowRearmAfterBE;
         c.MaxAdverseMinutesA = SetupA.MaxAdverseMinutes;
         c.HiVolMultA        = SetupA.HiVolMult;
         c.MaxContractsA     = SetupA.MaxContracts;
@@ -163,6 +156,7 @@ public class SessionConfig
         c.CloseAtRthCloseB  = SetupB.CloseAtRthClose;
         c.UsePartialB       = SetupB.UsePartial;
         c.UseBeB            = SetupB.UseBe;
+        c.AllowRearmAfterBeB = SetupB.AllowRearmAfterBE;
         c.MaxAdverseMinutesB = SetupB.MaxAdverseMinutes;
         c.HiVolMultB        = SetupB.HiVolMult;
         c.MaxContractsB     = SetupB.MaxContracts;
@@ -189,14 +183,14 @@ public class SessionConfig
         c.CloseAtRthCloseC  = SetupC.CloseAtRthClose;
         c.UsePartialC       = SetupC.UsePartial;
         c.UseBeC            = SetupC.UseBe;
+        c.AllowRearmAfterBeC = SetupC.AllowRearmAfterBE;
         c.MaxAdverseMinutesC = SetupC.MaxAdverseMinutes;
         c.HiVolMultC        = SetupC.HiVolMult;
         c.MaxContractsC     = SetupC.MaxContracts;
-        // C-specific
-        c.SweepMinPenetration  = SetupC.SweepMinPenetration;
-        c.SweepMinBodyReject   = SetupC.SweepMinBodyReject;
-        c.SweepEqualTolerance  = SetupC.SweepEqualTolerance;
-        c.SweepConfirmBars     = SetupC.SweepConfirmBars;
+        c.NearPctC          = SetupC.NearPct;
+        c.StopPctC          = SetupC.StopPct;
+        c.TargetPctC        = SetupC.TargetPct;
+        c.EntryTickOffsetC  = SetupC.EntryTickOffset;
 
         // ── Setup D ────────────────────────────────────────────────────────
         c.EnableD           = SetupD.Enabled;
@@ -211,34 +205,14 @@ public class SessionConfig
         c.CloseAtRthCloseD  = SetupD.CloseAtRthClose;
         c.UsePartialD       = SetupD.UsePartial;
         c.UseBeD            = SetupD.UseBe;
+        c.AllowRearmAfterBeD = SetupD.AllowRearmAfterBE;
         c.MaxAdverseMinutesD = SetupD.MaxAdverseMinutes;
         c.HiVolMultD        = SetupD.HiVolMult;
         c.MaxContractsD     = SetupD.MaxContracts;
-        // D-specific
-        c.DriveRangeAtrMult  = SetupD.DriveRangeAtrMult;
-        c.DriveMaxPullback   = SetupD.DriveMaxPullback;
-        c.DriveBullBearRatio = SetupD.DriveBullBearRatio;
-
-        // ── Setup F ────────────────────────────────────────────────────────
-        c.EnableF           = SetupF.Enabled;
-        c.ContractsF        = SetupF.Contracts;
-        c.PartialCtsF       = SetupF.PartialCts;
-        c.PartialPctF       = SetupF.PartialPct;
-        c.CutoffHourF       = SetupF.CutoffHour;
-        c.CutoffMinuteF     = SetupF.CutoffMinute;
-        c.MaxTradesF        = SetupF.MaxTrades;
-        c.OrderTypeF        = SetupF.OrderType;
-        c.MinRrF            = SetupF.MinRr;
-        c.CloseAtRthCloseF  = SetupF.CloseAtRthClose;
-        c.UsePartialF       = SetupF.UsePartial;
-        c.UseBeF            = SetupF.UseBe;
-        c.MaxAdverseMinutesF = SetupF.MaxAdverseMinutes;
-        c.HiVolMultF        = SetupF.HiVolMult;
-        c.MaxContractsF     = SetupF.MaxContracts;
-        // F-specific
-        c.TrendDayThreshold  = SetupF.TrendDayThreshold;
-        c.ShallowPullbackMax = SetupF.ShallowPullbackMax;
-        c.VwapDevPeriod      = SetupF.VwapDevPeriod;
+        c.NearPctD          = SetupD.NearPct;
+        c.StopPctD          = SetupD.StopPct;
+        c.TargetPctD        = SetupD.TargetPct;
+        c.EntryTickOffsetD  = SetupD.EntryTickOffset;
 
         return c;
     }
@@ -273,6 +247,7 @@ public class SessionConfig
             CloseAtRthClose   = cfg.CloseAtRthCloseA,
             UsePartial        = cfg.UsePartialA,
             UseBe             = cfg.UseBeA,
+            AllowRearmAfterBE = cfg.AllowRearmAfterBeA,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesA,
             HiVolMult         = cfg.HiVolMultA,
             MaxContracts      = cfg.MaxContractsA,
@@ -300,6 +275,7 @@ public class SessionConfig
             CloseAtRthClose   = cfg.CloseAtRthCloseB,
             UsePartial        = cfg.UsePartialB,
             UseBe             = cfg.UseBeB,
+            AllowRearmAfterBE = cfg.AllowRearmAfterBeB,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesB,
             HiVolMult         = cfg.HiVolMultB,
             MaxContracts      = cfg.MaxContractsB,
@@ -315,25 +291,26 @@ public class SessionConfig
 
         SetupC = new SetupConfigC
         {
-            Enabled              = cfg.EnableC,
-            Contracts            = cfg.ContractsC,
-            PartialCts           = cfg.PartialCtsC,
-            PartialPct           = cfg.PartialPctC,
-            CutoffHour           = cfg.CutoffHourC,
-            CutoffMinute         = cfg.CutoffMinuteC,
-            MaxTrades            = cfg.MaxTradesC,
-            OrderType            = cfg.OrderTypeC,
-            MinRr                = cfg.MinRrC,
-            CloseAtRthClose      = cfg.CloseAtRthCloseC,
-            UsePartial           = cfg.UsePartialC,
-            UseBe                = cfg.UseBeC,
-            MaxAdverseMinutes    = cfg.MaxAdverseMinutesC,
-            HiVolMult            = cfg.HiVolMultC,
-            MaxContracts         = cfg.MaxContractsC,
-            SweepMinPenetration  = cfg.SweepMinPenetration,
-            SweepMinBodyReject   = cfg.SweepMinBodyReject,
-            SweepEqualTolerance  = cfg.SweepEqualTolerance,
-            SweepConfirmBars     = cfg.SweepConfirmBars,
+            Enabled           = cfg.EnableC,
+            Contracts         = cfg.ContractsC,
+            PartialCts        = cfg.PartialCtsC,
+            PartialPct        = cfg.PartialPctC,
+            CutoffHour        = cfg.CutoffHourC,
+            CutoffMinute      = cfg.CutoffMinuteC,
+            MaxTrades         = cfg.MaxTradesC,
+            OrderType         = cfg.OrderTypeC,
+            MinRr             = cfg.MinRrC,
+            CloseAtRthClose   = cfg.CloseAtRthCloseC,
+            UsePartial        = cfg.UsePartialC,
+            UseBe             = cfg.UseBeC,
+            AllowRearmAfterBE = cfg.AllowRearmAfterBeC,
+            MaxAdverseMinutes = cfg.MaxAdverseMinutesC,
+            HiVolMult         = cfg.HiVolMultC,
+            MaxContracts      = cfg.MaxContractsC,
+            NearPct           = cfg.NearPctC,
+            StopPct           = cfg.StopPctC,
+            TargetPct         = cfg.TargetPctC,
+            EntryTickOffset   = cfg.EntryTickOffsetC,
         },
 
         SetupD = new SetupConfigD
@@ -350,34 +327,14 @@ public class SessionConfig
             CloseAtRthClose   = cfg.CloseAtRthCloseD,
             UsePartial        = cfg.UsePartialD,
             UseBe             = cfg.UseBeD,
+            AllowRearmAfterBE = cfg.AllowRearmAfterBeD,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesD,
             HiVolMult         = cfg.HiVolMultD,
             MaxContracts      = cfg.MaxContractsD,
-            DriveRangeAtrMult  = cfg.DriveRangeAtrMult,
-            DriveMaxPullback   = cfg.DriveMaxPullback,
-            DriveBullBearRatio = cfg.DriveBullBearRatio,
-        },
-
-        SetupF = new SetupConfigF
-        {
-            Enabled           = cfg.EnableF,
-            Contracts         = cfg.ContractsF,
-            PartialCts        = cfg.PartialCtsF,
-            PartialPct        = cfg.PartialPctF,
-            CutoffHour        = cfg.CutoffHourF,
-            CutoffMinute      = cfg.CutoffMinuteF,
-            MaxTrades         = cfg.MaxTradesF,
-            OrderType         = cfg.OrderTypeF,
-            MinRr             = cfg.MinRrF,
-            CloseAtRthClose   = cfg.CloseAtRthCloseF,
-            UsePartial        = cfg.UsePartialF,
-            UseBe             = cfg.UseBeF,
-            MaxAdverseMinutes = cfg.MaxAdverseMinutesF,
-            HiVolMult         = cfg.HiVolMultF,
-            MaxContracts      = cfg.MaxContractsF,
-            TrendDayThreshold  = cfg.TrendDayThreshold,
-            ShallowPullbackMax = cfg.ShallowPullbackMax,
-            VwapDevPeriod      = cfg.VwapDevPeriod,
+            NearPct           = cfg.NearPctD,
+            StopPct           = cfg.StopPctD,
+            TargetPct         = cfg.TargetPctD,
+            EntryTickOffset   = cfg.EntryTickOffsetD,
         },
     };
 

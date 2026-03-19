@@ -106,9 +106,6 @@ public class EngineSnapshot
     public bool       IsLive         { get; set; }
     public ActiveTradeView? SetupA   { get; set; }
     public ActiveTradeView? SetupB   { get; set; }
-    public ActiveTradeView? SetupC   { get; set; }
-    public ActiveTradeView? SetupD   { get; set; }
-    public ActiveTradeView? SetupF   { get; set; }
 
     // Daily P&L stats
     public decimal    TodayPnl        { get; set; }
@@ -122,20 +119,11 @@ public class EngineSnapshot
     public int        MaxTradesA      { get; set; }
     public int        TradeCountB     { get; set; }
     public int        MaxTradesB      { get; set; }
-    public int        TradeCountC     { get; set; }
-    public int        MaxTradesC      { get; set; }
-    public int        TradeCountD     { get; set; }
-    public int        MaxTradesD      { get; set; }
-    public int        TradeCountF     { get; set; }
-    public int        MaxTradesF      { get; set; }
 
     // Expectancy (total + per setup)
     public decimal    Expectancy      { get; set; }
     public decimal    ExpectancyA     { get; set; }
     public decimal    ExpectancyB     { get; set; }
-    public decimal    ExpectancyC     { get; set; }
-    public decimal    ExpectancyD     { get; set; }
-    public decimal    ExpectancyF     { get; set; }
 
     // Daily loss limit
     public decimal    DailyLossLimit { get; set; }
@@ -164,39 +152,77 @@ public class EngineSnapshot
     public bool       PastCutoff     { get; set; }
     public bool       PastCutoffA    { get; set; }
     public bool       PastCutoffB    { get; set; }
-    public bool       PastCutoffC    { get; set; }
-    public bool       PastCutoffD    { get; set; }
-    public bool       PastCutoffF    { get; set; }
     public bool       SessionEnded   { get; set; }
     public string     ActiveSessionId { get; set; } = "";
+
+    // Active session ORB window (dynamic — changes per session)
+    public string  OrbWindowStart  { get; set; } = "";
+    public string  OrbWindowEnd    { get; set; } = "";
 
     // Setup enabled flags (from StrategyConfig.EnableA / EnableB)
     public bool SetupAEnabled { get; set; } = true;
     public bool SetupBEnabled { get; set; } = true;
-    public bool SetupCEnabled { get; set; }
-    public bool SetupDEnabled { get; set; }
-    public bool SetupFEnabled { get; set; }
 
     // Setup state machine values (from OrbStrategyEngine._stA / _stB)
     // A: 0=Idle  ±1=Armed  ±2=Active
     // B: 0=Idle  ±1=Armed  ±2=Retest  ±3=Active
     public int  SetupAState { get; set; }
     public int  SetupBState { get; set; }
-    public int  SetupCState { get; set; }
-    public int  SetupDState { get; set; }
-    public int  SetupFState { get; set; }
 
     // Sticky exit chart markers (true on exit bar only)
     public bool StickyTgtA { get; set; }
     public bool StickyStpA { get; set; }
     public bool StickyTgtB { get; set; }
     public bool StickyStpB { get; set; }
-    public bool StickyTgtC { get; set; }
-    public bool StickyStpC { get; set; }
-    public bool StickyTgtD { get; set; }
-    public bool StickyStpD { get; set; }
-    public bool StickyTgtF { get; set; }
-    public bool StickyStpF { get; set; }
+
+    // ── Setup C/D ─────────────────────────────────────────
+    public ActiveTradeView? SetupC   { get; set; }
+    public ActiveTradeView? SetupD   { get; set; }
+    public int  TradeCountC   { get; set; }
+    public int  TradeCountD   { get; set; }
+    public int  MaxTradesC    { get; set; }
+    public int  MaxTradesD    { get; set; }
+    public int  SetupCState   { get; set; }
+    public int  SetupDState   { get; set; }
+    public bool SetupCEnabled { get; set; }
+    public bool SetupDEnabled { get; set; }
+    public bool PastCutoffC   { get; set; }
+    public bool PastCutoffD   { get; set; }
+    public bool StickyTgtC    { get; set; }
+    public bool StickyStpC    { get; set; }
+    public bool StickyTgtD    { get; set; }
+    public bool StickyStpD    { get; set; }
+
+    // ── FalseBreakout module context ──────────────────────
+    public bool    FBOrbBreakoutActive      { get; set; }
+    public bool    FBSessionBreakoutActive  { get; set; }
+    public int     FBOrbBarsInBreakout      { get; set; }
+    public int     FBSessionBarsInBreakout  { get; set; }
+    public decimal FBOrbPenetrationDepth    { get; set; }
+    public decimal FBSessionPenetrationDepth { get; set; }
+    public bool    FBOrbActivated           { get; set; }
+    public bool    FBSessionActivated       { get; set; }
+    public bool    IsCompoundFakeout        { get; set; }
+
+    // Per-setup daily stats C/D
+    public int     TodayWinsC    { get; set; }
+    public int     TodayLossesC  { get; set; }
+    public decimal TodayWinPnlC  { get; set; }
+    public decimal TodayLossPnlC { get; set; }
+    public int     TodayWinsD    { get; set; }
+    public int     TodayLossesD  { get; set; }
+    public decimal TodayWinPnlD  { get; set; }
+    public decimal TodayLossPnlD { get; set; }
+
+    // ── Per-setup daily stats A/B ─────────────────────────
+    public int     TodayWinsA    { get; set; }
+    public int     TodayLossesA  { get; set; }
+    public decimal TodayWinPnlA  { get; set; }
+    public decimal TodayLossPnlA { get; set; }
+    public int     TodayWinsB    { get; set; }
+    public int     TodayLossesB  { get; set; }
+    public decimal TodayWinPnlB  { get; set; }
+    public decimal TodayLossPnlB { get; set; }
 
     // ── Module outputs ───────────────────────────────────────
     // Session
@@ -226,12 +252,6 @@ public class EngineSnapshot
     public int     TrendScoreBear  { get; set; }
 
     // Composite Setups
-    public bool    SetupCBull      { get; set; }
-    public bool    SetupCBear      { get; set; }
-    public bool    SetupDBull      { get; set; }
-    public bool    SetupDBear      { get; set; }
-    public bool    SetupFBull      { get; set; }
-    public bool    SetupFBear      { get; set; }
 
     // Signal Strength (each 0–5, composite = average)
     public decimal DriveScore      { get; set; }
