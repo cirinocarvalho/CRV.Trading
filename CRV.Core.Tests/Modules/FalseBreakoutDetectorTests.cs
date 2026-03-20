@@ -1,3 +1,4 @@
+using CRV.Core.Models;
 using CRV.Core.Modules;
 using Xunit;
 
