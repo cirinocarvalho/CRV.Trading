@@ -8,8 +8,6 @@ namespace CRV.Core.Modules;
 /// </summary>
 public class FalseBreakoutDetector : IEngineModule
 {
-    private StrategyConfig _cfg;
-
     public RangeBreakoutTracker OrbTracker          { get; }
     public RangeBreakoutTracker SessionRangeTracker  { get; }
 
@@ -17,9 +15,8 @@ public class FalseBreakoutDetector : IEngineModule
         OrbTracker.IsActivated && SessionRangeTracker.IsActivated &&
         OrbTracker.BreakoutDirection == SessionRangeTracker.BreakoutDirection;
 
-    public FalseBreakoutDetector(StrategyConfig cfg)
+    public FalseBreakoutDetector(ModuleConfig cfg)
     {
-        _cfg = cfg;
         int tfMin = Math.Max(1, cfg.ExecutionTFMinutes);
         OrbTracker = new RangeBreakoutTracker(
             maxBarsAllowed: Math.Max(1, cfg.FBMaxTimeOutsideMinutesOrb / tfMin),
@@ -33,9 +30,8 @@ public class FalseBreakoutDetector : IEngineModule
             maxTrendDayScore: cfg.FBMaxTrendDayScore);
     }
 
-    public void Reconfigure(StrategyConfig cfg)
+    public void Reconfigure(ModuleConfig cfg)
     {
-        _cfg = cfg;
         int tfMin = Math.Max(1, cfg.ExecutionTFMinutes);
         OrbTracker.UpdateConfig(
             Math.Max(1, cfg.FBMaxTimeOutsideMinutesOrb / tfMin),

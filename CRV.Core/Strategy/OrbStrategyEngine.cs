@@ -132,14 +132,21 @@ public class OrbStrategyEngine
             DriveBullBearRatio   = cfg.DriveBullBearRatio,
             TrendDayThreshold    = cfg.TrendDayThreshold,
             ShallowPullbackMax   = cfg.ShallowPullbackMax,
-            VwapDevPeriod        = cfg.VwapDevPeriod
+            VwapDevPeriod        = cfg.VwapDevPeriod,
+            ExecutionTFMinutes          = cfg.ExecutionTFMinutes,
+            FBMaxTimeOutsideMinutesOrb  = cfg.FBMaxTimeOutsideMinutesOrb,
+            FBMaxTimeOutsideMinutesSR   = cfg.FBMaxTimeOutsideMinutesSR,
+            FBMaxPenetrationPctOrb      = cfg.FBMaxPenetrationPctOrb,
+            FBMaxPenetrationPctSR       = cfg.FBMaxPenetrationPctSR,
+            FBMinRejectionBodyPct       = cfg.FBMinRejectionBodyPct,
+            FBMaxTrendDayScore          = cfg.FBMaxTrendDayScore,
         };
         _sessionEngine   = new SessionEngine(modCfg);
         _sweepDetector   = new SweepDetector(modCfg);
         _vwapModel       = new VwapModel(modCfg);
         _openingDrive    = new OpeningDriveDetector(modCfg);
         _trendDay        = new TrendDayFilter(modCfg);
-        _falseBreakout   = new FalseBreakoutDetector(cfg);
+        _falseBreakout   = new FalseBreakoutDetector(modCfg);
         _setupA          = StrategyFactory.Create(BuildSetupConfigA(cfg));
         _setupB          = StrategyFactory.Create(BuildSetupConfigB(cfg));
         _setupC          = StrategyFactory.Create(BuildSetupConfigC(cfg));
@@ -253,6 +260,13 @@ public class OrbStrategyEngine
             TrendDayThreshold    = cfg.TrendDayThreshold,
             ShallowPullbackMax   = cfg.ShallowPullbackMax,
             VwapDevPeriod        = cfg.VwapDevPeriod,
+            ExecutionTFMinutes          = cfg.ExecutionTFMinutes,
+            FBMaxTimeOutsideMinutesOrb  = cfg.FBMaxTimeOutsideMinutesOrb,
+            FBMaxTimeOutsideMinutesSR   = cfg.FBMaxTimeOutsideMinutesSR,
+            FBMaxPenetrationPctOrb      = cfg.FBMaxPenetrationPctOrb,
+            FBMaxPenetrationPctSR       = cfg.FBMaxPenetrationPctSR,
+            FBMinRejectionBodyPct       = cfg.FBMinRejectionBodyPct,
+            FBMaxTrendDayScore          = cfg.FBMaxTrendDayScore,
         };
         // Reconfigure modules with updated setup-specific parameters.
         // NOTE: Do NOT reconfigure _sessionEngine here — it tracks daily levels
@@ -261,7 +275,7 @@ public class OrbStrategyEngine
         _vwapModel.Reconfigure(modCfg);
         _openingDrive.Reconfigure(modCfg);
         _trendDay.Reconfigure(modCfg);
-        _falseBreakout.Reconfigure(cfg);
+        _falseBreakout.Reconfigure(modCfg);
         _setupA.Reconfigure(BuildSetupConfigA(cfg));
         _setupB.Reconfigure(BuildSetupConfigB(cfg));
         _setupC.Reconfigure(BuildSetupConfigC(cfg));

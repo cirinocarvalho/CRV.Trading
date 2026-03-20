@@ -4,7 +4,7 @@ public class ModuleConfig
 {
     // Session times (Eastern Time hours/minutes)
     public TimeOnly AsiaStart    { get; set; } = new(18, 0);
-    public TimeOnly AsiaEnd      { get; set; } = new(0, 0);
+    public TimeOnly AsiaEnd      { get; set; } = new(2, 0);
     public TimeOnly LondonStart  { get; set; } = new(3, 0);
     public TimeOnly LondonEnd    { get; set; } = new(8, 30);
     public TimeOnly NYOpenStart  { get; set; } = new(9, 30);
@@ -36,4 +36,13 @@ public class ModuleConfig
     public decimal TickSize   { get; set; } = 0.25m;
     public decimal PointValue { get; set; } = 20m;
     public string  Timezone   { get; set; } = "America/New_York";
+
+    // False breakout detector
+    public int     ExecutionTFMinutes           { get; set; } = 1;
+    public int     FBMaxTimeOutsideMinutesOrb   { get; set; } = 15;
+    public int     FBMaxTimeOutsideMinutesSR    { get; set; } = 60;
+    public decimal FBMaxPenetrationPctOrb       { get; set; } = 0.30m;
+    public decimal FBMaxPenetrationPctSR        { get; set; } = 0.25m;
+    public decimal FBMinRejectionBodyPct        { get; set; } = 0.50m;
+    public int     FBMaxTrendDayScore           { get; set; } = 60;
 }

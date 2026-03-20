@@ -1,4 +1,3 @@
-using CRV.Core.Models;
 using CRV.Core.Modules;
 using Xunit;
 
@@ -8,7 +7,7 @@ public class FalseBreakoutDetectorTests
 {
     private FalseBreakoutDetector CreateDetector(int maxMinutesOrb = 15, int tfMinutes = 5)
     {
-        var cfg = new StrategyConfig
+        var cfg = new ModuleConfig
         {
             FBMaxTimeOutsideMinutesOrb = maxMinutesOrb,
             FBMaxTimeOutsideMinutesSR  = 60,

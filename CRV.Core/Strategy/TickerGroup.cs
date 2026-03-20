@@ -78,6 +78,13 @@ public class TickerGroup
             TrendDayThreshold = cfg.TrendDayThreshold,
             ShallowPullbackMax = cfg.ShallowPullbackMax,
             VwapDevPeriod = cfg.VwapDevPeriod,
+            ExecutionTFMinutes         = cfg.ExecutionTFMinutes,
+            FBMaxTimeOutsideMinutesOrb = cfg.FBMaxTimeOutsideMinutesOrb,
+            FBMaxTimeOutsideMinutesSR  = cfg.FBMaxTimeOutsideMinutesSR,
+            FBMaxPenetrationPctOrb     = cfg.FBMaxPenetrationPctOrb,
+            FBMaxPenetrationPctSR      = cfg.FBMaxPenetrationPctSR,
+            FBMinRejectionBodyPct      = cfg.FBMinRejectionBodyPct,
+            FBMaxTrendDayScore         = cfg.FBMaxTrendDayScore,
         };
 
         _sessionEngine = new SessionEngine(modCfg);
@@ -85,7 +92,7 @@ public class TickerGroup
         _vwapModel = new VwapModel(modCfg);
         _openingDrive = new OpeningDriveDetector(modCfg);
         _trendDay = new TrendDayFilter(modCfg);
-        _falseBreakout = new FalseBreakoutDetector(cfg);
+        _falseBreakout = new FalseBreakoutDetector(modCfg);
     }
 
     // ── Strategy registration ────────────────────────────────────
