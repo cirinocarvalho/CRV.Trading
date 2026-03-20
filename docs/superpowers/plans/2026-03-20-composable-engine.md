@@ -43,6 +43,7 @@
 - `CRV.Core.Tests/Strategy/TickerGroupTests.cs`
 - `CRV.Core.Tests/Strategy/ComposableEngineTests.cs`
 - `CRV.Core.Tests/Strategy/RiskManagerTests.cs`
+- `CRV.Core.Tests/Strategy/SnapshotAggregatorTests.cs`
 
 **Stage 5:**
 - No new files — modifies `LiveEngineOrchestrator.cs` and `BacktestEngine.cs`
@@ -54,22 +55,106 @@
 ### Modified Files
 - `CRV.Core/Strategy/OrbStrategyEngine.cs` — hollowed out (Stages 1-2), eventually replaced (Stage 4-5)
 - `CRV.Core/Models/StrategyConfig.cs` — add `ToEngineConfig()`, `ToSetupConfigs()` (Stage 3)
+- `CRV.Core/Models/Signals.cs` — add `ExpectancyC`/`ExpectancyD` to `EngineSnapshot` (Stage 4)
 - `CRV.Core/Models/SessionConfig.cs` — no structural changes, mapping stays as-is
 - `CRV.Core/Modules/FalseBreakoutDetector.cs` — accept `ModuleConfig` (Stage 4)
+- `CRV.Core.Tests/Strategy/FalseBreakoutIntegrationTests.cs` — update constructor (Stage 4)
 - `CRV.Backtest/Engine/BacktestEngine.cs` — switch to `ComposableEngine` (Stage 5)
 - `CRV.Web/Services/LiveEngineOrchestrator.cs` — create `ComposableEngine` (Stage 5)
+- `CRV.Web/Api/EngineController.cs` — generic force-exit + ForceOrb (Stage 5)
+- `CRV.Web/wwwroot/js/crv-hub.js` — C/D snapshot fields (Stage 5)
 - `CRV.Web/Pages/Dashboard/Index.cshtml` — use partials (Stage 6)
 - `CRV.Web/Pages/Settings/Live.cshtml` — use partials (Stage 6)
 
 ### Deleted Files
-- `CRV.Core/Strategy/CompositeSetupEngine.cs` (Stage 2)
-- `CRV.Core.Tests/Modules/CompositeSetupEngineTests.cs` (Stage 2)
+- `CRV.Core/Modules/CompositeSetupEngine.cs` (Stage 2) — note: may already be deleted on working branch
+- `CRV.Core.Tests/Modules/CompositeSetupEngineTests.cs` (Stage 2) — note: may already be deleted on working branch
 
 ---
 
 ## Stage 1: Extract ISetupStrategy + PullbackStrategy
 
-### Task 1: Define ISetupStrategy interface and state snapshots
+### Task 1: Create StrategySetupConfig
+
+**Files:**
+- Create: `CRV.Core/Models/StrategySetupConfig.cs`
+
+> **Why first:** The interface in Task 2 references `StrategySetupConfig`, so the config class must exist first for the project to compile.
+
+- [ ] **Step 1: Create the config class**
+
+```csharp
+// CRV.Core/Models/StrategySetupConfig.cs
+using CRV.Core.Strategy;
+
+namespace CRV.Core.Models;
+
+/// <summary>
+/// Per-setup instance configuration. Named to avoid collision with
+/// existing SetupConfigBase/SetupConfigA/B/C/D hierarchy in SessionConfig.cs.
+/// </summary>
+public class StrategySetupConfig
+{
+    public string Name { get; set; } = "";               // "A", "B", "C", "D"
+    public SetupId SetupId { get; set; }
+    public StrategyType StrategyType { get; set; }
+    public bool Enabled { get; set; }
+
+    // Instrument (resolved effective values — fallback already applied)
+    public string Ticker { get; set; } = "";
+    public decimal PointValue { get; set; } = 20m;
+    public decimal TickSize { get; set; } = 0.25m;
+
+    // Sizing
+    public int Contracts { get; set; } = 2;
+    public decimal HiVolMult { get; set; } = 1.0m;
+    public int MaxContracts { get; set; } = 2;
+
+    // Entry
+    public decimal StopPct { get; set; } = 0.10m;
+    public int TargetPct { get; set; } = 100;
+    public int PartialPct { get; set; } = 50;
+    public decimal NearPct { get; set; } = 0.15m;
+    public decimal MinRr { get; set; } = 1.5m;
+    public string Mode { get; set; } = "Conservative";
+    public decimal PullbackPct { get; set; } = 0.50m;    // A only
+    public decimal RetestPct { get; set; } = 0.05m;      // B only
+    public int EntryTickOffset { get; set; }
+    public string OrderType { get; set; } = "Market";
+
+    // Filters
+    public bool UseVwap { get; set; } = true;
+    public bool UseOrbClose { get; set; }
+    public int CutoffHour { get; set; } = 14;
+    public int CutoffMinute { get; set; } = 30;
+    public bool CloseAtRthClose { get; set; } = true;
+    public int MaxTrades { get; set; } = 5;
+    public int MaxAdverseMinutes { get; set; }
+
+    // Exit
+    public bool UsePartial { get; set; } = true;
+    public bool UseBe { get; set; } = true;
+    public int PartialCts { get; set; }
+    public bool AllowRearmAfterBe { get; set; } = true;
+
+    // Derived
+    public bool IsAggressive => Mode == "Aggressive";
+}
+```
+
+- [ ] **Step 2: Verify it compiles**
+
+Run: `dotnet build CRV.Core/CRV.Core.csproj --nologo -v q`
+Expected: Build succeeded
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add CRV.Core/Models/StrategySetupConfig.cs
+git commit -m "feat: add StrategySetupConfig per-setup config class"
+```
+
+### Task 2: Define ISetupStrategy interface and state snapshots
 
 **Files:**
 - Create: `CRV.Core/Strategy/ISetupStrategy.cs`
@@ -111,8 +196,9 @@ public readonly record struct ModuleState(
     bool BullVwapReclaim, bool BearVwapReject,
     // OpeningDriveDetector
     bool IsBullDrive, bool IsBearDrive,
-    // TrendDayFilter
-    int TrendDayScore, bool IsTrendDay,
+    // TrendDayFilter (directional pairs — mirrors BullScore/BearScore/TrendDayBull/TrendDayBear)
+    int TrendDayBullScore, int TrendDayBearScore,
+    bool TrendDayBull, bool TrendDayBear,
     // FalseBreakoutDetector
     bool OrbFakeoutBull, bool OrbFakeoutBear,
     decimal FakeoutPenetration);
@@ -187,91 +273,13 @@ public interface ISetupStrategy
 Run: `dotnet build CRV.Core/CRV.Core.csproj --nologo -v q`
 Expected: Build succeeded, 0 errors
 
-Note: `StrategySetupConfig` doesn't exist yet — we need to create a stub. But to avoid circular dependencies, `ISetupStrategy.Reconfigure` can accept `StrategySetupConfig` once Task 3 creates it. For now, we'll use the existing `StrategyConfig` and swap later. Actually, let's create `StrategySetupConfig` right away in the next task to avoid this.
+`StrategySetupConfig` now exists from Task 1, so this compiles cleanly.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add CRV.Core/Strategy/ISetupStrategy.cs
 git commit -m "feat: define ISetupStrategy interface and state snapshot types"
-```
-
-### Task 2: Create StrategySetupConfig
-
-**Files:**
-- Create: `CRV.Core/Models/StrategySetupConfig.cs`
-
-- [ ] **Step 1: Create the config class**
-
-```csharp
-// CRV.Core/Models/StrategySetupConfig.cs
-using CRV.Core.Strategy;
-
-namespace CRV.Core.Models;
-
-/// <summary>
-/// Per-setup instance configuration. Named to avoid collision with
-/// existing SetupConfigBase/SetupConfigA/B/C/D hierarchy in SessionConfig.cs.
-/// </summary>
-public class StrategySetupConfig
-{
-    public string Name { get; set; } = "";               // "A", "B", "C", "D"
-    public SetupId SetupId { get; set; }
-    public StrategyType StrategyType { get; set; }
-    public bool Enabled { get; set; }
-
-    // Instrument (resolved effective values — fallback already applied)
-    public string Ticker { get; set; } = "";
-    public decimal PointValue { get; set; } = 20m;
-    public decimal TickSize { get; set; } = 0.25m;
-
-    // Sizing
-    public int Contracts { get; set; } = 2;
-    public decimal HiVolMult { get; set; } = 1.0m;
-    public int MaxContracts { get; set; } = 2;
-
-    // Entry
-    public decimal StopPct { get; set; } = 0.10m;
-    public int TargetPct { get; set; } = 100;
-    public int PartialPct { get; set; } = 50;
-    public decimal NearPct { get; set; } = 0.15m;
-    public decimal MinRr { get; set; } = 1.5m;
-    public string Mode { get; set; } = "Conservative";
-    public decimal PullbackPct { get; set; } = 0.50m;    // A only
-    public decimal RetestPct { get; set; } = 0.05m;      // B only
-    public int EntryTickOffset { get; set; }
-    public string OrderType { get; set; } = "Market";
-
-    // Filters
-    public bool UseVwap { get; set; } = true;
-    public bool UseOrbClose { get; set; }
-    public int CutoffHour { get; set; } = 14;
-    public int CutoffMinute { get; set; } = 30;
-    public bool CloseAtRthClose { get; set; } = true;
-    public int MaxTrades { get; set; } = 5;
-    public int MaxAdverseMinutes { get; set; }
-
-    // Exit
-    public bool UsePartial { get; set; } = true;
-    public bool UseBe { get; set; } = true;
-    public int PartialCts { get; set; }
-    public bool AllowRearmAfterBe { get; set; } = true;
-
-    // Derived
-    public bool IsAggressive => Mode == "Aggressive";
-}
-```
-
-- [ ] **Step 2: Verify it compiles**
-
-Run: `dotnet build CRV.Core/CRV.Core.csproj --nologo -v q`
-Expected: Build succeeded
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add CRV.Core/Models/StrategySetupConfig.cs
-git commit -m "feat: add StrategySetupConfig per-setup config class"
 ```
 
 ### Task 3: Write PullbackStrategy failing tests
@@ -708,6 +716,7 @@ public class PullbackStrategy : ISetupStrategy
 
     // ── Arm state ───────────────────────────────────────────────
     private decimal _armEntry;
+    private decimal _lastAtrRatio;  // cached from OrbState.AtrRatio on each OnBar
     private bool _bullTraded, _bearTraded;
 
     // ── Counters & flags ────────────────────────────────────────
@@ -746,6 +755,7 @@ public class PullbackStrategy : ISetupStrategy
     public void OnBar(Bar bar, OrbState orb, IndicatorState ind, ModuleState mod)
     {
         _barIndex++;
+        _lastAtrRatio = orb.AtrRatio;  // cache for CalcContracts
 
         // Clear sticky exit markers from prior bar
         if (_exitBarIdx != -1 && _barIndex > _exitBarIdx)
@@ -995,7 +1005,7 @@ public class PullbackStrategy : ISetupStrategy
         _entry = ep; _stop = sl; _initStop = sl;
         _target = tp; _partial = pp;
         _pnl = 0; _active = true; _partialHit = false;
-        _contracts = CalcContracts(orbRange);
+        _contracts = CalcContracts(_lastAtrRatio);
         _state = isLong ? 2 : -2;
         _entryTime = time;
 
@@ -1085,8 +1095,8 @@ public class PullbackStrategy : ISetupStrategy
 
     private int CalcContracts(decimal orbAtrRatio)
     {
-        // Note: orbAtrRatio comes from OrbState but we use the stored ratio
-        // In the monolith this was _orbAtrRatio; here we receive it via OnBar context
+        // orbAtrRatio is the ORB range / ATR ratio from OrbState.AtrRatio
+        // Callers must pass OrbState.AtrRatio, not orbRange
         bool isHighVol = orbAtrRatio >= 1.0m;
         int cts = isHighVol ? (int)Math.Round(_cfg.Contracts * _cfg.HiVolMult) : _cfg.Contracts;
         return Math.Min(cts, _cfg.MaxContracts);
@@ -1232,13 +1242,41 @@ private async Task DispatchSignals(ISetupStrategy strategy, DateTime time)
     }
     if (strategy.PendingExit is { } xsig)
     {
-        // Build TradeRecord and update daily stats
-        bool isLong = strategy.GetActiveTrade(0)?.Direction == Direction.Long
-            || xsig.Reason == ExitReason.Target; // fallback
+        // Get trade info BEFORE clearing signals (strategy resets on BookExit)
         var snap = strategy.GetSnapshot();
-        // Commission and daily PnL tracking still in engine until Stage 4
+        bool isWin = xsig.Reason == ExitReason.Target;
+        decimal comm = xsig.Contracts * _cfg.CommissionPerSide * 2;
+
         await _executor.OnExitSignalAsync(xsig);
-        // TradeRecord built by engine (has access to daily stats)
+
+        // Build TradeRecord — mirrors existing BookExitA/B pattern in the monolith
+        var trade = new TradeRecord
+        {
+            Setup      = xsig.Setup,
+            EnteredAt  = _entryTimeForSetup(xsig.Setup), // stored when entry signal dispatched
+            ExitedAt   = xsig.Time,
+            Entry      = _entryPriceForSetup(xsig.Setup),
+            Exit       = xsig.ExitPrice,
+            InitialStop = _initStopForSetup(xsig.Setup),
+            Target     = _targetForSetup(xsig.Setup),
+            Contracts  = xsig.Contracts,
+            IsWin      = isWin,
+            GrossPnl   = snap.WinPnl + snap.LossPnl, // net PnL from strategy (last trade)
+            Commission = comm,
+            NetPnl     = (snap.WinPnl + snap.LossPnl) - comm,
+            ExitReason = xsig.Reason,
+            Ticker     = xsig.Ticker,
+            // RMultiple, PartialFilled, Duration computed by TradeRecord or caller
+        };
+
+        // Update daily stats
+        _todayPnl += trade.NetPnl;
+        if (_todayPnl > _todayPeak) _todayPeak = _todayPnl;
+        var dd = _todayPeak - _todayPnl;
+        if (dd > _todayMaxDD) _todayMaxDD = dd;
+        _ddBreached = _cfg.UseDailyLossLimit && _todayPnl <= -_cfg.MaxDailyLoss;
+
+        await _sink.OnExitAsync(trade, xsig);
         AddAlert("EXIT", xsig.Setup,
             $"{xsig.Reason} @ {xsig.ExitPrice:F2}",
             xsig.Reason == ExitReason.Target ? "green" : "red");
@@ -1247,7 +1285,7 @@ private async Task DispatchSignals(ISetupStrategy strategy, DateTime time)
 }
 ```
 
-Note: The exact `TradeRecord` construction and daily stats integration is complex. This will be refined in implementation — the key pattern is that the strategy produces signals and the engine consumes them. For Stage 1, the safest approach is to keep the existing inline code paths and add a `_useStrategyA` flag to toggle between old and new. Once verified identical, remove the old code.
+Note: The `_entryTimeForSetup()`, `_entryPriceForSetup()`, `_initStopForSetup()`, `_targetForSetup()` helpers retrieve the entry data that was cached when the `PendingEntry` signal was dispatched (the engine stores these in a dictionary keyed by `SetupId` at entry time). The `TradeRecord.GrossPnl` calculation above is a sketch — the implementer must compute it from `(exitPx - entryPx) * pointValue * contracts` with direction sign, matching the existing `BookExitA` pattern exactly. For Stage 1, the safest approach is to keep the existing inline code paths and add a `_useStrategyA` flag to toggle between old and new. Once verified identical, remove the old code.
 
 - [ ] **Step 2: Add toggle flag and conditional dispatch**
 
@@ -1318,7 +1356,7 @@ private ModuleState BuildModuleState() => new(
     _sweepDetector.ActiveSweeps,
     _vwapModel.State, _vwapModel.BullReclaim, _vwapModel.BearReject,
     _openingDrive.IsBullDrive, _openingDrive.IsBearDrive,
-    _trendDay.Score, _trendDay.IsTrendDay,
+    _trendDay.BullScore, _trendDay.BearScore, _trendDay.TrendDayBull, _trendDay.TrendDayBear,
     _falseBreakout.OrbFakeoutBull, _falseBreakout.OrbFakeoutBear,
     _falseBreakout.PenetrationDepth);
 ```
@@ -1506,6 +1544,8 @@ Test that `cfg.ToSetupConfigs()` produces 4 `StrategySetupConfig` objects with c
 Test round-trip: `ToSetupConfigs()` values match what `BuildSetupConfigA()` produces.
 
 - [ ] **Step 2: Implement `ToEngineConfig()` and `ToSetupConfigs()` on StrategyConfig**
+
+`ToEngineConfig()` must populate `EngineConfig.Modules` from existing `StrategyConfig` module fields (SweepMinPenetration, DriveRangeAtrMult, TrendDayThreshold, FBMinPenetrationPts, etc.) — currently this mapping happens in the engine constructor; move it to the config mapping.
 - [ ] **Step 3: Run tests**
 - [ ] **Step 4: Commit**
 
@@ -1572,10 +1612,15 @@ public class RiskManager
 
 **Files:**
 - Create: `CRV.Core/Strategy/SnapshotAggregator.cs`
+- Create: `CRV.Core.Tests/Strategy/SnapshotAggregatorTests.cs`
 
-- [ ] **Step 1: Implement aggregator that builds EngineSnapshot from strategy snapshots + indicator state**
-- [ ] **Step 2: Verify build**
-- [ ] **Step 3: Commit**
+Note: The existing `EngineSnapshot` only has `ExpectancyA`/`ExpectancyB`. For C/D support, add `ExpectancyC`/`ExpectancyD` fields to `EngineSnapshot` in `Signals.cs` (these are just extra properties — backward compatible, default 0).
+
+- [ ] **Step 1: Add ExpectancyC/ExpectancyD to EngineSnapshot**
+- [ ] **Step 2: Write tests for snapshot aggregation** — verify each setup's snapshot maps to the correct EngineSnapshot fields, verify OrbState/IndicatorState/ModuleState mapping
+- [ ] **Step 3: Implement aggregator that builds EngineSnapshot from strategy snapshots + indicator state**
+- [ ] **Step 4: Run tests**
+- [ ] **Step 5: Commit**
 
 ### Task 17: Implement TickerGroup
 
@@ -1602,8 +1647,21 @@ Key responsibilities:
 - Create: `CRV.Core/Strategy/ComposableEngine.cs`
 - Create: `CRV.Core.Tests/Strategy/ComposableEngineTests.cs`
 
-- [ ] **Step 1: Write tests for AddSetup, signal routing, risk management integration**
+Public API must include:
+- `AddSetup(StrategySetupConfig)` — creates strategy via StrategyFactory, assigns to TickerGroup
+- `StartAsync()` — starts all TickerGroup loops
+- `Reconfigure(EngineConfig, List<StrategySetupConfig>)` — session transition
+- `ForceExitSetup(SetupId)` — delegates to strategy, needs `ILastPriceProvider` dependency for current price
+- `ForceOrbAsync()` — delegates to appropriate TickerGroup's OrbCalculator (spec requirement)
+- `EnableTickMode()` — propagates to all TickerGroups (spec requirement)
+- `GetSnapshot()` — delegates to SnapshotAggregator
+- `TickerGroupKey(string ticker)` — static helper mapping NQ/MNQ → same key, ES → own key
+
+- [ ] **Step 1: Write tests for AddSetup, signal routing, risk management, EnableTickMode, ForceOrb**
 - [ ] **Step 2: Implement ComposableEngine with TickerGroup management**
+
+Constructor takes `IOrderExecutor`, `IStrategyEventSink`, `ILastPriceProvider`, `EngineConfig`.
+
 - [ ] **Step 3: Run tests**
 - [ ] **Step 4: Commit**
 
@@ -1611,11 +1669,13 @@ Key responsibilities:
 
 **Files:**
 - Modify: `CRV.Core/Modules/FalseBreakoutDetector.cs`
+- Modify: `CRV.Core.Tests/Strategy/FalseBreakoutIntegrationTests.cs` — update to construct with `ModuleConfig`
 
 - [ ] **Step 1: Change constructor to accept ModuleConfig instead of StrategyConfig**
 - [ ] **Step 2: Update OrbStrategyEngine to pass ModuleConfig**
-- [ ] **Step 3: Verify tests pass**
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Update FalseBreakoutIntegrationTests to construct detector with ModuleConfig** (existing tests use `new StrategyConfig {...}` — these will break without this step)
+- [ ] **Step 4: Verify all tests pass**
+- [ ] **Step 5: Commit**
 
 ---
 
@@ -1633,7 +1693,22 @@ Key responsibilities:
 - [ ] **Step 5: Verify build and manual test with Mock broker**
 - [ ] **Step 6: Commit**
 
-### Task 21: Update BacktestEngine
+### Task 21: Update EngineController and SignalR hub
+
+**Files:**
+- Modify: `CRV.Web/Api/EngineController.cs` — replace per-setup `ForceExitSetupA/B/C/D()` calls with generic `ForceExitSetup(SetupId)`
+- Modify: `CRV.Web/wwwroot/js/crv-hub.js` — add handling for C/D snapshot fields if new fields added
+
+- [ ] **Step 1: Update EngineController force-exit endpoints**
+
+Replace individual `_orchestrator.ForceExitSetupA()` etc. with `_orchestrator.ForceExitSetup(SetupId.A)` pattern. The orchestrator delegates to `ComposableEngine.ForceExitSetup(SetupId)`.
+
+- [ ] **Step 2: Update ForceOrb endpoint to call `ComposableEngine.ForceOrbAsync()`**
+- [ ] **Step 3: Verify crv-hub.js handles any new snapshot fields (ExpectancyC/D)**
+- [ ] **Step 4: Build and manual test**
+- [ ] **Step 5: Commit**
+
+### Task 22: Update BacktestEngine
 
 **Files:**
 - Modify: `CRV.Backtest/Engine/BacktestEngine.cs`
@@ -1646,7 +1721,7 @@ Key responsibilities:
 
 ## Stage 6: Dashboard + Settings templates
 
-### Task 22: Extract dashboard setup card partial
+### Task 23: Extract dashboard setup card partial
 
 **Files:**
 - Create: `CRV.Web/Pages/Shared/_SetupCard.cshtml`
@@ -1657,7 +1732,7 @@ Key responsibilities:
 - [ ] **Step 3: Manual verification — dashboard renders correctly**
 - [ ] **Step 4: Commit**
 
-### Task 23: Extract settings setup config partial
+### Task 24: Extract settings setup config partial
 
 **Files:**
 - Create: `CRV.Web/Pages/Shared/_SetupConfigSection.cshtml`
