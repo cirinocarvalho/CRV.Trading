@@ -1,0 +1,24 @@
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+
+# Runtime data / secrets
+appsettings.Development.json
+schwab_tokens.json
+tradestation_tokens.json
+tradovate_tokens.json
+live_settings.json
+*.db
+*.db-shm
+*.db-wal
+
+# Rider / VS
+.idea/
+.vs/
+*.DotSettings.user
+
+# macOS
+.DS_Store
+.worktrees/
