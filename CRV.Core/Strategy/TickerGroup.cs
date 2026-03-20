@@ -184,14 +184,25 @@ public class TickerGroup
             {
                 strategy.OnBar(bar, orbState, indState, modState);
 
-                // Cross-setup coordination: suppress entry if another already entered this bar
-                if (!_cfg.AllowBothSameBar && _enteredThisBar && strategy.PendingEntry != null)
+                if (strategy.PendingEntry != null)
                 {
-                    strategy.RevertEntry();
-                }
-                else if (strategy.PendingEntry != null)
-                {
-                    _enteredThisBar = true;
+                    bool isLong = strategy.PendingEntry.Direction == Direction.Long;
+
+                    // Opposing position guard: block entry if another strategy has an active trade
+                    // in the opposite direction on the same instrument
+                    if (HasOpposingPosition(strategy, isLong))
+                    {
+                        strategy.RevertEntry();
+                    }
+                    // Cross-setup coordination: suppress entry if another already entered this bar
+                    else if (!_cfg.AllowBothSameBar && _enteredThisBar)
+                    {
+                        strategy.RevertEntry();
+                    }
+                    else
+                    {
+                        _enteredThisBar = true;
+                    }
                 }
             }
         }
@@ -220,6 +231,18 @@ public class TickerGroup
             foreach (var strategy in _strategies)
             {
                 strategy.OnTick(price, utc, orbState, indState, modState);
+
+                if (strategy.PendingEntry != null)
+                {
+                    bool isLong = strategy.PendingEntry.Direction == Direction.Long;
+
+                    // Opposing position guard: block entry if another strategy has an active trade
+                    // in the opposite direction on the same instrument
+                    if (HasOpposingPosition(strategy, isLong))
+                    {
+                        strategy.RevertEntry();
+                    }
+                }
             }
         }
         finally
@@ -311,6 +334,25 @@ public class TickerGroup
     }
 
     // ── Private helpers ──────────────────────────────────────────
+
+    /// <summary>
+    /// Returns true if any OTHER active strategy in this group holds a trade in the
+    /// direction opposite to <paramref name="isLong"/>. Used to prevent opposing
+    /// positions on the same instrument.
+    /// </summary>
+    private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
+    {
+        foreach (var s in _strategies)
+        {
+            if (s == entering) continue;
+            if (!s.IsActive) continue;
+            // price doesn't matter for direction check — pass 0
+            var trade = s.GetActiveTrade(0);
+            if (trade != null && (trade.Direction == Direction.Long) != isLong)
+                return true;
+        }
+        return false;
+    }
 
     private OrbState BuildOrbState() => new(
         _orb.OrbHigh, _orb.OrbLow, _orb.OrbMid, _orb.OrbRange,
