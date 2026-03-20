@@ -19,12 +19,33 @@ public interface IBarFeed
         => Task.FromResult<IReadOnlyList<Bar>>(Array.Empty<Bar>());
 }
 
+/// <summary>
+/// Multiplexed bar feed that streams bars from multiple tickers.
+/// Each bar is paired with its ticker symbol.
+/// </summary>
+public interface IMultiTickerBarFeed : IAsyncDisposable
+{
+    IAsyncEnumerable<(Bar bar, string ticker)> StreamAsync(CancellationToken ct);
+    event Action<decimal, DateTime, string>? OnPriceTick;
+    Task<IReadOnlyList<Bar>> FetchDailyBarsAsync(string ticker, int count, CancellationToken ct);
+}
+
 public interface IOrderExecutor
 {
-    Task OnEntrySignalAsync(EntrySignal signal);
+    /// <summary>
+    /// Place an entry order. Returns the actual broker fill price, or null if unavailable.
+    /// When null, the engine keeps the theoretical entry price.
+    /// </summary>
+    Task<decimal?> OnEntrySignalAsync(EntrySignal signal);
     Task OnPartialSignalAsync(PartialSignal signal);
     Task OnBESignalAsync(BESignal signal);
     Task OnExitSignalAsync(ExitSignal signal);
+
+    /// <summary>
+    /// Called after fill price adjustment or partial fill changes stop/target levels or quantity.
+    /// Broker should cancel + replace the existing bracket legs with updated price/qty.
+    /// </summary>
+    Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts) => Task.CompletedTask;
 }
 
 public interface IStrategyEventSink
