@@ -4,6 +4,7 @@ using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Core.Strategy;
 using CRV.Live;
+using CRV.Live.BarBuilders;
 using CRV.Live.Brokers;
 using CRV.Live.Brokers.Schwab;
 using CRV.Live.Brokers.TradeStation;
@@ -254,8 +255,17 @@ public class LiveEngineOrchestrator : BackgroundService
             if (!string.IsNullOrWhiteSpace(cfg.ExecAccountId))
                 execAccountId = cfg.ExecAccountId;
 
-            // Convert ticker to the format expected by the DATA broker
+            // Convert primary ticker to the format expected by the DATA broker
             cfg.Ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);
+
+            // Compute distinct tickers across all enabled setups (broker-format)
+            var setupConfigs = cfg.ToSetupConfigs().Where(s => s.Enabled).ToList();
+            var distinctTickers = setupConfigs
+                .Select(s => FuturesSymbol.ForBroker(s.Ticker, cfg.Broker))
+                .Where(t => !string.IsNullOrEmpty(t))
+                .Distinct()
+                .ToList();
+            if (distinctTickers.Count == 0) distinctTickers.Add(cfg.Ticker);
 
             // When exec broker is Mock, wrap the sink to tag all completed trades with Source="mock"
             IStrategyEventSink activeSink = execBroker == "Mock"
@@ -329,27 +339,23 @@ public class LiveEngineOrchestrator : BackgroundService
                 return;
             }
 
-            IBarFeed feed;
+            IMultiTickerBarFeed mux;
             try
             {
-                var feedHttpFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-                feed = cfg.Broker switch
+                if (distinctTickers.Count == 1)
                 {
-                    "TradeStation" => (IBarFeed) new TradeStationBarFeed(
-                        scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
-                        cfg, prices,
-                        scope.ServiceProvider.GetRequiredService<ILogger<TradeStationBarFeed>>(),
-                        feedHttpFactory),
-                    "TradovateReplay" => CreateReplayBarFeed(scope, cfg, prices),
-                    "Tradovate" => new TradovateBarFeed(
-                        scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
-                        cfg, prices,
-                        scope.ServiceProvider.GetRequiredService<ILogger<TradovateBarFeed>>()),
-                    _ => new SchwabBarFeed(
-                        scope.ServiceProvider.GetRequiredService<SchwabAuthService>(),
-                        cfg, prices,
-                        scope.ServiceProvider.GetRequiredService<ILogger<SchwabBarFeed>>()),
-                };
+                    var feed = CreateBarFeed(scope, cfg, prices, distinctTickers[0]);
+                    mux = MultiTickerFeedMux.Single(distinctTickers[0], feed);
+                }
+                else
+                {
+                    var feeds = new Dictionary<string, IBarFeed>();
+                    foreach (var ticker in distinctTickers)
+                        feeds[ticker] = CreateBarFeed(scope, cfg, prices, ticker);
+                    mux = new MultiTickerFeedMux(feeds);
+                    _log.LogInformation("Multi-ticker feed mux created for {Count} tickers: {Tickers}",
+                        distinctTickers.Count, string.Join(", ", distinctTickers));
+                }
             }
             catch (Exception ex)
             {
@@ -373,19 +379,22 @@ public class LiveEngineOrchestrator : BackgroundService
             }
             lock (_lifecycleLock) { _engine = newEngine; }
 
-            // Seed module historical levels from daily bars
-            try
+            // Seed module historical levels from daily bars (per ticker)
+            foreach (var ticker in distinctTickers)
             {
-                var dailyBars = await feed.FetchDailyBarsAsync(cfg.Ticker, 30, ct);
-                if (dailyBars.Count > 0)
+                try
                 {
-                    _log.LogInformation("Seeded {Count} daily bars for module levels", dailyBars.Count);
-                    newEngine.SeedModuleHistory(dailyBars);
+                    var dailyBars = await mux.FetchDailyBarsAsync(ticker, 30, ct);
+                    if (dailyBars.Count > 0)
+                    {
+                        _log.LogInformation("Seeded {Count} daily bars for {Ticker} module levels", dailyBars.Count, ticker);
+                        newEngine.SeedModuleHistory(dailyBars);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning("Failed to fetch daily bars for modules: {Err}", ex.Message);
+                catch (Exception ex)
+                {
+                    _log.LogWarning("Failed to fetch daily bars for {Ticker}: {Err}", ticker, ex.Message);
+                }
             }
 
             // Multi-session support
@@ -463,7 +472,7 @@ public class LiveEngineOrchestrator : BackgroundService
             // Only the latest tick matters for price eval, so BoundedChannelFullMode.DropOldest
             // keeps the queue from growing unbounded while preserving the freshest price.
             _engine.EnableTickMode();
-            var tickCh = Channel.CreateBounded<(decimal price, DateTime time)>(
+            var tickCh = Channel.CreateBounded<(decimal price, DateTime time, string ticker)>(
                 new BoundedChannelOptions(64)
                 {
                     FullMode     = BoundedChannelFullMode.DropOldest,
@@ -472,16 +481,16 @@ public class LiveEngineOrchestrator : BackgroundService
                 });
             long _ticksDropped = 0;
 
-            feed.OnPriceTick += (price, time) =>
+            mux.OnPriceTick += (price, time, ticker) =>
             {
-                if (!tickCh.Writer.TryWrite((price, time)))
+                if (!tickCh.Writer.TryWrite((price, time, ticker)))
                     Interlocked.Increment(ref _ticksDropped);
             };
 
             // Single consumer drains the tick channel sequentially — no Task.Run per tick
             var tickTask = Task.Run(async () =>
             {
-                await foreach (var (price, time) in tickCh.Reader.ReadAllAsync(ct))
+                await foreach (var (price, time, tickTicker) in tickCh.Reader.ReadAllAsync(ct))
                 {
                     ComposableEngine? engine;
                     lock (_lifecycleLock) { engine = _engine; }
@@ -490,7 +499,7 @@ public class LiveEngineOrchestrator : BackgroundService
                     try
                     {
                         await CheckSessionTransitionAsync(time);
-                        await engine.ProcessPriceTickAsync(price, time, cfg.Ticker);
+                        await engine.ProcessPriceTickAsync(price, time, tickTicker);
                     }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
@@ -502,7 +511,7 @@ public class LiveEngineOrchestrator : BackgroundService
             // (MockBrokerExecutor is internally thread-safe — no engineLock needed here)
             if (executor is MockBrokerExecutor mockExec)
             {
-                feed.OnPriceTick += (price, time) =>
+                mux.OnPriceTick += (price, time, _) =>
                     mockExec.EvaluateFills(price, time);
             }
 
@@ -513,10 +522,15 @@ public class LiveEngineOrchestrator : BackgroundService
             // TradeStation handles this via barsback=20 in its stream URL.
             if (cfg.Broker == "Schwab")
             {
-                var n = await BackfillAsync(cfg, scope, _engine, hub, ct);
-                _log.LogInformation("Schwab backfill complete: {Count} bars loaded for warmup.", n);
+                int totalBackfill = 0;
+                foreach (var ticker in distinctTickers)
+                {
+                    var n = await BackfillAsync(cfg, scope, _engine, hub, ticker, ct);
+                    totalBackfill += n;
+                }
+                _log.LogInformation("Schwab backfill complete: {Count} bars loaded for warmup.", totalBackfill);
                 // Publish initial snapshot immediately so dashboard shows warmed-up values
-                if (n > 0) await _engine.PublishCurrentStateAsync();
+                if (totalBackfill > 0) await _engine.PublishCurrentStateAsync();
             }
 
             // Any confirmed bar whose open-time is before this cutoff arrived via the stream's
@@ -528,7 +542,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 : DateTime.UtcNow)
                 .AddMinutes(-cfg.ExecutionTFMinutes);
 
-            await foreach (var bar in feed.StreamAsync(ct))
+            await foreach (var (bar, barTicker) in mux.StreamAsync(ct))
             {
                 if (ct.IsCancellationRequested) break;
 
@@ -537,15 +551,16 @@ public class LiveEngineOrchestrator : BackgroundService
                 {
                     await CheckSessionTransitionAsync(bar.Time);
                     if (bar.IsConfirmed && bar.Time < warmupCutoffUtc)
-                        await _engine.WarmupBarAsync(bar, cfg.Ticker, ct);
+                        await _engine.WarmupBarAsync(bar, barTicker, ct);
                     else
-                        await _engine.ProcessBarAsync(bar, cfg.Ticker, ct);
+                        await _engine.ProcessBarAsync(bar, barTicker, ct);
                 }
                 finally { engineLock.Release(); }
             }
             lock (_lifecycleLock) { _engine = null; }
             tickCh.Writer.TryComplete();
             try { await tickTask; } catch { /* already cancelled */ }
+            await mux.DisposeAsync();
             var dropped = Interlocked.Read(ref _ticksDropped);
             if (dropped > 0)
                 _log.LogWarning("Tick channel dropped {Count} ticks (channel full) during session.", dropped);
@@ -568,6 +583,34 @@ public class LiveEngineOrchestrator : BackgroundService
         {
             lock (_lifecycleLock) { _engine = null; }
         }
+    }
+
+    /// <summary>
+    /// Creates a single <see cref="IBarFeed"/> for the given ticker by cloning the config
+    /// and setting the Ticker property. Keeps feed constructors unchanged.
+    /// </summary>
+    private IBarFeed CreateBarFeed(IServiceScope scope, StrategyConfig cfg, ILastPriceProvider prices, string ticker)
+    {
+        var feedCfg = cfg.Clone();
+        feedCfg.Ticker = ticker;
+
+        return cfg.Broker switch
+        {
+            "TradeStation" => (IBarFeed) new TradeStationBarFeed(
+                scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
+                feedCfg, prices,
+                scope.ServiceProvider.GetRequiredService<ILogger<TradeStationBarFeed>>(),
+                scope.ServiceProvider.GetRequiredService<IHttpClientFactory>()),
+            "TradovateReplay" => CreateReplayBarFeed(scope, feedCfg, prices),
+            "Tradovate" => new TradovateBarFeed(
+                scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
+                feedCfg, prices,
+                scope.ServiceProvider.GetRequiredService<ILogger<TradovateBarFeed>>()),
+            _ => new SchwabBarFeed(
+                scope.ServiceProvider.GetRequiredService<SchwabAuthService>(),
+                feedCfg, prices,
+                scope.ServiceProvider.GetRequiredService<ILogger<SchwabBarFeed>>()),
+        };
     }
 
     /// <summary>
@@ -625,7 +668,7 @@ public class LiveEngineOrchestrator : BackgroundService
     /// Returns the number of bars fed, or 0 if backfill was skipped / failed.
     /// </summary>
     private async Task<int> BackfillAsync(StrategyConfig cfg, IServiceScope scope,
-        ComposableEngine engine, IHubContext<TradingHub> hub, CancellationToken ct)
+        ComposableEngine engine, IHubContext<TradingHub> hub, string ticker, CancellationToken ct)
     {
         try
         {
@@ -641,11 +684,11 @@ public class LiveEngineOrchestrator : BackgroundService
             var sessionsMgr = new SessionManager(cfg.Sessions ?? SessionConfig.CreateDefaults(cfg));
             var activeSession = sessionsMgr.GetActiveSession(TimeOnly.FromDateTime(nowEt));
             var sessionIdStr = activeSession?.SessionId.ToString() ?? "";
-            var cached = OrbStateCacheService.Load(cfg.Ticker, today, sessionIdStr);
+            var cached = OrbStateCacheService.Load(ticker, today, sessionIdStr);
             if (cached != null)
             {
                 engine.RestoreOrb(cached);
-                _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", cfg.Ticker, sessionIdStr);
+                _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", ticker, sessionIdStr);
             }
 
             // Use earliest ORB start across all enabled sessions for backfill window
@@ -687,7 +730,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
             _log.LogInformation(
                 "Backfilling {Ticker} {From:HH:mm}–{To:HH:mm} ET ({Tf}-min bars)…",
-                cfg.Ticker, fromEt, toEt, cfg.ExecutionTFMinutes);
+                ticker, fromEt, toEt, cfg.ExecutionTFMinutes);
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Backfilling…", ct);
 
@@ -701,23 +744,23 @@ public class LiveEngineOrchestrator : BackgroundService
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new TradeStationHistoricalLoader(
                     token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
+                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
             }
             else if (cfg.Broker == "Schwab")
             {
                 // Validate the configured ticker is the current active contract
-                var root = FuturesSymbol.RootSymbol(cfg.Ticker);
+                var root = FuturesSymbol.RootSymbol(ticker);
                 var active = ContractRollCalendar.ActiveContract(root);
-                if (!string.Equals(FuturesSymbol.Normalize(cfg.Ticker), active, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(FuturesSymbol.Normalize(ticker), active, StringComparison.OrdinalIgnoreCase))
                     _log.LogWarning(
                         "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
-                        cfg.Ticker, active);
+                        ticker, active);
 
                 var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new SchwabHistoricalLoader(
                     token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
+                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
             }
             // Tradovate historical loader: add in Task 14
             else if (cfg.Broker is "Tradovate" or "TradovateReplay") return 0; // warmup via stream's built-in history
@@ -745,7 +788,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
                 // WarmupBarAsync builds ORB/ATR/VWAP without running strategy logic,
                 // so historical bars do not fire orders or consume the trade-count budget.
-                await engine.WarmupBarAsync(bar, cfg.Ticker, ct);
+                await engine.WarmupBarAsync(bar, ticker, ct);
                 prevBar = bar;
                 count++;
             }
