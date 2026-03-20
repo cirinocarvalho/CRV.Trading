@@ -16,14 +16,16 @@ public record EntrySignal(
     int       Contracts,
     DateTime  Time,
     string    OrderType = "Market",   // "Market" or "Limit"
-    string    SessionId = "NY");      // "Asia" | "London" | "NY"
+    string    SessionId = "NY",       // "Asia" | "London" | "NY"
+    string    Ticker    = "");        // Per-setup ticker override; empty = use global
 
 public record ExitSignal(
     SetupId    Setup,
     ExitReason Reason,
     decimal    ExitPrice,
     int        Contracts,
-    DateTime   Time);
+    DateTime   Time,
+    string     Ticker = "");          // Per-setup ticker override; empty = use global
 
 public record PartialSignal(
     SetupId   Setup,
@@ -124,6 +126,8 @@ public class EngineSnapshot
     public decimal    Expectancy      { get; set; }
     public decimal    ExpectancyA     { get; set; }
     public decimal    ExpectancyB     { get; set; }
+    public decimal    ExpectancyC     { get; set; }
+    public decimal    ExpectancyD     { get; set; }
 
     // Daily loss limit
     public decimal    DailyLossLimit { get; set; }
