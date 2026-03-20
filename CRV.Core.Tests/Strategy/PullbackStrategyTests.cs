@@ -47,7 +47,9 @@ public class PullbackStrategyTests
         TrendDayBullScore: 0, TrendDayBearScore: 0,
         TrendDayBull: false, TrendDayBear: false,
         OrbFakeoutBull: false, OrbFakeoutBear: false,
-        FakeoutPenetration: 0m);
+        FakeoutPenetration: 0m,
+        SessionFakeoutBull: false, SessionFakeoutBear: false,
+        SessionRangeHigh: 0m, SessionRangeLow: 0m);
 
     private static Bar MakeBar(decimal open, decimal high, decimal low, decimal close,
         DateTime? time = null)

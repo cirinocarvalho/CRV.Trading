@@ -36,9 +36,12 @@ public readonly record struct ModuleState(
     // TrendDayFilter (directional pairs)
     int TrendDayBullScore, int TrendDayBearScore,
     bool TrendDayBull, bool TrendDayBear,
-    // FalseBreakoutDetector
+    // FalseBreakoutDetector — ORB range
     bool OrbFakeoutBull, bool OrbFakeoutBear,
-    decimal FakeoutPenetration);
+    decimal FakeoutPenetration,
+    // FalseBreakoutDetector — Session range
+    bool SessionFakeoutBull, bool SessionFakeoutBear,
+    decimal SessionRangeHigh, decimal SessionRangeLow);
 
 // ── Per-setup snapshot for dashboard ────────────────────────────
 public class SetupStateSnapshot

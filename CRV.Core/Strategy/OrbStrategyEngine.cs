@@ -32,12 +32,14 @@ public class OrbStrategyEngine
     private readonly FalseBreakoutDetector  _falseBreakout;
 
     // ── Extracted strategies ─────────────────────────────────
-    private PullbackStrategy   _setupA;
-    private RetestStrategy     _setupB;
-    private OrbFakeoutStrategy _setupC;
+    private PullbackStrategy       _setupA;
+    private RetestStrategy         _setupB;
+    private OrbFakeoutStrategy     _setupC;
+    private SessionFakeoutStrategy _setupD;
     // Setup A is fully handled by _setupA (PullbackStrategy instance)
     // Setup B is fully handled by _setupB (RetestStrategy instance)
     // Setup C is fully handled by _setupC (OrbFakeoutStrategy instance)
+    // Setup D is fully handled by _setupD (SessionFakeoutStrategy instance)
 
     // ── Session state ─────────────────────────────────────────
     private DateTime _lastDate       = DateTime.MinValue;
@@ -85,33 +87,14 @@ public class OrbStrategyEngine
     // ── Setup A is handled by _setupA (PullbackStrategy) ──────
     // ── Setup B is handled by _setupB (RetestStrategy) ──────
     // ── Setup C is handled by _setupC (OrbFakeoutStrategy) ──────
+    // ── Setup D is handled by _setupD (SessionFakeoutStrategy) ──────
 
     // ── Manual force-exit flags C/D ──────────────────────────────
     private volatile bool _forceExitC = false;
     private volatile bool _forceExitD = false;
 
-    // ── Setup C cutoff (engine-managed, strategy doesn't own cutoff) ──
+    // ── Setup C/D cutoff (engine-managed, strategy doesn't own cutoff) ──
     private bool    _pastCutoffC  = false;
-
-    // ── Setup D (Session Range False Breakout) ───────────────────
-    private int      _stD          = 0;
-    private decimal  _entD         = 0;
-    private decimal  _stopD        = 0;
-    private decimal  _tgtD         = 0;
-    private decimal  _partialD     = 0;
-    private decimal  _initStopD    = 0;
-    private bool     _activeD      = false;
-    private int      _tradeCountD  = 0;
-    private bool     _partHitD     = false;
-    private decimal  _pnlD         = 0;
-    private decimal  _armEntryD    = 0;
-    private DateTime _entryTimeD   = DateTime.MinValue;
-    private bool    _stickyTgtD   = false;
-    private bool    _stickyStpD   = false;
-    private int     _exitBarIdxD  = -1;
-    private bool    _bullTradedD  = false;
-    private bool    _bearTradedD  = false;
-    private int     _ctsD         = 0;
     private bool    _pastCutoffD  = false;
 
     // ── Per-setup daily stats C/D ────────────────────────────────
@@ -169,6 +152,7 @@ public class OrbStrategyEngine
         _setupA          = new PullbackStrategy(BuildSetupConfigA(cfg));
         _setupB          = new RetestStrategy(BuildSetupConfigB(cfg));
         _setupC          = new OrbFakeoutStrategy(BuildSetupConfigC(cfg));
+        _setupD          = new SessionFakeoutStrategy(BuildSetupConfigD(cfg));
     }
 
     /// <summary>Force-exit Setup A immediately at the current market price.</summary>
@@ -225,7 +209,12 @@ public class OrbStrategyEngine
         var px = _prices.GetLastPrice(_cfg.Ticker);
         if (px <= 0) { _forceExitD = true; return; }
         var bar = new Bar(DateTime.UtcNow, px, px, px, px, 0, IsConfirmed: true);
-        await ForceExitD(bar);
+        if (_setupD.IsActive)
+        {
+            var pre = _setupD.GetActiveTrade(px);
+            _setupD.ForceExit(px, DateTime.UtcNow);
+            await DispatchSignals(_setupD, DateTime.UtcNow, pre);
+        }
         AddAlert("EXIT", SetupId.D, $"Force exit @ {px:F2}", "orange");
         await PublishSnapshot(bar);
     }
@@ -285,6 +274,7 @@ public class OrbStrategyEngine
         _setupA.Reconfigure(BuildSetupConfigA(cfg));
         _setupB.Reconfigure(BuildSetupConfigB(cfg));
         _setupC.Reconfigure(BuildSetupConfigC(cfg));
+        _setupD.Reconfigure(BuildSetupConfigD(cfg));
 
         // Snapshot prior session range for false breakout detector
         if (sessionId == SessionId.London)
@@ -308,7 +298,7 @@ public class OrbStrategyEngine
         _todayWinsB = 0; _todayLossesB = 0; _todayWinPnlB = 0; _todayLossPnlB = 0;
         _pastCutoffC = false;
         _todayWinsC = 0; _todayLossesC = 0; _todayWinPnlC = 0; _todayLossPnlC = 0;
-        _pastCutoffD = false; _tradeCountD = 0;
+        _pastCutoffD = false;
         _todayWinsD = 0; _todayLossesD = 0; _todayWinPnlD = 0; _todayLossPnlD = 0;
         _lastTickTime = DateTime.MinValue;
 
@@ -316,6 +306,7 @@ public class OrbStrategyEngine
         _setupA.Reset();
         _setupB.Reset();
         _setupC.Reset();
+        _setupD.Reset();
 
         // Reset session-level module state (sweep buffer, drive detection, etc.)
         // NOTE: Do NOT call _sessionEngine.NewSession() or _vwap.NewSession() —
@@ -369,7 +360,12 @@ public class OrbStrategyEngine
             _setupC.ForceExit(px, ts);
             await DispatchSignals(_setupC, ts, preC);
         }
-        if (_activeD) await ForceExitD(bar);
+        if (_setupD.IsActive)
+        {
+            var preD = _setupD.GetActiveTrade(px);
+            _setupD.ForceExit(px, ts);
+            await DispatchSignals(_setupD, ts, preD);
+        }
         _rthEnded = true;
     }
 
@@ -385,7 +381,7 @@ public class OrbStrategyEngine
         _todayPnl = 0;  // daily loss limit accumulator — resets once per day
         _ddBreached = false;
         _lastDate = DateTime.MinValue;
-        _setupC.Reset(); ResetSetupD();
+        _setupC.Reset(); _setupD.Reset();
         _pastCutoffC = false;
         _todayWinsC = 0; _todayLossesC = 0; _todayWinPnlC = 0; _todayLossPnlC = 0;
         _todayWinsD = 0; _todayLossesD = 0; _todayWinPnlD = 0; _todayLossPnlD = 0;
@@ -570,6 +566,25 @@ public class OrbStrategyEngine
         PartialCts = cfg.PartialCtsC, AllowRearmAfterBe = cfg.AllowRearmAfterBeC,
     };
 
+    private StrategySetupConfig BuildSetupConfigD(StrategyConfig cfg) => new()
+    {
+        Name = "D", SetupId = SetupId.D, StrategyType = StrategyType.SessionFakeout,
+        Enabled = cfg.EnableD,
+        Ticker = cfg.EffectiveTickerD, PointValue = cfg.EffectivePointValueD,
+        TickSize = cfg.EffectiveTickSizeD,
+        Contracts = cfg.ContractsD, HiVolMult = cfg.HiVolMultD, MaxContracts = cfg.MaxContractsD,
+        StopPct = cfg.StopPctD, TargetPct = cfg.TargetPctD, PartialPct = cfg.PartialPctD,
+        NearPct = cfg.NearPctD, MinRr = cfg.MinRrD, Mode = "Conservative",
+        EntryTickOffset = cfg.EntryTickOffsetD,
+        OrderType = cfg.OrderTypeD,
+        UseVwap = false, UseOrbClose = false,
+        CutoffHour = cfg.CutoffHourD, CutoffMinute = cfg.CutoffMinuteD,
+        CloseAtRthClose = cfg.CloseAtRthCloseD, MaxTrades = cfg.MaxTradesD,
+        MaxAdverseMinutes = cfg.MaxAdverseMinutesD,
+        UsePartial = cfg.UsePartialD, UseBe = cfg.UseBeD,
+        PartialCts = cfg.PartialCtsD, AllowRearmAfterBe = cfg.AllowRearmAfterBeD,
+    };
+
     // ── State snapshot builders ─────────────────────────────────
     private OrbState BuildOrbState() => new(
         _orb.OrbHigh, _orb.OrbLow, _orb.OrbMid, _orb.OrbRange,
@@ -613,7 +628,13 @@ public class OrbStrategyEngine
                               _falseBreakout.OrbTracker.BreakoutDirection == Direction.Long,
         OrbFakeoutBear:       _falseBreakout.OrbTracker.IsActivated &&
                               _falseBreakout.OrbTracker.BreakoutDirection == Direction.Short,
-        FakeoutPenetration:   _falseBreakout.OrbTracker.PenetrationDepth);
+        FakeoutPenetration:   _falseBreakout.OrbTracker.PenetrationDepth,
+        SessionFakeoutBull:   _falseBreakout.SessionRangeTracker.IsActivated &&
+                              _falseBreakout.SessionRangeTracker.BreakoutDirection == Direction.Long,
+        SessionFakeoutBear:   _falseBreakout.SessionRangeTracker.IsActivated &&
+                              _falseBreakout.SessionRangeTracker.BreakoutDirection == Direction.Short,
+        SessionRangeHigh:     _falseBreakout.SessionRangeTracker.RangeHigh,
+        SessionRangeLow:      _falseBreakout.SessionRangeTracker.RangeLow);
 
     /// <summary>
     /// Run the extracted strategy's OnBar for arm-state evaluation only.
@@ -648,6 +669,16 @@ public class OrbStrategyEngine
             _setupC.RevertEntry();      // undo entry, keep armed state
         else
             _setupC.ClearPendingSignals();
+
+        bool srActivatedW = _falseBreakout.SessionRangeTracker.IsActivated;
+        bool wasArmedDW = _setupD.IsArmed || _setupD.IsActive;
+        _setupD.OnBar(bar, orbState, indState, modState);
+        if (srActivatedW && !wasArmedDW && (_setupD.IsArmed || _setupD.IsActive))
+            _falseBreakout.SessionRangeTracker.ClearActivation();
+        if (_setupD.PendingEntry != null)
+            _setupD.RevertEntry();      // undo entry, keep armed state
+        else
+            _setupD.ClearPendingSignals();
     }
 
     /// <summary>
@@ -794,6 +825,10 @@ public class OrbStrategyEngine
                     if (net > 0) { _todayWinsC++;   _todayWinPnlC  += net; }
                     else         { _todayLossesC++; _todayLossPnlC += net; }
                     break;
+                case SetupId.D:
+                    if (net > 0) { _todayWinsD++;   _todayWinPnlD  += net; }
+                    else         { _todayLossesD++; _todayLossPnlD += net; }
+                    break;
             }
 
             _log.LogInformation("[Setup {S}] Exit {Reason} @ {Px:F2} Net={Net:C0} R={R:F2}",
@@ -813,6 +848,7 @@ public class OrbStrategyEngine
                     case SetupId.A: _pastCutoffA = true; break;
                     case SetupId.B: _pastCutoffB = true; break;
                     case SetupId.C: _pastCutoffC = true; break;
+                    case SetupId.D: _pastCutoffD = true; break;
                 }
             }
         }
@@ -826,27 +862,8 @@ public class OrbStrategyEngine
     /// original risk/reward structure is preserved.
     /// Called from TryEntry methods immediately after OnEntrySignalAsync returns a fill.
     /// </summary>
-    private async Task ApplyFillPrice(SetupId setup, decimal fillPrice)
-    {
-        decimal delta;
-        switch (setup)
-        {
-            // SetupId.A: handled by _setupA.ApplyFill() in DispatchSignals
-            // SetupId.B: handled by _setupB.ApplyFill() in DispatchSignals
-            // SetupId.C: handled by _setupC.ApplyFill() in DispatchSignals
-            case SetupId.D:
-                delta = fillPrice - _entD;
-                _log.LogInformation("[Setup D] Fill adjustment: theoretical={T:F2} actual={A:F2} delta={D:F2}",
-                    _entD, fillPrice, delta);
-                _entD      = fillPrice;
-                _stopD     = LevelCalculator.RoundToTick(_stopD + delta, TickSizeFor(SetupId.D));
-                _tgtD      = LevelCalculator.RoundToTick(_tgtD + delta, TickSizeFor(SetupId.D));
-                _partialD  = LevelCalculator.RoundToTick(_partialD + delta, TickSizeFor(SetupId.D));
-                _initStopD = _stopD;
-                await _executor.OnLevelsAdjustedAsync(setup, _stopD, _tgtD, _ctsD);
-                break;
-        }
-    }
+    // ApplyFillPrice for all setups (A/B/C/D) is now handled by
+    // strategy.ApplyFill() inside DispatchSignals.
 
     /// <summary>
     /// Evaluate entry and exit conditions against a realtime L1 price tick.
@@ -900,13 +917,17 @@ public class OrbStrategyEngine
                     _setupC.ForceExit(price, utcTime);
                     await DispatchSignals(_setupC, utcTime, preC);
                 }
-                if (_activeD) await ForceExitD(bar);
+                if (_setupD.IsActive)
+                {
+                    var preD = _setupD.GetActiveTrade(price);
+                    _setupD.ForceExit(price, utcTime);
+                    await DispatchSignals(_setupD, utcTime, preD);
+                }
                 return;
             }
         }
 
         // ── Adverse excursion time check (tick mode) ───────────────
-        var tickBar = new Bar(utcTime, price, price, price, price, 0);
         {
             var atv = _setupA.GetActiveTrade(price);
             if (atv != null && _cfg.MaxAdverseMinutesA > 0
@@ -946,11 +967,18 @@ public class OrbStrategyEngine
                 await DispatchSignals(_setupC, utcTime, preC);
             }
         }
-        if (IsAdverseTimeout(_activeD, _stD == 2, _entD, price, _entryTimeD, utcTime, _cfg.MaxAdverseMinutesD))
         {
-            _log.LogInformation("[D] Adverse timeout: underwater after {Min}min — force exit", _cfg.MaxAdverseMinutesD);
-            AddAlert("ADVERSE", SetupId.D, $"Underwater >{_cfg.MaxAdverseMinutesD}min — exit", "orange");
-            await ForceExitD(tickBar, ExitReason.AdverseTime);
+            var atvD = _setupD.GetActiveTrade(price);
+            if (atvD != null && _cfg.MaxAdverseMinutesD > 0
+                && (utcTime - atvD.EnteredAt).TotalMinutes >= _cfg.MaxAdverseMinutesD
+                && (atvD.Direction == Direction.Long ? price < atvD.Entry : price > atvD.Entry))
+            {
+                _log.LogInformation("[D] Adverse timeout: underwater after {Min}min — force exit", _cfg.MaxAdverseMinutesD);
+                AddAlert("ADVERSE", SetupId.D, $"Underwater >{_cfg.MaxAdverseMinutesD}min — exit", "orange");
+                var preD = _setupD.GetActiveTrade(price);
+                _setupD.ForceExit(price, utcTime, ExitReason.AdverseTime);
+                await DispatchSignals(_setupD, utcTime, preD);
+            }
         }
 
         if (_cfg.EnableA && !_pastCutoffA)
@@ -971,7 +999,16 @@ public class OrbStrategyEngine
             _setupC.OnTick(price, utcTime, BuildOrbState(), BuildIndicatorState(), BuildModuleState());
             await DispatchSignals(_setupC, utcTime, preC);
         }
-        if (_cfg.EnableD && !_pastCutoffD) await EvalTickSetupD(price, utcTime);
+        if (_cfg.EnableD && !_pastCutoffD)
+        {
+            var preD = _setupD.GetActiveTrade(price);
+            bool srWasActivated = _falseBreakout.SessionRangeTracker.IsActivated;
+            bool wasArmedD = _setupD.IsArmed || _setupD.IsActive;
+            _setupD.OnTick(price, utcTime, BuildOrbState(), BuildIndicatorState(), BuildModuleState());
+            if (srWasActivated && !wasArmedD && (_setupD.IsArmed || _setupD.IsActive))
+                _falseBreakout.SessionRangeTracker.ClearActivation();
+            await DispatchSignals(_setupD, utcTime, preD);
+        }
     }
 
     private async Task ProcessBarInternalAsync(Bar bar, bool warmupOnly, CancellationToken ct)
@@ -1015,7 +1052,7 @@ public class OrbStrategyEngine
             _setupA.Reset();
             _setupB.Reset();
             _setupC.Reset();
-            ResetSetupD();
+            _setupD.Reset();
             // Reset VWAP immediately at the session boundary so the dashboard
             // shows 0 right at 6 PM ET — not delayed until the first confirmed bar.
             _vwap.NewSession(tradingDate);
@@ -1044,7 +1081,7 @@ public class OrbStrategyEngine
                 _setupA.Reset();
                 _setupB.Reset();
                 _setupC.Reset();
-                _stD = 0; _armEntryD = 0;
+                _setupD.Reset();
             }
             AddAlert("ENGINE", SetupId.A, $"Engine: Live", "blue");
             if (_orbLoggedFormed && _orb.IsSet && _orb.OrbRange > 0)
@@ -1134,11 +1171,8 @@ public class OrbStrategyEngine
         // Advance bar index (Pine: bar_index++)
         _barIndex++;
 
-        // Clear sticky exit signals when bar has advanced past the exit bar
-        // (Pine: if not na(exitBarA_idx) and bar_index > exitBarA_idx => clear)
-        // Setup A/B/C sticky clearing is handled by _setupA/_setupB/_setupC.ClearPendingSignals() in DispatchSignals
-        if (_exitBarIdxD != -1 && _barIndex > _exitBarIdxD)
-            { _stickyTgtD = false; _stickyStpD = false; _exitBarIdxD = -1; }
+        // Sticky exit signals for all setups (A/B/C/D) are now managed by the strategy instances
+        // via ClearPendingSignals() in DispatchSignals.
 
         var sessStart   = new TimeOnly(_cfg.SessionStartHour, 0);
 
@@ -1176,7 +1210,7 @@ public class OrbStrategyEngine
         if (_cfg.UseTimeFilter && localTime >= cutoffD && localTime < sessStart && !_pastCutoffD)
         {
             _pastCutoffD = true;
-            if (!_activeD && (_stD == 1 || _stD == -1)) { _stD = 0; _armEntryD = 0; }
+            if (_setupD.IsArmed) _setupD.Reset();
             _log.LogInformation("Cutoff D reached at {Time}", localTime);
             AddAlert("CUTOFF", SetupId.D, $"Cutoff D {cutoffD:HH:mm} — no new entries", "yellow");
         }
@@ -1322,7 +1356,16 @@ public class OrbStrategyEngine
             await DispatchSignals(_setupC, bar.Time, preC);
         }
         if (_cfg.EnableD && !_ddBreached && !_pastCutoffD)
-            await ProcessSetupD(bar);
+        {
+            bool srWasActivated = _falseBreakout.SessionRangeTracker.IsActivated;
+            bool wasArmedD = _setupD.IsArmed || _setupD.IsActive;
+            var preD = _setupD.GetActiveTrade(_prices.GetLastPrice(_cfg.Ticker));
+            _setupD.OnBar(bar, BuildOrbState(), BuildIndicatorState(), BuildModuleState());
+            // Clear FalseBreakoutDetector session range activation after the strategy consumes it
+            if (srWasActivated && !wasArmedD && (_setupD.IsArmed || _setupD.IsActive))
+                _falseBreakout.SessionRangeTracker.ClearActivation();
+            await DispatchSignals(_setupD, bar.Time, preD);
+        }
 
         // ── Adverse excursion time check (bar mode) ────────────────
         var barTime = BarExitTime(bar.Time);
@@ -1365,11 +1408,18 @@ public class OrbStrategyEngine
                 await DispatchSignals(_setupC, barTime, preC);
             }
         }
-        if (IsAdverseTimeout(_activeD, _stD == 2, _entD, bar.Close, _entryTimeD, barTime, _cfg.MaxAdverseMinutesD))
         {
-            _log.LogInformation("[D] Adverse timeout: underwater after {Min}min — force exit", _cfg.MaxAdverseMinutesD);
-            AddAlert("ADVERSE", SetupId.D, $"Underwater >{_cfg.MaxAdverseMinutesD}min — exit", "orange");
-            await ForceExitD(bar, ExitReason.AdverseTime);
+            var atvD = _setupD.GetActiveTrade(bar.Close);
+            if (atvD != null && _cfg.MaxAdverseMinutesD > 0
+                && (barTime - atvD.EnteredAt).TotalMinutes >= _cfg.MaxAdverseMinutesD
+                && (atvD.Direction == Direction.Long ? bar.Close < atvD.Entry : bar.Close > atvD.Entry))
+            {
+                _log.LogInformation("[D] Adverse timeout: underwater after {Min}min — force exit", _cfg.MaxAdverseMinutesD);
+                AddAlert("ADVERSE", SetupId.D, $"Underwater >{_cfg.MaxAdverseMinutesD}min — exit", "orange");
+                var preDAdv = _setupD.GetActiveTrade(bar.Close);
+                _setupD.ForceExit(bar.Close, barTime, ExitReason.AdverseTime);
+                await DispatchSignals(_setupD, barTime, preDAdv);
+            }
         }
 
         if (rthJustEndedA || _forceExitA)
@@ -1402,322 +1452,23 @@ public class OrbStrategyEngine
                 await DispatchSignals(_setupC, BarExitTime(bar.Time), preC);
             }
         }
-        if (rthJustEndedD || _forceExitD) { _forceExitD = false; await ForceExitD(bar); }
+        if (rthJustEndedD || _forceExitD)
+        {
+            _forceExitD = false;
+            if (_setupD.IsActive)
+            {
+                var preDRth = _setupD.GetActiveTrade(bar.Close);
+                _setupD.ForceExit(bar.Close, BarExitTime(bar.Time));
+                await DispatchSignals(_setupD, BarExitTime(bar.Time), preDRth);
+            }
+        }
 
         await PublishSnapshot(bar);
     }
 
-    // ── Setup D (Session Range False Breakout) ─────────────────
-    private async Task ProcessSetupD(Bar bar)
-    {
-        if (!_activeD)
-        {
-            // Clear sticky markers
-            if (_exitBarIdxD != -1 && _barIndex > _exitBarIdxD)
-                { _stickyTgtD = false; _stickyStpD = false; _exitBarIdxD = -1; }
+    // Setup D is fully handled by _setupD (SessionFakeoutStrategy instance)
 
-            // Force-exit flag
-            if (_forceExitD) { _forceExitD = false; return; }
-
-            // Check activation: false breakout on session range
-            if (_stD == 0 && _tradeCountD < _cfg.MaxTradesD && _falseBreakout.SessionRangeTracker.IsActivated)
-            {
-                // Direction is OPPOSITE of breakout
-                bool breakoutLong = _falseBreakout.SessionRangeTracker.BreakoutDirection == Direction.Long;
-                _stD = breakoutLong ? -1 : 1;
-                _armEntryD = bar.Close;
-                _falseBreakout.SessionRangeTracker.ClearActivation();
-                AddAlert("ARMED", SetupId.D, $"D {(_stD == 1 ? "LONG" : "SHORT")} armed (session range false break)", "gray");
-            }
-
-            // Bar-level entry
-            if (_stD == 1 || _stD == -1)
-            {
-                bool isLong = _stD == 1;
-                bool canEnter = _cfg.AllowBothSameBar || !_enteredThisBar;
-                if (canEnter)
-                {
-                    var srLow  = _falseBreakout.SessionRangeTracker.RangeLow;
-                    var srHigh = _falseBreakout.SessionRangeTracker.RangeHigh;
-                    if (isLong && bar.Close >= srLow)
-                        await TryEntryD(bar, srLow, true);
-                    else if (!isLong && bar.Close <= srHigh)
-                        await TryEntryD(bar, srHigh, false);
-                }
-            }
-        }
-
-        // Exit (bar-level fallback)
-        if (_activeD)
-        {
-            bool isLong   = _stD == 2;
-            bool prevPart = _partHitD;
-            var result = ExitProcessor.ProcessBar(
-                true, isLong, _entD, _stopD, _tgtD, _partialD,
-                _ctsD, _pnlD, _partHitD,
-                _cfg.UsePartialD, _cfg.UseBeD, PointValueFor(SetupId.D),
-                bar.High, bar.Low, _cfg.PartialCtsD);
-
-            _pnlD     = result.NewPnl;
-            _activeD  = result.StillActive;
-            _partHitD = result.PartialHit;
-            _stopD    = result.NewStop;
-
-            bool partJustHit = _partHitD && !prevPart;
-            bool closingNow  = result.HitTarget || result.HitStop;
-
-            if (partJustHit && !closingNow)
-            {
-                int half = CalcPartialCts(_ctsD, _cfg.PartialCtsD);
-                int remaining = _ctsD - half;
-                if (half > 0)
-                {
-                    var psig = new PartialSignal(SetupId.D, isLong ? Direction.Long : Direction.Short,
-                        _partialD, half, remaining, _entD, bar.Time);
-                    await _executor.OnPartialSignalAsync(psig);
-                    await _sink.OnPartialAsync(psig);
-                    AddAlert("PARTIAL", SetupId.D, $"Partial @ {_partialD:F2}", "yellow");
-
-                    if (_cfg.UseBeD)
-                    {
-                        var besig = new BESignal(SetupId.D, isLong ? Direction.Long : Direction.Short,
-                            _entD, _entD, remaining, bar.Time);
-                        _stopD = _entD;
-                        await _executor.OnBESignalAsync(besig);
-                        await _sink.OnBEMoveAsync(besig);
-                        AddAlert("MOVE_BE", SetupId.D, $"Stop → BE {_entD:F2}", "yellow");
-                    }
-                    else
-                    {
-                        await _executor.OnLevelsAdjustedAsync(SetupId.D, _stopD, _tgtD, remaining);
-                    }
-                }
-            }
-
-            if (closingNow)
-            {
-                _stD = 0; _tradeCountD++;
-                var exitPxD = result.HitTarget ? _tgtD : _stopD;
-                bool isBEd = _cfg.AllowRearmAfterBeD && !result.HitTarget && exitPxD == _entD;
-                if (!isBEd) { if (isLong) _bullTradedD = true; else _bearTradedD = true; }
-                if (result.HitTarget) { _stickyTgtD = true; _exitBarIdxD = _barIndex; }
-                else                  { _stickyStpD = true; _exitBarIdxD = _barIndex; }
-                await BookExitD(result.HitTarget ? ExitReason.Target : ExitReason.Stop,
-                    exitPxD, BarExitTime(bar.Time), isLong,
-                    sameBarPartial: partJustHit);
-            }
-        }
-    }
-
-    private async Task TryEntryD(Bar bar, decimal ep, bool isLong)
-    {
-        if (HasOpposingPosition(isLong)) return;
-        decimal rangeSize = _falseBreakout.SessionRangeTracker.RangeHigh - _falseBreakout.SessionRangeTracker.RangeLow;
-        if (rangeSize <= 0) rangeSize = _orb.OrbRange;
-        if (_cfg.EntryTickOffsetD != 0 && _cfg.TickSize > 0)
-        {
-            decimal offset = _cfg.EntryTickOffsetD * _cfg.TickSize;
-            ep = isLong ? ep + offset : ep - offset;
-            ep = LevelCalculator.RoundToTick(ep, _cfg.TickSize);
-        }
-
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
-            _cfg.StopPctD, _cfg.TargetPctD, _cfg.PartialPctD, rangeSize, _cfg.TickSize);
-        if (rr < _cfg.MinRrD) return;
-
-        _entD = ep; _stopD = sl; _tgtD = tp; _partialD = pp;
-        _initStopD = sl; _pnlD = 0; _activeD = true;
-        _ctsD = CalcContracts(_cfg.ContractsD, _cfg.HiVolMultD, _cfg.MaxContractsD);
-        _stD = isLong ? 2 : -2; _enteredThisBar = true;
-        _entryTimeD = BarExitTime(bar.Time);
-
-        _log.LogInformation("[Setup D] Entry {Dir} {Ct}ct @ {Ep:F2} Stop={Sl:F2} Tgt={Tp:F2} RR={Rr:F2}",
-            isLong ? "LONG" : "SHORT", _ctsD, ep, sl, tp, rr);
-        if (IsEntryPriceStale(SetupId.D, ep)) return;
-        var sig = new EntrySignal(SetupId.D, isLong ? Direction.Long : Direction.Short,
-            ep, sl, tp, pp, _ctsD, bar.Time, _cfg.OrderTypeD, Ticker: _cfg.EffectiveTickerD);
-        var fill = await _executor.OnEntrySignalAsync(sig);
-        if (fill.HasValue && fill.Value != ep) await ApplyFillPrice(SetupId.D, fill.Value);
-        await _sink.OnEntryAsync(sig);
-        AddAlert("ENTRY", SetupId.D,
-            $"{(isLong ? "LONG" : "SHORT")} {_ctsD}ct @ {ep:F2} | Stop {sl:F2} | Tgt {tp:F2}",
-            isLong ? "green" : "red");
-    }
-
-    private async Task BookExitD(ExitReason reason, decimal exitPx, DateTime time, bool isLong,
-        bool sameBarPartial = false)
-    {
-        decimal comm = _ctsD * 2 * _cfg.CommissionPerSide;
-        decimal net  = _pnlD - comm;
-        decimal risk = Math.Abs(_entD - _initStopD) * PointValueFor(SetupId.D) * _ctsD;
-        decimal rMult = risk > 0 ? _pnlD / risk : 0;
-
-        var trade = new TradeRecord
-        {
-            Setup = SetupId.D, Direction = isLong ? Direction.Long : Direction.Short,
-            Ticker = _cfg.Ticker, Contracts = _ctsD,
-            Entry = _entD, InitialStop = _initStopD, Target = _tgtD, Partial = _partialD,
-            Exit = exitPx, ExitReason = reason,
-            PartialFilled = _partHitD, PartialPrice = _partialD,
-            GrossPnl = _pnlD, Commission = comm, NetPnl = net, RMultiple = rMult,
-            EnteredAt = _entryTimeD, ExitedAt = time,
-            SessionId = string.IsNullOrEmpty(_activeSessionId) ? "NY" : _activeSessionId
-        };
-
-        _todayPnl   += net;
-        _todayPeak   = Math.Max(_todayPeak, _todayPnl);
-        _todayMaxDD  = Math.Max(_todayMaxDD, _todayPeak - _todayPnl);
-        CheckDailyLossLimit();
-        if (net > 0) { _todayWins++;   _todayWinPnl  += net; _todayWinsD++;   _todayWinPnlD  += net; }
-        else         { _todayLosses++; _todayLossPnl += net; _todayLossesD++; _todayLossPnlD += net; }
-
-        _log.LogInformation("[Setup D] Exit {Reason} @ {Px:F2} Net={Net:C0} R={R:F2}", reason, exitPx, net, rMult);
-
-        int remCtsD = (_partHitD && _cfg.UsePartialD && !sameBarPartial)
-            ? _ctsD - CalcPartialCts(_ctsD, _cfg.PartialCtsD)
-            : _ctsD;
-        var sig = new ExitSignal(SetupId.D, reason, exitPx, remCtsD, time, _cfg.EffectiveTickerD);
-        await _executor.OnExitSignalAsync(sig);
-        await _sink.OnExitAsync(sig, trade);
-        AddAlert("EXIT", SetupId.D,
-            $"{reason} @ {exitPx:F2} | {(net >= 0 ? "+" : "")}{net:C0} | {rMult:F1}R",
-            reason == ExitReason.Target ? "green" : "red");
-
-        _activeD = false; _stD = 0; _partHitD = false; _pnlD = 0;
-        if (reason == ExitReason.AdverseTime)
-        {
-            _tradeCountD++;
-            _pastCutoffD = true;
-        }
-    }
-
-    private async Task ForceExitD(Bar bar, ExitReason reason = ExitReason.SessionEnd)
-    {
-        if (!_activeD) return;
-        bool isLong = _stD == 2;
-        _pnlD += ExitProcessor.ForcedExit(isLong, _entD, bar.Close,
-            _ctsD, _partHitD, _cfg.UsePartialD, PointValueFor(SetupId.D), _cfg.PartialCtsD);
-        await BookExitD(reason, bar.Close, BarExitTime(bar.Time), isLong);
-    }
-
-    // ── Tick-mode entry/exit for Setup D ───────────────────────────
-    private async Task EvalTickSetupD(decimal price, DateTime utcTime)
-    {
-        // ── Entry: armed but not yet active ─────────────────────
-        if (!_activeD && (_stD == 1 || _stD == -1))
-        {
-            bool isLong = _stD == 1;
-            var srLow  = _falseBreakout.SessionRangeTracker.RangeLow;
-            var srHigh = _falseBreakout.SessionRangeTracker.RangeHigh;
-            // Long: price crosses above session range low (after false break below)
-            // Short: price crosses below session range high (after false break above)
-            if (isLong && price >= srLow)
-                await TryEntryDFromTick(srLow, true, utcTime);
-            else if (!isLong && price <= srHigh)
-                await TryEntryDFromTick(srHigh, false, utcTime);
-            return;
-        }
-
-        // ── Exit: active position ────────────────────────────────
-        if (!_activeD) return;
-        bool long_ = _stD == 2;
-        bool hitStop      = long_ ? price <= _stopD    : price >= _stopD;
-        bool hitTarget    = long_ ? price >= _tgtD     : price <= _tgtD;
-        bool hitPartialPx = _cfg.UsePartialD && !_partHitD &&
-                            (long_ ? price >= _partialD : price <= _partialD);
-        if (!hitStop && !hitTarget && !hitPartialPx) return;
-
-        bool partJustHit = false;
-        if (hitPartialPx && !hitTarget)
-        {
-            int half    = CalcPartialCts(_ctsD, _cfg.PartialCtsD);
-            int remaining = _ctsD - half;
-            if (half > 0)
-            {
-                partJustHit = true;
-                _partHitD   = true;
-                _pnlD += (long_ ? _partialD - _entD : _entD - _partialD) * PointValueFor(SetupId.D) * half;
-                var psig    = new PartialSignal(SetupId.D, long_ ? Direction.Long : Direction.Short,
-                    _partialD, half, remaining, _entD, utcTime);
-                await _executor.OnPartialSignalAsync(psig);
-                await _sink.OnPartialAsync(psig);
-                AddAlert("PARTIAL", SetupId.D, $"Partial @ {_partialD:F2}", "yellow");
-
-                if (_cfg.UseBeD)
-                {
-                    var besig = new BESignal(SetupId.D, long_ ? Direction.Long : Direction.Short,
-                        _entD, _entD, remaining, utcTime);
-                    _stopD = _entD;
-                    await _executor.OnBESignalAsync(besig);
-                    await _sink.OnBEMoveAsync(besig);
-                    AddAlert("MOVE_BE", SetupId.D, $"Stop → BE {_entD:F2}", "yellow");
-                }
-                else
-                {
-                    await _executor.OnLevelsAdjustedAsync(SetupId.D, _stopD, _tgtD, remaining);
-                }
-            }
-            if (!hitTarget && !hitStop) return;
-        }
-
-        ExitReason reason = hitTarget ? ExitReason.Target : ExitReason.Stop;
-        decimal    exitPx = hitTarget ? _tgtD : _stopD;
-        int remCts = (_partHitD && _cfg.UsePartialD)
-            ? _ctsD - CalcPartialCts(_ctsD, _cfg.PartialCtsD) : _ctsD;
-        decimal pnl = _pnlD + (long_ ? exitPx - _entD : _entD - exitPx) * PointValueFor(SetupId.D) * remCts;
-        _pnlD    = pnl;
-        _activeD = false;
-        _stD     = 0;
-        _tradeCountD++;
-        bool isBE = _cfg.AllowRearmAfterBeD && reason == ExitReason.Stop && exitPx == _entD;
-        if (!isBE) { if (long_) _bullTradedD = true; else _bearTradedD = true; }
-        if (hitTarget) { _stickyTgtD = true; _exitBarIdxD = _barIndex; }
-        else           { _stickyStpD = true; _exitBarIdxD = _barIndex; }
-        await BookExitD(reason, exitPx, utcTime, long_, sameBarPartial: partJustHit);
-    }
-
-    private async Task TryEntryDFromTick(decimal ep, bool isLong, DateTime utcTime)
-    {
-        if (HasOpposingPosition(isLong)) return;
-        decimal rangeSize = _falseBreakout.SessionRangeTracker.RangeHigh - _falseBreakout.SessionRangeTracker.RangeLow;
-        if (rangeSize <= 0) rangeSize = _orb.OrbRange;
-
-        // NearPct guard
-        decimal nearDist = rangeSize * _cfg.NearPctD;
-        var srLow  = _falseBreakout.SessionRangeTracker.RangeLow;
-        var srHigh = _falseBreakout.SessionRangeTracker.RangeHigh;
-        if (isLong && ep > srLow + nearDist) return;
-        if (!isLong && ep < srHigh - nearDist) return;
-
-        if (_cfg.EntryTickOffsetD != 0 && _cfg.TickSize > 0)
-        {
-            decimal off = _cfg.EntryTickOffsetD * _cfg.TickSize;
-            ep = LevelCalculator.RoundToTick(isLong ? ep + off : ep - off, _cfg.TickSize);
-        }
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
-            _cfg.StopPctD, _cfg.TargetPctD, _cfg.PartialPctD, rangeSize, _cfg.TickSize);
-        if (rr < _cfg.MinRrD) return;
-
-        _entD = ep; _stopD = sl; _tgtD = tp; _partialD = pp;
-        _initStopD = sl; _pnlD = 0; _activeD = true;
-        _ctsD = CalcContracts(_cfg.ContractsD, _cfg.HiVolMultD, _cfg.MaxContractsD);
-        _stD = isLong ? 2 : -2; _enteredThisBar = true;
-        _entryTimeD = utcTime;
-
-        _log.LogInformation("[Setup D TICK] Entry {Dir} {Ct}ct @ {Ep:F2} Stop={Sl:F2} Tgt={Tp:F2} RR={Rr:F2}",
-            isLong ? "LONG" : "SHORT", _ctsD, ep, sl, tp, rr);
-        if (IsEntryPriceStale(SetupId.D, ep)) return;
-        var sig = new EntrySignal(SetupId.D, isLong ? Direction.Long : Direction.Short,
-            ep, sl, tp, pp, _ctsD, utcTime, _cfg.OrderTypeD, Ticker: _cfg.EffectiveTickerD);
-        var fill = await _executor.OnEntrySignalAsync(sig);
-        if (fill.HasValue && fill.Value != ep) await ApplyFillPrice(SetupId.D, fill.Value);
-        await _sink.OnEntryAsync(sig);
-        AddAlert("ENTRY", SetupId.D,
-            $"{(isLong ? "LONG" : "SHORT")} {_ctsD}ct @ {ep:F2} | Stop {sl:F2} | Tgt {tp:F2}",
-            isLong ? "green" : "red");
-    }
-
-    // ── C/D/F Priority Helpers ─────────────────────────────────
+    // ── C/D Priority Helpers ─────────────────────────────────
 
     /// <summary>
     /// Returns true if any setup has an active trade in the opposite direction.
@@ -1727,7 +1478,7 @@ public class OrbStrategyEngine
     private bool HasOpposingPosition(bool isLong)
     {
         if (_setupC.IsActive && (_setupC.GetSnapshot().State == 2) != isLong) return true;  // C: 2=long, -2=short
-        if (_activeD && (_stD == 2) != isLong) return true;  // D: 2=long, -2=short
+        if (_setupD.IsActive && (_setupD.GetSnapshot().State == 2) != isLong) return true;  // D: 2=long, -2=short
         return false;
     }
 
@@ -1801,10 +1552,16 @@ public class OrbStrategyEngine
             _pastCutoffC = true;
             if (_setupC.IsArmed) _setupC.Reset();
         }
+        var cutoffDw  = new TimeOnly(_cfg.CutoffHourD, _cfg.CutoffMinuteD);
+        if (_cfg.UseTimeFilter && localTime >= cutoffDw && localTime < sessStart)
+        {
+            _pastCutoffD = true;
+            if (_setupD.IsArmed) _setupD.Reset();
+        }
         _pastCutoff = _pastCutoffA && _pastCutoffB;
 
-        // Setup A/B/C arm evaluation is handled by StrategyArmOnly() at the cooldown call-site.
-        // StrategyArmOnly calls _setupA/_setupB/_setupC.OnBar() with RevertEntry for entries.
+        // Setup A/B/C/D arm evaluation is handled by StrategyArmOnly() at the cooldown call-site.
+        // StrategyArmOnly calls _setupA/_setupB/_setupC/_setupD.OnBar() with RevertEntry for entries.
     }
 
     private async Task PublishSnapshot(Bar bar)
@@ -1819,21 +1576,7 @@ public class OrbStrategyEngine
 
         ActiveTradeView? viewC = _setupC.GetActiveTrade(lastPx);
 
-        ActiveTradeView? viewD = null;
-        if (_activeD)
-        {
-            bool isLong = _stD == 2;
-            int rem = _partHitD ? _ctsD - CalcPartialCts(_ctsD, _cfg.PartialCtsD) : _ctsD;
-            viewD = new ActiveTradeView
-            {
-                Setup = SetupId.D, Direction = isLong ? Direction.Long : Direction.Short,
-                Entry = _entD, CurrentStop = _stopD, Target = _tgtD, Partial = _partialD,
-                Contracts = _ctsD, RemainingContracts = rem,
-                PartialFilled = _partHitD, LastPrice = lastPx,
-                UnrealizedPnl = (isLong ? lastPx - _entD : _entD - lastPx) * PointValueFor(SetupId.D) * rem,
-                EnteredAt = _entryTimeD
-            };
-        }
+        ActiveTradeView? viewD = _setupD.GetActiveTrade(lastPx);
 
         await _sink.OnSnapshotAsync(new EngineSnapshot
         {
@@ -1853,7 +1596,7 @@ public class OrbStrategyEngine
             MaxTradesA = _cfg.MaxTradesA,
             TradeCountB = _setupB.GetSnapshot().TradeCount, MaxTradesB = _cfg.MaxTradesB,
             TradeCountC = _setupC.GetSnapshot().TradeCount, MaxTradesC = _cfg.MaxTradesC,
-            TradeCountD = _tradeCountD, MaxTradesD = _cfg.MaxTradesD,
+            TradeCountD = _setupD.GetSnapshot().TradeCount, MaxTradesD = _cfg.MaxTradesD,
 
             Expectancy  = CalcExpectancy(_todayWins, _todayLosses, _todayWinPnl, _todayLossPnl),
             ExpectancyA = CalcExpectancy(_todayWinsA, _todayLossesA, _todayWinPnlA, _todayLossPnlA),
@@ -1892,7 +1635,7 @@ public class OrbStrategyEngine
             SetupAState = _setupA.GetSnapshot().State,
             SetupBState = _setupB.GetSnapshot().State,
             SetupCState = _setupC.GetSnapshot().State,
-            SetupDState = _stD,
+            SetupDState = _setupD.GetSnapshot().State,
 
             StickyTgtA = _setupA.GetSnapshot().StickyTgt,
             StickyStpA = _setupA.GetSnapshot().StickyStp,
@@ -1900,8 +1643,8 @@ public class OrbStrategyEngine
             StickyStpB = _setupB.GetSnapshot().StickyStp,
             StickyTgtC = _setupC.GetSnapshot().StickyTgt,
             StickyStpC = _setupC.GetSnapshot().StickyStp,
-            StickyTgtD = _stickyTgtD,
-            StickyStpD = _stickyStpD,
+            StickyTgtD = _setupD.GetSnapshot().StickyTgt,
+            StickyStpD = _setupD.GetSnapshot().StickyStp,
 
             // FalseBreakout module context
             FBOrbBreakoutActive      = _falseBreakout.OrbTracker.BreakoutActive,
@@ -1996,16 +1739,6 @@ public class OrbStrategyEngine
         var s = ComputeSweepScore();
         var v = ComputeVwapDevScore();
         return Math.Round((d + s + v) / 3m, 1);
-    }
-
-    private void ResetSetupD()
-    {
-        _stD = 0; _entD = 0; _stopD = 0; _tgtD = 0; _partialD = 0;
-        _activeD = false; _tradeCountD = 0; _partHitD = false;
-        _pnlD = 0; _armEntryD = 0; _entryTimeD = DateTime.MinValue;
-        _stickyTgtD = false; _stickyStpD = false; _exitBarIdxD = -1;
-        _bullTradedD = false; _bearTradedD = false; _ctsD = 0;
-        _pastCutoffD = false;
     }
 
     /// <summary>
