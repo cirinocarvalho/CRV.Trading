@@ -116,6 +116,12 @@ public class StrategyConfig
     public int     CutoffMinuteA    { get; set; } = 30;
     public bool    CloseAtRthCloseA { get; set; } = true;
 
+    // Per-setup instrument override (A)
+    public bool    UseCustomTickerA  { get; set; } = false;
+    public string  TickerA           { get; set; } = "";
+    public decimal PointValueA       { get; set; } = 0;
+    public decimal TickSizeA         { get; set; } = 0;
+
     // ── Setup B — Breakout Retest ─────────────────────────────
     public bool    EnableB         { get; set; } = true;
     public string  ModeB           { get; set; } = "Conservative";
@@ -162,6 +168,12 @@ public class StrategyConfig
     public int     CutoffMinuteB    { get; set; } = 30;
     public bool    CloseAtRthCloseB { get; set; } = true;
 
+    // Per-setup instrument override (B)
+    public bool    UseCustomTickerB  { get; set; } = false;
+    public string  TickerB           { get; set; } = "";
+    public decimal PointValueB       { get; set; } = 0;
+    public decimal TickSizeB         { get; set; } = 0;
+
     // ── Setup C — ORB False Breakout ──────────────────────────────────────
     public bool    EnableC            { get; set; } = false;
     public int     MaxTradesC         { get; set; } = 3;
@@ -184,6 +196,12 @@ public class StrategyConfig
     public int     CutoffMinuteC      { get; set; } = 30;
     public bool    CloseAtRthCloseC   { get; set; } = true;
 
+    // Per-setup instrument override (C)
+    public bool    UseCustomTickerC  { get; set; } = false;
+    public string  TickerC           { get; set; } = "";
+    public decimal PointValueC       { get; set; } = 0;
+    public decimal TickSizeC         { get; set; } = 0;
+
     // ── Setup D — Session Range False Breakout ──────────────────────────
     public bool    EnableD            { get; set; } = false;
     public int     MaxTradesD         { get; set; } = 3;
@@ -205,6 +223,12 @@ public class StrategyConfig
     public int     CutoffHourD        { get; set; } = 14;
     public int     CutoffMinuteD      { get; set; } = 30;
     public bool    CloseAtRthCloseD   { get; set; } = true;
+
+    // Per-setup instrument override (D)
+    public bool    UseCustomTickerD  { get; set; } = false;
+    public string  TickerD           { get; set; } = "";
+    public decimal PointValueD       { get; set; } = 0;
+    public decimal TickSizeD         { get; set; } = 0;
 
     // ── False Breakout Module Params ──────────────────────────────────────
     public int     FBMaxTimeOutsideMinutesOrb { get; set; } = 15;
@@ -237,6 +261,35 @@ public class StrategyConfig
     [System.Text.Json.Serialization.JsonIgnore]
     public int  PullbackPctInt => (int)(PullbackPct * 100);
 
+    // ── Per-setup effective instrument ─────────────────────────
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string  EffectiveTickerA     => UseCustomTickerA && !string.IsNullOrEmpty(TickerA) ? TickerA : Ticker;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectivePointValueA => UseCustomTickerA && PointValueA > 0 ? PointValueA : PointValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectiveTickSizeA   => UseCustomTickerA && TickSizeA > 0 ? TickSizeA : TickSize;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string  EffectiveTickerB     => UseCustomTickerB && !string.IsNullOrEmpty(TickerB) ? TickerB : Ticker;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectivePointValueB => UseCustomTickerB && PointValueB > 0 ? PointValueB : PointValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectiveTickSizeB   => UseCustomTickerB && TickSizeB > 0 ? TickSizeB : TickSize;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string  EffectiveTickerC     => UseCustomTickerC && !string.IsNullOrEmpty(TickerC) ? TickerC : Ticker;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectivePointValueC => UseCustomTickerC && PointValueC > 0 ? PointValueC : PointValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectiveTickSizeC   => UseCustomTickerC && TickSizeC > 0 ? TickSizeC : TickSize;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string  EffectiveTickerD     => UseCustomTickerD && !string.IsNullOrEmpty(TickerD) ? TickerD : Ticker;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectivePointValueD => UseCustomTickerD && PointValueD > 0 ? PointValueD : PointValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectiveTickSizeD   => UseCustomTickerD && TickSizeD > 0 ? TickSizeD : TickSize;
+
     /// <summary>
     /// Returns the "trading date" for a given local time based on <see cref="SessionStartHour"/>.
     /// Futures sessions span midnight — bars at or after SessionStartHour (e.g. 18:00)
@@ -254,6 +307,147 @@ public class StrategyConfig
     }
 
     public StrategyConfig Clone() => (StrategyConfig)MemberwiseClone();
+
+    /// <summary>Extract global engine-level fields into an EngineConfig.</summary>
+    public EngineConfig ToEngineConfig() => new()
+    {
+        SessionStartHour   = SessionStartHour,
+        OrbStart           = OrbStart,
+        OrbEnd             = OrbEnd,
+        RthStart           = RthStart,
+        RthEnd             = RthEnd,
+        ExitMinutesBefore  = ExitMinutesBefore,
+        Timezone           = Timezone,
+        ExecutionTFMinutes = ExecutionTFMinutes,
+        Ticker             = Ticker,
+        PointValue         = PointValue,
+        TickSize           = TickSize,
+        UseDailyLossLimit  = UseDailyLossLimit,
+        MaxDailyLoss       = MaxDailyLoss,
+        AtrFilterPct       = AtrFilterPct,
+        CommissionPerSide  = CommissionPerSide,
+        AllowBothSameBar   = AllowBothSameBar,
+        Broker             = Broker,
+        ExecBroker         = ExecBroker,
+        AccountId          = AccountId,
+        ExecAccountId      = ExecAccountId,
+        ReplayDate         = ReplayDate,
+        ReplaySpeed        = ReplaySpeed,
+        FBMaxTimeOutsideMinutesOrb = FBMaxTimeOutsideMinutesOrb,
+        FBMaxTimeOutsideMinutesSR  = FBMaxTimeOutsideMinutesSR,
+        FBMaxPenetrationPctOrb     = FBMaxPenetrationPctOrb,
+        FBMaxPenetrationPctSR      = FBMaxPenetrationPctSR,
+        FBMinRejectionBodyPct      = FBMinRejectionBodyPct,
+        FBMaxTrendDayScore         = FBMaxTrendDayScore,
+        Modules = new CRV.Core.Modules.ModuleConfig
+        {
+            TickSize             = TickSize,
+            PointValue           = PointValue,
+            Timezone             = Timezone,
+            MinTickPenetration   = SweepMinPenetration,
+            MinBodyReject        = SweepMinBodyReject,
+            EqualLevelTolerance  = SweepEqualTolerance,
+            ConfirmationBars     = SweepConfirmBars,
+            DriveRangeAtrMult    = DriveRangeAtrMult,
+            MaxDrivePullback     = DriveMaxPullback,
+            DriveBullBearRatio   = DriveBullBearRatio,
+            TrendDayThreshold    = TrendDayThreshold,
+            ShallowPullbackMax   = ShallowPullbackMax,
+            VwapDevPeriod        = VwapDevPeriod,
+        },
+    };
+
+    /// <summary>
+    /// Produce per-setup configs for all 4 setups (A, B, C, D).
+    /// Results are identical to the engine's BuildSetupConfigA/B/C/D helpers.
+    /// </summary>
+    public List<StrategySetupConfig> ToSetupConfigs() => new()
+    {
+        BuildSetupConfigA(),
+        BuildSetupConfigB(),
+        BuildSetupConfigC(),
+        BuildSetupConfigD(),
+    };
+
+    internal StrategySetupConfig BuildSetupConfigA() => new()
+    {
+        Name = "A", SetupId = SetupId.A,
+        StrategyType = CRV.Core.Strategy.StrategyType.Pullback,
+        Enabled = EnableA,
+        Ticker = EffectiveTickerA, PointValue = EffectivePointValueA,
+        TickSize = EffectiveTickSizeA,
+        Contracts = ContractsA, HiVolMult = HiVolMultA, MaxContracts = MaxContractsA,
+        StopPct = StopPctA, TargetPct = TargetPctA, PartialPct = PartialPctA,
+        NearPct = NearPctA, MinRr = MinRrA, Mode = ModeA,
+        PullbackPct = PullbackPct, EntryTickOffset = EntryTickOffsetA,
+        OrderType = OrderTypeA,
+        UseVwap = UseVwapA, UseOrbClose = UseOrbCloseA,
+        CutoffHour = CutoffHourA, CutoffMinute = CutoffMinuteA,
+        CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
+        MaxAdverseMinutes = MaxAdverseMinutesA,
+        UsePartial = UsePartialA, UseBe = UseBeA,
+        PartialCts = PartialCtsA, AllowRearmAfterBe = AllowRearmAfterBeA,
+    };
+
+    internal StrategySetupConfig BuildSetupConfigB() => new()
+    {
+        Name = "B", SetupId = SetupId.B,
+        StrategyType = CRV.Core.Strategy.StrategyType.Retest,
+        Enabled = EnableB,
+        Ticker = EffectiveTickerB, PointValue = EffectivePointValueB,
+        TickSize = EffectiveTickSizeB,
+        Contracts = ContractsB, HiVolMult = HiVolMultB, MaxContracts = MaxContractsB,
+        StopPct = StopPctB, TargetPct = TargetPctB, PartialPct = PartialPctB,
+        NearPct = NearPctB, MinRr = MinRrB, Mode = ModeB,
+        RetestPct = RetestPct, EntryTickOffset = EntryTickOffsetB,
+        OrderType = OrderTypeB,
+        UseVwap = UseVwapB, UseOrbClose = UseOrbCloseB,
+        CutoffHour = CutoffHourB, CutoffMinute = CutoffMinuteB,
+        CloseAtRthClose = CloseAtRthCloseB, MaxTrades = MaxTradesB,
+        MaxAdverseMinutes = MaxAdverseMinutesB,
+        UsePartial = UsePartialB, UseBe = UseBeB,
+        PartialCts = PartialCtsB, AllowRearmAfterBe = AllowRearmAfterBeB,
+    };
+
+    internal StrategySetupConfig BuildSetupConfigC() => new()
+    {
+        Name = "C", SetupId = SetupId.C,
+        StrategyType = CRV.Core.Strategy.StrategyType.OrbFakeout,
+        Enabled = EnableC,
+        Ticker = EffectiveTickerC, PointValue = EffectivePointValueC,
+        TickSize = EffectiveTickSizeC,
+        Contracts = ContractsC, HiVolMult = HiVolMultC, MaxContracts = MaxContractsC,
+        StopPct = StopPctC, TargetPct = TargetPctC, PartialPct = PartialPctC,
+        NearPct = NearPctC, MinRr = MinRrC, Mode = "Conservative",
+        EntryTickOffset = EntryTickOffsetC,
+        OrderType = OrderTypeC,
+        UseVwap = false, UseOrbClose = false,
+        CutoffHour = CutoffHourC, CutoffMinute = CutoffMinuteC,
+        CloseAtRthClose = CloseAtRthCloseC, MaxTrades = MaxTradesC,
+        MaxAdverseMinutes = MaxAdverseMinutesC,
+        UsePartial = UsePartialC, UseBe = UseBeC,
+        PartialCts = PartialCtsC, AllowRearmAfterBe = AllowRearmAfterBeC,
+    };
+
+    internal StrategySetupConfig BuildSetupConfigD() => new()
+    {
+        Name = "D", SetupId = SetupId.D,
+        StrategyType = CRV.Core.Strategy.StrategyType.SessionFakeout,
+        Enabled = EnableD,
+        Ticker = EffectiveTickerD, PointValue = EffectivePointValueD,
+        TickSize = EffectiveTickSizeD,
+        Contracts = ContractsD, HiVolMult = HiVolMultD, MaxContracts = MaxContractsD,
+        StopPct = StopPctD, TargetPct = TargetPctD, PartialPct = PartialPctD,
+        NearPct = NearPctD, MinRr = MinRrD, Mode = "Conservative",
+        EntryTickOffset = EntryTickOffsetD,
+        OrderType = OrderTypeD,
+        UseVwap = false, UseOrbClose = false,
+        CutoffHour = CutoffHourD, CutoffMinute = CutoffMinuteD,
+        CloseAtRthClose = CloseAtRthCloseD, MaxTrades = MaxTradesD,
+        MaxAdverseMinutes = MaxAdverseMinutesD,
+        UsePartial = UsePartialD, UseBe = UseBeD,
+        PartialCts = PartialCtsD, AllowRearmAfterBe = AllowRearmAfterBeD,
+    };
 
     /// <summary>Validates all parameters. Returns a list of error messages (empty = valid).</summary>
     public IReadOnlyList<string> Validate()
