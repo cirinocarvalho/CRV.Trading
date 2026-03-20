@@ -58,8 +58,13 @@ public class BacktestEngine
         var sink     = new BacktestSink(trades);
         var prices   = new InMemoryPriceProvider();
         var executor = new BacktestExecutor(_btCfg, _cfg, sink);
-        var engine   = new OrbStrategyEngine(_cfg, executor, sink, prices,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var engineConfig = _cfg.ToEngineConfig();
+        var engine   = new ComposableEngine(executor, sink, prices, engineConfig);
+        foreach (var setupCfg in _cfg.ToSetupConfigs())
+        {
+            if (setupCfg.Enabled)
+                engine.AddSetup(setupCfg);
+        }
 
         // Enable tick mode: bar-level entry/exit skipped in ProcessBarAsync;
         // instead, four OHLC ticks per input bar drive entries and exits.
@@ -79,6 +84,7 @@ public class BacktestEngine
         var sessionMgr   = new SessionManager(sessions);
         var tz           = TimeZoneInfo.FindSystemTimeZoneById(_cfg.Timezone);
         DateTime lastDailyReset = DateTime.MinValue;
+        bool betweenSessions = true;  // Start in gap; first SessionStarted will clear it
 
         int tfMinutes = Math.Max(1, _btCfg.ExecutionTFMinutes);
 
@@ -109,10 +115,12 @@ public class BacktestEngine
             {
                 case TransitionType.SessionStarted:
                     engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
+                    betweenSessions = false;
                     break;
                 case TransitionType.SessionEnded:
-                    await engine.ForceExitAllAsync();
+                    await engine.ForceExitAllAsync(bar.Time);
                     engine.SetIdle();
+                    betweenSessions = true;
                     break;
             }
             // ──────────────────────────────────────────────────────────
@@ -126,9 +134,14 @@ public class BacktestEngine
                 var tfBar    = new Bar(bucketKey.Value, bOpen, bHigh, bLow, bClose, bVolume);
                 bool isWarmup = tfBarsOut < _btCfg.WarmupBars;
 
-                if (isWarmup)
+                if (isWarmup || betweenSessions)
                 {
-                    await engine.WarmupBarAsync(tfBar, ct);
+                    // Between sessions: feed bars as warmup so ATR/VWAP stay alive.
+                    // The engine is idle after SessionEnded, so we must un-idle
+                    // temporarily to let the warmup path through.
+                    if (betweenSessions) engine.ClearIdle();
+                    await engine.WarmupBarAsync(tfBar, _cfg.Ticker, ct);
+                    if (betweenSessions) engine.SetIdle();
                 }
                 else
                 {
@@ -141,23 +154,27 @@ public class BacktestEngine
                     foreach (var (o, h, l, c, t) in pending)
                     {
                         prices.UpdatePrice(_cfg.Ticker, o);
-                        await engine.ProcessPriceTickAsync(o, t);                       // Open  +0s
+                        await engine.ProcessPriceTickAsync(o, t, _cfg.Ticker);                       // Open  +0s
                         if (c >= o)
                         {   // Bullish: O → L → H → C
-                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(15));
-                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(30));
+                            prices.UpdatePrice(_cfg.Ticker, l);
+                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), _cfg.Ticker);
+                            prices.UpdatePrice(_cfg.Ticker, h);
+                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), _cfg.Ticker);
                         }
                         else
                         {   // Bearish: O → H → L → C
-                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));
-                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(30));
+                            prices.UpdatePrice(_cfg.Ticker, h);
+                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), _cfg.Ticker);
+                            prices.UpdatePrice(_cfg.Ticker, l);
+                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), _cfg.Ticker);
                         }
                         prices.UpdatePrice(_cfg.Ticker, c);
-                        await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));        // Close +45s
+                        await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), _cfg.Ticker);        // Close +45s
                     }
                     // 2. Process the completed TF bar to update indicators and arm state
                     prices.UpdatePrice(_cfg.Ticker, bClose);
-                    await engine.ProcessBarAsync(tfBar, ct);
+                    await engine.ProcessBarAsync(tfBar, _cfg.Ticker, ct);
                 }
 
                 tfBarsOut++;
@@ -193,27 +210,33 @@ public class BacktestEngine
             var tfBar    = new Bar(bucketKey.Value, bOpen, bHigh, bLow, bClose, bVolume);
             bool isWarmup = tfBarsOut < _btCfg.WarmupBars;
 
-            if (isWarmup)
+            if (isWarmup || betweenSessions)
             {
-                await engine.WarmupBarAsync(tfBar, ct);
+                if (betweenSessions) engine.ClearIdle();
+                await engine.WarmupBarAsync(tfBar, _cfg.Ticker, ct);
+                if (betweenSessions) engine.SetIdle();
             }
             else
             {
                 foreach (var (o, h, l, c, t) in pending)
                 {
                     prices.UpdatePrice(_cfg.Ticker, o);
-                    await engine.ProcessPriceTickAsync(o, t);
+                    await engine.ProcessPriceTickAsync(o, t, _cfg.Ticker);
                     if (c >= o)
-                    {   await engine.ProcessPriceTickAsync(l, t.AddSeconds(15));
-                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(30)); }
+                    {   prices.UpdatePrice(_cfg.Ticker, l);
+                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), _cfg.Ticker);
+                        prices.UpdatePrice(_cfg.Ticker, h);
+                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), _cfg.Ticker); }
                     else
-                    {   await engine.ProcessPriceTickAsync(h, t.AddSeconds(15));
-                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30)); }
+                    {   prices.UpdatePrice(_cfg.Ticker, h);
+                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), _cfg.Ticker);
+                        prices.UpdatePrice(_cfg.Ticker, l);
+                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), _cfg.Ticker); }
                     prices.UpdatePrice(_cfg.Ticker, c);
-                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45));
+                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), _cfg.Ticker);
                 }
                 prices.UpdatePrice(_cfg.Ticker, bClose);
-                await engine.ProcessBarAsync(tfBar, ct);
+                await engine.ProcessBarAsync(tfBar, _cfg.Ticker, ct);
             }
             tfBarsOut++;
         }
