@@ -58,6 +58,8 @@ public class ComposableEngineTests
         public SetupId SetupId { get; set; } = SetupId.A;
         public StrategyType StrategyType => StrategyType.Pullback;
         public string Name => $"Fake{SetupId}";
+        public string Ticker { get; set; } = "/NQH2026";
+        public decimal PointValue { get; set; } = 20m;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
 

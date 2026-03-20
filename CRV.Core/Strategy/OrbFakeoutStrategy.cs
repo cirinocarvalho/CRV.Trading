@@ -67,6 +67,8 @@ public class OrbFakeoutStrategy : ISetupStrategy
     public SetupId      SetupId      => _cfg.SetupId;
     public StrategyType StrategyType => _cfg.StrategyType;
     public string       Name         => _cfg.Name;
+    public string       Ticker       => _cfg.Ticker;
+    public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 2 || _state == -2;
     public bool         IsArmed      => _state == 1 || _state == -1;
 

@@ -65,6 +65,8 @@ public class PullbackStrategy : ISetupStrategy
     public SetupId      SetupId      => _cfg.SetupId;
     public StrategyType StrategyType => _cfg.StrategyType;
     public string       Name         => _cfg.Name;
+    public string       Ticker       => _cfg.Ticker;
+    public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 2 || _state == -2;
     public bool         IsArmed      => _state == 1 || _state == -1;
 
@@ -85,6 +87,21 @@ public class PullbackStrategy : ISetupStrategy
     }
 
     public void Reconfigure(StrategySetupConfig config) => _cfg = config;
+
+    /// <summary>
+    /// Revert an entry back to armed state. Used by the engine during cooldown
+    /// when OnBar triggers arm+entry on the same bar but entry must be blocked.
+    /// </summary>
+    public void RevertEntry()
+    {
+        if (!IsActive) return;
+        int armedState = _state > 0 ? 1 : -1;
+        _state    = armedState;
+        _entry    = 0; _stop = 0; _target = 0; _partial = 0;
+        _initStop = 0; _contracts = 0; _partHit = false; _pnl = 0;
+        _entryTime = DateTime.MinValue;
+        ClearPendingSignals();
+    }
 
     public void Reset()
     {

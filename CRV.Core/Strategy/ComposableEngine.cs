@@ -274,7 +274,8 @@ public class ComposableEngine
         if (!_strategies.TryGetValue(setupId, out var strategy)) return;
         if (!_setupToGroupKey.TryGetValue(setupId, out var groupKey)) return;
 
-        var ticker = _config.Ticker;
+        // Use the setup's own ticker so multi-instrument setups get the right price
+        var ticker = strategy.Ticker;
         var px = _prices.GetLastPrice(ticker);
         if (px <= 0) return;
 
@@ -302,13 +303,14 @@ public class ComposableEngine
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         var ts = utcTime ?? DateTime.UtcNow;
-        var ticker = _config.Ticker;
-        var px = _prices.GetLastPrice(ticker);
-        if (px <= 0) return;
 
         foreach (var (setupId, strategy) in _strategies)
         {
             if (!strategy.IsActive) continue;
+
+            // Use per-setup ticker so multi-instrument setups get the right price
+            var px = _prices.GetLastPrice(strategy.Ticker);
+            if (px <= 0) continue;
 
             var preTrade = strategy.GetActiveTrade(px);
             strategy.ForceExit(px, ts);
@@ -385,7 +387,8 @@ public class ComposableEngine
     public ActiveTradeView? GetActiveTrade(SetupId setupId)
     {
         if (!_strategies.TryGetValue(setupId, out var strategy)) return null;
-        var px = _prices.GetLastPrice(_config.Ticker);
+        // Use the setup's own ticker for correct last price on multi-instrument setups
+        var px = _prices.GetLastPrice(strategy.Ticker);
         return strategy.GetActiveTrade(px);
     }
 
@@ -438,27 +441,30 @@ public class ComposableEngine
         int cts = preTrade.Contracts;
         int remCts = xsig.Contracts;
 
+        // Use per-setup PointValue so NQ (20) and ES (50) calculate PnL correctly
+        decimal pointValue = strategy.PointValue;
+
         decimal pnl = (isLong ? xsig.ExitPrice - preTrade.Entry : preTrade.Entry - xsig.ExitPrice)
-                      * _config.PointValue * remCts;
+                      * pointValue * remCts;
 
         if (preTrade.PartialFilled)
         {
             int partCts = cts - remCts;
             decimal partPnl = (isLong ? preTrade.Partial - preTrade.Entry : preTrade.Entry - preTrade.Partial)
-                              * _config.PointValue * partCts;
+                              * pointValue * partCts;
             pnl += partPnl;
         }
 
         decimal comm = cts * 2 * _config.CommissionPerSide;
         decimal net = pnl - comm;
-        decimal risk = Math.Abs(preTrade.Entry - preTrade.CurrentStop) * _config.PointValue * cts;
+        decimal risk = Math.Abs(preTrade.Entry - preTrade.CurrentStop) * pointValue * cts;
         decimal rMult = risk > 0 ? pnl / risk : 0;
 
         return new TradeRecord
         {
             Setup = strategy.SetupId,
             Direction = preTrade.Direction,
-            Ticker = _config.Ticker,
+            Ticker = strategy.Ticker,
             Contracts = cts,
             Entry = preTrade.Entry,
             InitialStop = preTrade.CurrentStop,

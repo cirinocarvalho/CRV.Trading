@@ -73,6 +73,12 @@ public interface ISetupStrategy
     bool IsActive { get; }
     bool IsArmed { get; }
 
+    /// <summary>The ticker symbol this setup trades (may differ from global config for multi-instrument).</summary>
+    string Ticker { get; }
+
+    /// <summary>The point value for this setup's instrument (e.g. 20 for NQ, 50 for ES).</summary>
+    decimal PointValue { get; }
+
     /// <summary>Process a confirmed bar. May produce pending signals.</summary>
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
 

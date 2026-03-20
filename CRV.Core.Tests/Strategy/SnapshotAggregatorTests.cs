@@ -14,6 +14,8 @@ public class SnapshotAggregatorTests
         public SetupId SetupId { get; init; }
         public StrategyType StrategyType { get; init; } = StrategyType.Pullback;
         public string Name { get; init; } = "Stub";
+        public string Ticker { get; init; } = "/NQH2026";
+        public decimal PointValue { get; init; } = 20m;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
 
