@@ -32,14 +32,10 @@ public class OrbStrategyEngine
     private readonly FalseBreakoutDetector  _falseBreakout;
 
     // ── Extracted strategies ─────────────────────────────────
-    private PullbackStrategy       _setupA;
-    private RetestStrategy         _setupB;
-    private OrbFakeoutStrategy     _setupC;
-    private SessionFakeoutStrategy _setupD;
-    // Setup A is fully handled by _setupA (PullbackStrategy instance)
-    // Setup B is fully handled by _setupB (RetestStrategy instance)
-    // Setup C is fully handled by _setupC (OrbFakeoutStrategy instance)
-    // Setup D is fully handled by _setupD (SessionFakeoutStrategy instance)
+    private ISetupStrategy _setupA;
+    private ISetupStrategy _setupB;
+    private ISetupStrategy _setupC;
+    private ISetupStrategy _setupD;
 
     // ── Session state ─────────────────────────────────────────
     private DateTime _lastDate       = DateTime.MinValue;
@@ -83,11 +79,6 @@ public class OrbStrategyEngine
     // ── Manual force-exit flags (set from outside, e.g. dashboard button) ──
     private volatile bool _forceExitA = false;
     private volatile bool _forceExitB = false;
-
-    // ── Setup A is handled by _setupA (PullbackStrategy) ──────
-    // ── Setup B is handled by _setupB (RetestStrategy) ──────
-    // ── Setup C is handled by _setupC (OrbFakeoutStrategy) ──────
-    // ── Setup D is handled by _setupD (SessionFakeoutStrategy) ──────
 
     // ── Manual force-exit flags C/D ──────────────────────────────
     private volatile bool _forceExitC = false;
@@ -149,10 +140,10 @@ public class OrbStrategyEngine
         _openingDrive    = new OpeningDriveDetector(modCfg);
         _trendDay        = new TrendDayFilter(modCfg);
         _falseBreakout   = new FalseBreakoutDetector(cfg);
-        _setupA          = new PullbackStrategy(BuildSetupConfigA(cfg));
-        _setupB          = new RetestStrategy(BuildSetupConfigB(cfg));
-        _setupC          = new OrbFakeoutStrategy(BuildSetupConfigC(cfg));
-        _setupD          = new SessionFakeoutStrategy(BuildSetupConfigD(cfg));
+        _setupA          = StrategyFactory.Create(BuildSetupConfigA(cfg));
+        _setupB          = StrategyFactory.Create(BuildSetupConfigB(cfg));
+        _setupC          = StrategyFactory.Create(BuildSetupConfigC(cfg));
+        _setupD          = StrategyFactory.Create(BuildSetupConfigD(cfg));
     }
 
     /// <summary>Force-exit Setup A immediately at the current market price.</summary>

@@ -97,6 +97,9 @@ public interface ISetupStrategy
     /// <summary>Clear all pending signals after engine has processed them.</summary>
     void ClearPendingSignals();
 
+    /// <summary>Revert an uncommitted entry (undo pending entry, keep armed state).</summary>
+    void RevertEntry();
+
     /// <summary>Request force exit of active trade.</summary>
     void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd);
 
