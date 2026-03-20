@@ -111,7 +111,21 @@
 
 <form method="post" novalidate>
 
-<div asp-validation-summary="All" class="alert alert-danger py-2 small mb-3" style="display:@(ViewData.ModelState.IsValid ? "none" : "block")"></div>
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert alert-danger py-2 small mb-3">
+        <strong>Validation errors:</strong>
+        <ul class="mb-0 mt-1">
+        @foreach (var key in ViewData.ModelState.Keys)
+        {
+            @foreach (var err in ViewData.ModelState[key]!.Errors)
+            {
+                <li><code>@key</code>: @err.ErrorMessage</li>
+            }
+        }
+        </ul>
+    </div>
+}
 
 <!-- ════════════════════════════════════════════════════════════ -->
 <!-- ── Row 1: Global Settings (3 columns) ─────────────────── -->
@@ -218,6 +232,17 @@
                 <input name="Config.TickSize" id="instr-tick-sz" type="number" step="any"
                        value="@Model.Config.TickSize" class="form-control form-control-sm" />
             </div>
+            <div class="col-6">
+                <label class="form-label small">Execution TF</label>
+                <select name="Config.ExecutionTFMinutes" class="form-select form-select-sm">
+                    <option value="1"  selected="@(Model.Config.ExecutionTFMinutes==1  ? "selected" : null)">1 min</option>
+                    <option value="2"  selected="@(Model.Config.ExecutionTFMinutes==2  ? "selected" : null)">2 min</option>
+                    <option value="5"  selected="@(Model.Config.ExecutionTFMinutes==5  ? "selected" : null)">5 min</option>
+                    <option value="15" selected="@(Model.Config.ExecutionTFMinutes==15 ? "selected" : null)">15 min</option>
+                    <option value="30" selected="@(Model.Config.ExecutionTFMinutes==30 ? "selected" : null)">30 min</option>
+                    <option value="60" selected="@(Model.Config.ExecutionTFMinutes==60 ? "selected" : null)">60 min</option>
+                </select>
+            </div>
         </div>
         <div class="mt-2 form-text text-muted small">
             Account IDs: set <code>Schwab:AccountId</code> / <code>TradeStation:AccountId</code>
@@ -230,46 +255,14 @@
 <div class="col-12 col-xl-4">
     <div class="settings-section">
         <h6><i class="bi bi-clock me-1"></i>Timeframes & Sessions</h6>
-        <div class="mb-2">
-            <label class="form-label small">Execution TF (minutes)</label>
-            <select name="Config.ExecutionTFMinutes" class="form-select form-select-sm">
-                <option value="1"  selected="@(Model.Config.ExecutionTFMinutes==1  ? "selected" : null)">1 minute</option>
-                <option value="2"  selected="@(Model.Config.ExecutionTFMinutes==2  ? "selected" : null)">2 minutes</option>
-                <option value="5"  selected="@(Model.Config.ExecutionTFMinutes==5  ? "selected" : null)">5 minutes</option>
-                <option value="15" selected="@(Model.Config.ExecutionTFMinutes==15 ? "selected" : null)">15 minutes</option>
-                <option value="30" selected="@(Model.Config.ExecutionTFMinutes==30 ? "selected" : null)">30 minutes</option>
-                <option value="60" selected="@(Model.Config.ExecutionTFMinutes==60 ? "selected" : null)">60 minutes</option>
-            </select>
-        </div>
-        <div class="row g-2">
-            <div class="col-6">
-                <label class="form-label small">ORB Start</label>
-                <input name="Config.OrbStart" type="time" value="@Model.Config.OrbStart.ToString("HH:mm")" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6">
-                <label class="form-label small">ORB End</label>
-                <input name="Config.OrbEnd" type="time" value="@Model.Config.OrbEnd.ToString("HH:mm")" class="form-control form-control-sm" />
-            </div>
-        </div>
-        <div class="row g-2 mt-1">
-            <div class="col-6">
-                <label class="form-label small">RTH Start</label>
-                <input name="Config.RthStart" type="time" value="@Model.Config.RthStart.ToString("HH:mm")" class="form-control form-control-sm" />
-            </div>
-            <div class="col-3">
-                <label class="form-label small">RTH End</label>
-                <input name="Config.RthEnd" type="time" value="@Model.Config.RthEnd.ToString("HH:mm")" class="form-control form-control-sm" />
-            </div>
-            <div class="col-3">
-                <label class="form-label small">Exit Before (min)</label>
-                <select name="Config.ExitMinutesBefore" class="form-select form-select-sm">
-                    @foreach (var v in new[]{0,5,10,15,20,30})
-                    {
-                        <option value="@v" selected="@(Model.Config.ExitMinutesBefore==v ? "selected" : null)">@(v == 0 ? "At RTH End" : $"{v} min")</option>
-                    }
-                </select>
-            </div>
-        </div>
+        <!-- ORB/RTH timing is configured per-session in the Session Configuration tabs below.
+             These hidden fields preserve the flat config values for backward compat (backtest, defaults). -->
+        <input type="hidden" name="Config.OrbStart" value="@Model.Config.OrbStart.ToString("HH:mm")" />
+        <input type="hidden" name="Config.OrbEnd"   value="@Model.Config.OrbEnd.ToString("HH:mm")" />
+        <input type="hidden" name="Config.RthStart"  value="@Model.Config.RthStart.ToString("HH:mm")" />
+        <input type="hidden" name="Config.RthEnd"    value="@Model.Config.RthEnd.ToString("HH:mm")" />
+        <input type="hidden" name="Config.ExitMinutesBefore" value="@Model.Config.ExitMinutesBefore" />
+        <small class="text-muted d-block mb-2">ORB & RTH windows are configured per-session below.</small>
         <div class="mt-2">
             <label class="form-label small">Timezone</label>
             <select name="Config.Timezone" class="form-select form-select-sm">
@@ -320,6 +313,49 @@
     </div>
 </div>
 
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- ── False Breakout Module (Global) ─────────────────────── -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="row g-3 mb-3">
+<div class="col-12">
+    <div class="settings-section">
+        <h6><i class="bi bi-arrow-repeat me-1"></i>False Breakout Module (Global)</h6>
+        <div class="row g-2">
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Max Time Outside (ORB) min</label>
+                <input name="Config.FBMaxTimeOutsideMinutesOrb" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTimeOutsideMinutesOrb" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Max Time Outside (SR) min</label>
+                <input name="Config.FBMaxTimeOutsideMinutesSR" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTimeOutsideMinutesSR" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Max Penetration % (ORB)</label>
+                <input name="Config.FBMaxPenetrationPctOrb" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMaxPenetrationPctOrb" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Max Penetration % (SR)</label>
+                <input name="Config.FBMaxPenetrationPctSR" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMaxPenetrationPctSR" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Min Rejection Body %</label>
+                <input name="Config.FBMinRejectionBodyPct" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMinRejectionBodyPct" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Max Trend Day Score</label>
+                <input name="Config.FBMaxTrendDayScore" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTrendDayScore" class="form-control form-control-sm" />
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════ -->
@@ -385,659 +421,84 @@
                                    data-session="@i" data-field="ExitMinutesBefore" value="@s.ExitMinutesBefore" />
                         </div>
                     </div>
+
+                    <!-- ── Per-setup config for this session (expandable rows) ── -->
+                    <hr class="my-3" />
+                    <h6 class="mb-2 text-muted"><i class="bi bi-sliders me-1"></i>Setups <small class="text-muted fw-normal">(click row to expand)</small></h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered align-middle mb-0" style="font-size:.85rem">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:80px">Setup</th>
+                                    <th style="width:70px" class="text-center">Enabled</th>
+                                    <th style="width:80px">Contracts</th>
+                                    <th style="width:80px">Max Trades</th>
+                                    <th style="width:120px">Cutoff (HH:MM)</th>
+                                    <th style="width:80px">Min R:R</th>
+                                    <th style="width:80px">Order Type</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                                    SessionIndex:   i,
+                                    SessionId:      s.SessionId.ToString(),
+                                    SetupLetter:    "A",
+                                    Setup:          s.SetupA,
+                                    NearPct:        s.SetupA.NearPct,
+                                    StopPct:        s.SetupA.StopPct,
+                                    TargetPct:      s.SetupA.TargetPct,
+                                    EntryTickOffset: s.SetupA.EntryTickOffset,
+                                    Mode:           s.SetupA.Mode,
+                                    RetestPct:      null,
+                                    UseVwap:        s.SetupA.UseVwap,
+                                    UseOrbClose:    s.SetupA.UseOrbClose))
+                                @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                                    SessionIndex:   i,
+                                    SessionId:      s.SessionId.ToString(),
+                                    SetupLetter:    "B",
+                                    Setup:          s.SetupB,
+                                    NearPct:        s.SetupB.NearPct,
+                                    StopPct:        s.SetupB.StopPct,
+                                    TargetPct:      s.SetupB.TargetPct,
+                                    EntryTickOffset: s.SetupB.EntryTickOffset,
+                                    Mode:           s.SetupB.Mode,
+                                    RetestPct:      s.SetupB.RetestPct,
+                                    UseVwap:        s.SetupB.UseVwap,
+                                    UseOrbClose:    s.SetupB.UseOrbClose))
+                                @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                                    SessionIndex:   i,
+                                    SessionId:      s.SessionId.ToString(),
+                                    SetupLetter:    "C",
+                                    Setup:          s.SetupC,
+                                    NearPct:        s.SetupC.NearPct,
+                                    StopPct:        s.SetupC.StopPct,
+                                    TargetPct:      s.SetupC.TargetPct,
+                                    EntryTickOffset: s.SetupC.EntryTickOffset,
+                                    Mode:           null,
+                                    RetestPct:      null,
+                                    UseVwap:        null,
+                                    UseOrbClose:    null))
+                                @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                                    SessionIndex:   i,
+                                    SessionId:      s.SessionId.ToString(),
+                                    SetupLetter:    "D",
+                                    Setup:          s.SetupD,
+                                    NearPct:        s.SetupD.NearPct,
+                                    StopPct:        s.SetupD.StopPct,
+                                    TargetPct:      s.SetupD.TargetPct,
+                                    EntryTickOffset: s.SetupD.EntryTickOffset,
+                                    Mode:           null,
+                                    RetestPct:      null,
+                                    UseVwap:        null,
+                                    UseOrbClose:    null))
+                                </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     }
 </div>
-
-<!-- ════════════════════════════════════════════════════════════ -->
-<!-- ── Row 2: Setup Tabs (A | B | C | D | F) ──────────────── -->
-<!-- ════════════════════════════════════════════════════════════ -->
-<ul class="nav nav-tabs mb-0" id="setupTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="tab-a" data-bs-toggle="tab" data-bs-target="#pane-a" type="button" role="tab" aria-controls="pane-a" aria-selected="true">
-            <i class="bi bi-triangle-fill me-1 text-warning"></i>Setup A
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-b" data-bs-toggle="tab" data-bs-target="#pane-b" type="button" role="tab" aria-controls="pane-b" aria-selected="false">
-            <i class="bi bi-arrow-up-right-circle-fill me-1 text-warning"></i>Setup B
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-c" data-bs-toggle="tab" data-bs-target="#pane-c" type="button" role="tab" aria-controls="pane-c" aria-selected="false">
-            <i class="bi bi-arrow-repeat me-1 text-warning"></i>Setup C
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-d" data-bs-toggle="tab" data-bs-target="#pane-d" type="button" role="tab" aria-controls="pane-d" aria-selected="false">
-            <i class="bi bi-lightning-fill me-1 text-warning"></i>Setup D
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-f" data-bs-toggle="tab" data-bs-target="#pane-f" type="button" role="tab" aria-controls="pane-f" aria-selected="false">
-            <i class="bi bi-graph-down-arrow me-1 text-warning"></i>Setup F
-        </button>
-    </li>
-</ul>
-
-<div class="tab-content settings-section" style="border-top:none; border-radius: 0 0 .375rem .375rem;">
-
-<!-- ── Tab: Setup A — Pullback to Mid ─────────────────────── -->
-<div class="tab-pane fade show active" id="pane-a" role="tabpanel" aria-labelledby="tab-a">
-    <h6 class="mb-2"><i class="bi bi-triangle-fill me-1 text-warning"></i>Setup A — Pullback to Mid [XACUZZY]</h6>
-    <div class="row g-3">
-        <!-- Left sub-column: strategy params -->
-        <div class="col-12 col-lg-6">
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="Config.EnableA" value="true" id="chk-enA" @(Model.Config.EnableA ? "checked" : "") />
-                <input type="hidden" name="Config.EnableA" value="false" />
-                <label class="form-check-label small fw-bold" for="chk-enA">Enable Setup A</label>
-            </div>
-            <div class="mb-2">
-                <label class="form-label small">Mode</label>
-                <select name="Config.ModeA" class="form-select form-select-sm">
-                    <option value="Conservative" selected="@(Model.Config.ModeA=="Conservative" ? "selected" : null)">Conservative (50% pullback)</option>
-                    <option value="Aggressive"   selected="@(Model.Config.ModeA=="Aggressive"   ? "selected" : null)">Aggressive (25% pullback)</option>
-                </select>
-            </div>
-            <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label small">Max Trades/Day</label>
-                    <input name="Config.MaxTradesA" type="number" min="0" max="20" value="@Model.Config.MaxTradesA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Min R:R</label>
-                    <input id="minRrA" name="Config.MinRrA" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrA" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Target (% ORB)</label>
-                    <select id="targetPctA" name="Config.TargetPctA" class="form-select form-select-sm">
-                        @foreach (var v in new[]{25,50,75,100,125,150,200,250,300,350,400,450,500})
-                        {
-                            <option value="@v" selected="@(Model.Config.TargetPctA==v ? "selected" : null)">@v%</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial At (% of target)</label>
-                    <select name="Config.PartialPctA" class="form-select form-select-sm">
-                        <option value="25" selected="@(Model.Config.PartialPctA==25 ? "selected" : null)">25%</option>
-                        <option value="50" selected="@(Model.Config.PartialPctA==50 ? "selected" : null)">50%</option>
-                        <option value="75" selected="@(Model.Config.PartialPctA==75 ? "selected" : null)">75%</option>
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial Cts (0=auto)</label>
-                    <input type="number" name="Config.PartialCtsA" class="form-control form-control-sm partial-cts" value="@Model.Config.PartialCtsA" min="0" data-base="Config.ContractsA" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Adverse Exit (min)</label>
-                    <select name="Config.MaxAdverseMinutesA" class="form-select form-select-sm">
-                        @foreach (var v in new[]{0,15,20,30,45,60,90})
-                        {
-                            <option value="@v" selected="@(Model.Config.MaxAdverseMinutesA==v ? "selected" : null)">@(v == 0 ? "Off" : $"{v} min")</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div id="rrA-display" class="small mt-1"></div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Near Threshold (% ORB)</label>
-                    <input name="Config.NearPctA" type="number" step="any" value="@Model.Config.NearPctA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Stop Distance (% ORB)</label>
-                    <input id="stopPctA" name="Config.StopPctA" type="number" step="any" value="@Model.Config.StopPctA" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-4">
-                    <label class="form-label small">Entry Tick Offset</label>
-                    <input name="Config.EntryTickOffsetA" type="number" min="0" max="20" value="@Model.Config.EntryTickOffsetA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-2 d-flex align-items-end">
-                    <span class="form-text text-muted small mb-1">+ticks</span>
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Entry Order Type</label>
-                    <select name="Config.OrderTypeA" class="form-select form-select-sm">
-                        <option value="Market" selected="@(Model.Config.OrderTypeA=="Market" ? "selected" : null)">Market</option>
-                        <option value="Limit"  selected="@(Model.Config.OrderTypeA=="Limit"  ? "selected" : null)">Limit</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-        <!-- Right sub-column: position sizing + toggles -->
-        <div class="col-12 col-lg-6">
-            <div class="row g-2">
-                <div class="col-4">
-                    <label class="form-label small">Base Cts</label>
-                    <input name="Config.ContractsA" type="number" min="1" max="10" value="@Model.Config.ContractsA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Hi-Vol Mult</label>
-                    <input name="Config.HiVolMultA" type="number" step="0.5" min="1" max="5" value="@Model.Config.HiVolMultA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Max Cts Cap</label>
-                    <input name="Config.MaxContractsA" type="number" min="1" max="50" value="@Model.Config.MaxContractsA" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Cutoff Hour</label>
-                    <input name="Config.CutoffHourA" type="number" min="10" max="15" value="@Model.Config.CutoffHourA" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Cutoff Minute</label>
-                    <input name="Config.CutoffMinuteA" type="number" min="0" max="59" value="@Model.Config.CutoffMinuteA" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="mt-2 d-flex flex-column gap-2">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UsePartialA" value="true" id="chk-partA" @(Model.Config.UsePartialA ? "checked" : "") />
-                    <input type="hidden" name="Config.UsePartialA" value="false" />
-                    <label class="form-check-label small" for="chk-partA">Partial Exit at ORBhigh/low</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseBeA" value="true" id="chk-beA" @(Model.Config.UseBeA ? "checked" : "") />
-                    <input type="hidden" name="Config.UseBeA" value="false" />
-                    <label class="form-check-label small" for="chk-beA">Move Stop to Breakeven at Partial</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseVwapA" value="true" id="chk-vwapA" @(Model.Config.UseVwapA ? "checked" : "") />
-                    <input type="hidden" name="Config.UseVwapA" value="false" />
-                    <label class="form-check-label small" for="chk-vwapA">VWAP Filter</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseOrbCloseA" value="true" id="chk-orbcloseA" @(Model.Config.UseOrbCloseA ? "checked" : "") />
-                    <input type="hidden" name="Config.UseOrbCloseA" value="false" />
-                    <label class="form-check-label small" for="chk-orbcloseA">ORB Close Direction Filter</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.CloseAtRthCloseA" value="true" id="chk-rthcloseA" @(Model.Config.CloseAtRthCloseA ? "checked" : "") />
-                    <input type="hidden" name="Config.CloseAtRthCloseA" value="false" />
-                    <label class="form-check-label small" for="chk-rthcloseA">Close at RTH End</label>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ── Tab: Setup B — Breakout Retest ─────────────────────── -->
-<div class="tab-pane fade" id="pane-b" role="tabpanel" aria-labelledby="tab-b">
-    <h6 class="mb-2"><i class="bi bi-arrow-up-right-circle-fill me-1 text-warning"></i>Setup B — Breakout Retest [BONGA]</h6>
-    <div class="row g-3">
-        <!-- Left sub-column: strategy params -->
-        <div class="col-12 col-lg-6">
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="Config.EnableB" value="true" id="chk-enB" @(Model.Config.EnableB ? "checked" : "") />
-                <input type="hidden" name="Config.EnableB" value="false" />
-                <label class="form-check-label small fw-bold" for="chk-enB">Enable Setup B</label>
-            </div>
-            <div class="mb-2">
-                <label class="form-label small">Mode</label>
-                <select name="Config.ModeB" class="form-select form-select-sm">
-                    <option value="Conservative" selected="@(Model.Config.ModeB=="Conservative" ? "selected" : null)">Conservative (3-step)</option>
-                    <option value="Aggressive"   selected="@(Model.Config.ModeB=="Aggressive"   ? "selected" : null)">Aggressive (first close)</option>
-                </select>
-            </div>
-            <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label small">Max Trades/Day</label>
-                    <input name="Config.MaxTradesB" type="number" min="0" max="20" value="@Model.Config.MaxTradesB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Min R:R</label>
-                    <input id="minRrB" name="Config.MinRrB" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrB" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Target (% ORB)</label>
-                    <select id="targetPctB" name="Config.TargetPctB" class="form-select form-select-sm">
-                        @foreach (var v in new[]{25,50,75,100,125,150,200,250,300,350,400,450,500})
-                        {
-                            <option value="@v" selected="@(Model.Config.TargetPctB==v ? "selected" : null)">@v%</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial At (% of target)</label>
-                    <select name="Config.PartialPctB" class="form-select form-select-sm">
-                        <option value="25" selected="@(Model.Config.PartialPctB==25 ? "selected" : null)">25%</option>
-                        <option value="50" selected="@(Model.Config.PartialPctB==50 ? "selected" : null)">50%</option>
-                        <option value="75" selected="@(Model.Config.PartialPctB==75 ? "selected" : null)">75%</option>
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial Cts (0=auto)</label>
-                    <input type="number" name="Config.PartialCtsB" class="form-control form-control-sm partial-cts" value="@Model.Config.PartialCtsB" min="0" data-base="Config.ContractsB" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Adverse Exit (min)</label>
-                    <select name="Config.MaxAdverseMinutesB" class="form-select form-select-sm">
-                        @foreach (var v in new[]{0,15,20,30,45,60,90})
-                        {
-                            <option value="@v" selected="@(Model.Config.MaxAdverseMinutesB==v ? "selected" : null)">@(v == 0 ? "Off" : $"{v} min")</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div id="rrB-display" class="small mt-1"></div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Near Threshold (% ORB)</label>
-                    <input name="Config.NearPctB" type="number" step="any" value="@Model.Config.NearPctB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Retest Zone (% ORB)</label>
-                    <input name="Config.RetestPct" type="number" step="any" min="0.01" placeholder="0.05" value="@Model.Config.RetestPct" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Stop Dist (% ORB)</label>
-                    <input id="stopPctB" name="Config.StopPctB" type="number" step="any" min="0.01" placeholder="0.50" value="@Model.Config.StopPctB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Entry Tick Offset</label>
-                    <input name="Config.EntryTickOffsetB" type="number" min="0" max="20" value="@Model.Config.EntryTickOffsetB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-2 d-flex align-items-end">
-                    <span class="form-text text-muted small mb-1">+ticks</span>
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Entry Order Type</label>
-                    <select name="Config.OrderTypeB" class="form-select form-select-sm">
-                        <option value="Market" selected="@(Model.Config.OrderTypeB=="Market" ? "selected" : null)">Market</option>
-                        <option value="Limit"  selected="@(Model.Config.OrderTypeB=="Limit"  ? "selected" : null)">Limit</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-        <!-- Right sub-column: position sizing + toggles -->
-        <div class="col-12 col-lg-6">
-            <div class="row g-2">
-                <div class="col-4">
-                    <label class="form-label small">Base Cts</label>
-                    <input name="Config.ContractsB" type="number" min="1" max="10" value="@Model.Config.ContractsB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Hi-Vol Mult</label>
-                    <input name="Config.HiVolMultB" type="number" step="0.5" min="1" max="5" value="@Model.Config.HiVolMultB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Max Cts Cap</label>
-                    <input name="Config.MaxContractsB" type="number" min="1" max="50" value="@Model.Config.MaxContractsB" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Cutoff Hour</label>
-                    <input name="Config.CutoffHourB" type="number" min="10" max="15" value="@Model.Config.CutoffHourB" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Cutoff Minute</label>
-                    <input name="Config.CutoffMinuteB" type="number" min="0" max="59" value="@Model.Config.CutoffMinuteB" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="mt-2 d-flex flex-column gap-2">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UsePartialB" value="true" id="chk-partB" @(Model.Config.UsePartialB ? "checked" : "") />
-                    <input type="hidden" name="Config.UsePartialB" value="false" />
-                    <label class="form-check-label small" for="chk-partB">Partial Exit at midpoint</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseBeB" value="true" id="chk-beB" @(Model.Config.UseBeB ? "checked" : "") />
-                    <input type="hidden" name="Config.UseBeB" value="false" />
-                    <label class="form-check-label small" for="chk-beB">Move Stop to Breakeven at Partial</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseVwapB" value="true" id="chk-vwapB" @(Model.Config.UseVwapB ? "checked" : "") />
-                    <input type="hidden" name="Config.UseVwapB" value="false" />
-                    <label class="form-check-label small" for="chk-vwapB">VWAP Filter</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseOrbCloseB" value="true" id="chk-orbcloseB" @(Model.Config.UseOrbCloseB ? "checked" : "") />
-                    <input type="hidden" name="Config.UseOrbCloseB" value="false" />
-                    <label class="form-check-label small" for="chk-orbcloseB">ORB Close Direction Filter</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.CloseAtRthCloseB" value="true" id="chk-rthcloseB" @(Model.Config.CloseAtRthCloseB ? "checked" : "") />
-                    <input type="hidden" name="Config.CloseAtRthCloseB" value="false" />
-                    <label class="form-check-label small" for="chk-rthcloseB">Close at RTH End</label>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ── Tab: Setup C — Sweep Reversal ──────────────────────── -->
-<div class="tab-pane fade" id="pane-c" role="tabpanel" aria-labelledby="tab-c">
-    <h6 class="mb-2"><i class="bi bi-arrow-repeat me-1 text-warning"></i>Setup C — Sweep Reversal</h6>
-    <div class="row g-3">
-        <!-- Left sub-column: module params -->
-        <div class="col-12 col-lg-6">
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="Config.EnableC" value="true" id="chk-enC" @(Model.Config.EnableC ? "checked" : "") />
-                <input type="hidden" name="Config.EnableC" value="false" />
-                <label class="form-check-label small fw-bold" for="chk-enC">Enable Setup C</label>
-            </div>
-            <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label small">Min Tick Penetration</label>
-                    <input name="Config.SweepMinPenetration" type="number" step="0.25" value="@Model.Config.SweepMinPenetration" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Min Body Rejection</label>
-                    <input name="Config.SweepMinBodyReject" type="number" step="0.25" value="@Model.Config.SweepMinBodyReject" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Equal Level Tolerance</label>
-                    <input name="Config.SweepEqualTolerance" type="number" step="0.25" value="@Model.Config.SweepEqualTolerance" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Confirmation Bars</label>
-                    <input name="Config.SweepConfirmBars" type="number" min="1" max="5" value="@Model.Config.SweepConfirmBars" class="form-control form-control-sm" />
-                </div>
-            </div>
-        </div>
-        <!-- Right sub-column: trade management -->
-        <div class="col-12 col-lg-6">
-            <div class="row g-2">
-                <div class="col-4">
-                    <label class="form-label small">Base Cts</label>
-                    <input name="Config.ContractsC" type="number" min="1" max="10" value="@Model.Config.ContractsC" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Max Trades</label>
-                    <input name="Config.MaxTradesC" type="number" min="0" max="20" value="@Model.Config.MaxTradesC" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Min R:R</label>
-                    <input name="Config.MinRrC" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrC" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Partial (%)</label>
-                    <select name="Config.PartialPctC" class="form-select form-select-sm">
-                        <option value="25" selected="@(Model.Config.PartialPctC==25 ? "selected" : null)">25%</option>
-                        <option value="50" selected="@(Model.Config.PartialPctC==50 ? "selected" : null)">50%</option>
-                        <option value="75" selected="@(Model.Config.PartialPctC==75 ? "selected" : null)">75%</option>
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial Cts (0=auto)</label>
-                    <input type="number" name="Config.PartialCtsC" class="form-control form-control-sm partial-cts" value="@Model.Config.PartialCtsC" min="0" data-base="Config.ContractsC" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Hr</label>
-                    <input name="Config.CutoffHourC" type="number" min="10" max="15" value="@Model.Config.CutoffHourC" class="form-control form-control-sm" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Min</label>
-                    <input name="Config.CutoffMinuteC" type="number" min="0" max="59" value="@Model.Config.CutoffMinuteC" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Adverse Exit (min)</label>
-                    <select name="Config.MaxAdverseMinutesC" class="form-select form-select-sm">
-                        @foreach (var v in new[]{0,15,20,30,45,60,90})
-                        {
-                            <option value="@v" selected="@(Model.Config.MaxAdverseMinutesC==v ? "selected" : null)">@(v == 0 ? "Off" : $"{v} min")</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div class="mt-2 d-flex flex-column gap-1">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UsePartialC" value="true" id="chk-partC" @(Model.Config.UsePartialC ? "checked" : "") />
-                    <input type="hidden" name="Config.UsePartialC" value="false" />
-                    <label class="form-check-label small" for="chk-partC">Partial Exit</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseBeC" value="true" id="chk-beC" @(Model.Config.UseBeC ? "checked" : "") />
-                    <input type="hidden" name="Config.UseBeC" value="false" />
-                    <label class="form-check-label small" for="chk-beC">Move Stop to BE</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.CloseAtRthCloseC" value="true" id="chk-rthC" @(Model.Config.CloseAtRthCloseC ? "checked" : "") />
-                    <input type="hidden" name="Config.CloseAtRthCloseC" value="false" />
-                    <label class="form-check-label small" for="chk-rthC">Close at RTH End</label>
-                </div>
-                <div class="mt-2">
-                    <label class="form-label small">Entry Order Type</label>
-                    <select name="Config.OrderTypeC" class="form-select form-select-sm">
-                        <option value="Market" selected="@(Model.Config.OrderTypeC=="Market" ? "selected" : null)">Market</option>
-                        <option value="Limit"  selected="@(Model.Config.OrderTypeC=="Limit"  ? "selected" : null)">Limit</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ── Tab: Setup D — Opening Drive Pullback ──────────────── -->
-<div class="tab-pane fade" id="pane-d" role="tabpanel" aria-labelledby="tab-d">
-    <h6 class="mb-2"><i class="bi bi-lightning-fill me-1 text-warning"></i>Setup D — Opening Drive Pullback</h6>
-    <div class="row g-3">
-        <!-- Left sub-column: module params -->
-        <div class="col-12 col-lg-6">
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="Config.EnableD" value="true" id="chk-enD" @(Model.Config.EnableD ? "checked" : "") />
-                <input type="hidden" name="Config.EnableD" value="false" />
-                <label class="form-check-label small fw-bold" for="chk-enD">Enable Setup D</label>
-            </div>
-            <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label small">Drive Range/ATR Mult</label>
-                    <input name="Config.DriveRangeAtrMult" type="number" step="0.05" value="@Model.Config.DriveRangeAtrMult" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Max Pullback Frac</label>
-                    <input name="Config.DriveMaxPullback" type="number" step="0.05" value="@Model.Config.DriveMaxPullback" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">Bull/Bear Bar Ratio</label>
-                    <input name="Config.DriveBullBearRatio" type="number" min="1" max="10" value="@Model.Config.DriveBullBearRatio" class="form-control form-control-sm" />
-                </div>
-            </div>
-        </div>
-        <!-- Right sub-column: trade management -->
-        <div class="col-12 col-lg-6">
-            <div class="row g-2">
-                <div class="col-4">
-                    <label class="form-label small">Base Cts</label>
-                    <input name="Config.ContractsD" type="number" min="1" max="10" value="@Model.Config.ContractsD" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Max Trades</label>
-                    <input name="Config.MaxTradesD" type="number" min="0" max="20" value="@Model.Config.MaxTradesD" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Min R:R</label>
-                    <input name="Config.MinRrD" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrD" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Partial (%)</label>
-                    <select name="Config.PartialPctD" class="form-select form-select-sm">
-                        <option value="25" selected="@(Model.Config.PartialPctD==25 ? "selected" : null)">25%</option>
-                        <option value="50" selected="@(Model.Config.PartialPctD==50 ? "selected" : null)">50%</option>
-                        <option value="75" selected="@(Model.Config.PartialPctD==75 ? "selected" : null)">75%</option>
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial Cts (0=auto)</label>
-                    <input type="number" name="Config.PartialCtsD" class="form-control form-control-sm partial-cts" value="@Model.Config.PartialCtsD" min="0" data-base="Config.ContractsD" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Hr</label>
-                    <input name="Config.CutoffHourD" type="number" min="10" max="15" value="@Model.Config.CutoffHourD" class="form-control form-control-sm" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Min</label>
-                    <input name="Config.CutoffMinuteD" type="number" min="0" max="59" value="@Model.Config.CutoffMinuteD" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Adverse Exit (min)</label>
-                    <select name="Config.MaxAdverseMinutesD" class="form-select form-select-sm">
-                        @foreach (var v in new[]{0,15,20,30,45,60,90})
-                        {
-                            <option value="@v" selected="@(Model.Config.MaxAdverseMinutesD==v ? "selected" : null)">@(v == 0 ? "Off" : $"{v} min")</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div class="mt-2 d-flex flex-column gap-1">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UsePartialD" value="true" id="chk-partD" @(Model.Config.UsePartialD ? "checked" : "") />
-                    <input type="hidden" name="Config.UsePartialD" value="false" />
-                    <label class="form-check-label small" for="chk-partD">Partial Exit</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseBeD" value="true" id="chk-beD" @(Model.Config.UseBeD ? "checked" : "") />
-                    <input type="hidden" name="Config.UseBeD" value="false" />
-                    <label class="form-check-label small" for="chk-beD">Move Stop to BE</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.CloseAtRthCloseD" value="true" id="chk-rthD" @(Model.Config.CloseAtRthCloseD ? "checked" : "") />
-                    <input type="hidden" name="Config.CloseAtRthCloseD" value="false" />
-                    <label class="form-check-label small" for="chk-rthD">Close at RTH End</label>
-                </div>
-                <div class="mt-2">
-                    <label class="form-label small">Entry Order Type</label>
-                    <select name="Config.OrderTypeD" class="form-select form-select-sm">
-                        <option value="Market" selected="@(Model.Config.OrderTypeD=="Market" ? "selected" : null)">Market</option>
-                        <option value="Limit"  selected="@(Model.Config.OrderTypeD=="Limit"  ? "selected" : null)">Limit</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ── Tab: Setup F — Midday VWAP Reversion ───────────────── -->
-<div class="tab-pane fade" id="pane-f" role="tabpanel" aria-labelledby="tab-f">
-    <h6 class="mb-2"><i class="bi bi-graph-down-arrow me-1 text-warning"></i>Setup F — Midday VWAP Reversion</h6>
-    <div class="row g-3">
-        <!-- Left sub-column: module params -->
-        <div class="col-12 col-lg-6">
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="Config.EnableF" value="true" id="chk-enF" @(Model.Config.EnableF ? "checked" : "") />
-                <input type="hidden" name="Config.EnableF" value="false" />
-                <label class="form-check-label small fw-bold" for="chk-enF">Enable Setup F</label>
-            </div>
-            <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label small">Trend Day Threshold</label>
-                    <input name="Config.TrendDayThreshold" type="number" min="1" max="5" value="@Model.Config.TrendDayThreshold" class="form-control form-control-sm" />
-                </div>
-                <div class="col-6">
-                    <label class="form-label small">Shallow PB Max</label>
-                    <input name="Config.ShallowPullbackMax" type="number" step="0.05" value="@Model.Config.ShallowPullbackMax" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-6">
-                    <label class="form-label small">VWAP Dev Period</label>
-                    <input name="Config.VwapDevPeriod" type="number" min="5" max="100" value="@Model.Config.VwapDevPeriod" class="form-control form-control-sm" />
-                </div>
-            </div>
-        </div>
-        <!-- Right sub-column: trade management -->
-        <div class="col-12 col-lg-6">
-            <div class="row g-2">
-                <div class="col-4">
-                    <label class="form-label small">Base Cts</label>
-                    <input name="Config.ContractsF" type="number" min="1" max="10" value="@Model.Config.ContractsF" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Max Trades</label>
-                    <input name="Config.MaxTradesF" type="number" min="0" max="20" value="@Model.Config.MaxTradesF" class="form-control form-control-sm" />
-                </div>
-                <div class="col-4">
-                    <label class="form-label small">Min R:R</label>
-                    <input name="Config.MinRrF" type="number" step="0.25" min="0.5" value="@Model.Config.MinRrF" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Partial (%)</label>
-                    <select name="Config.PartialPctF" class="form-select form-select-sm">
-                        <option value="25" selected="@(Model.Config.PartialPctF==25 ? "selected" : null)">25%</option>
-                        <option value="50" selected="@(Model.Config.PartialPctF==50 ? "selected" : null)">50%</option>
-                        <option value="75" selected="@(Model.Config.PartialPctF==75 ? "selected" : null)">75%</option>
-                    </select>
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Partial Cts (0=auto)</label>
-                    <input type="number" name="Config.PartialCtsF" class="form-control form-control-sm partial-cts" value="@Model.Config.PartialCtsF" min="0" data-base="Config.ContractsF" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Hr</label>
-                    <input name="Config.CutoffHourF" type="number" min="10" max="15" value="@Model.Config.CutoffHourF" class="form-control form-control-sm" />
-                </div>
-                <div class="col-3">
-                    <label class="form-label small">Cut Min</label>
-                    <input name="Config.CutoffMinuteF" type="number" min="0" max="59" value="@Model.Config.CutoffMinuteF" class="form-control form-control-sm" />
-                </div>
-            </div>
-            <div class="row g-2 mt-1">
-                <div class="col-3">
-                    <label class="form-label small">Adverse Exit (min)</label>
-                    <select name="Config.MaxAdverseMinutesF" class="form-select form-select-sm">
-                        @foreach (var v in new[]{0,15,20,30,45,60,90})
-                        {
-                            <option value="@v" selected="@(Model.Config.MaxAdverseMinutesF==v ? "selected" : null)">@(v == 0 ? "Off" : $"{v} min")</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div class="mt-2 d-flex flex-column gap-1">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UsePartialF" value="true" id="chk-partF" @(Model.Config.UsePartialF ? "checked" : "") />
-                    <input type="hidden" name="Config.UsePartialF" value="false" />
-                    <label class="form-check-label small" for="chk-partF">Partial Exit</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.UseBeF" value="true" id="chk-beF" @(Model.Config.UseBeF ? "checked" : "") />
-                    <input type="hidden" name="Config.UseBeF" value="false" />
-                    <label class="form-check-label small" for="chk-beF">Move Stop to BE</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="Config.CloseAtRthCloseF" value="true" id="chk-rthF" @(Model.Config.CloseAtRthCloseF ? "checked" : "") />
-                    <input type="hidden" name="Config.CloseAtRthCloseF" value="false" />
-                    <label class="form-check-label small" for="chk-rthF">Close at RTH End</label>
-                </div>
-                <div class="mt-2">
-                    <label class="form-label small">Entry Order Type</label>
-                    <select name="Config.OrderTypeF" class="form-select form-select-sm">
-                        <option value="Market" selected="@(Model.Config.OrderTypeF=="Market" ? "selected" : null)">Market</option>
-                        <option value="Limit"  selected="@(Model.Config.OrderTypeF=="Limit"  ? "selected" : null)">Limit</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-</div><!-- /tab-content -->
 
 <!-- ── Save button ────────────────────────────────────────── -->
 <button type="submit" class="btn btn-warning w-100 fw-bold mt-3">
@@ -1048,6 +509,7 @@
 </div>
 
 </form>
+
 
 @section Scripts {
 <script src="~/js/crv-instruments.js" asp-append-version="true"></script>
@@ -1118,111 +580,112 @@ function instrOnChange() {
     if (instrSel)  instrSel.addEventListener('change', syncCommission);
 })();
 
-// ── Effective R:R display for Setup A and Setup B ──────────────
-// Formula: rr = (targetPct / 100) / stopPct
-// Trades are silently filtered when rr < minRr — display warns the user.
+// ── Setup row expand/collapse toggle ─────────────────────────
 (function () {
-    function computeRr(targetPctEl, stopPctEl, minRrEl, displayEl) {
-        const targetPct = parseFloat(targetPctEl.value) || 0;
-        const stopPct   = parseFloat(stopPctEl.value)   || 0;
-        const minRr     = parseFloat(minRrEl.value)     || 0;
-        if (stopPct <= 0) { displayEl.textContent = ''; return; }
-        const rr      = (targetPct / 100) / stopPct;
-        const passes  = rr >= minRr;
-        displayEl.innerHTML = passes
-            ? `<span class="text-success">Effective R:R = ${rr.toFixed(2)} ✓</span>`
-            : `<span class="text-danger fw-bold">⚠ Effective R:R = ${rr.toFixed(2)} — below Min R:R ${minRr.toFixed(2)}: no trades will fire</span>`;
-    }
-
-    const tA = document.getElementById('targetPctA');
-    const sA = document.getElementById('stopPctA');
-    const mA = document.getElementById('minRrA');
-    const dA = document.getElementById('rrA-display');
-
-    const tB = document.getElementById('targetPctB');
-    const sB = document.getElementById('stopPctB');
-    const mB = document.getElementById('minRrB');
-    const dB = document.getElementById('rrB-display');
-
-    function updateA() { computeRr(tA, sA, mA, dA); }
-    function updateB() { computeRr(tB, sB, mB, dB); }
-
-    [tA, sA, mA].forEach(el => el?.addEventListener('input', updateA));
-    [tB, sB, mB].forEach(el => el?.addEventListener('input', updateB));
-
-    // Compute on page load
-    updateA();
-    updateB();
-}());
-
-// ── Partial Cts < Base Cts guard ─────────────────────────────
-(function () {
-    function syncMax(partialEl) {
-        var baseName = partialEl.dataset.base;
-        var baseEl = document.querySelector('[name="' + baseName + '"]');
-        if (!baseEl) return;
-        function update() {
-            var baseVal = parseInt(baseEl.value) || 1;
-            partialEl.max = baseVal - 1;
-            if (parseInt(partialEl.value) >= baseVal && parseInt(partialEl.value) > 0)
-                partialEl.value = Math.max(0, baseVal - 1);
-        }
-        baseEl.addEventListener('input', update);
-        partialEl.addEventListener('input', update);
-        update();
-    }
-    document.querySelectorAll('.partial-cts').forEach(syncMax);
-
-    // Block form submit if any partial >= base
-    var form = document.querySelector('form[method="post"]');
-    if (form) form.addEventListener('submit', function (e) {
-        var partials = document.querySelectorAll('.partial-cts');
-        for (var i = 0; i < partials.length; i++) {
-            var p = parseInt(partials[i].value) || 0;
-            if (p === 0) continue;
-            var baseName = partials[i].dataset.base;
-            var baseEl = document.querySelector('[name="' + baseName + '"]');
-            var b = parseInt(baseEl?.value) || 1;
-            if (p >= b) {
-                e.preventDefault();
-                alert('Partial Cts must be less than Base Cts for each setup.');
-                partials[i].focus();
-                return;
+    document.querySelectorAll('.setup-summary-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+            var targetId = row.dataset.target;
+            var detail = document.getElementById(targetId);
+            if (!detail) return;
+            var chevron = row.querySelector('.setup-chevron');
+            if (detail.style.display === 'none') {
+                detail.style.display = '';
+                if (chevron) { chevron.classList.remove('bi-chevron-right'); chevron.classList.add('bi-chevron-down'); }
+            } else {
+                detail.style.display = 'none';
+                if (chevron) { chevron.classList.remove('bi-chevron-down'); chevron.classList.add('bi-chevron-right'); }
             }
-        }
-    });
-}());
-
-// ── Tab persistence via localStorage ──────────────────────────
-(function () {
-    const KEY = 'crv-settings-tab';
-    const saved = localStorage.getItem(KEY);
-    if (saved) {
-        const tab = document.getElementById(saved);
-        if (tab) new bootstrap.Tab(tab).show();
-    }
-    document.querySelectorAll('#setupTabs button[data-bs-toggle="tab"]').forEach(function (btn) {
-        btn.addEventListener('shown.bs.tab', function () {
-            localStorage.setItem(KEY, btn.id);
         });
     });
 })();
 
 // ── Session tabs: gather values into SessionsJson on submit ────
 (function () {
-    const form = document.querySelector('form[method="post"]:not([asp-page-handler])') || document.querySelector('form[method="post"]');
+    // Target the main settings form (has novalidate), not the Start/Stop engine forms
+    const form = document.querySelector('form[method="post"][novalidate]');
     if (!form) return;
     form.addEventListener('submit', function () {
         const sessions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Sessions));
         document.querySelectorAll('.session-field').forEach(function (el) {
             const idx   = parseInt(el.dataset.session);
             const field = el.dataset.field;
-            if (el.type === 'checkbox')      sessions[idx][field] = el.checked;
-            else if (el.type === 'number')   sessions[idx][field] = parseFloat(el.value) || 0;
-            else if (el.type === 'time')     sessions[idx][field] = el.value + ':00';
-            else                             sessions[idx][field] = el.value;
+            var val;
+            if (el.type === 'checkbox')      val = el.checked;
+            else if (el.type === 'number')   val = parseFloat(el.value) || 0;
+            else if (el.type === 'time')     val = el.value + ':00';
+            else                             val = el.value;
+            // Support nested paths like "SetupA.Enabled"
+            var parts = field.split('.');
+            if (parts.length === 2) {
+                sessions[idx][parts[0]][parts[1]] = val;
+            } else {
+                sessions[idx][field] = val;
+            }
         });
-        document.getElementById('sessionsJson').value = JSON.stringify(sessions);
+        var json = JSON.stringify(sessions);
+        console.log('Sessions JSON being submitted:', json);
+        console.log('Asia Enabled:', sessions[0]?.Enabled, 'London Enabled:', sessions[1]?.Enabled, 'NY Enabled:', sessions[2]?.Enabled);
+        document.getElementById('sessionsJson').value = json;
+    });
+})();
+
+// ── Per-setup custom instrument toggle + sync ──────────────────
+(function () {
+    // Checkbox: enable/disable the dropdown
+    document.querySelectorAll('.setup-custom-instr-chk').forEach(function (chk) {
+        chk.addEventListener('change', function () {
+            var setup = chk.dataset.setup;
+            var sess  = chk.dataset.session;
+            var row   = chk.closest('.setup-detail-row') || chk.closest('td');
+            var sel   = row.querySelector('.setup-custom-instr-sel[data-setup="' + setup + '"]');
+            if (sel) sel.disabled = !chk.checked;
+            if (chk.checked && sel) setupInstrOnChange(sel, setup, sess);
+        });
+    });
+
+    // Dropdown: update hidden fields when instrument changes
+    document.querySelectorAll('.setup-custom-instr-sel').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            setupInstrOnChange(sel, sel.dataset.setup, sel.dataset.session);
+        });
+    });
+
+    function setupInstrOnChange(sel, setup, sess) {
+        var base = sel.value;
+        var info = window.CRV_findInstrument(base);
+        if (!info) return;
+        var ticker = window.CRV_activeContract(base);
+        var row = sel.closest('.setup-detail-row') || sel.closest('td');
+        var hTicker = row.querySelector('.setup-custom-ticker-hidden[data-setup="' + setup + '"]');
+        var hPV     = row.querySelector('.setup-custom-pv-hidden[data-setup="' + setup + '"]');
+        var hTS     = row.querySelector('.setup-custom-ts-hidden[data-setup="' + setup + '"]');
+        var label   = row.querySelector('.setup-custom-instr-label[data-setup="' + setup + '"]');
+        if (hTicker) hTicker.value = ticker;
+        if (hPV)     hPV.value     = info.pointValue;
+        if (hTS)     hTS.value     = info.tickSize;
+        if (label)   label.textContent = ticker + ' ($' + info.pointValue + '/pt)';
+    }
+
+    // Init: sync dropdowns to saved values on page load
+    document.querySelectorAll('.setup-custom-ticker-hidden').forEach(function (h) {
+        var savedTicker = h.value;
+        if (!savedTicker) return;
+        var setup = h.dataset.setup;
+        var row   = h.closest('.setup-detail-row') || h.closest('td');
+        var sel   = row.querySelector('.setup-custom-instr-sel[data-setup="' + setup + '"]');
+        if (!sel) return;
+        var base  = window.CRV_parseBase(savedTicker);
+        if (base) {
+            sel.value = base;
+            var info = window.CRV_findInstrument(base);
+            var label = row.querySelector('.setup-custom-instr-label[data-setup="' + setup + '"]');
+            if (info && label) {
+                var front = window.CRV_activeContract(base);
+                label.textContent = front + ' ($' + info.pointValue + '/pt)';
+                // Update hidden ticker to front month (may have rolled)
+                h.value = front;
+            }
+        }
     });
 })();
 </script>

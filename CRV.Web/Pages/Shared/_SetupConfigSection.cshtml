@@ -1,0 +1,197 @@
+@model CRV.Web.Pages.SetupConfigSectionModel
+@*
+  _SetupConfigSection.cshtml — renders the summary <tr> and expandable detail <tr>
+  for one setup (A/B/C/D) inside the per-session setup table on the Live Settings page.
+
+  Fields common to ALL setups come from Model.Setup (SetupConfigBase).
+  Setup-specific optional fields are carried directly on the view model:
+    Mode, RetestPct — only A/B
+    UseVwap, UseOrbClose — only A/B
+    NearPct, StopPct, TargetPct, EntryTickOffset — all setups
+*@
+@{
+    var i         = Model.SessionIndex;
+    var sid       = Model.SessionId;
+    var sl        = Model.SetupLetter;      // "A", "B", "C", "D"
+    var setup     = Model.Setup;
+    var fieldPfx  = "Setup" + sl;           // "SetupA", "SetupB", etc.
+    var detailId  = $"detail-{sid}-{sl}";
+}
+
+<!-- ── Setup @sl summary row ── -->
+<tr class="setup-summary-row" data-target="@detailId" style="cursor:pointer">
+    <td class="fw-bold"><i class="bi bi-chevron-right setup-chevron me-1" style="font-size:.7rem"></i>@sl</td>
+    <td class="text-center" onclick="event.stopPropagation()">
+        <input class="form-check-input session-field" type="checkbox"
+               data-session="@i" data-field="@(fieldPfx).Enabled" @(setup.Enabled ? "checked" : "") />
+    </td>
+    <td onclick="event.stopPropagation()">
+        <input type="number" class="form-control form-control-sm session-field"
+               data-session="@i" data-field="@(fieldPfx).Contracts" value="@setup.Contracts" min="1" max="@setup.MaxContracts" />
+    </td>
+    <td onclick="event.stopPropagation()">
+        <input type="number" class="form-control form-control-sm session-field"
+               data-session="@i" data-field="@(fieldPfx).MaxTrades" value="@setup.MaxTrades" min="0" max="20" />
+    </td>
+    <td onclick="event.stopPropagation()">
+        <div class="d-flex gap-1">
+            <input type="number" class="form-control form-control-sm session-field" style="width:50px"
+                   data-session="@i" data-field="@(fieldPfx).CutoffHour" value="@setup.CutoffHour" min="0" max="23" />
+            <span class="align-self-center">:</span>
+            <input type="number" class="form-control form-control-sm session-field" style="width:50px"
+                   data-session="@i" data-field="@(fieldPfx).CutoffMinute" value="@setup.CutoffMinute" min="0" max="59" />
+        </div>
+    </td>
+    <td onclick="event.stopPropagation()">
+        <input type="number" class="form-control form-control-sm session-field"
+               data-session="@i" data-field="@(fieldPfx).MinRr" value="@setup.MinRr" min="0" max="10" step="0.1" />
+    </td>
+    <td onclick="event.stopPropagation()">
+        <select class="form-select form-select-sm session-field"
+                data-session="@i" data-field="@(fieldPfx).OrderType">
+            <option value="Market" selected="@(setup.OrderType == "Market" ? "selected" : null)">Market</option>
+            <option value="Limit"  selected="@(setup.OrderType == "Limit"  ? "selected" : null)">Limit</option>
+        </select>
+    </td>
+</tr>
+
+<!-- ── Setup @sl detail row (expandable) ── -->
+<tr id="@detailId" class="setup-detail-row" style="display:none">
+    <td colspan="7" class="bg-dark bg-opacity-25 p-2">
+        <div class="row g-2" style="font-size:.8rem">
+            @if (Model.Mode != null)
+            {
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">Mode</label>
+                    <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).Mode">
+                        <option value="Conservative" selected="@(Model.Mode == "Conservative" ? "selected" : null)">Conservative</option>
+                        <option value="Aggressive"   selected="@(Model.Mode == "Aggressive"   ? "selected" : null)">Aggressive</option>
+                    </select>
+                </div>
+            }
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Target (% ORB)</label>
+                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).TargetPct">
+                    @foreach (var v in new[]{25,50,75,100,125,150,200,250,300,350,400,450,500})
+                    { <option value="@v" selected="@(Model.TargetPct == v ? "selected" : null)">@v%</option> }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Near Pct</label>
+                <input type="number" class="form-control form-control-sm session-field" step="any"
+                       data-session="@i" data-field="@(fieldPfx).NearPct" value="@Model.NearPct" />
+            </div>
+            @if (Model.RetestPct != null)
+            {
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">Retest Zone</label>
+                    <input type="number" class="form-control form-control-sm session-field" step="any"
+                           data-session="@i" data-field="@(fieldPfx).RetestPct" value="@Model.RetestPct" />
+                </div>
+            }
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Stop Dist (% ORB)</label>
+                <input type="number" class="form-control form-control-sm session-field" step="any"
+                       data-session="@i" data-field="@(fieldPfx).StopPct" value="@Model.StopPct" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Tick Offset</label>
+                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                       data-session="@i" data-field="@(fieldPfx).EntryTickOffset" value="@Model.EntryTickOffset" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Hi-Vol</label>
+                <input type="number" class="form-control form-control-sm session-field" step="0.5" min="1" max="5"
+                       data-session="@i" data-field="@(fieldPfx).HiVolMult" value="@setup.HiVolMult" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Max Cts</label>
+                <input type="number" class="form-control form-control-sm session-field" min="1" max="50"
+                       data-session="@i" data-field="@(fieldPfx).MaxContracts" value="@setup.MaxContracts" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Partial %</label>
+                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).PartialPct">
+                    <option value="25" selected="@(setup.PartialPct == 25 ? "selected" : null)">25%</option>
+                    <option value="50" selected="@(setup.PartialPct == 50 ? "selected" : null)">50%</option>
+                    <option value="75" selected="@(setup.PartialPct == 75 ? "selected" : null)">75%</option>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Part Cts</label>
+                <input type="number" class="form-control form-control-sm session-field" min="0"
+                       data-session="@i" data-field="@(fieldPfx).PartialCts" value="@setup.PartialCts" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Adverse Exit</label>
+                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).MaxAdverseMinutes">
+                    @foreach (var v in new[]{0,15,20,30,45,60,90})
+                    { <option value="@v" selected="@(setup.MaxAdverseMinutes == v ? "selected" : null)">@(v == 0 ? "Off" : $"{v}m")</option> }
+                </select>
+            </div>
+            <div class="col-md-12 d-flex flex-wrap gap-3 mt-1">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UsePartial" @(setup.UsePartial ? "checked" : "") />
+                    <label class="form-check-label small">Partial</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseBe" @(setup.UseBe ? "checked" : "") />
+                    <label class="form-check-label small">BE</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AllowRearmAfterBE" @(setup.AllowRearmAfterBE ? "checked" : "") />
+                    <label class="form-check-label small">Rearm BE</label>
+                </div>
+                @if (Model.UseVwap != null)
+                {
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseVwap" @(Model.UseVwap.Value ? "checked" : "") />
+                        <label class="form-check-label small">VWAP</label>
+                    </div>
+                }
+                @if (Model.UseOrbClose != null)
+                {
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseOrbClose" @(Model.UseOrbClose.Value ? "checked" : "") />
+                        <label class="form-check-label small">ORB Close</label>
+                    </div>
+                }
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).CloseAtRthClose" @(setup.CloseAtRthClose ? "checked" : "") />
+                    <label class="form-check-label small">Close RTH</label>
+                </div>
+            </div>
+            <!-- Per-setup instrument override -->
+            <div class="col-md-12 d-flex align-items-end gap-2 mt-1 pt-1 border-top border-secondary border-opacity-25">
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input session-field setup-custom-instr-chk" type="checkbox"
+                           data-session="@i" data-field="@(fieldPfx).UseCustomTicker" data-setup="@sl"
+                           @(setup.UseCustomTicker ? "checked" : "") />
+                    <label class="form-check-label small">Custom Instrument</label>
+                </div>
+                <select class="form-select form-select-sm setup-custom-instr-sel" style="width:200px"
+                        data-session="@i" data-setup="@sl"
+                        @(!setup.UseCustomTicker ? "disabled" : "")>
+                    <optgroup label="Mini">
+                        <option value="NQ">NQ  — E-mini Nasdaq-100</option>
+                        <option value="ES">ES  — E-mini S&amp;P 500</option>
+                        <option value="GC">GC  — Gold</option>
+                        <option value="CL">CL  — Crude Oil</option>
+                    </optgroup>
+                    <optgroup label="Micro">
+                        <option value="MNQ">MNQ — Micro Nasdaq-100</option>
+                        <option value="MES">MES — Micro S&amp;P 500</option>
+                        <option value="MGC">MGC — Micro Gold</option>
+                        <option value="MCL">MCL — Micro Crude Oil</option>
+                    </optgroup>
+                </select>
+                <span class="text-muted small setup-custom-instr-label" data-setup="@sl" style="white-space:nowrap">
+                    @(setup.UseCustomTicker && !string.IsNullOrEmpty(setup.CustomTicker) ? setup.CustomTicker : "—")
+                </span>
+                <input type="hidden" class="session-field setup-custom-ticker-hidden" data-session="@i" data-field="@(fieldPfx).CustomTicker"    data-setup="@sl" value="@setup.CustomTicker" />
+                <input type="hidden" class="session-field setup-custom-pv-hidden"     data-session="@i" data-field="@(fieldPfx).CustomPointValue" data-setup="@sl" value="@setup.CustomPointValue" />
+                <input type="hidden" class="session-field setup-custom-ts-hidden"     data-session="@i" data-field="@(fieldPfx).CustomTickSize"   data-setup="@sl" value="@setup.CustomTickSize" />
+            </div>
+        </div>
+    </td>
+</tr>
