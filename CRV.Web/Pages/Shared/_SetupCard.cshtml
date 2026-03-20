@@ -1,0 +1,38 @@
+@model CRV.Web.Pages.SetupCardModel
+@*
+  _SetupCard.cshtml — renders one setup panel card (A/B/C/D).
+  All interactive content (status badges, trade fields) is driven by
+  JavaScript via element IDs; only MaxTrades is server-rendered.
+*@
+@{
+    var id = Model.SetupId;   // lowercase: "a", "b", "c", "d"
+}
+<div class="col-12 col-lg-6">
+    <div class="card"@(Model.CardId != null ? $" id=\"{Model.CardId}\"" : "")>
+        <div class="card-header d-flex align-items-center gap-2">
+            <i class="bi @Model.Icon text-warning"></i>
+            <span class="fw-bold text-warning">@Model.Title</span>
+            <span class="badge" id="enabled-@id">ON</span>
+            <span class="badge" id="status-@id">IDLE</span>
+            <span class="text-muted small" id="count-@id">[0/@Model.MaxTrades]</span>
+            <button id="btn-exit-@id" class="btn btn-danger btn-sm d-none py-0 px-2 ms-auto"
+                    onclick="forceExit('@id.ToUpper()')" title="Force exit Setup @id.ToUpper() at market">
+                <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0 trade-table" id="table-@id">
+                <tbody>
+                    <tr><td class="text-muted" style="width:45%">Direction</td><td id="@id-dir">—</td></tr>
+                    <tr><td class="text-muted">Entry</td><td id="@id-entry" class="font-monospace">—</td></tr>
+                    <tr><td class="text-muted">Stop</td><td id="@id-stop" class="font-monospace">—</td></tr>
+                    <tr><td class="text-muted">Partial (50%)</td><td id="@id-partial" class="font-monospace">—</td></tr>
+                    <tr><td class="text-muted">Target</td><td id="@id-target" class="font-monospace">—</td></tr>
+                    <tr><td class="text-muted">Contracts</td><td id="@id-cts" class="font-monospace">—</td></tr>
+                    <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="@id-expectancy" class="font-monospace">—</td></tr>
+                    <tr><td class="text-muted fw-bold">Unrealized P&amp;L</td><td id="@id-unreal" class="font-monospace fw-bold">—</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

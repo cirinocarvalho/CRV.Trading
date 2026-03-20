@@ -26,7 +26,7 @@
         <span class="text-muted small" id="stream-age"></span>
     </span>
     <span class="ms-auto text-muted small">Execution TF: <strong class="text-light">@Model.Config.ExecutionTFMinutes min</strong>
-        &nbsp;|&nbsp; ORB: <strong class="text-light">@Model.Config.OrbStart.ToString("HH:mm")–@Model.Config.OrbEnd.ToString("HH:mm")</strong></span>
+        &nbsp;|&nbsp; ORB: <strong class="text-light" id="orb-window">@Model.Config.OrbStart.ToString("HH:mm")–@Model.Config.OrbEnd.ToString("HH:mm")</strong></span>
 </div>
 
 <!-- ── Row 1: Daily stats ────────────────────────────────────── -->
@@ -83,168 +83,22 @@
     </div>
 </div>
 
-<!-- ── Row 2: Setup A + B + C ──────────────────────────────── -->
+<!-- ── Row 2: Setup A + B ──────────────────────────────────── -->
 <div class="row g-3 mb-3">
-    <!-- Setup A -->
-    <div class="col-12 col-lg-4">
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-triangle-fill text-warning"></i>
-                <span class="fw-bold text-warning">Setup A — Pullback [XACUZZY]</span>
-                <span class="badge" id="enabled-a">ON</span>
-                <span class="badge ms-auto" id="status-a">IDLE</span>
-                <span class="text-muted small" id="count-a">[0/@Model.Config.MaxTradesA]</span>
-                <button id="btn-exit-a" class="btn btn-danger btn-sm d-none py-0 px-2"
-                        onclick="forceExit('A')" title="Force exit Setup A at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-a">
-                    <tbody>
-                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="a-dir">—</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="a-entry" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="a-stop" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="a-partial" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="a-target" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="a-cts" class="font-monospace">—</td></tr>
-                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="a-expectancy" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="a-unreal" class="font-monospace fw-bold">—</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Setup B -->
-    <div class="col-12 col-lg-4">
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-arrow-up-right-circle-fill text-warning"></i>
-                <span class="fw-bold text-warning">Setup B — Breakout [BONGA]</span>
-                <span class="badge" id="enabled-b">ON</span>
-                <span class="badge ms-auto" id="status-b">IDLE</span>
-                <span class="text-muted small" id="count-b">[0/@Model.Config.MaxTradesB]</span>
-                <button id="btn-exit-b" class="btn btn-danger btn-sm d-none py-0 px-2"
-                        onclick="forceExit('B')" title="Force exit Setup B at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-b">
-                    <tbody>
-                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="b-dir">—</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="b-entry" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="b-stop" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="b-partial" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="b-target" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="b-cts" class="font-monospace">—</td></tr>
-                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="b-expectancy" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="b-unreal" class="font-monospace fw-bold">—</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Setup C -->
-    <div class="col-12 col-lg-4">
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-arrow-repeat text-warning"></i>
-                <span class="fw-bold text-warning">Setup C — Sweep Reversal</span>
-                <span class="badge" id="enabled-c">ON</span>
-                <span class="badge ms-auto" id="status-c">IDLE</span>
-                <span class="text-muted small" id="count-c">[0/@Model.Config.MaxTradesC]</span>
-                <button id="btn-exit-c" class="btn btn-danger btn-sm d-none py-0 px-2"
-                        onclick="forceExit('C')" title="Force exit Setup C at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-c">
-                    <tbody>
-                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="c-dir">—</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="c-entry" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="c-stop" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="c-partial" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="c-target" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="c-cts" class="font-monospace">—</td></tr>
-                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="c-expectancy" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="c-unreal" class="font-monospace fw-bold">—</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("a", "bi-triangle-fill",              "A — Pullback",        Model.Config.MaxTradesA, null))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("b", "bi-arrow-up-right-circle-fill", "B — Breakout",        Model.Config.MaxTradesB, null))
 </div>
 
-<!-- ── Row 3: Setup D + F + Context ────────────────────────── -->
+<!-- ── Row 3: Setup C + D (False Breakout) ────────────────── -->
 <div class="row g-3 mb-3">
-    <!-- Setup D -->
-    <div class="col-12 col-lg-4">
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-lightning-fill text-warning"></i>
-                <span class="fw-bold text-warning">Setup D — Drive Pullback</span>
-                <span class="badge" id="enabled-d">ON</span>
-                <span class="badge ms-auto" id="status-d">IDLE</span>
-                <span class="text-muted small" id="count-d">[0/@Model.Config.MaxTradesD]</span>
-                <button id="btn-exit-d" class="btn btn-danger btn-sm d-none py-0 px-2"
-                        onclick="forceExit('D')" title="Force exit Setup D at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-d">
-                    <tbody>
-                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="d-dir">—</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="d-entry" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="d-stop" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="d-partial" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="d-target" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="d-cts" class="font-monospace">—</td></tr>
-                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="d-expectancy" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="d-unreal" class="font-monospace fw-bold">—</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("c", "bi-arrow-return-left",  "C — ORB Fakeout",     Model.Config.MaxTradesC, "setupC-card"))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("d", "bi-arrow-return-right", "D — Session Fakeout", Model.Config.MaxTradesD, "setupD-card"))
+</div>
 
-    <!-- Setup F -->
-    <div class="col-12 col-lg-4">
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-graph-down-arrow text-warning"></i>
-                <span class="fw-bold text-warning">Setup F — VWAP Reversion</span>
-                <span class="badge" id="enabled-f">ON</span>
-                <span class="badge ms-auto" id="status-f">IDLE</span>
-                <span class="text-muted small" id="count-f">[0/@Model.Config.MaxTradesF]</span>
-                <button id="btn-exit-f" class="btn btn-danger btn-sm d-none py-0 px-2"
-                        onclick="forceExit('F')" title="Force exit Setup F at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-f">
-                    <tbody>
-                        <tr><td class="text-muted" style="width:45%">Direction</td><td id="f-dir">—</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="f-entry" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="f-stop" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="f-partial" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="f-target" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="f-cts" class="font-monospace">—</td></tr>
-                        <tr title="E = (Win% × AvgWin) − (Loss% × AvgLoss)"><td class="text-muted">Expectancy</td><td id="f-expectancy" class="font-monospace">—</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&L</td><td id="f-unreal" class="font-monospace fw-bold">—</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
+<!-- ── Row 4: Market Context + False Breakout ─────────────── -->
+<div class="row g-3 mb-3">
     <!-- Session / Trend / Active Setup -->
-    <div class="col-12 col-lg-4">
+    <div class="col-12 col-lg-6">
         <div class="card h-100">
             <div class="card-header d-flex align-items-center gap-2">
                 <i class="bi bi-clipboard-data text-warning"></i>
@@ -300,12 +154,45 @@
             </div>
         </div>
     </div>
+
+    <!-- False Breakout Context -->
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-arrow-repeat text-warning"></i>
+                <span class="fw-bold text-warning">False Breakout</span>
+                <span class="badge bg-secondary ms-auto" id="fb-compound-badge">Idle</span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 trade-table">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width:45%">ORB Breakout</td>
+                            <td>
+                                <span class="badge bg-secondary" id="fb-orb-status">Idle</span>
+                                <span class="font-monospace small ms-2" id="fb-orb-bars">—</span>
+                                <span class="font-monospace small text-muted ms-2" id="fb-orb-depth">—</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Session Range Breakout</td>
+                            <td>
+                                <span class="badge bg-secondary" id="fb-session-status">Idle</span>
+                                <span class="font-monospace small ms-2" id="fb-session-bars">—</span>
+                                <span class="font-monospace small text-muted ms-2" id="fb-session-depth">—</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- ── Row 4: ORB + VWAP + ATR ──────────────────────────────── -->
+<!-- ── Row 5: ORB + VWAP + ATR ──────────────────────────────── -->
 <div class="row g-3 mb-3">
     <div class="col-12 col-md-6 col-lg-4">
-        <div class="card p-3 text-center">
+        <div class="card p-3 text-center h-100">
             <div class="stat-label">ORB Quality</div>
             <div class="d-flex justify-content-center gap-3 font-monospace" style="font-size:1.1rem; font-weight:700">
                 <span>H: <span id="orb-high" class="text-warning">—</span></span>
@@ -316,18 +203,21 @@
             <div class="small">
                 <span class="badge" id="orb-quality-badge">Building...</span>
                 <span class="badge ms-1" id="orb-close-badge">—</span>
+                <button type="button" class="btn btn-outline-warning btn-sm ms-2" onclick="forceOrb()" id="btn-force-orb" title="Fetch ORB from broker historical bars">
+                    <i class="bi bi-arrow-repeat me-1"></i>Force ORB
+                </button>
             </div>
         </div>
     </div>
     <div class="col-6 col-md-3 col-lg-4">
-        <div class="card p-3 text-center">
+        <div class="card p-3 text-center h-100">
             <div class="stat-label">VWAP</div>
             <div class="stat-value font-monospace" id="stat-vwap" style="font-size:1.1rem">—</div>
             <div class="small" id="stat-vwap-pos">—</div>
         </div>
     </div>
     <div class="col-6 col-md-3 col-lg-4">
-        <div class="card p-3 text-center">
+        <div class="card p-3 text-center h-100">
             <div class="stat-label">ATR(14)</div>
             <div class="stat-value font-monospace" id="stat-atr" style="font-size:1.1rem">—</div>
             <div class="small text-muted" id="stat-orb-atr-ratio">vs ORB —</div>
@@ -335,7 +225,7 @@
     </div>
 </div>
 
-<!-- ── Row 5: Alerts feed + Today's trades ───────────────────── -->
+<!-- ── Row 6: Alerts feed + Today's trades ───────────────────── -->
 <div class="row g-3">
     <div class="col-12 col-lg-5">
         <div class="card">
@@ -394,9 +284,8 @@ let _lastAlertCount = 0;  // track how many alerts we've already rendered
     const bOn = @(Model.Config.EnableB ? "true" : "false");
     const cOn = @(Model.Config.EnableC ? "true" : "false");
     const dOn = @(Model.Config.EnableD ? "true" : "false");
-    const fOn = @(Model.Config.EnableF ? "true" : "false");
-    var flags = { a: aOn, b: bOn, c: cOn, d: dOn, f: fOn };
-    ["a","b","c","d","f"].forEach(id => {
+    var flags = { a: aOn, b: bOn, c: cOn, d: dOn };
+    ["a","b","c","d"].forEach(id => {
         const el = document.getElementById("enabled-" + id);
         if (!el) return;
         const on = flags[id];
@@ -411,13 +300,27 @@ let _lastAlertCount = 0;  // track how many alerts we've already rendered
 
 document.addEventListener("crv:update", e => updateDashboard(e.detail));
 document.addEventListener("crv:alert",  e => addAlert(e.detail));
-document.addEventListener("crv:trade",  e => addTradeRow(e.detail));
+document.addEventListener("crv:trade",  e => {
+    addTradeRow(e.detail);
+    // Incrementally update _dbStats so the PnL display stays current even after
+    // engine restarts (when engineTrades < _dbStats.trades, the dashboard shows
+    // _dbStats.pnl — which was stale without this update).
+    var net = e.detail.netPnl ?? 0;
+    _dbStats.pnl += net;
+    _dbStats.trades++;
+    if (net > 0) { _dbStats.wins++; _dbStats.winPnl += net; }
+    else if (net < 0) { _dbStats.losses++; _dbStats.lossPnl += net; }
+    // Recompute maxDD
+    var runPnl2 = 0, peak2 = 0, maxDD2 = 0;
+    // Approximate: just use current _dbStats (exact DD requires full sequence, but this keeps it reasonable)
+    _applyDbStats();
+});
 
 // ── Load today's trades on page load and compute DB-based stats ──
 // These stats survive engine restarts — the engine snapshot may show 0
 // after a restart, but the DB trades are still there.
 var _dbStats = { pnl: 0, wins: 0, losses: 0, maxDD: 0, trades: 0, winPnl: 0, lossPnl: 0 };
-var _dbSetupCounts = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+// _dbSetupCounts removed — per-setup counts are session-scoped (from engine snapshot only)
 fetch('/api/engine/trades/today')
     .then(r => r.json())
     .then(trades => {
@@ -437,11 +340,7 @@ fetch('/api/engine/trades/today')
             if (dd > maxDD) maxDD = dd;
         }
         _dbStats.maxDD = maxDD;
-        // Count trades per setup from DB
-        for (const t of trades) {
-            var s = (t.setup ?? "").toUpperCase();
-            if (s in _dbSetupCounts) _dbSetupCounts[s]++;
-        }
+        // Per-setup counts removed — session-scoped, provided by engine snapshot
         // Apply DB stats immediately so cards aren't blank
         _applyDbStats();
     })
@@ -470,16 +369,8 @@ function _applyDbStats() {
         wrText.textContent = wrPct + "%";
         if (wrDetail) wrDetail.textContent = s.wins + "W / " + s.losses + "L";
     }
-    // Per-setup trade counts
-    ["a","b","c","d","f"].forEach(id => {
-        var el = document.getElementById("count-" + id);
-        if (el) {
-            var cnt = _dbSetupCounts[id.toUpperCase()] ?? 0;
-            var cur = el.textContent.match(/\/(\d+)/);
-            var max = cur ? cur[1] : "?";
-            el.textContent = "[" + cnt + "/" + max + "]";
-        }
-    });
+    // Per-setup trade counts are session-scoped — only the engine snapshot
+    // knows the current session's counts. Don't show DB totals here.
 }
 
 // Show engine status changes in the alert feed and clear the placeholder
@@ -593,8 +484,6 @@ function updateDashboard(d) {
             d.expectancyC ? pnlCls(d.expectancyC) + " font-monospace" : "font-monospace");
     setText("d-expectancy", d.expectancyD ? fmtDol(d.expectancyD) : "—",
             d.expectancyD ? pnlCls(d.expectancyD) + " font-monospace" : "font-monospace");
-    setText("f-expectancy", d.expectancyF ? fmtDol(d.expectancyF) : "—",
-            d.expectancyF ? pnlCls(d.expectancyF) + " font-monospace" : "font-monospace");
 
     // ── DD Limit gauge ─────────────────────────────────────
     const ddUsed  = Math.min(Math.abs(pnl < 0 ? pnl : 0), maxDailyLoss);
@@ -634,9 +523,17 @@ function updateDashboard(d) {
     const sessBadge = document.getElementById("dash-session-badge");
     if (sessBadge) {
         if (d.sessionEnded)                        { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
-        else if (d.pastCutoffA && d.pastCutoffB)   { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
-        else if (d.pastCutoffA)                    { sessBadge.textContent = "CUTOFF (A)";    sessBadge.className = "badge setup-armed"; }
-        else if (d.pastCutoffB)                    { sessBadge.textContent = "CUTOFF (B)";    sessBadge.className = "badge setup-armed"; }
+        else if (d.pastCutoffA && d.pastCutoffB && d.pastCutoffC && d.pastCutoffD)
+                                                   { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
+        else if (d.pastCutoffA || d.pastCutoffB || d.pastCutoffC || d.pastCutoffD) {
+            var cutoffs = [];
+            if (d.pastCutoffA) cutoffs.push("A");
+            if (d.pastCutoffB) cutoffs.push("B");
+            if (d.pastCutoffC) cutoffs.push("C");
+            if (d.pastCutoffD) cutoffs.push("D");
+            sessBadge.textContent = "CUTOFF (" + cutoffs.join(",") + ")";
+            sessBadge.className = "badge setup-armed";
+        }
         else if (d.orbFormed)                      { sessBadge.textContent = "TRADING";       sessBadge.className = "badge badge-live"; }
         else                                       { sessBadge.textContent = "ORB FORMING";   sessBadge.className = "badge setup-idle"; }
     }
@@ -655,8 +552,14 @@ function updateDashboard(d) {
 
     // ── Setup panels ─────────────────────────────────────────
     // d.setupA / d.setupB are ActiveTradeView objects (null when idle/armed/retest)
-    updateSetup("a", d.setupA, d.setupAState, d.setupAEnabled !== false, d.pastCutoffA, d.sessionEnded);
-    updateSetup("b", d.setupB, d.setupBState, d.setupBEnabled !== false, d.pastCutoffB, d.sessionEnded);
+    updateSetup("a", d.setupA, d.setupAState, d.setupAEnabled !== false, d.pastCutoffA, d.sessionEnded,
+        d.tradeCountA >= d.maxTradesA && d.maxTradesA > 0);
+    updateSetup("b", d.setupB, d.setupBState, d.setupBEnabled !== false, d.pastCutoffB, d.sessionEnded,
+        d.tradeCountB >= d.maxTradesB && d.maxTradesB > 0);
+    updateSetup("c", d.setupC, d.setupCState, d.setupCEnabled !== false, d.pastCutoffC, d.sessionEnded,
+        d.tradeCountC >= d.maxTradesC && d.maxTradesC > 0);
+    updateSetup("d", d.setupD, d.setupDState, d.setupDEnabled !== false, d.pastCutoffD, d.sessionEnded,
+        d.tradeCountD >= d.maxTradesD && d.maxTradesD > 0);
 
     // ── ORB ──────────────────────────────────────────────────
     setText("orb-high",  d.orbHigh  > 0 ? d.orbHigh.toFixed(2)  : "—");
@@ -686,6 +589,12 @@ function updateDashboard(d) {
     if (d.orbAtrRatio > 0)
         setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
 
+    // ── ORB window (dynamic per session) ─────────────────────
+    if (d.orbWindowStart && d.orbWindowEnd) {
+        var el = document.getElementById("orb-window");
+        if (el) el.textContent = d.orbWindowStart + "–" + d.orbWindowEnd;
+    }
+
     // ── Module outputs ───────────────────────────────────────
     setText("stat-session", d.currentSession || "—");
     if (d.sessionHigh > 0)
@@ -707,15 +616,8 @@ function updateDashboard(d) {
     var trendClass = d.trendScoreBull >= 4 ? "pnl-pos" : d.trendScoreBear >= 4 ? "pnl-neg" : "text-muted";
     setText("stat-trend-label", trendLabel, "small " + trendClass);
 
-    // Active setups
-    var activeSetup = "—";
-    if (d.setupCBull) activeSetup = "C ▲ Sweep Rev";
-    else if (d.setupCBear) activeSetup = "C ▼ Sweep Rev";
-    else if (d.setupDBull) activeSetup = "D ▲ Drive PB";
-    else if (d.setupDBear) activeSetup = "D ▼ Drive PB";
-    else if (d.setupFBull) activeSetup = "F ▲ VWAP Rev";
-    else if (d.setupFBear) activeSetup = "F ▼ VWAP Rev";
-    setText("stat-active-setup", activeSetup);
+    // Active setups (module signals — informational only)
+    setText("stat-active-setup", "—");
 
     // Sweep info + opening drive
     var infoStr = "";
@@ -733,23 +635,42 @@ function updateDashboard(d) {
     setText("stat-sweep-score", d.sweepScore != null ? d.sweepScore.toFixed(1) : "0");
     setText("stat-vwap-dev-score", d.vwapDevScore != null ? d.vwapDevScore.toFixed(1) : "0");
 
-    // ── Setup C/D/F panels ────────────────────────────────────
-    updateSetup("c", d.setupC, d.setupCState, d.setupCEnabled !== false, d.pastCutoffC, d.sessionEnded);
-    updateSetup("d", d.setupD, d.setupDState, d.setupDEnabled !== false, d.pastCutoffD, d.sessionEnded);
-    updateSetup("f", d.setupF, d.setupFState, d.setupFEnabled !== false, d.pastCutoffF, d.sessionEnded);
+    // ── False Breakout context ──────────────────────────────
+    var fbOrbEl = document.getElementById("fb-orb-status");
+    if (fbOrbEl) {
+        if (d.fbOrbActivated)             { fbOrbEl.textContent = "Activated"; fbOrbEl.className = "badge bg-success"; }
+        else if (d.fbOrbBreakoutActive)   { fbOrbEl.textContent = "Tracking";  fbOrbEl.className = "badge bg-warning text-dark"; }
+        else                              { fbOrbEl.textContent = "Idle";      fbOrbEl.className = "badge bg-secondary"; }
+    }
+    setText("fb-orb-bars",  d.fbOrbBarsInBreakout > 0 ? d.fbOrbBarsInBreakout + " bars" : "—");
+    setText("fb-orb-depth", d.fbOrbPenetrationDepth > 0 ? d.fbOrbPenetrationDepth.toFixed(2) + " pts" : "—");
+
+    var fbSessEl = document.getElementById("fb-session-status");
+    if (fbSessEl) {
+        if (d.fbSessionActivated)             { fbSessEl.textContent = "Activated"; fbSessEl.className = "badge bg-success"; }
+        else if (d.fbSessionBreakoutActive)   { fbSessEl.textContent = "Tracking";  fbSessEl.className = "badge bg-warning text-dark"; }
+        else                                  { fbSessEl.textContent = "Idle";      fbSessEl.className = "badge bg-secondary"; }
+    }
+    setText("fb-session-bars",  d.fbSessionBarsInBreakout > 0 ? d.fbSessionBarsInBreakout + " bars" : "—");
+    setText("fb-session-depth", d.fbSessionPenetrationDepth > 0 ? d.fbSessionPenetrationDepth.toFixed(2) + " pts" : "—");
+
+    var fbCompound = document.getElementById("fb-compound-badge");
+    if (fbCompound) {
+        var orbOn = d.fbOrbActivated || d.fbOrbBreakoutActive;
+        var sessOn = d.fbSessionActivated || d.fbSessionBreakoutActive;
+        if (orbOn && sessOn)  { fbCompound.textContent = "Compound"; fbCompound.className = "badge bg-danger ms-auto"; }
+        else if (orbOn)       { fbCompound.textContent = "ORB Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
+        else if (sessOn)      { fbCompound.textContent = "Session Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
+        else                  { fbCompound.textContent = "Idle"; fbCompound.className = "badge bg-secondary ms-auto"; }
+    }
 
     // ── Per-setup trade counts [N/Max] ─────────────────────────
-    ["a","b","c","d","f"].forEach(id => {
+    ["a","b","c","d"].forEach(id => {
         var key = "tradeCount" + id.toUpperCase();
         var maxKey = "maxTrades" + id.toUpperCase();
         var el = document.getElementById("count-" + id);
         if (el && d[key] != null) {
-            var cnt = d[key];
-            var max = d[maxKey] ?? 0;
-            // Merge with DB counts if engine restarted
-            var dbCnt = _dbSetupCounts[id.toUpperCase()] ?? 0;
-            if (cnt < dbCnt) cnt = dbCnt;
-            el.textContent = "[" + cnt + "/" + max + "]";
+            el.textContent = "[" + d[key] + "/" + (d[maxKey] ?? 0) + "]";
         }
     });
 
@@ -786,6 +707,24 @@ async function forceExit(setup) {
     }
 }
 
+async function forceOrb() {
+    const btn = document.getElementById("btn-force-orb");
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading…'; }
+    try {
+        const r = await fetch("/api/engine/force-orb", { method: "POST" });
+        const data = await r.json();
+        if (r.ok) {
+            addAlert({ type: "ORB", setup: "A", time: new Date().toLocaleTimeString(), message: "Force ORB: " + data.message });
+        } else {
+            addAlert({ type: "ORB", setup: "A", time: new Date().toLocaleTimeString(), message: "Force ORB failed: " + data.message });
+        }
+    } catch (e) {
+        console.error("Force ORB error:", e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Force ORB'; }
+    }
+}
+
 // ── Setup state badge ─────────────────────────────────────────
 // state: A: 0=Idle ±1=Armed ±2=Active   B: 0=Idle ±1=Armed ±2=Retest ±3=Active
 function _setupBadge(id, state) {
@@ -801,7 +740,7 @@ function _setupBadge(id, state) {
 // trade = ActiveTradeView | null,  state = integer from setupAState / setupBState
 // enabled = bool from setupAEnabled / setupBEnabled
 // pastCutoff / sessionEnded = booleans to override badge when time has passed
-function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded) {
+function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTradesReached) {
     const statusEl  = document.getElementById("status-" + id);
     const enabledEl = document.getElementById("enabled-" + id);
     const exitBtn   = document.getElementById("btn-exit-" + id);
@@ -825,11 +764,12 @@ function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded) {
     if (card) card.style.opacity = "";  // restore if re-enabled
 
     if (!trade) {
-        // Override state badge when past cutoff or session ended
+        // Override state badge when past cutoff, session ended, or max trades reached
         let badge;
-        if (sessionEnded)   badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
-        else if (pastCutoff) badge = { text: "CUTOFF",        cls: "badge setup-armed" };
-        else                 badge = _setupBadge(id, state ?? 0);
+        if (sessionEnded)        badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
+        else if (maxTradesReached) badge = { text: "MAX TRADES",   cls: "badge badge-halted" };
+        else if (pastCutoff)     badge = { text: "CUTOFF",        cls: "badge setup-armed" };
+        else                     badge = _setupBadge(id, state ?? 0);
         if (statusEl) { statusEl.textContent = badge.text; statusEl.className = badge.cls; }
         if (exitBtn)  exitBtn.classList.add("d-none");
         ["dir","entry","stop","partial","target","cts","unreal"].forEach(f => setText(id + "-" + f, "—"));
