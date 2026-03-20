@@ -142,21 +142,23 @@ public class PullbackStrategyTests
     [Fact]
     public void Enters_Immediately_Aggressive()
     {
-        var cfg = DefaultConfig() with { Mode = "Aggressive" };
+        var cfg = DefaultConfig();
+        cfg.Mode = "Aggressive";
         var s = new PullbackStrategy(cfg);
-        var orb = MakeOrb();
+        var orb = MakeOrb(); // high=5200, low=5180, range=20
 
-        // Arm and immediately enter on the same bar (aggressive = no pullback needed)
-        ArmLong(s);
-        Assert.True(s.IsArmed);
-
-        // Any bar while armed in aggressive mode enters immediately
-        var bar = MakeBar(5196m, 5198m, 5195m, 5197m);
+        // In aggressive mode: arming and entry happen on the SAME bar.
+        // Entry uses _armEntry = bar.Open. With open=5199, stop = 5199 - 2 = 5197.
+        // Bar Low must be >= stop (5197) to avoid immediate same-bar stop hit.
+        // nearDist = 3 → arm when bar.High >= 5197. Use high=5199, low=5198.
+        var bar = MakeBar(5199m, 5199m, 5198m, 5198m);
         s.OnBar(bar, orb, MakeIndicators(), EmptyModules());
 
+        // Entry should have fired on the arm bar itself (no pullback needed in aggressive mode)
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
         Assert.True(s.IsActive);
+        Assert.False(s.IsArmed); // transitioned to active, no longer in armed state
     }
 
     [Fact]
@@ -244,7 +246,8 @@ public class PullbackStrategyTests
     [Fact]
     public void DoesNotArm_WhenMaxTradesReached()
     {
-        var cfg = DefaultConfig() with { MaxTrades = 1 };
+        var cfg = DefaultConfig();
+        cfg.MaxTrades = 1;
         var s = new PullbackStrategy(cfg);
         var orb = MakeOrb();
 
@@ -305,7 +308,8 @@ public class PullbackStrategyTests
     [Fact]
     public void DoesNotArmLong_WhenVwapFilterOn_AndBelowVwap()
     {
-        var cfg = DefaultConfig() with { UseVwap = true };
+        var cfg = DefaultConfig();
+        cfg.UseVwap = true;
         var s = new PullbackStrategy(cfg);
         var orb = MakeOrb(); // high=5200
 
@@ -322,11 +326,10 @@ public class PullbackStrategyTests
     [Fact]
     public void Partial_And_BE_ProduceSignals()
     {
-        var cfg = DefaultConfig() with
-        {
-            UsePartial = true, UseBe = true,
-            Contracts = 4,     // so partial is meaningful (2 out of 4)
-        };
+        var cfg = DefaultConfig();
+        cfg.UsePartial = true;
+        cfg.UseBe = true;
+        cfg.Contracts = 4;     // so partial is meaningful (2 out of 4)
         var s = new PullbackStrategy(cfg);
         var orb = MakeOrb(); // range=20
         ArmLong(s);
@@ -336,8 +339,9 @@ public class PullbackStrategyTests
         Assert.True(s.IsActive);
 
         // partial = ep + targetDist * (partialPct/100) = 5190 + 20*(50/100) = 5190 + 10 = 5200
-        // Bar touches partial but doesn't reach target (5210)
-        var partBar = MakeBar(5192m, 5205m, 5190m, 5202m);
+        // Bar touches partial but doesn't reach target (5210) and stays above entry (BE=5190)
+        // Low must be > 5190 to avoid immediately hitting the BE stop on the same bar
+        var partBar = MakeBar(5192m, 5205m, 5192m, 5202m);
         s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingPartial);
