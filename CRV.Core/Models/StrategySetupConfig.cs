@@ -1,10 +1,6 @@
-namespace CRV.Core.Models;
+using CRV.Core.Strategy;
 
-/// <summary>
-/// Strategy type discriminator. Determines which ISetupStrategy implementation handles a setup.
-/// Will be moved to CRV.Core/Strategy/ISetupStrategy.cs in Task 2.
-/// </summary>
-public enum StrategyType { Pullback, Retest, OrbFakeout, SessionFakeout }
+namespace CRV.Core.Models;
 
 /// <summary>
 /// Per-setup instance configuration. Named to avoid collision with
