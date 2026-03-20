@@ -34,7 +34,7 @@ Refactor into a composable engine where:
 
 #### ISetupStrategy
 
-The central interface. Each strategy type implements it. Strategies are stateful but self-contained — they own their own state machine, trade state, counts, and cutoff flags. No shared mutable state between strategies.
+The central interface. Each strategy type implements it. Strategies are stateful but self-contained — they own their own state machine, trade state, counts, and cutoff flags. Cross-setup coordination (e.g., `AllowBothSameBar`) is handled by the `TickerGroup` layer, not by strategies directly.
 
 ```csharp
 public interface ISetupStrategy
@@ -47,7 +47,7 @@ public interface ISetupStrategy
 
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
     void OnTick(decimal price, DateTime utc, OrbState orb, IndicatorState indicators, ModuleState modules);
-    void Reconfigure(SetupConfig config);
+    void Reconfigure(StrategySetupConfig config);
     void Reset();                     // new session
 
     EntrySignal? PendingEntry { get; }   // consumed by engine after OnBar/OnTick
@@ -107,8 +107,8 @@ public readonly record struct ModuleState(
 |-------|-------|---------------|----------------------|
 | `PullbackStrategy` | A | `TryEntryA`, `EvalTickSetupA`, `BookExitA` in OrbStrategyEngine | None (pure ORB logic) |
 | `RetestStrategy` | B | `TryEntryB`, `EvalTickSetupB`, `BookExitB` | None (pure ORB logic) |
-| `OrbFakeoutStrategy` | C | `ProcessSetupC`, `EvalTickExitCDF` | `FalseBreakoutDetector` via ModuleState |
-| `SessionFakeoutStrategy` | D | `ProcessSetupD`, `EvalTickExitCDF` | `OpeningDriveDetector` via ModuleState |
+| `OrbFakeoutStrategy` | C | `ProcessSetupC`, `EvalTickSetupC` | `FalseBreakoutDetector` via ModuleState |
+| `SessionFakeoutStrategy` | D | `ProcessSetupD`, `EvalTickSetupD` | `OpeningDriveDetector` via ModuleState |
 
 Each strategy contains:
 - State machine (`_state`: idle → armed → active)
@@ -119,12 +119,16 @@ Each strategy contains:
 - Per-setup daily stats (`_wins`, `_losses`, `_winPnl`, `_lossPnl`)
 - Sticky exit markers (`_stickyTgt`, `_stickyStop`, `_exitBarIdx`)
 
-### SetupConfig
+### StrategySetupConfig
 
 Per-instance configuration. Replaces the suffixed properties (`StopPctA`, `StopPctB`, etc.).
 
+Named `StrategySetupConfig` to avoid collision with the existing `SetupConfigBase` / `SetupConfigA` / `SetupConfigB` / `SetupConfigC` / `SetupConfigD` hierarchy in `SessionConfig.cs`, which continues to serve the DB mapping layer.
+
+**Relationship between SetupId and StrategyType:** `SetupId` is the identity (A/B/C/D) — used in signals, trade records, and the DB. `StrategyType` is the behavior — which `ISetupStrategy` implementation to instantiate. They map 1:1 for the initial four setups. Future setups would add new `SetupId` enum values (the enum already includes `F` for historical DB records; new values like `E`, `G` can be added). Multiple instances of the same `StrategyType` with different `SetupId`s are not supported initially.
+
 ```csharp
-public class SetupConfig
+public class StrategySetupConfig
 {
     public string Name { get; set; } = "";               // "A", "B", "C", "D"
     public SetupId SetupId { get; set; }
@@ -143,13 +147,13 @@ public class SetupConfig
 
     // Entry
     public decimal StopPct { get; set; }
-    public decimal TargetPct { get; set; }
-    public decimal PartialPct { get; set; }
+    public int TargetPct { get; set; }              // int (percentage), matches StrategyConfig
+    public int PartialPct { get; set; }             // int (percentage), matches StrategyConfig
     public decimal NearPct { get; set; }
     public decimal MinRr { get; set; }
+    public string Mode { get; set; } = "Conservative"; // "Conservative" | "Aggressive"
     public decimal PullbackPct { get; set; }     // A only
     public decimal RetestPct { get; set; }        // B only
-    public bool IsAggressive { get; set; }
     public int EntryTickOffset { get; set; }
     public string OrderType { get; set; } = "Market";
 
@@ -167,6 +171,9 @@ public class SetupConfig
     public bool UseBe { get; set; }
     public int PartialCts { get; set; }
     public bool AllowRearmAfterBe { get; set; }
+
+    // Derived
+    public bool IsAggressive => Mode == "Aggressive";
 }
 
 public enum StrategyType { Pullback, Retest, OrbFakeout, SessionFakeout }
@@ -187,16 +194,29 @@ public class EngineConfig
     public TimeOnly RthEnd { get; set; }
     public int ExitMinutesBefore { get; set; }
     public string Timezone { get; set; } = "America/New_York";
+    public int ExecutionTFMinutes { get; set; } = 1;
+
+    // Default instrument (fallback for setups without custom ticker)
+    public string Ticker { get; set; } = "";
+    public decimal PointValue { get; set; } = 20m;
+    public decimal TickSize { get; set; } = 0.25m;
 
     // Risk
     public bool UseDailyLossLimit { get; set; }
     public decimal MaxDailyLoss { get; set; }
     public decimal AtrFilterPct { get; set; }
     public decimal CommissionPerSide { get; set; }
+    public bool AllowBothSameBar { get; set; } = false;
 
     // Broker
     public string Broker { get; set; } = "";
     public string ExecBroker { get; set; } = "";
+    public string AccountId { get; set; } = "";
+    public string ExecAccountId { get; set; } = "";
+
+    // Replay
+    public DateTime? ReplayDate { get; set; }
+    public decimal ReplaySpeed { get; set; } = 1.0m;
 
     // Module parameters
     public ModuleConfig Modules { get; set; } = new();
@@ -233,12 +253,19 @@ TickerGroup
 - `TickerGroupKey(ticker)` extracts the grouping key — initially maps known micro/mini pairs, extensible
 - If two setups specify different tickers that resolve to the same group, the group uses the first ticker as the data feed source
 
+**Cross-setup coordination (`AllowBothSameBar`):**
+The `TickerGroup` tracks `_enteredThisBar` (reset at each new bar). When a strategy produces a `PendingEntry`, the group checks `EngineConfig.AllowBothSameBar` — if false and another setup already entered on this bar, the entry is suppressed and the strategy is told to reset its pending signal. This replaces the monolith's shared `_enteredThisBar` field.
+
+**ORB cache:**
+Each `TickerGroup` manages its own `orb_cache_{key}.json` for engine restarts. On startup, if a cache exists for the current trading date, the OrbCalculator is restored instead of re-derived from warmup bars. `ForceOrbAsync` on `ComposableEngine` delegates to the appropriate group.
+
 **Bar loop (per group):**
 ```
 foreach bar in feed.StreamAsync():
     await semaphore.WaitAsync()
     try:
-        if warmup: update indicators only
+        _enteredThisBar = false
+        if warmup: update indicators, evaluate arm state (no entries/exits)
         else:
             update OrbCalculator
             if unconfirmed: throttle (2s), skip strategy eval
@@ -247,7 +274,9 @@ foreach bar in feed.StreamAsync():
             build OrbState, IndicatorState, ModuleState snapshots
             foreach setup in Setups:
                 setup.OnBar(bar, orbState, indicatorState, moduleState)
-                if setup.PendingEntry: yield to engine
+                if setup.PendingEntry:
+                    if !AllowBothSameBar && _enteredThisBar: suppress
+                    else: yield to engine, _enteredThisBar = true
                 if setup.PendingExit: yield to engine
             report state to SnapshotAggregator
     finally:
@@ -291,7 +320,7 @@ ComposableEngine
 public class ComposableEngine
 {
     // Setup management
-    void AddSetup(SetupConfig config);
+    void AddSetup(StrategySetupConfig config);
     void RemoveSetup(SetupId id);
 
     // Lifecycle
@@ -299,7 +328,7 @@ public class ComposableEngine
     Task StopAsync();
 
     // Configuration
-    void Reconfigure(EngineConfig config, List<SetupConfig> setups);
+    void Reconfigure(EngineConfig config, List<StrategySetupConfig> setups);
 
     // External actions
     void ForceExitSetup(SetupId id);
@@ -341,6 +370,30 @@ If `RiskManager.DdBreached`, all groups halt — no new entries, force-exit all 
 
 **Multi-ticker case:** When groups have different instruments, the snapshot uses the primary group's indicator values for the main display (OrbHigh, ATR, VWAP). Dashboard Market Context could show tabs per instrument in a future UI update.
 
+### Multi-Session Support
+
+The existing `SessionManager` and `SessionConfig` (Asia/London/NY) continue to work as today. `LiveEngineOrchestrator` calls `ComposableEngine.Reconfigure(engineConfig, setupConfigs)` on session transitions, which:
+1. Updates `EngineConfig` with the new session's ORB/RTH times
+2. Updates each strategy's `StrategySetupConfig` with the session-specific parameters
+3. Calls `Reset()` on each strategy to clear arm/trade state
+4. Preserves daily-scoped state (ATR, VWAP, `RiskManager.TodayPnl`)
+
+The `ComposableEngine` tracks `ActiveSessionId` for trade records and snapshot publishing.
+
+### Backtest Integration
+
+`BacktestEngine` (in `CRV.Backtest/Engine/BacktestEngine.cs`) currently creates an `OrbStrategyEngine` directly. It must be updated to use `ComposableEngine`.
+
+**Stage 1-2 (strategies extracted but engine shell intact):** `BacktestEngine` continues to use `OrbStrategyEngine` unchanged — the shell delegates internally to strategy instances, so backtest behavior is identical.
+
+**Stage 4-5 (ComposableEngine replaces OrbStrategyEngine):** `BacktestEngine` switches to creating a `ComposableEngine`, calling `AddSetup()` for each enabled setup, and feeding bars through the ticker group's bar loop. The backtest's `MockBrokerExecutor` and `NullEventSink` plug into `ComposableEngine` the same way they plug into `OrbStrategyEngine` today.
+
+**Verification:** Run backtest on a fixed dataset with old engine, save trade records. Run same dataset with new engine, diff trade records. Zero differences = correct extraction.
+
+### FalseBreakoutDetector Module Config
+
+`FalseBreakoutDetector` currently takes the full `StrategyConfig` in its constructor. During Stage 4, it must be refactored to accept `ModuleConfig` (or a focused subset) instead, matching the other modules' pattern. This is a small change — extract the fields it reads from `StrategyConfig` into `ModuleConfig`.
+
 ### Config Mapping (No DB Migration)
 
 The existing `SessionConfig` / `StrategyConfig` / `Configs` table stays unchanged. Mapping happens at load time:
@@ -350,17 +403,17 @@ DB (Configs table, flat suffixed columns)
   ↕ SessionConfig.ToLegacyConfig() / FromExistingConfig()
 StrategyConfig (flat object with A/B/C/D suffixes)
   ↕ new mapping layer
-EngineConfig + List<SetupConfig>
+EngineConfig + List<StrategySetupConfig>
   → ComposableEngine
 ```
 
 New mapping methods on `StrategyConfig`:
 ```csharp
 public EngineConfig ToEngineConfig() { ... }
-public List<SetupConfig> ToSetupConfigs() { ... }
+public List<StrategySetupConfig> ToSetupConfigs() { ... }
 ```
 
-These extract the global fields into `EngineConfig` and split the per-setup suffixed fields into individual `SetupConfig` objects. The `EffectiveTicker/PointValue/TickSize` resolution (custom vs global fallback) happens here.
+These extract the global fields into `EngineConfig` and split the per-setup suffixed fields into individual `StrategySetupConfig` objects. The `EffectiveTicker/PointValue/TickSize` resolution (custom vs global fallback) happens here.
 
 ### UI: Templated Partials
 
@@ -371,7 +424,7 @@ These extract the global fields into `EngineConfig` and split the per-setup suff
 
 **Settings (`Live.cshtml`):**
 - Extract setup config section into `_SetupConfigSection.cshtml` partial
-- Each setup rendered from `SetupConfig` object
+- Each setup rendered from `StrategySetupConfig` object
 - Module parameters stay in "Market Context Modules" area (global)
 
 **Hardcoded for A/B/C/D** — not fully dynamic. Adding Setup E means adding one more partial call.
@@ -438,8 +491,9 @@ This design supersedes the plan in `jolly-dancing-reef.md` (Remove Setup C, D, F
 - `CRV.Core/Strategy/TickerGroup.cs` — per-instrument group
 - `CRV.Core/Strategy/RiskManager.cs` — daily PnL + loss limit
 - `CRV.Core/Strategy/SnapshotAggregator.cs` — builds EngineSnapshot
-- `CRV.Core/Models/SetupConfig.cs` — per-setup config
+- `CRV.Core/Models/StrategySetupConfig.cs` — per-setup config
 - `CRV.Core/Models/EngineConfig.cs` — global config
+- `CRV.Core/Strategy/StrategyFactory.cs` — creates ISetupStrategy from StrategyType
 - `CRV.Core.Tests/Strategy/PullbackStrategyTests.cs`
 - `CRV.Core.Tests/Strategy/RetestStrategyTests.cs`
 - `CRV.Core.Tests/Strategy/OrbFakeoutStrategyTests.cs`
@@ -453,6 +507,8 @@ This design supersedes the plan in `jolly-dancing-reef.md` (Remove Setup C, D, F
 - `CRV.Core/Strategy/OrbStrategyEngine.cs` — hollowed out incrementally, eventually replaced
 - `CRV.Core/Models/StrategyConfig.cs` — add `ToEngineConfig()`, `ToSetupConfigs()`
 - `CRV.Core/Models/SessionConfig.cs` — mapping updates
+- `CRV.Core/Modules/FalseBreakoutDetector.cs` — accept ModuleConfig instead of StrategyConfig
+- `CRV.Backtest/Engine/BacktestEngine.cs` — switch to ComposableEngine (Stage 4-5)
 - `CRV.Web/Services/LiveEngineOrchestrator.cs` — creates ComposableEngine
 - `CRV.Web/Pages/Dashboard/Index.cshtml` — use partials
 - `CRV.Web/Pages/Settings/Live.cshtml` — use partials
