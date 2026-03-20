@@ -43,17 +43,32 @@ public class IndexModel : PageModel
 
     public void OnGet() { }
 
-    /// <summary>Force-exit the active Setup A trade on the next bar (called via fetch, returns JSON).</summary>
-    public IActionResult OnPostForceExitA()
+    /// <summary>Force-exit the active Setup A trade immediately (called via fetch, returns JSON).</summary>
+    public async Task<IActionResult> OnPostForceExitA()
     {
-        _orchestrator.ForceExitSetupA();
+        await _orchestrator.ForceExitSetup(SetupId.A);
         return new JsonResult(new { ok = true, setup = "A" });
     }
 
-    /// <summary>Force-exit the active Setup B trade on the next bar (called via fetch, returns JSON).</summary>
-    public IActionResult OnPostForceExitB()
+    /// <summary>Force-exit the active Setup B trade immediately (called via fetch, returns JSON).</summary>
+    public async Task<IActionResult> OnPostForceExitB()
     {
-        _orchestrator.ForceExitSetupB();
+        await _orchestrator.ForceExitSetup(SetupId.B);
         return new JsonResult(new { ok = true, setup = "B" });
     }
+
+    /// <summary>Force-exit the active Setup C trade immediately (called via fetch, returns JSON).</summary>
+    public async Task<IActionResult> OnPostForceExitC()
+    {
+        await _orchestrator.ForceExitSetup(SetupId.C);
+        return new JsonResult(new { ok = true, setup = "C" });
+    }
+
+    /// <summary>Force-exit the active Setup D trade immediately (called via fetch, returns JSON).</summary>
+    public async Task<IActionResult> OnPostForceExitD()
+    {
+        await _orchestrator.ForceExitSetup(SetupId.D);
+        return new JsonResult(new { ok = true, setup = "D" });
+    }
+
 }

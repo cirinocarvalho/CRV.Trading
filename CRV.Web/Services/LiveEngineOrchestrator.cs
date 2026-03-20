@@ -29,50 +29,151 @@ public class LiveEngineOrchestrator : BackgroundService
     private CancellationTokenSource?   _cts;
     private Task?                      _engineTask;
     private EngineSnapshot?            _lastSnapshot;
-    private OrbStrategyEngine?         _engine;   // non-null while engine is running
+    private ComposableEngine?          _engine;   // non-null while engine is running
 
     public bool     IsRunning    { get; private set; }
     public string   Status       { get; private set; } = "Stopped";
     public EngineSnapshot? LastSnapshot => _lastSnapshot;
 
-    /// <summary>Force-exit Setup A immediately at current market price.</summary>
-    public async Task ForceExitSetupA()
+    /// <summary>Force-exit a specific setup immediately at current market price.</summary>
+    public async Task ForceExitSetup(SetupId setupId)
     {
-        OrbStrategyEngine? eng;
+        ComposableEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }
-        if (eng != null) await eng.RequestForceExitA();
+        if (eng != null) await eng.ForceExitSetupAsync(setupId);
     }
 
-    /// <summary>Force-exit Setup B immediately at current market price.</summary>
-    public async Task ForceExitSetupB()
+    /// <summary>
+    /// Force-set the ORB by fetching historical bars from the broker and scanning the configured window.
+    /// Called from the dashboard "Force ORB" button when the ORB didn't form correctly after restart.
+    /// </summary>
+    public async Task<(bool ok, string message)> ForceOrbAsync(StrategyConfig cfg)
     {
-        OrbStrategyEngine? eng;
+        ComposableEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }
-        if (eng != null) await eng.RequestForceExitB();
-    }
+        if (eng == null) return (false, "Engine not running");
+        try
+        {
+            using var scope = _sp.CreateScope();
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(cfg.Timezone);
+            var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
 
-    /// <summary>Force-exit Setup C immediately at current market price.</summary>
-    public async Task ForceExitSetupC()
-    {
-        OrbStrategyEngine? eng;
-        lock (_lifecycleLock) { eng = _engine; }
-        if (eng != null) await eng.RequestForceExitC();
-    }
+            // Use active session's ORB window (from last snapshot or config)
+            var orbStart = cfg.OrbStart;
+            var orbEnd = cfg.OrbEnd;
+            if (cfg.Sessions != null)
+            {
+                var sessionMgr = new SessionManager(cfg.Sessions ?? SessionConfig.CreateDefaults(cfg));
+                var activeSession = sessionMgr.GetActiveSession(TimeOnly.FromDateTime(nowLocal));
+                if (activeSession != null)
+                {
+                    orbStart = activeSession.OrbStart;
+                    orbEnd = activeSession.OrbEnd;
+                }
+            }
 
-    /// <summary>Force-exit Setup D immediately at current market price.</summary>
-    public async Task ForceExitSetupD()
-    {
-        OrbStrategyEngine? eng;
-        lock (_lifecycleLock) { eng = _engine; }
-        if (eng != null) await eng.RequestForceExitD();
-    }
+            // Reach back 20 TF bars before ORB start for ATR/VWAP warmup, up to now
+            var orbStartLocal = nowLocal.Date.Add(orbStart.ToTimeSpan());
+            if (orbStartLocal > nowLocal) orbStartLocal = orbStartLocal.AddDays(-1);
+            var fromLocal = orbStartLocal.AddMinutes(-cfg.ExecutionTFMinutes * 20);
+            var toLocal = nowLocal.AddMinutes(-cfg.ExecutionTFMinutes); // don't overlap live stream
 
-    /// <summary>Force-exit Setup F immediately at current market price.</summary>
-    public async Task ForceExitSetupF()
-    {
-        OrbStrategyEngine? eng;
-        lock (_lifecycleLock) { eng = _engine; }
-        if (eng != null) await eng.RequestForceExitF();
+            var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(fromLocal, DateTimeKind.Unspecified), tz);
+            var toUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(toLocal, DateTimeKind.Unspecified), tz);
+
+            // Fetch bars from broker
+            var lf = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var hf = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+            var ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);
+            IAsyncEnumerable<Bar> bars;
+
+            if (cfg.Broker == "Schwab")
+            {
+                var auth = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
+                var token = await auth.GetAccessTokenAsync();
+                var loader = new SchwabHistoricalLoader(token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
+                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+            }
+            else if (cfg.Broker == "TradeStation")
+            {
+                var auth = scope.ServiceProvider.GetRequiredService<TradeStationAuthService>();
+                var token = await auth.GetAccessTokenAsync();
+                var loader = new TradeStationHistoricalLoader(token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
+                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+            }
+            else
+            {
+                return (false, $"ForceORB not supported for broker {cfg.Broker} — use Schwab or TradeStation");
+            }
+
+            // Feed ALL bars as warmup — builds ATR, VWAP, and all indicators.
+            // Also scan bars inside the ORB window for high/low to force-set the ORB.
+            var orbEndTime = TimeOnly.FromTimeSpan(orbEnd.ToTimeSpan());
+            decimal orbHigh = 0, orbLow = decimal.MaxValue;
+            decimal lastClose = 0;
+            int barCount = 0, orbBarCount = 0;
+            await foreach (var bar in bars)
+            {
+                await eng.WarmupBarAsync(bar, cfg.Ticker);
+                barCount++;
+
+                // Track ORB window bars
+                var barLocal = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
+                var barTime = TimeOnly.FromDateTime(barLocal);
+                if (barTime >= orbStart && barTime < orbEnd)
+                {
+                    if (bar.High > orbHigh) orbHigh = bar.High;
+                    if (bar.Low < orbLow) orbLow = bar.Low;
+                    lastClose = bar.Close;
+                    orbBarCount++;
+                }
+            }
+
+            if (orbBarCount == 0 || orbHigh == 0 || orbLow == decimal.MaxValue)
+                return (false, $"No bars in ORB window ({orbStart}–{orbEnd}). Fed {barCount} warmup bars for ATR/VWAP.");
+
+            decimal range = orbHigh - orbLow;
+            decimal closeRelPct = range > 0 ? (lastClose - orbLow) / range : 0.5m;
+            var tradingDate = cfg.TradingDate(nowLocal);
+
+            // Force-set the ORB on the engine
+            var cache = new OrbStateCache
+            {
+                TradingDate = tradingDate,
+                Symbol = cfg.Ticker,
+                SessionId = eng.ActiveSessionId,
+                OrbHigh = orbHigh,
+                OrbLow = orbLow,
+                CloseRelPct = closeRelPct,
+                OrbAtrRatio = 0 // recalculated from ATR on next snapshot
+            };
+            // If still inside the ORB window, seed as floor (forming) so no arming occurs.
+            // If ORB window has closed, restore as formed.
+            var nowTime = TimeOnly.FromDateTime(nowLocal);
+            if (nowTime >= orbStart && nowTime < orbEnd)
+            {
+                eng.SeedOrbFloor(cache);
+                _log.LogInformation("ForceORB (seeded floor — ORB window still open): H={H:F2} L={L:F2} R={R:F2}",
+                    orbHigh, orbLow, range);
+            }
+            else
+            {
+                eng.RestoreOrb(cache);
+                _log.LogInformation("ForceORB: H={H:F2} L={L:F2} R={R:F2} from {OrbBars} ORB bars + {Total} warmup bars",
+                    orbHigh, orbLow, range, orbBarCount, barCount);
+            }
+            OrbStateCacheService.Save(cache);
+            await eng.PublishCurrentStateAsync();
+
+            return (true, $"ORB: H={orbHigh:F2} L={orbLow:F2} R={range:F2} | {barCount} bars warmed up (ATR/VWAP/indicators)");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "ForceORB failed");
+            return (false, $"Error: {ex.Message}");
+        }
     }
 
     public LiveEngineOrchestrator(IServiceProvider sp, IConfiguration config, ILogger<LiveEngineOrchestrator> log)
@@ -263,8 +364,13 @@ public class LiveEngineOrchestrator : BackgroundService
                 cfg.Broker, execBroker, execAccountId);
 
             // ── Run ─────────────────────────────────────────────────
-            var newEngine = new OrbStrategyEngine(cfg, executor, wrappedSink, prices,
-                scope.ServiceProvider.GetRequiredService<ILogger<OrbStrategyEngine>>());
+            var engineConfig = cfg.ToEngineConfig();
+            var newEngine = new ComposableEngine(executor, wrappedSink, prices, engineConfig);
+            foreach (var setupCfg in cfg.ToSetupConfigs())
+            {
+                if (setupCfg.Enabled)
+                    newEngine.AddSetup(setupCfg);
+            }
             lock (_lifecycleLock) { _engine = newEngine; }
 
             // Seed module historical levels from daily bars
@@ -308,10 +414,43 @@ public class LiveEngineOrchestrator : BackgroundService
                     case TransitionType.SessionStarted:
                         var flat = session!.ToLegacyConfig(cfg);
                         newEngine.Reconfigure(flat, session.SessionId);
+
+                        // Restore ORB from cache after Reconfigure()+Reset().
+                        // Past OrbEnd: restore fully (ORB won't change).
+                        // Inside ORB window: restore as floor so warmup bars can only expand, not shrink.
+                        try
+                        {
+                            var td = cfg.TradingDate(local);
+                            var cached = OrbStateCacheService.Load(cfg.Ticker, td, session.SessionId.ToString());
+                            if (cached != null)
+                            {
+                                if (localTime >= flat.OrbEnd)
+                                {
+                                    // Past the window — full restore, ORB is final
+                                    newEngine.RestoreOrb(cached);
+                                    _log.LogInformation("ORB restored from cache for session {Session} (past OrbEnd {OrbEnd})",
+                                        session.SessionId, flat.OrbEnd);
+                                }
+                                else
+                                {
+                                    // Inside the window — seed high/low so warmup bars can only expand
+                                    newEngine.SeedOrbFloor(cached);
+                                    _log.LogInformation("ORB seeded from cache for session {Session} (inside ORB window, will expand)",
+                                        session.SessionId);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "Failed to restore ORB from cache for session {Session}", session.SessionId);
+                        }
+
+                        await newEngine.PublishCurrentStateAsync();
                         break;
                     case TransitionType.SessionEnded:
                         await newEngine.ForceExitAllAsync();
                         newEngine.SetIdle();
+                        await newEngine.PublishCurrentStateAsync();
                         break;
                 }
             }
@@ -344,14 +483,14 @@ public class LiveEngineOrchestrator : BackgroundService
             {
                 await foreach (var (price, time) in tickCh.Reader.ReadAllAsync(ct))
                 {
-                    OrbStrategyEngine? engine;
+                    ComposableEngine? engine;
                     lock (_lifecycleLock) { engine = _engine; }
                     if (engine == null) break;
                     await engineLock.WaitAsync(ct);
                     try
                     {
                         await CheckSessionTransitionAsync(time);
-                        await engine.ProcessPriceTickAsync(price, time);
+                        await engine.ProcessPriceTickAsync(price, time, cfg.Ticker);
                     }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
@@ -398,9 +537,9 @@ public class LiveEngineOrchestrator : BackgroundService
                 {
                     await CheckSessionTransitionAsync(bar.Time);
                     if (bar.IsConfirmed && bar.Time < warmupCutoffUtc)
-                        await _engine.WarmupBarAsync(bar, ct);
+                        await _engine.WarmupBarAsync(bar, cfg.Ticker, ct);
                     else
-                        await _engine.ProcessBarAsync(bar, ct);
+                        await _engine.ProcessBarAsync(bar, cfg.Ticker, ct);
                 }
                 finally { engineLock.Release(); }
             }
@@ -486,7 +625,7 @@ public class LiveEngineOrchestrator : BackgroundService
     /// Returns the number of bars fed, or 0 if backfill was skipped / failed.
     /// </summary>
     private async Task<int> BackfillAsync(StrategyConfig cfg, IServiceScope scope,
-        OrbStrategyEngine engine, IHubContext<TradingHub> hub, CancellationToken ct)
+        ComposableEngine engine, IHubContext<TradingHub> hub, CancellationToken ct)
     {
         try
         {
@@ -496,15 +635,34 @@ public class LiveEngineOrchestrator : BackgroundService
             var nowEt  = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, etTz);
             var today  = nowEt.Date;
 
-            // Try to restore ORB from cache (streaming-derived, not REST)
-            var cached = OrbStateCacheService.Load(cfg.Ticker, today);
+            // Try to restore ORB from cache (streaming-derived, not REST).
+            // At backfill time we're in the initial (pre-session-manager) phase,
+            // so determine which session is currently active to match the cache key.
+            var sessionsMgr = new SessionManager(cfg.Sessions ?? SessionConfig.CreateDefaults(cfg));
+            var activeSession = sessionsMgr.GetActiveSession(TimeOnly.FromDateTime(nowEt));
+            var sessionIdStr = activeSession?.SessionId.ToString() ?? "";
+            var cached = OrbStateCacheService.Load(cfg.Ticker, today, sessionIdStr);
             if (cached != null)
             {
                 engine.RestoreOrb(cached);
-                _log.LogInformation("ORB restored from cache for {Ticker}", cfg.Ticker);
+                _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", cfg.Ticker, sessionIdStr);
             }
 
-            var orbStartEt = today.Add(cfg.OrbStart.ToTimeSpan());
+            // Use earliest ORB start across all enabled sessions for backfill window
+            var earliestOrbStart = cfg.OrbStart;
+            if (cfg.Sessions != null)
+            {
+                foreach (var s in cfg.Sessions)
+                {
+                    if (s.Enabled && s.OrbStart < earliestOrbStart)
+                        earliestOrbStart = s.OrbStart;
+                }
+            }
+            var orbStartEt = today.Add(earliestOrbStart.ToTimeSpan());
+            // If earliest ORB start is in the evening (e.g. Asia 19:00) and it's past midnight,
+            // the ORB start was yesterday evening
+            if (orbStartEt > nowEt)
+                orbStartEt = orbStartEt.AddDays(-1);
 
             // Nothing to backfill if we start before the ORB window
             if (nowEt <= orbStartEt)
@@ -587,7 +745,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
                 // WarmupBarAsync builds ORB/ATR/VWAP without running strategy logic,
                 // so historical bars do not fire orders or consume the trade-count budget.
-                await engine.WarmupBarAsync(bar, ct);
+                await engine.WarmupBarAsync(bar, cfg.Ticker, ct);
                 prevBar = bar;
                 count++;
             }
