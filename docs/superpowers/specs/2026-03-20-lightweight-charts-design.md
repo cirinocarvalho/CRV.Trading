@@ -107,6 +107,22 @@ Candlestick colors:
 | **API** | `CRV.Web/Api/EngineController.cs` | Add `GET /api/engine/bars/{groupKey}` |
 | **Dashboard** | `CRV.Web/Pages/Dashboard/Index.cshtml` | Replace embed widget with Lightweight Charts |
 
+## Implementation Notes (from spec review)
+
+1. **Unconfirmed bars for live candle**: `TickerGroup.ProcessBarAsync()` early-returns for unconfirmed bars. The buffer stores confirmed bars only (for history), but track a separate `_currentBar` field updated on every bar (confirmed or not) — use it for the snapshot's BarTime/OHLC fields so the dashboard sees the forming candle, not just the last closed bar.
+
+2. **Thread safety on `GetBarHistory()`**: The REST endpoint calls `GetBarHistory()` from an ASP.NET thread while the engine writes bars on its own thread. Use a lock inside `BarRingBuffer` or snapshot the buffer under the existing `_semaphore`. Internal lock is simplest.
+
+3. **Clear buffer on session reset**: Call `_barBuffer.Clear()` in `TickerGroup.Reset()` so the chart starts fresh each session without stale bars.
+
+4. **Guard for stopped engine**: REST endpoint returns empty `[]` when engine is not running (match existing `Status()` pattern).
+
+5. **LWC v4 API**: Use `chart.addSeries(LightweightCharts.CandlestickSeries, options)` — the v3 `addCandlestickSeries()` was removed in v4.
+
+6. **Trade marker time snapping**: Marker `time` must be floored to the bar boundary to match a candle timestamp, otherwise markers won't render.
+
+7. **DateTime-to-Unix**: Use `new DateTimeOffset(bar.Time, TimeSpan.Zero).ToUnixTimeSeconds()` to avoid timezone bugs.
+
 ## What We're NOT Changing
 - SignalR hub / `crv-hub.js` — bar fields ride on existing snapshot
 - Bar aggregation logic — buffer just observes
