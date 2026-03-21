@@ -92,6 +92,7 @@ public class ComposableEngine
 
         if (bar.IsConfirmed)
         {
+            SaveOrbCacheIfFormed(group);
             var signals = group.CollectAndClearSignals();
             await RouteSignalsAsync(signals);
         }
@@ -113,7 +114,10 @@ public class ComposableEngine
         await group.ProcessBarAsync(bar);
         // Warmup: collect and discard signals to prevent them from leaking
         if (bar.IsConfirmed)
+        {
+            SaveOrbCacheIfFormed(group);
             group.CollectAndClearSignals();
+        }
     }
 
     /// <summary>
@@ -183,8 +187,8 @@ public class ComposableEngine
             // ── Exit ──
             if (sig.Exit is { } xsig)
             {
-                // Build TradeRecord from strategy's pre-exit state
-                var preTrade = sig.Strategy.GetActiveTrade(xsig.ExitPrice);
+                // Use PreExitTrade (captured before state reset) or fall back to GetActiveTrade
+                var preTrade = sig.PreExitTrade ?? sig.Strategy.GetActiveTrade(xsig.ExitPrice);
                 var trade = BuildTradeRecord(sig.Strategy, xsig, preTrade);
 
                 if (trade != null)
@@ -215,6 +219,12 @@ public class ComposableEngine
     /// <summary>Clear idle flag so warmup bars can flow through.</summary>
     public void ClearIdle() => _idle = false;
 
+    /// <summary>
+    /// Pre-set the active session ID so ORB cache writes during backfill
+    /// use the correct session key (matches the key used on restore after session transition).
+    /// </summary>
+    public void SetActiveSessionId(string sessionId) => _activeSessionId = sessionId;
+
     /// <summary>Enable tick-based entry/exit evaluation.</summary>
     public void EnableTickMode() => _tickModeEnabled = true;
 
@@ -228,6 +238,10 @@ public class ComposableEngine
 
         foreach (var group in _groups.Values)
         {
+            // Snapshot prior session H/L into FalseBreakoutDetector BEFORE reset
+            // clears session data. This enables SessionFakeout (Setup D) to detect
+            // false breakouts of the prior session's range.
+            group.OnSessionBoundary(sessionId);
             group.ReconfigureOrb(cfg.OrbStart, cfg.OrbEnd);
             group.Reset();
         }
@@ -333,13 +347,15 @@ public class ComposableEngine
     {
         var allStrategies = _strategies.Values.ToList();
 
-        // Get state from the first (primary) group
+        // Get state from the primary group (matching the global ticker)
         OrbState orbState = default;
         IndicatorState indState = default;
         ModuleState modState = default;
         decimal lastPrice = _prices.GetLastPrice(_config.Ticker);
 
-        var primaryGroup = _groups.Values.FirstOrDefault();
+        var primaryGroupKey = TickerGroup.GetGroupKey(_config.Ticker);
+        var primaryGroup = _groups.TryGetValue(primaryGroupKey, out var pg) ? pg
+                         : _groups.Values.FirstOrDefault();
         if (primaryGroup != null)
         {
             orbState = primaryGroup.GetOrbState();
@@ -347,17 +363,55 @@ public class ComposableEngine
             modState = primaryGroup.GetModuleState();
         }
 
+        // Build per-setup ORB state by looking up each strategy's ticker group
+        var perSetupOrb = new Dictionary<SetupId, OrbState>();
+        foreach (var (setupId, strategy) in _strategies)
+        {
+            if (_setupToGroupKey.TryGetValue(setupId, out var gk) &&
+                _groups.TryGetValue(gk, out var g))
+            {
+                perSetupOrb[setupId] = g.GetOrbState();
+            }
+        }
+
+        // Build per-group snapshots for the dashboard ticker-group selector
+        var groupSnapshots = new Dictionary<string, TickerGroupSnapshot>();
+        foreach (var (key, group) in _groups)
+        {
+            var gs = group.BuildGroupSnapshot();
+            // Find a representative ticker for this group from registered strategies
+            foreach (var (setupId, gk) in _setupToGroupKey)
+            {
+                if (gk == key && _strategies.TryGetValue(setupId, out var strat)
+                    && !string.IsNullOrEmpty(strat.Ticker))
+                {
+                    gs.Ticker = strat.Ticker.TrimStart('/');
+                    break;
+                }
+            }
+            groupSnapshots[key] = gs;
+        }
+
+        // Primary group FB data for flat snapshot fields (backward compat)
+        TickerGroupSnapshot? primaryGS = null;
+        if (primaryGroupKey != null)
+            groupSnapshots.TryGetValue(primaryGroupKey, out primaryGS);
+
         var inputs = new SnapshotAggregator.Inputs
         {
             Strategies = allStrategies,
             Risk = Risk,
+            Prices = _prices,
             Orb = orbState,
             Indicators = indState,
             OrbAtrRatio = orbState.AtrRatio,
+            PerSetupOrb = perSetupOrb,
             BarTime = DateTime.UtcNow,
             Ticker = _config.Ticker,
             IsLive = true,
             LastPrice = lastPrice,
+            SessionEnded = _idle,
+            PastCutoff = _idle,  // when engine is idle, all setups are past cutoff
             ActiveSessionId = _activeSessionId,
             OrbWindowStart = _config.OrbStart.ToString("HH:mm"),
             OrbWindowEnd = _config.OrbEnd.ToString("HH:mm"),
@@ -377,10 +431,29 @@ public class ComposableEngine
             OpeningDriveBear = modState.IsBearDrive,
             TrendScoreBull = modState.TrendDayBullScore,
             TrendScoreBear = modState.TrendDayBearScore,
+            // FalseBreakout from primary group
+            FBOrbBreakoutActive = primaryGS?.FBOrbBreakoutActive ?? false,
+            FBSessionBreakoutActive = primaryGS?.FBSessionBreakoutActive ?? false,
+            FBOrbBarsInBreakout = primaryGS?.FBOrbBarsInBreakout ?? 0,
+            FBSessionBarsInBreakout = primaryGS?.FBSessionBarsInBreakout ?? 0,
+            FBOrbPenetrationDepth = primaryGS?.FBOrbPenetrationDepth ?? 0,
+            FBSessionPenetrationDepth = primaryGS?.FBSessionPenetrationDepth ?? 0,
+            FBOrbActivated = primaryGS?.FBOrbActivated ?? false,
+            FBSessionActivated = primaryGS?.FBSessionActivated ?? false,
+            IsCompoundFakeout = primaryGS?.IsCompoundFakeout ?? false,
+            GroupSnapshots = groupSnapshots,
             RecentAlerts = GetRecentAlerts(),
         };
 
         return SnapshotAggregator.Build(inputs);
+    }
+
+    /// <summary>Get bar history for a specific ticker group (for dashboard chart).</summary>
+    public List<Bar> GetBarHistory(string groupKey)
+    {
+        if (_groups.TryGetValue(groupKey, out var group))
+            return group.GetBarHistory();
+        return new List<Bar>();
     }
 
     /// <summary>Get active trade view for a specific setup, or null.</summary>
@@ -404,18 +477,44 @@ public class ComposableEngine
 
     // ── ORB cache support ───────────────────────────────────────────
 
-    /// <summary>Restore ORB state from a cached snapshot.</summary>
+    /// <summary>Restore ORB state from a cached snapshot for the matching ticker group.</summary>
     public void RestoreOrb(OrbStateCache cache)
     {
-        foreach (var group in _groups.Values)
+        var groupKey = TickerGroup.GetGroupKey(cache.Symbol);
+        if (_groups.TryGetValue(groupKey, out var group))
             group.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio);
+        else
+        {
+            // Fallback: apply to all groups (backward compat — single-ticker setups)
+            foreach (var g in _groups.Values)
+                g.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio);
+        }
     }
 
-    /// <summary>Seed ORB floor from cache when restarting inside ORB window.</summary>
+    /// <summary>Seed ORB floor from cache for the matching ticker group.</summary>
     public void SeedOrbFloor(OrbStateCache cache)
     {
-        foreach (var group in _groups.Values)
+        var groupKey = TickerGroup.GetGroupKey(cache.Symbol);
+        if (_groups.TryGetValue(groupKey, out var group))
             group.SeedOrbFloor(cache.OrbHigh, cache.OrbLow);
+        else
+        {
+            foreach (var g in _groups.Values)
+                g.SeedOrbFloor(cache.OrbHigh, cache.OrbLow);
+        }
+    }
+
+    /// <summary>
+    /// If a TickerGroup's ORB just formed, persist to cache (fire-and-forget).
+    /// The session ID is stamped so multi-session restarts restore the correct ORB.
+    /// </summary>
+    private void SaveOrbCacheIfFormed(TickerGroup group)
+    {
+        if (group.ConsumeOrbFormed(out var cache) && cache != null)
+        {
+            cache.SessionId = _activeSessionId;
+            OrbStateCacheService.Save(cache);
+        }
     }
 
     /// <summary>Seed module history from daily bars.</summary>
@@ -457,17 +556,18 @@ public class ComposableEngine
 
         decimal comm = cts * 2 * _config.CommissionPerSide;
         decimal net = pnl - comm;
-        decimal risk = Math.Abs(preTrade.Entry - preTrade.CurrentStop) * pointValue * cts;
+        decimal initStop = preTrade.InitialStop != 0 ? preTrade.InitialStop : preTrade.CurrentStop;
+        decimal risk = Math.Abs(preTrade.Entry - initStop) * pointValue * cts;
         decimal rMult = risk > 0 ? pnl / risk : 0;
 
         return new TradeRecord
         {
             Setup = strategy.SetupId,
             Direction = preTrade.Direction,
-            Ticker = strategy.Ticker,
+            Ticker = strategy.Ticker?.TrimStart('/') ?? "",
             Contracts = cts,
             Entry = preTrade.Entry,
-            InitialStop = preTrade.CurrentStop,
+            InitialStop = initStop,
             Target = preTrade.Target,
             Partial = preTrade.Partial,
             Exit = xsig.ExitPrice,

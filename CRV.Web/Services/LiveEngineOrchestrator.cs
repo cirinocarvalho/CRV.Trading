@@ -36,6 +36,14 @@ public class LiveEngineOrchestrator : BackgroundService
     public string   Status       { get; private set; } = "Stopped";
     public EngineSnapshot? LastSnapshot => _lastSnapshot;
 
+    /// <summary>Get bar history for a specific ticker group (for dashboard chart).</summary>
+    public List<CRV.Core.Models.Bar> GetBarHistory(string groupKey)
+    {
+        ComposableEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        return eng?.GetBarHistory(groupKey) ?? new List<CRV.Core.Models.Bar>();
+    }
+
     /// <summary>Force-exit a specific setup immediately at current market price.</summary>
     public async Task ForceExitSetup(SetupId setupId)
     {
@@ -143,7 +151,7 @@ public class LiveEngineOrchestrator : BackgroundService
             var cache = new OrbStateCache
             {
                 TradingDate = tradingDate,
-                Symbol = cfg.Ticker,
+                Symbol = cfg.Ticker?.TrimStart('/') ?? "",
                 SessionId = eng.ActiveSessionId,
                 OrbHigh = orbHigh,
                 OrbLow = orbLow,
@@ -349,12 +357,27 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
                 else
                 {
-                    var feeds = new Dictionary<string, IBarFeed>();
-                    foreach (var ticker in distinctTickers)
-                        feeds[ticker] = CreateBarFeed(scope, cfg, prices, ticker);
-                    mux = new MultiTickerFeedMux(feeds);
-                    _log.LogInformation("Multi-ticker feed mux created for {Count} tickers: {Tickers}",
-                        distinctTickers.Count, string.Join(", ", distinctTickers));
+                    // Schwab and Tradovate support multi-symbol on a single WSS connection —
+                    // use shared-connection feeds instead of separate IBarFeed per ticker.
+                    mux = cfg.Broker switch
+                    {
+                        "Schwab" => new SchwabMultiTickerBarFeed(
+                            scope.ServiceProvider.GetRequiredService<SchwabAuthService>(),
+                            cfg, prices, distinctTickers,
+                            scope.ServiceProvider.GetRequiredService<ILogger<SchwabMultiTickerBarFeed>>()),
+
+                        "Tradovate" => new TradovateMultiTickerBarFeed(
+                            scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
+                            cfg, prices, distinctTickers,
+                            scope.ServiceProvider.GetRequiredService<ILogger<TradovateMultiTickerBarFeed>>()),
+
+                        "TradovateReplay" => CreateReplayMultiTickerBarFeed(scope, cfg, prices, distinctTickers),
+
+                        // TradeStation uses per-symbol HTTP streams — cannot share connection
+                        _ => CreateMultiTickerFeedMux(scope, cfg, prices, distinctTickers),
+                    };
+                    _log.LogInformation("Multi-ticker feed created ({Type}) for {Count} tickers: {Tickers}",
+                        mux.GetType().Name, distinctTickers.Count, string.Join(", ", distinctTickers));
                 }
             }
             catch (Exception ex)
@@ -424,28 +447,28 @@ public class LiveEngineOrchestrator : BackgroundService
                         var flat = session!.ToLegacyConfig(cfg);
                         newEngine.Reconfigure(flat, session.SessionId);
 
-                        // Restore ORB from cache after Reconfigure()+Reset().
+                        // Restore ORB from cache for each ticker group after Reconfigure()+Reset().
                         // Past OrbEnd: restore fully (ORB won't change).
-                        // Inside ORB window: restore as floor so warmup bars can only expand, not shrink.
+                        // Inside ORB window: restore as floor so warmup bars can only expand.
                         try
                         {
                             var td = cfg.TradingDate(local);
-                            var cached = OrbStateCacheService.Load(cfg.Ticker, td, session.SessionId.ToString());
-                            if (cached != null)
+                            var sessionKey = session.SessionId.ToString();
+                            foreach (var ticker in distinctTickers)
                             {
+                                var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
+                                if (cached == null) continue;
                                 if (localTime >= flat.OrbEnd)
                                 {
-                                    // Past the window — full restore, ORB is final
                                     newEngine.RestoreOrb(cached);
-                                    _log.LogInformation("ORB restored from cache for session {Session} (past OrbEnd {OrbEnd})",
-                                        session.SessionId, flat.OrbEnd);
+                                    _log.LogInformation("ORB restored from cache for {Ticker} session {Session} (past OrbEnd)",
+                                        ticker, sessionKey);
                                 }
                                 else
                                 {
-                                    // Inside the window — seed high/low so warmup bars can only expand
                                     newEngine.SeedOrbFloor(cached);
-                                    _log.LogInformation("ORB seeded from cache for session {Session} (inside ORB window, will expand)",
-                                        session.SessionId);
+                                    _log.LogInformation("ORB seeded from cache for {Ticker} session {Session} (inside ORB window)",
+                                        ticker, sessionKey);
                                 }
                             }
                         }
@@ -460,6 +483,7 @@ public class LiveEngineOrchestrator : BackgroundService
                         await newEngine.ForceExitAllAsync();
                         newEngine.SetIdle();
                         await newEngine.PublishCurrentStateAsync();
+                        await hub.Clients.All.SendAsync("EngineStatusChanged", "Session Ended");
                         break;
                 }
             }
@@ -516,6 +540,79 @@ public class LiveEngineOrchestrator : BackgroundService
             }
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");
+
+            // ── Pre-initialize session state ─────────────────────────────────
+            // Surgically set up the engine's session context BEFORE backfill so:
+            //   1. lastDailyReset is seeded (first streaming bar won't ResetDaily)
+            //   2. If a session is active: Reconfigure + ORB cache restore happen now,
+            //      so backfill bars build ORB into clean (post-reset) groups.
+            //   3. SessionManager._activeSession is seeded so the first streaming bar's
+            //      CheckTransition returns None (no redundant reset).
+            // We deliberately do NOT call CheckSessionTransitionAsync() here because
+            // that can trigger SessionEnded → SetIdle() if the engine starts after hours.
+            {
+                var initTz = TimeZoneInfo.FindSystemTimeZoneById(cfg.Timezone);
+                var initLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, initTz);
+                var initLocalTime = TimeOnly.FromDateTime(initLocal);
+
+                // Seed daily reset so first bar doesn't wipe state
+                lastDailyReset = cfg.TradingDate(initLocal);
+                newEngine.ResetDaily();
+
+                // Seed SessionManager + engine with the currently active session (if any)
+                var initSession = sessionMgr.GetActiveSession(initLocalTime);
+                if (initSession != null)
+                {
+                    // Advance SessionManager internal state so CheckTransition returns None
+                    sessionMgr.CheckTransition(initLocalTime);
+
+                    var flat = initSession.ToLegacyConfig(cfg);
+                    newEngine.Reconfigure(flat, initSession.SessionId);
+
+                    // Restore ORB from cache for each ticker group
+                    var td = cfg.TradingDate(initLocal);
+                    var sessionKey = initSession.SessionId.ToString();
+                    foreach (var ticker in distinctTickers)
+                    {
+                        var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
+                        if (cached == null) continue;
+                        if (initLocalTime >= flat.OrbEnd)
+                        {
+                            newEngine.RestoreOrb(cached);
+                            _log.LogInformation("ORB restored from cache for {Ticker} session {Session} (past OrbEnd)",
+                                ticker.TrimStart('/'), sessionKey);
+                        }
+                        else
+                        {
+                            newEngine.SeedOrbFloor(cached);
+                            _log.LogInformation("ORB seeded from cache for {Ticker} session {Session} (inside ORB window)",
+                                ticker.TrimStart('/'), sessionKey);
+                        }
+                    }
+
+                    _log.LogInformation("Pre-initialized session {Session} (RTH {Start}–{End})",
+                        initSession.SessionId, initSession.RthStart, initSession.RthEnd);
+                }
+                else
+                {
+                    // Check if we're past any enabled session's RTH end today.
+                    // If so, the session already ended — set engine idle so the dashboard
+                    // shows "SESSION ENDED" instead of "TRADING" / "IDLE".
+                    bool pastAnySession = sessions.Any(s => s.Enabled && initLocalTime > s.RthEnd);
+                    if (pastAnySession)
+                    {
+                        newEngine.SetIdle();
+                        await hub.Clients.All.SendAsync("EngineStatusChanged", "Session Ended");
+                        _log.LogInformation("No active session at {Time} — past session end, engine idle",
+                            initLocalTime);
+                    }
+                    else
+                    {
+                        _log.LogInformation("No active session at {Time} — engine will start when next session begins",
+                            initLocalTime);
+                    }
+                }
+            }
 
             // Schwab CHART_FUTURES has no barsback replay — we must REST-backfill historical
             // bars so ORB/ATR/VWAP are warm before the streaming loop starts.
@@ -614,6 +711,53 @@ public class LiveEngineOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Creates a <see cref="MultiTickerFeedMux"/> with separate <see cref="IBarFeed"/> per ticker.
+    /// Used for brokers that cannot share a connection (e.g. TradeStation HTTP streams).
+    /// </summary>
+    private IMultiTickerBarFeed CreateMultiTickerFeedMux(
+        IServiceScope scope, StrategyConfig cfg, ILastPriceProvider prices,
+        IReadOnlyList<string> tickers)
+    {
+        var feeds = new Dictionary<string, IBarFeed>();
+        foreach (var ticker in tickers)
+            feeds[ticker] = CreateBarFeed(scope, cfg, prices, ticker);
+        return new MultiTickerFeedMux(feeds);
+    }
+
+    /// <summary>
+    /// Creates a <see cref="TradovateMultiTickerBarFeed"/> configured for replay mode
+    /// with clock init and chart start override.
+    /// </summary>
+    private IMultiTickerBarFeed CreateReplayMultiTickerBarFeed(
+        IServiceScope scope, StrategyConfig cfg, ILastPriceProvider prices,
+        IReadOnlyList<string> tickers)
+    {
+        var replayAuth = CreateReplayAuthService(scope);
+        var feed = new TradovateMultiTickerBarFeed(replayAuth, cfg, prices, tickers,
+            scope.ServiceProvider.GetRequiredService<ILogger<TradovateMultiTickerBarFeed>>());
+
+        var replayDate = cfg.ReplayDate ?? DateTime.UtcNow.AddDays(-1);
+        feed.ChartStartOverride = replayDate.ToUniversalTime();
+        feed.PostAuthAction = async (ws, ct) =>
+        {
+            var clockReq = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                startTimestamp = replayDate.ToUniversalTime().ToString("O"),
+                speed          = cfg.ReplaySpeed,
+                initialBalance = cfg.ReplayBalance
+            });
+            var frame = $"replay/initializeclock\n2\n\n{clockReq}";
+            await ws.SendAsync(
+                System.Text.Encoding.UTF8.GetBytes(frame),
+                System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
+            _log.LogInformation("Replay clock initialized (multi-ticker): {Date} speed={Speed}% balance=${Bal}",
+                replayDate, cfg.ReplaySpeed, cfg.ReplayBalance);
+        };
+
+        return feed;
+    }
+
+    /// <summary>
     /// Creates a TradovateAuthService configured for the replay endpoint.
     /// </summary>
     private TradovateAuthService CreateReplayAuthService(IServiceScope scope)
@@ -684,11 +828,16 @@ public class LiveEngineOrchestrator : BackgroundService
             var sessionsMgr = new SessionManager(cfg.Sessions ?? SessionConfig.CreateDefaults(cfg));
             var activeSession = sessionsMgr.GetActiveSession(TimeOnly.FromDateTime(nowEt));
             var sessionIdStr = activeSession?.SessionId.ToString() ?? "";
-            var cached = OrbStateCacheService.Load(ticker, today, sessionIdStr);
+            // Normalize ticker for cache lookup (cache saves canonical, backfill receives broker format)
+            var canonicalTicker = ticker.TrimStart('/');
+            // Pre-set session ID so any ORB formed during backfill is cached with the correct key
+            engine.SetActiveSessionId(sessionIdStr);
+
+            var cached = OrbStateCacheService.Load(canonicalTicker, today, sessionIdStr);
             if (cached != null)
             {
                 engine.RestoreOrb(cached);
-                _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", ticker, sessionIdStr);
+                _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", canonicalTicker, sessionIdStr);
             }
 
             // Use earliest ORB start across all enabled sessions for backfill window
@@ -748,13 +897,19 @@ public class LiveEngineOrchestrator : BackgroundService
             }
             else if (cfg.Broker == "Schwab")
             {
-                // Validate the configured ticker is the current active contract
+                // Validate the configured ticker is the current active contract.
+                // Only warn for quarterly equity indices (NQ/ES/YM/RTY) where the roll calendar
+                // is accurate. Commodity contracts (GC, CL) use different expiration conventions
+                // (e.g. CL expires ~3 business days before the 25th of the prior month).
                 var root = FuturesSymbol.RootSymbol(ticker);
-                var active = ContractRollCalendar.ActiveContract(root);
-                if (!string.Equals(FuturesSymbol.Normalize(ticker), active, StringComparison.OrdinalIgnoreCase))
-                    _log.LogWarning(
-                        "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
-                        ticker, active);
+                if (ContractRollCalendar.IsQuarterly(root))
+                {
+                    var active = ContractRollCalendar.ActiveContract(root);
+                    if (!string.Equals(FuturesSymbol.Normalize(ticker), active, StringComparison.OrdinalIgnoreCase))
+                        _log.LogWarning(
+                            "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
+                            ticker, active);
+                }
 
                 var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                 var token  = await auth.GetAccessTokenAsync();

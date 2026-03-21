@@ -95,11 +95,17 @@
     @await Html.PartialAsync("_SetupCard", new SetupCardModel("d", "bi-arrow-return-right", "D — Session Fakeout", Model.Config.MaxTradesD, "setupD-card"))
 </div>
 
-<!-- ── Row 4: Market Context + False Breakout ─────────────── -->
+<!-- ── Ticker Group Selector ──────────────────────────────── -->
+<div class="d-flex align-items-center gap-2 mb-2" id="group-selector">
+    <span class="text-muted small me-1">Instrument:</span>
+</div>
+
+<!-- ── Row 4: Market Context + False Breakout (1/3) | Empty slot (2/3) ── -->
 <div class="row g-3 mb-3">
-    <!-- Session / Trend / Active Setup -->
-    <div class="col-12 col-lg-6">
-        <div class="card h-100">
+    <!-- Left column: Market Context stacked above False Breakout -->
+    <div class="col-12 col-lg-4">
+        <!-- Market Context -->
+        <div class="card mb-3">
             <div class="card-header d-flex align-items-center gap-2">
                 <i class="bi bi-clipboard-data text-warning"></i>
                 <span class="fw-bold text-warning">Market Context</span>
@@ -153,11 +159,9 @@
                 </table>
             </div>
         </div>
-    </div>
 
-    <!-- False Breakout Context -->
-    <div class="col-12 col-lg-6">
-        <div class="card h-100">
+        <!-- False Breakout -->
+        <div class="card">
             <div class="card-header d-flex align-items-center gap-2">
                 <i class="bi bi-arrow-repeat text-warning"></i>
                 <span class="fw-bold text-warning">False Breakout</span>
@@ -184,6 +188,14 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right column: TradingView chart -->
+    <div class="col-12 col-lg-8">
+        <div class="card h-100">
+            <div class="card-body p-0" id="tv-chart-container" style="min-height:480px">
             </div>
         </div>
     </div>
@@ -253,12 +265,12 @@
                 <table class="table table-sm mb-0 trade-table">
                     <thead>
                         <tr>
-                            <th>Time</th><th>Setup</th><th>Dir</th>
+                            <th>Time</th><th>Setup</th><th>Instr</th><th>Dir</th>
                             <th>Entry</th><th>Exit</th><th>Reason</th><th>Net P&L</th><th>R</th>
                         </tr>
                     </thead>
                     <tbody id="trade-tbody">
-                        <tr><td colspan="8" class="text-center text-muted py-3">No trades today</td></tr>
+                        <tr><td colspan="9" class="text-center text-muted py-3">No trades today</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -268,6 +280,7 @@
 
 @section Scripts {
 @Html.AntiForgeryToken()
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 // ─────────────────────────────────────────────────────────────
 // Dashboard JavaScript — subscribes to crv:update / crv:alert
@@ -299,7 +312,17 @@ let _lastAlertCount = 0;  // track how many alerts we've already rendered
 }());
 
 document.addEventListener("crv:update", e => updateDashboard(e.detail));
-document.addEventListener("crv:alert",  e => addAlert(e.detail));
+document.addEventListener("crv:alert",  e => {
+    addAlert(e.detail);
+    // Add trade markers to Lightweight Charts
+    var al = e.detail;
+    if (al && al.type === "ENTRY") {
+        var isLong = al.message && al.message.startsWith("LONG");
+        _lwcAddTradeMarker(0, true, isLong);
+    } else if (al && al.type === "EXIT") {
+        _lwcAddTradeMarker(0, false, false);
+    }
+});
 document.addEventListener("crv:trade",  e => {
     addTradeRow(e.detail);
     // Incrementally update _dbStats so the PnL display stays current even after
@@ -387,24 +410,38 @@ document.addEventListener("crv:status", e => {
 
 // ET clock + stream health age
 let _lastUpdateMs = 0;
+const _setupLastPriceMs = { a: 0, b: 0, c: 0, d: 0 };
+
+function _updateDotAge(dotEl, ageEl, lastMs) {
+    if (lastMs <= 0) {
+        if (dotEl) dotEl.className = "stream-dot";
+        if (ageEl) ageEl.textContent = "";
+        return;
+    }
+    const ageSec = Math.floor((Date.now() - lastMs) / 1000);
+    if (dotEl) {
+        if (ageSec <= 60)       dotEl.className = "stream-dot live";
+        else if (ageSec <= 300) dotEl.className = "stream-dot stale";
+        else                    dotEl.className = "stream-dot";
+    }
+    if (ageEl) {
+        if (ageSec < 5)          ageEl.textContent = "";
+        else if (ageSec < 60)    ageEl.textContent = ageSec + "s ago";
+        else if (ageSec < 3600)  ageEl.textContent = Math.floor(ageSec / 60) + "m ago";
+        else                     ageEl.textContent = Math.floor(ageSec / 3600) + "h ago";
+    }
+}
+
 setInterval(() => {
     document.getElementById("dash-time").textContent = _etNow() + " ET";
-    // Update stream age indicator
-    if (_lastUpdateMs > 0) {
-        const ageSec = Math.floor((Date.now() - _lastUpdateMs) / 1000);
-        const dot = document.getElementById("stream-dot");
-        const ageEl = document.getElementById("stream-age");
-        if (dot) {
-            if (ageSec <= 60)       dot.className = "stream-dot live";
-            else if (ageSec <= 300) dot.className = "stream-dot stale";
-            else                    dot.className = "stream-dot";
-        }
-        if (ageEl) {
-            if (ageSec < 5) ageEl.textContent = "";
-            else if (ageSec < 60) ageEl.textContent = ageSec + "s ago";
-            else if (ageSec < 3600) ageEl.textContent = Math.floor(ageSec / 60) + "m ago";
-            else ageEl.textContent = Math.floor(ageSec / 3600) + "h ago";
-        }
+    // Global stream dot
+    _updateDotAge(document.getElementById("stream-dot"), document.getElementById("stream-age"), _lastUpdateMs);
+    // Per-setup price dots
+    for (const id of ["a", "b", "c", "d"]) {
+        _updateDotAge(
+            document.getElementById(id + "-price-dot"),
+            document.getElementById(id + "-price-age"),
+            _setupLastPriceMs[id]);
     }
 }, 1000);
 
@@ -426,6 +463,252 @@ function setText(id, text, cls) {
     if (!el) return;
     el.textContent = text ?? "—";
     if (cls != null) el.className = cls;
+}
+
+// ── Lightweight Charts (own data from Tradovate stream) ──────
+let _lwcChart = null;
+let _lwcSeries = null;
+let _lwcCurrentGroup = null;
+let _lwcPriceLines = {};   // { orbHigh, orbLow, orbMid, vwap }
+let _lwcMarkers = [];      // trade entry/exit markers
+let _lwcLastBarTime = 0;   // track bar transitions
+
+function _initLwcChart() {
+    var container = document.getElementById("tv-chart-container");
+    if (!container || _lwcChart) return;
+
+    _lwcChart = LightweightCharts.createChart(container, {
+        layout:     { background: { color: '#1a1a2e' }, textColor: '#a0a0b0' },
+        grid:       { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+        crosshair:  { mode: LightweightCharts.CrosshairMode.Normal },
+        timeScale:  { timeVisible: true, secondsVisible: false, borderColor: '#2a2a3e' },
+        rightPriceScale: { borderColor: '#2a2a3e' },
+        width:  container.clientWidth,
+        height: container.clientHeight,
+    });
+
+    _lwcSeries = _lwcChart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: '#22c55e', downColor: '#ef4444',
+        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    });
+
+    // Responsive resize
+    var ro = new ResizeObserver(function(entries) {
+        var r = entries[0].contentRect;
+        if (_lwcChart) _lwcChart.resize(r.width, r.height);
+    });
+    ro.observe(container);
+}
+
+function _lwcRemovePriceLines() {
+    Object.values(_lwcPriceLines).forEach(function(pl) {
+        try { _lwcSeries.removePriceLine(pl); } catch(e) {}
+    });
+    _lwcPriceLines = {};
+}
+
+function _lwcUpdatePriceLines(gs) {
+    if (!_lwcSeries || !gs) return;
+    _lwcRemovePriceLines();
+    if (gs.orbHigh > 0 && gs.orbFormed) {
+        _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: gs.orbHigh, color: '#22c55e', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
+        _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: gs.orbLow,  color: '#ef4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
+        _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: gs.orbMid,  color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
+    }
+    if (gs.vwap > 0) {
+        _lwcPriceLines.vwap = _lwcSeries.createPriceLine({ price: gs.vwap, color: '#3b82f6', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'VWAP' });
+    }
+}
+
+async function _lwcLoadGroup(groupKey) {
+    if (!_lwcChart) _initLwcChart();
+    if (!_lwcSeries) return;
+    _lwcCurrentGroup = groupKey;
+    _lwcMarkers = [];
+    _lwcLastBarTime = 0;
+    try {
+        var resp = await fetch("/api/engine/bars/" + encodeURIComponent(groupKey));
+        if (!resp.ok) { _lwcSeries.setData([]); return; }
+        var bars = await resp.json();
+        _lwcSeries.setData(bars);
+        _lwcSeries.setMarkers([]);
+        if (bars.length > 0) _lwcLastBarTime = bars[bars.length - 1].time;
+        _lwcChart.timeScale().fitContent();
+    } catch(e) {
+        console.warn("Failed to load bars for", groupKey, e);
+        _lwcSeries.setData([]);
+    }
+}
+
+function _lwcUpdateCandle(gs) {
+    if (!_lwcSeries || !gs || gs.barTime === 0) return;
+    _lwcSeries.update({ time: gs.barTime, open: gs.barOpen, high: gs.barHigh, low: gs.barLow, close: gs.barClose });
+    _lwcLastBarTime = gs.barTime;
+}
+
+function _lwcAddTradeMarker(time, isEntry, isLong) {
+    // Snap to nearest bar time (floor to execution TF)
+    var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : time;
+    if (isEntry) {
+        _lwcMarkers.push({
+            time: markerTime,
+            position: isLong ? 'belowBar' : 'aboveBar',
+            shape: isLong ? 'arrowUp' : 'arrowDown',
+            color: isLong ? '#22c55e' : '#ef4444',
+            text: isLong ? 'L' : 'S',
+        });
+    } else {
+        _lwcMarkers.push({
+            time: markerTime,
+            position: 'aboveBar',
+            shape: 'circle',
+            color: '#ffffff',
+            text: 'X',
+        });
+    }
+    // Markers must be sorted by time
+    _lwcMarkers.sort(function(a, b) { return a.time - b.time; });
+    try { _lwcSeries.setMarkers(_lwcMarkers); } catch(e) {}
+}
+
+// ── Ticker Group Selector ─────────────────────────────────────
+let _selectedGroup = null;  // null = primary (flat fields)
+let _groupKeys = [];        // populated from first snapshot
+let _groupSnapshots = {};   // latest per-group data
+
+function _buildGroupPills(keys) {
+    const container = document.getElementById("group-selector");
+    if (!container || _groupKeys.length > 0) return; // build once
+    _groupKeys = keys;
+    keys.forEach((key, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn-sm " + (i === 0 ? "btn-warning" : "btn-outline-secondary");
+        btn.textContent = key;
+        btn.dataset.group = key;
+        btn.onclick = () => _selectGroup(key);
+        container.appendChild(btn);
+    });
+    // Auto-select first group and load its chart
+    if (keys.length > 0) {
+        _selectedGroup = keys[0];
+        _lwcLoadGroup(keys[0]).then(function() {
+            var gs = _groupSnapshots[keys[0]];
+            if (gs) _lwcUpdatePriceLines(gs);
+        });
+    }
+}
+
+function _selectGroup(key) {
+    _selectedGroup = key;
+    // Update button styles
+    document.querySelectorAll("#group-selector button").forEach(btn => {
+        btn.className = "btn btn-sm " + (btn.dataset.group === key ? "btn-warning" : "btn-outline-secondary");
+    });
+    // Re-render context panels from cached data
+    if (_groupSnapshots[key]) {
+        _applyGroupContext(_groupSnapshots[key]);
+    }
+    // Load chart data for this group
+    _lwcLoadGroup(key).then(function() {
+        var gs = _groupSnapshots[key];
+        if (gs) _lwcUpdatePriceLines(gs);
+    });
+}
+
+function _applyGroupContext(g) {
+    if (!g) return;
+
+    // ── Market Context ──────────────────────────────────────
+    setText("stat-session", g.currentSession || "—");
+    if (g.sessionHigh > 0)
+        setText("stat-session-range",
+            "H: " + g.sessionHigh.toFixed(2) + " L: " + (g.sessionLow > 0 ? g.sessionLow.toFixed(2) : "—"));
+
+    // VWAP state
+    var vwapLabels = { "2": "Extended▲", "1": "Accept▲", "0": "Neutral", "-1": "Accept▼", "-2": "Extended▼" };
+    var vwapColors = { "2": "pnl-pos", "1": "pnl-pos", "0": "", "-1": "pnl-neg", "-2": "pnl-neg" };
+    setText("stat-vwap-state", vwapLabels[String(g.vwapState)] || "—", vwapColors[String(g.vwapState)] || "");
+    if (g.vwapUpper1 > 0)
+        setText("stat-vwap-bands",
+            "±1σ: " + g.vwapUpper1.toFixed(1) + " / " + g.vwapLower1.toFixed(1));
+
+    // Trend score
+    setText("stat-trend-bull", g.trendScoreBull != null ? g.trendScoreBull : 0);
+    setText("stat-trend-bear", g.trendScoreBear != null ? g.trendScoreBear : 0);
+    var trendLabel = g.trendScoreBull >= 4 ? "TREND DAY ▲" : g.trendScoreBear >= 4 ? "TREND DAY ▼" : "Rotational";
+    var trendClass = g.trendScoreBull >= 4 ? "pnl-pos" : g.trendScoreBear >= 4 ? "pnl-neg" : "text-muted";
+    setText("stat-trend-label", trendLabel, "small " + trendClass);
+
+    // Sweep info + opening drive
+    var infoStr = "";
+    if (g.lastSweep) infoStr += g.lastSweep;
+    if (g.openingDriveBull) infoStr += (infoStr ? " | " : "") + "Drive ▲";
+    if (g.openingDriveBear) infoStr += (infoStr ? " | " : "") + "Drive ▼";
+    if (g.asiaCompressed) infoStr += (infoStr ? " | " : "") + "Asia ◆";
+    setText("stat-sweep-info", infoStr || "—", "small text-muted");
+
+    // Signal Strength
+    var ss = g.signalStrength != null ? g.signalStrength : 0;
+    var ssColor = ss >= 4 ? "pnl-pos" : ss >= 2 ? "text-warning" : "text-muted";
+    setText("stat-signal-strength", ss.toFixed(1) + " / 5", ssColor);
+    setText("stat-drive-score", g.driveScore != null ? g.driveScore.toFixed(1) : "0");
+    setText("stat-sweep-score", g.sweepScore != null ? g.sweepScore.toFixed(1) : "0");
+    setText("stat-vwap-dev-score", g.vwapDevScore != null ? g.vwapDevScore.toFixed(1) : "0");
+
+    // ── False Breakout ──────────────────────────────────────
+    var fbOrbEl = document.getElementById("fb-orb-status");
+    if (fbOrbEl) {
+        if (g.fbOrbActivated)             { fbOrbEl.textContent = "Activated"; fbOrbEl.className = "badge bg-success"; }
+        else if (g.fbOrbBreakoutActive)   { fbOrbEl.textContent = "Tracking";  fbOrbEl.className = "badge bg-warning text-dark"; }
+        else                              { fbOrbEl.textContent = "Idle";      fbOrbEl.className = "badge bg-secondary"; }
+    }
+    setText("fb-orb-bars",  g.fbOrbBarsInBreakout > 0 ? g.fbOrbBarsInBreakout + " bars" : "—");
+    setText("fb-orb-depth", g.fbOrbPenetrationDepth > 0 ? g.fbOrbPenetrationDepth.toFixed(2) + " pts" : "—");
+
+    var fbSessEl = document.getElementById("fb-session-status");
+    if (fbSessEl) {
+        if (g.fbSessionActivated)             { fbSessEl.textContent = "Activated"; fbSessEl.className = "badge bg-success"; }
+        else if (g.fbSessionBreakoutActive)   { fbSessEl.textContent = "Tracking";  fbSessEl.className = "badge bg-warning text-dark"; }
+        else                                  { fbSessEl.textContent = "Idle";      fbSessEl.className = "badge bg-secondary"; }
+    }
+    setText("fb-session-bars",  g.fbSessionBarsInBreakout > 0 ? g.fbSessionBarsInBreakout + " bars" : "—");
+    setText("fb-session-depth", g.fbSessionPenetrationDepth > 0 ? g.fbSessionPenetrationDepth.toFixed(2) + " pts" : "—");
+
+    var fbCompound = document.getElementById("fb-compound-badge");
+    if (fbCompound) {
+        var orbOn = g.fbOrbActivated || g.fbOrbBreakoutActive;
+        var sessOn = g.fbSessionActivated || g.fbSessionBreakoutActive;
+        if (orbOn && sessOn)  { fbCompound.textContent = "Compound"; fbCompound.className = "badge bg-danger ms-auto"; }
+        else if (orbOn)       { fbCompound.textContent = "ORB Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
+        else if (sessOn)      { fbCompound.textContent = "Session Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
+        else                  { fbCompound.textContent = "Idle"; fbCompound.className = "badge bg-secondary ms-auto"; }
+    }
+
+    // ── ORB / VWAP / ATR ────────────────────────────────────
+    setText("orb-high",  g.orbHigh  > 0 ? g.orbHigh.toFixed(2)  : "—");
+    setText("orb-low",   g.orbLow   > 0 ? g.orbLow.toFixed(2)   : "—");
+    setText("orb-mid",   g.orbMid   > 0 ? g.orbMid.toFixed(2)   : "—");
+    setText("orb-range", g.orbRange > 0 ? g.orbRange.toFixed(2) + " pts" : "—");
+
+    var orbQuality = document.getElementById("orb-quality-badge");
+    if (orbQuality) {
+        if (g.orbRange > 0) {
+            orbQuality.textContent = g.orbBullClose ? "Bull Close" : g.orbBearClose ? "Bear Close" : "Neutral";
+            orbQuality.className   = "badge " + (g.orbBullClose ? "bg-success" : g.orbBearClose ? "bg-danger" : "bg-secondary");
+        } else {
+            orbQuality.textContent = "Building...";
+            orbQuality.className   = "badge bg-secondary";
+        }
+    }
+
+    setText("stat-vwap", g.vwap > 0 ? g.vwap.toFixed(2) : "—");
+    setText("stat-atr",  g.atr  > 0 ? g.atr.toFixed(2)  : "—");
+    if (g.orbAtrRatio > 0)
+        setText("stat-orb-atr-ratio", "vs ORB " + g.orbAtrRatio.toFixed(2) + "x");
+    else
+        setText("stat-orb-atr-ratio", "vs ORB —");
 }
 
 // ── Main update ───────────────────────────────────────────────
@@ -473,9 +756,20 @@ function updateDashboard(d) {
     const maxdd = engineTrades >= _dbStats.trades ? (d.todayMaxDD ?? 0) : _dbStats.maxDD;
     setText("stat-maxdd",   "$" + Math.abs(maxdd).toFixed(0));
 
-    // Expectancy — show "—" when 0 (no trades yet for that scope)
-    setText("stat-expectancy", d.expectancy ? fmtDol(d.expectancy) : "—",
-            d.expectancy ? pnlCls(d.expectancy) : "stat-value font-monospace");
+    // Expectancy — fall back to DB stats after engine restart (same pattern as P&L)
+    var exp = d.expectancy;
+    if (!exp && _dbStats.trades > 0) {
+        var s = _dbStats;
+        var total = s.wins + s.losses;
+        if (total > 0) {
+            var wr = s.wins / total, lr = s.losses / total;
+            var avgW = s.wins > 0 ? s.winPnl / s.wins : 0;
+            var avgL = s.losses > 0 ? s.lossPnl / s.losses : 0;
+            exp = wr * avgW - lr * avgL;
+        }
+    }
+    setText("stat-expectancy", exp ? fmtDol(exp) : "—",
+            exp ? pnlCls(exp) : "stat-value font-monospace");
     setText("a-expectancy", d.expectancyA ? fmtDol(d.expectancyA) : "—",
             d.expectancyA ? pnlCls(d.expectancyA) + " font-monospace" : "font-monospace");
     setText("b-expectancy", d.expectancyB ? fmtDol(d.expectancyB) : "—",
@@ -553,41 +847,13 @@ function updateDashboard(d) {
     // ── Setup panels ─────────────────────────────────────────
     // d.setupA / d.setupB are ActiveTradeView objects (null when idle/armed/retest)
     updateSetup("a", d.setupA, d.setupAState, d.setupAEnabled !== false, d.pastCutoffA, d.sessionEnded,
-        d.tradeCountA >= d.maxTradesA && d.maxTradesA > 0);
+        d.tradeCountA >= d.maxTradesA && d.maxTradesA > 0, d.lastPriceA, d.tickerA, d.pointValueA);
     updateSetup("b", d.setupB, d.setupBState, d.setupBEnabled !== false, d.pastCutoffB, d.sessionEnded,
-        d.tradeCountB >= d.maxTradesB && d.maxTradesB > 0);
+        d.tradeCountB >= d.maxTradesB && d.maxTradesB > 0, d.lastPriceB, d.tickerB, d.pointValueB);
     updateSetup("c", d.setupC, d.setupCState, d.setupCEnabled !== false, d.pastCutoffC, d.sessionEnded,
-        d.tradeCountC >= d.maxTradesC && d.maxTradesC > 0);
+        d.tradeCountC >= d.maxTradesC && d.maxTradesC > 0, d.lastPriceC, d.tickerC, d.pointValueC);
     updateSetup("d", d.setupD, d.setupDState, d.setupDEnabled !== false, d.pastCutoffD, d.sessionEnded,
-        d.tradeCountD >= d.maxTradesD && d.maxTradesD > 0);
-
-    // ── ORB ──────────────────────────────────────────────────
-    setText("orb-high",  d.orbHigh  > 0 ? d.orbHigh.toFixed(2)  : "—");
-    setText("orb-low",   d.orbLow   > 0 ? d.orbLow.toFixed(2)   : "—");
-    setText("orb-mid",   d.orbMid   > 0 ? d.orbMid.toFixed(2)   : "—");
-    setText("orb-range", d.orbRange > 0 ? d.orbRange.toFixed(2) + " pts" : "—");
-
-    const orbQuality = document.getElementById("orb-quality-badge");
-    if (orbQuality) {
-        if (d.orbRange > 0) {
-            orbQuality.textContent = d.orbBullClose ? "Bull Close" : d.orbBearClose ? "Bear Close" : "Neutral";
-            orbQuality.className   = "badge " + (d.orbBullClose ? "bg-success" : d.orbBearClose ? "bg-danger" : "bg-secondary");
-        } else {
-            orbQuality.textContent = "Building...";
-            orbQuality.className   = "badge bg-secondary";
-        }
-    }
-
-    // ── VWAP / ATR ───────────────────────────────────────────
-    setText("stat-vwap", d.vwap > 0 ? d.vwap.toFixed(2) : "—");
-    if (d.vwap > 0 && d.lastPrice > 0) {
-        const above = d.lastPrice > d.vwap;
-        setText("stat-vwap-pos", above ? "Above VWAP" : "Below VWAP",
-            "small " + (above ? "pnl-pos" : "pnl-neg"));
-    }
-    setText("stat-atr",  d.atr  > 0 ? d.atr.toFixed(2)  : "—");
-    if (d.orbAtrRatio > 0)
-        setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
+        d.tradeCountD >= d.maxTradesD && d.maxTradesD > 0, d.lastPriceD, d.tickerD, d.pointValueD);
 
     // ── ORB window (dynamic per session) ─────────────────────
     if (d.orbWindowStart && d.orbWindowEnd) {
@@ -595,73 +861,49 @@ function updateDashboard(d) {
         if (el) el.textContent = d.orbWindowStart + "–" + d.orbWindowEnd;
     }
 
-    // ── Module outputs ───────────────────────────────────────
-    setText("stat-session", d.currentSession || "—");
-    if (d.sessionHigh > 0)
-        setText("stat-session-range",
-            "H: " + d.sessionHigh.toFixed(2) + " L: " + (d.sessionLow > 0 ? d.sessionLow.toFixed(2) : "—"));
-
-    // VWAP state
-    var vwapLabels = { "2": "Extended▲", "1": "Accept▲", "0": "Neutral", "-1": "Accept▼", "-2": "Extended▼" };
-    var vwapColors = { "2": "pnl-pos", "1": "pnl-pos", "0": "", "-1": "pnl-neg", "-2": "pnl-neg" };
-    setText("stat-vwap-state", vwapLabels[String(d.vwapState)] || "—", vwapColors[String(d.vwapState)] || "");
-    if (d.vwapUpper1 > 0)
-        setText("stat-vwap-bands",
-            "±1σ: " + d.vwapUpper1.toFixed(1) + " / " + d.vwapLower1.toFixed(1));
-
-    // Trend score
-    setText("stat-trend-bull", d.trendScoreBull != null ? d.trendScoreBull : 0);
-    setText("stat-trend-bear", d.trendScoreBear != null ? d.trendScoreBear : 0);
-    var trendLabel = d.trendScoreBull >= 4 ? "TREND DAY ▲" : d.trendScoreBear >= 4 ? "TREND DAY ▼" : "Rotational";
-    var trendClass = d.trendScoreBull >= 4 ? "pnl-pos" : d.trendScoreBear >= 4 ? "pnl-neg" : "text-muted";
-    setText("stat-trend-label", trendLabel, "small " + trendClass);
-
     // Active setups (module signals — informational only)
     setText("stat-active-setup", "—");
 
-    // Sweep info + opening drive
-    var infoStr = "";
-    if (d.lastSweep) infoStr += d.lastSweep;
-    if (d.openingDriveBull) infoStr += (infoStr ? " | " : "") + "Drive ▲";
-    if (d.openingDriveBear) infoStr += (infoStr ? " | " : "") + "Drive ▼";
-    if (d.asiaCompressed) infoStr += (infoStr ? " | " : "") + "Asia ◆";
-    setText("stat-sweep-info", infoStr || "—", "small text-muted");
-
-    // Signal Strength
-    var ss = d.signalStrength != null ? d.signalStrength : 0;
-    var ssColor = ss >= 4 ? "pnl-pos" : ss >= 2 ? "text-warning" : "text-muted";
-    setText("stat-signal-strength", ss.toFixed(1) + " / 5", ssColor);
-    setText("stat-drive-score", d.driveScore != null ? d.driveScore.toFixed(1) : "0");
-    setText("stat-sweep-score", d.sweepScore != null ? d.sweepScore.toFixed(1) : "0");
-    setText("stat-vwap-dev-score", d.vwapDevScore != null ? d.vwapDevScore.toFixed(1) : "0");
-
-    // ── False Breakout context ──────────────────────────────
-    var fbOrbEl = document.getElementById("fb-orb-status");
-    if (fbOrbEl) {
-        if (d.fbOrbActivated)             { fbOrbEl.textContent = "Activated"; fbOrbEl.className = "badge bg-success"; }
-        else if (d.fbOrbBreakoutActive)   { fbOrbEl.textContent = "Tracking";  fbOrbEl.className = "badge bg-warning text-dark"; }
-        else                              { fbOrbEl.textContent = "Idle";      fbOrbEl.className = "badge bg-secondary"; }
+    // ── Ticker Group context panels (Market Context, FB, ORB, VWAP, ATR) ──
+    // Cache group snapshots and build pills on first snapshot
+    if (d.groupSnapshots && typeof d.groupSnapshots === "object") {
+        var keys = Object.keys(d.groupSnapshots).sort();
+        if (keys.length > 0) {
+            _groupSnapshots = d.groupSnapshots;
+            _buildGroupPills(keys);
+            // Apply selected group's data + live chart candle
+            var sel = _selectedGroup || keys[0];
+            if (_groupSnapshots[sel]) {
+                _applyGroupContext(_groupSnapshots[sel]);
+                // Live candle update for active chart group
+                if (sel === _lwcCurrentGroup) {
+                    _lwcUpdateCandle(_groupSnapshots[sel]);
+                    _lwcUpdatePriceLines(_groupSnapshots[sel]);
+                }
+            }
+        }
+    } else {
+        // Fallback: no group snapshots (legacy/single-ticker) — use flat fields
+        setText("orb-high",  d.orbHigh  > 0 ? d.orbHigh.toFixed(2)  : "—");
+        setText("orb-low",   d.orbLow   > 0 ? d.orbLow.toFixed(2)   : "—");
+        setText("orb-mid",   d.orbMid   > 0 ? d.orbMid.toFixed(2)   : "—");
+        setText("orb-range", d.orbRange > 0 ? d.orbRange.toFixed(2) + " pts" : "—");
+        setText("stat-vwap", d.vwap > 0 ? d.vwap.toFixed(2) : "—");
+        setText("stat-atr",  d.atr  > 0 ? d.atr.toFixed(2)  : "—");
+        if (d.orbAtrRatio > 0)
+            setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
+        setText("stat-session", d.currentSession || "—");
+        if (d.sessionHigh > 0)
+            setText("stat-session-range",
+                "H: " + d.sessionHigh.toFixed(2) + " L: " + (d.sessionLow > 0 ? d.sessionLow.toFixed(2) : "—"));
     }
-    setText("fb-orb-bars",  d.fbOrbBarsInBreakout > 0 ? d.fbOrbBarsInBreakout + " bars" : "—");
-    setText("fb-orb-depth", d.fbOrbPenetrationDepth > 0 ? d.fbOrbPenetrationDepth.toFixed(2) + " pts" : "—");
 
-    var fbSessEl = document.getElementById("fb-session-status");
-    if (fbSessEl) {
-        if (d.fbSessionActivated)             { fbSessEl.textContent = "Activated"; fbSessEl.className = "badge bg-success"; }
-        else if (d.fbSessionBreakoutActive)   { fbSessEl.textContent = "Tracking";  fbSessEl.className = "badge bg-warning text-dark"; }
-        else                                  { fbSessEl.textContent = "Idle";      fbSessEl.className = "badge bg-secondary"; }
-    }
-    setText("fb-session-bars",  d.fbSessionBarsInBreakout > 0 ? d.fbSessionBarsInBreakout + " bars" : "—");
-    setText("fb-session-depth", d.fbSessionPenetrationDepth > 0 ? d.fbSessionPenetrationDepth.toFixed(2) + " pts" : "—");
-
-    var fbCompound = document.getElementById("fb-compound-badge");
-    if (fbCompound) {
-        var orbOn = d.fbOrbActivated || d.fbOrbBreakoutActive;
-        var sessOn = d.fbSessionActivated || d.fbSessionBreakoutActive;
-        if (orbOn && sessOn)  { fbCompound.textContent = "Compound"; fbCompound.className = "badge bg-danger ms-auto"; }
-        else if (orbOn)       { fbCompound.textContent = "ORB Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
-        else if (sessOn)      { fbCompound.textContent = "Session Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
-        else                  { fbCompound.textContent = "Idle"; fbCompound.className = "badge bg-secondary ms-auto"; }
+    // VWAP position (uses global lastPrice + selected group's VWAP)
+    var selVwap = _selectedGroup && _groupSnapshots[_selectedGroup] ? _groupSnapshots[_selectedGroup].vwap : d.vwap;
+    if (selVwap > 0 && d.lastPrice > 0) {
+        const above = d.lastPrice > selVwap;
+        setText("stat-vwap-pos", above ? "Above VWAP" : "Below VWAP",
+            "small " + (above ? "pnl-pos" : "pnl-neg"));
     }
 
     // ── Per-setup trade counts [N/Max] ─────────────────────────
@@ -740,11 +982,20 @@ function _setupBadge(id, state) {
 // trade = ActiveTradeView | null,  state = integer from setupAState / setupBState
 // enabled = bool from setupAEnabled / setupBEnabled
 // pastCutoff / sessionEnded = booleans to override badge when time has passed
-function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTradesReached) {
+function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTradesReached, lastPrice, ticker, pointValue) {
     const statusEl  = document.getElementById("status-" + id);
     const enabledEl = document.getElementById("enabled-" + id);
     const exitBtn   = document.getElementById("btn-exit-" + id);
     const card      = statusEl?.closest(".card");
+
+    // ── Per-setup last price (always shown, even when idle) ───
+    if (lastPrice > 0) {
+        setText(id + "-price", lastPrice.toFixed(2), "font-monospace fw-bold text-light");
+        _setupLastPriceMs[id] = Date.now();  // track when we last got a valid price
+    } else {
+        setText(id + "-price", "—", "font-monospace fw-bold");
+    }
+    setText(id + "-ticker", ticker || "");
 
     // ON / OFF badge
     if (enabledEl) {
@@ -787,12 +1038,43 @@ function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTra
     if (exitBtn) exitBtn.classList.remove("d-none");
     setText(id + "-dir",     isLong ? "▲ LONG" : "▼ SHORT", isLong ? "pnl-pos" : "pnl-neg");
     setText(id + "-entry",   trade.entry?.toFixed(2) ?? "—");
-    // currentStop is the correct field name (may be BE-adjusted)
-    const stopLabel = (trade.currentStop?.toFixed(2) ?? "—") + (trade.partialFilled ? " (BE)" : "");
-    setText(id + "-stop", stopLabel);
-    setText(id + "-partial", (trade.partial?.toFixed(2) ?? "—") + (trade.partialFilled ? " ✓" : ""));
-    setText(id + "-target",  trade.target?.toFixed(2) ?? "—");
+
+    // ── Stop / Partial / Target with USD risk/reward ──────────
+    const pv = trade.pointValue || pointValue || 0;
     const rem = trade.partialFilled ? trade.remainingContracts : trade.contracts;
+
+    // Stop — dollar risk + points distance
+    const stopPrice = trade.currentStop;
+    let stopLabel = (stopPrice?.toFixed(2) ?? "—") + (trade.partialFilled ? " (BE)" : "");
+    if (stopPrice != null && trade.entry != null && pv > 0) {
+        const stopUsd = Math.abs(trade.entry - stopPrice) * rem * pv;
+        const stopPts = Math.abs(trade.entry - stopPrice);
+        stopLabel += " | $" + Math.round(stopUsd).toLocaleString() + " | " + stopPts.toFixed(2) + " pts";
+    }
+    setText(id + "-stop", stopLabel);
+
+    // Partial — dollar gain + points distance
+    const partPrice = trade.partial;
+    let partLabel = (partPrice?.toFixed(2) ?? "—") + (trade.partialFilled ? " ✓" : "");
+    if (partPrice != null && trade.entry != null && pv > 0 && !trade.partialFilled) {
+        const partCts = trade.contracts - rem;
+        const actualPartCts = partCts > 0 ? partCts : Math.floor(trade.contracts / 2);
+        const partUsd = Math.abs(partPrice - trade.entry) * actualPartCts * pv;
+        const partPts = Math.abs(partPrice - trade.entry);
+        partLabel += " | $" + Math.round(partUsd).toLocaleString() + " | " + partPts.toFixed(2) + " pts";
+    }
+    setText(id + "-partial", partLabel);
+
+    // Target — dollar reward + points distance
+    const tgtPrice = trade.target;
+    let tgtLabel = tgtPrice?.toFixed(2) ?? "—";
+    if (tgtPrice != null && trade.entry != null && pv > 0) {
+        const tgtUsd = Math.abs(tgtPrice - trade.entry) * rem * pv;
+        const tgtPts = Math.abs(tgtPrice - trade.entry);
+        tgtLabel += " | $" + Math.round(tgtUsd).toLocaleString() + " | " + tgtPts.toFixed(2) + " pts";
+    }
+    setText(id + "-target", tgtLabel);
+
     setText(id + "-cts",   rem + "/" + trade.contracts);
     setText(id + "-unreal", fmtDol(trade.unrealizedPnl));
 }
@@ -842,16 +1124,20 @@ function addTradeRow(t) {
     const pnl = t.netPnl ?? 0;
     const cls = pnl >= 0 ? "pnl-pos" : "pnl-neg";
     const setupBadge = `<span class="badge bg-warning text-dark">${t.setup}</span>`;
+    const instr = t.ticker || "—";
     const dirBadge   = t.dir === "Long"
         ? '<span class="text-success">▲ Long</span>'
         : '<span class="text-danger">▼ Short</span>';
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${t.time}</td><td>${setupBadge}</td><td>${dirBadge}</td>`
+    tr.innerHTML = `<td>${t.time}</td><td>${setupBadge}</td><td class="small">${instr}</td><td>${dirBadge}</td>`
         + `<td>${(t.entry ?? 0).toFixed(2)}</td><td>${(t.exit ?? 0).toFixed(2)}</td>`
         + `<td>${t.reason ?? ""}</td>`
-        + `<td class="${cls} fw-bold">${pnl >= 0 ? "+" : ""}$${pnl.toFixed(0)}</td>`
+        + `<td class="${cls} fw-bold">${pnl >= 0 ? "+$" : "-$"}${Math.abs(pnl).toFixed(0)}</td>`
         + `<td class="${cls}">${(t.r ?? 0).toFixed(1)}R</td>`;
     tbody.insertBefore(tr, tbody.firstChild);
 }
+
+// ── Initialize Lightweight Charts on page load ───────────────
+_initLwcChart();
 </script>
 }

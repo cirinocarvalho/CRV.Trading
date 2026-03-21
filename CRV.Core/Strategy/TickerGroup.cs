@@ -13,7 +13,8 @@ public record StrategySignals(
     EntrySignal? Entry,
     ExitSignal? Exit,
     PartialSignal? Partial,
-    BESignal? BE);
+    BESignal? BE,
+    ActiveTradeView? PreExitTrade = null);
 
 /// <summary>
 /// Per-instrument group that owns shared indicators, modules, and a list of
@@ -35,6 +36,11 @@ public class TickerGroup
     private readonly TimeZoneInfo _tz;
     private decimal _lastBarClose;
     private decimal _orbAtrRatio;
+    private bool _orbJustFormed;  // set when ORB forms this bar, cleared after read
+
+    // ── Bar history (for dashboard chart) ──────────────────────
+    private readonly BarRingBuffer _barBuffer = new(200);
+    private Bar? _currentBar;  // latest bar (including unconfirmed) for live candle
 
     // ── Modules ──────────────────────────────────────────────────
     private readonly SessionEngine _sessionEngine;
@@ -133,8 +139,14 @@ public class TickerGroup
             // ORB tracks all bars (including unconfirmed)
             _orb.Update(bar, tradingDate);
 
+            // Track current bar for live chart candle (before confirmed check)
+            _currentBar = bar;
+
             // Indicators and modules only update on confirmed bars
             if (!bar.IsConfirmed) return;
+
+            // Store confirmed bars in history buffer for chart
+            _barBuffer.Add(bar);
 
             _atr.Update(bar);
             _vwap.Update(bar, tradingDate);
@@ -142,7 +154,10 @@ public class TickerGroup
 
             // Freeze ORB/ATR ratio when ORB first forms
             if (_orb.IsSet && _orbAtrRatio == 0 && _atr.IsReady && _atr.Value > 0)
+            {
                 _orbAtrRatio = _orb.OrbRange / _atr.Value;
+                _orbJustFormed = true;
+            }
 
             // Module updates
             _sessionEngine.CurrentAtr = _atr.Value;
@@ -179,10 +194,20 @@ public class TickerGroup
             // Reset cross-setup coordination flag
             _enteredThisBar = false;
 
-            // Dispatch to each strategy
+            // Dispatch to each strategy, tracking whether fakeout signals get consumed.
+            // OrbTracker: clear activation when Setup C newly arms (one-shot, allows new fakeout detection).
+            // SessionRangeTracker: do NOT clear — session fakeout persists for the whole session,
+            // allowing Setup D to re-arm after BE exits from the same session boundary signal.
             foreach (var strategy in _strategies)
             {
+                bool orbActivated = _falseBreakout.OrbTracker.IsActivated;
+                bool wasArmed     = strategy.IsArmed || strategy.IsActive;
+
                 strategy.OnBar(bar, orbState, indState, modState);
+
+                bool nowArmed = strategy.IsArmed || strategy.IsActive;
+                if (orbActivated && !wasArmed && nowArmed && strategy.SetupId == SetupId.C)
+                    _falseBreakout.OrbTracker.ClearActivation();
 
                 if (strategy.PendingEntry != null)
                 {
@@ -262,25 +287,48 @@ public class TickerGroup
         var result = new List<StrategySignals>(_strategies.Count);
         foreach (var s in _strategies)
         {
-            result.Add(new StrategySignals(s, s.PendingEntry, s.PendingExit, s.PendingPartial, s.PendingBE));
+            result.Add(new StrategySignals(s, s.PendingEntry, s.PendingExit, s.PendingPartial, s.PendingBE, s.PreExitTrade));
             s.ClearPendingSignals();
         }
         return result;
     }
 
+    // ── Session boundary ─────────────────────────────────────────
+
+    /// <summary>
+    /// Snapshot the prior session's high/low into the FalseBreakoutDetector
+    /// so SessionRangeTracker can detect false breakouts of that range.
+    /// Must be called BEFORE Reset() so the prior session's data is still available.
+    /// </summary>
+    public void OnSessionBoundary(SessionId newSession)
+    {
+        if (newSession == SessionId.Asia)
+            _falseBreakout.OnSessionStart(_sessionEngine.PDH, _sessionEngine.PDL);
+        else if (newSession == SessionId.London)
+            _falseBreakout.OnSessionStart(_sessionEngine.AsiaHigh, _sessionEngine.AsiaLow);
+        else if (newSession == SessionId.NY)
+            _falseBreakout.OnSessionStart(_sessionEngine.LondonHigh, _sessionEngine.LondonLow);
+    }
+
     // ── Reset ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reset all indicators, modules, and strategies for a new session.
+    /// Reset indicators, ORB, and strategies for a new session.
+    /// Does NOT reset _lastDate — date-change detection in ProcessBarAsync
+    /// handles NewSession() calls naturally when the trading date actually changes.
+    /// Resetting _lastDate here would cause a spurious NewSession() on the first bar
+    /// after a session transition, wiping FalseBreakoutDetector's reference range
+    /// that was just set by OnSessionBoundary.
     /// </summary>
     public void Reset()
     {
         _atr.Reset();
         _vwap.Reset();
         _orb.Reset();
+        _barBuffer.Clear();
+        _currentBar = null;
         _lastBarClose = 0;
         _orbAtrRatio = 0;
-        _lastDate = DateTime.MinValue;
         _enteredThisBar = false;
 
         foreach (var s in _strategies)
@@ -292,6 +340,74 @@ public class TickerGroup
     public OrbState GetOrbState() => BuildOrbState();
     public IndicatorState GetIndicatorState() => BuildIndicatorState();
     public ModuleState GetModuleState() => BuildModuleState();
+
+    /// <summary>Return bar history for the REST chart endpoint (thread-safe).</summary>
+    public List<Bar> GetBarHistory() => _barBuffer.ToList();
+
+    /// <summary>
+    /// Build a complete snapshot of this group's module/indicator state
+    /// for the dashboard ticker-group selector.
+    /// </summary>
+    public TickerGroupSnapshot BuildGroupSnapshot()
+    {
+        // Current bar for live candle (unconfirmed or latest confirmed)
+        var bar = _currentBar;
+        long barTime = 0;
+        if (bar != null)
+            barTime = new DateTimeOffset(bar.Time, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        return new()
+        {
+        GroupKey = _tickerKey,
+        // Current bar
+        BarTime  = barTime,
+        BarOpen  = bar?.Open  ?? 0,
+        BarHigh  = bar?.High  ?? 0,
+        BarLow   = bar?.Low   ?? 0,
+        BarClose = bar?.Close ?? 0,
+        // Session
+        CurrentSession = _sessionEngine.CurrentSession.ToString(),
+        SessionHigh = _sessionEngine.SessionHigh,
+        SessionLow = _sessionEngine.SessionLow,
+        PrevDayHigh = _sessionEngine.PDH,
+        PrevDayLow = _sessionEngine.PDL,
+        AsiaCompressed = _sessionEngine.AsiaCompressed,
+        // VWAP
+        Vwap = _vwap.Value,
+        VwapUpper1 = _vwapModel.Upper1,
+        VwapUpper2 = _vwapModel.Upper2,
+        VwapLower1 = _vwapModel.Lower1,
+        VwapLower2 = _vwapModel.Lower2,
+        VwapState = (int)_vwapModel.State,
+        // Opening Drive
+        OpeningDriveBull = _openingDrive.OpeningDriveBull,
+        OpeningDriveBear = _openingDrive.OpeningDriveBear,
+        // Trend Day
+        TrendScoreBull = _trendDay.BullScore,
+        TrendScoreBear = _trendDay.BearScore,
+        // ORB
+        OrbHigh = _orb.OrbHigh,
+        OrbLow = _orb.OrbLow,
+        OrbMid = _orb.OrbMid,
+        OrbRange = _orb.OrbRange,
+        OrbBullClose = _orb.OrbBullClose,
+        OrbBearClose = _orb.OrbBearClose,
+        OrbAtrRatio = _orbAtrRatio,
+        OrbFormed = _orb.IsSet,
+        // ATR
+        Atr = _atr.Value,
+        // False Breakout
+        FBOrbBreakoutActive = _falseBreakout.OrbTracker.BreakoutActive,
+        FBSessionBreakoutActive = _falseBreakout.SessionRangeTracker.BreakoutActive,
+        FBOrbBarsInBreakout = _falseBreakout.OrbTracker.BarsInBreakout,
+        FBSessionBarsInBreakout = _falseBreakout.SessionRangeTracker.BarsInBreakout,
+        FBOrbPenetrationDepth = _falseBreakout.OrbTracker.PenetrationDepth,
+        FBSessionPenetrationDepth = _falseBreakout.SessionRangeTracker.PenetrationDepth,
+        FBOrbActivated = _falseBreakout.OrbTracker.IsActivated,
+        FBSessionActivated = _falseBreakout.SessionRangeTracker.IsActivated,
+        IsCompoundFakeout = _falseBreakout.IsCompoundFakeout,
+        };
+    }
 
     // ── ORB cache support ────────────────────────────────────────
 
@@ -314,6 +430,29 @@ public class TickerGroup
         _sessionEngine.SeedHistory(dailyBars);
     }
 
+    /// <summary>
+    /// Returns true (once) when ORB has just formed this bar.
+    /// Calling this clears the flag so it fires exactly once per ORB formation.
+    /// </summary>
+    public bool ConsumeOrbFormed(out OrbStateCache? cache)
+    {
+        if (!_orbJustFormed) { cache = null; return false; }
+        _orbJustFormed = false;
+        // Use the first strategy's ticker (canonical) as the cache symbol
+        var ticker = _strategies.Count > 0 ? _strategies[0].Ticker?.TrimStart('/') : _tickerKey;
+        cache = new OrbStateCache
+        {
+            TradingDate = _lastDate,
+            Symbol      = ticker ?? _tickerKey,
+            OrbHigh     = _orb.OrbHigh,
+            OrbLow      = _orb.OrbLow,
+            CloseRelPct = _orb.CloseRelPct,
+            OrbAtrRatio = _orbAtrRatio,
+            SavedAtUtc  = DateTime.UtcNow,
+        };
+        return true;
+    }
+
     /// <summary>Reconfigure ORB window for a new session.</summary>
     public void ReconfigureOrb(TimeOnly orbStart, TimeOnly orbEnd)
     {
@@ -325,12 +464,18 @@ public class TickerGroup
     /// <summary>
     /// Maps a ticker symbol to its group key.
     /// NQ/MNQ share the same price feed, ES/MES share the same price feed, etc.
+    /// Strips leading '/' so broker-format tickers (Schwab "/NQH26") map correctly.
     /// </summary>
     public static string GetGroupKey(string ticker)
     {
-        if (ticker.StartsWith("NQ") || ticker.StartsWith("MNQ")) return "NQ";
-        if (ticker.StartsWith("ES") || ticker.StartsWith("MES")) return "ES";
-        return ticker;
+        var t = ticker.TrimStart('/');
+        if (t.StartsWith("NQ") || t.StartsWith("MNQ")) return "NQ";
+        if (t.StartsWith("ES") || t.StartsWith("MES")) return "ES";
+        if (t.StartsWith("GC") || t.StartsWith("MGC")) return "GC";
+        if (t.StartsWith("CL") || t.StartsWith("MCL")) return "CL";
+        if (t.StartsWith("YM") || t.StartsWith("MYM")) return "YM";
+        if (t.StartsWith("RTY") || t.StartsWith("M2K")) return "RTY";
+        return t;
     }
 
     // ── Private helpers ──────────────────────────────────────────
