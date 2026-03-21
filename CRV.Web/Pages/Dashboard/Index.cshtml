@@ -191,45 +191,46 @@
             </div>
         </div>
 
-        <!-- ORB Quality -->
-        <div class="card mb-3">
-            <div class="card-body p-2">
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="stat-label mb-0 me-2">ORB</span>
-                    <span class="font-monospace small">
-                        H:<span id="orb-high" class="text-warning ms-1">—</span>
-                        <span class="ms-2">L:<span id="orb-low" class="text-warning ms-1">—</span></span>
-                        <span class="ms-2">M:<span id="orb-mid" class="text-secondary ms-1">—</span></span>
-                        <span class="ms-2">R:<span id="orb-range" class="text-light ms-1">—</span></span>
-                    </span>
-                    <span class="badge ms-2" id="orb-quality-badge">Building...</span>
-                    <span class="badge ms-1" id="orb-close-badge">—</span>
-                    <button type="button" class="btn btn-outline-warning btn-sm ms-2 py-0" onclick="forceOrb()" id="btn-force-orb" title="Fetch ORB from broker historical bars" style="font-size:.75rem">
-                        <i class="bi bi-arrow-repeat"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- VWAP -->
-        <div class="card mb-3">
-            <div class="card-body p-2">
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="stat-label mb-0 me-2">VWAP</span>
-                    <span class="font-monospace" id="stat-vwap">—</span>
-                    <span class="small ms-2" id="stat-vwap-pos">—</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- ATR -->
+        <!-- Key Levels -->
         <div class="card">
-            <div class="card-body p-2">
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="stat-label mb-0 me-2">ATR(14)</span>
-                    <span class="font-monospace" id="stat-atr">—</span>
-                    <span class="small text-muted ms-2" id="stat-orb-atr-ratio">vs ORB —</span>
-                </div>
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-rulers text-warning"></i>
+                <span class="fw-bold text-warning">Key Levels</span>
+                <button type="button" class="btn btn-outline-warning btn-sm ms-auto py-0" onclick="forceOrb()" id="btn-force-orb" title="Fetch ORB from broker historical bars" style="font-size:.75rem">
+                    <i class="bi bi-arrow-repeat me-1"></i>Force ORB
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 trade-table">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width:30%">ORB</td>
+                            <td>
+                                <span class="font-monospace small">
+                                    H:<span id="orb-high" class="text-warning ms-1">—</span>
+                                    <span class="ms-1">L:<span id="orb-low" class="text-warning ms-1">—</span></span>
+                                    <span class="ms-1">R:<span id="orb-range" class="text-light ms-1">—</span></span>
+                                </span>
+                                <span class="badge ms-2" id="orb-quality-badge">Building...</span>
+                                <span class="badge ms-1" id="orb-close-badge">—</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">VWAP</td>
+                            <td>
+                                <span class="font-monospace" id="stat-vwap">—</span>
+                                <span class="small ms-2" id="stat-vwap-pos">—</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">ATR(14)</td>
+                            <td>
+                                <span class="font-monospace" id="stat-atr">—</span>
+                                <span class="small text-muted ms-2" id="stat-orb-atr-ratio">vs ORB —</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
