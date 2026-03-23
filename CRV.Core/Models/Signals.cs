@@ -316,6 +316,9 @@ public class EngineSnapshot
 
     public List<AlertEvent> RecentAlerts { get; set; } = new();
 
+    /// <summary>Dynamic setup snapshots (replaces flat SetupA/B/C/D fields).</summary>
+    public List<SetupSnapshot> Setups { get; set; } = new();
+
     /// <summary>
     /// Per-ticker-group module snapshots. Key = group key (e.g. "NQ", "ES", "GC", "CL").
     /// Dashboard uses this to switch the Market Context / False Breakout / ORB / VWAP / ATR panels.
@@ -340,6 +343,46 @@ public class ActiveTradeView
     public DateTime   EnteredAt          { get; set; }
     public string     Ticker             { get; set; } = "";
     public decimal    PointValue         { get; set; }
+}
+
+/// <summary>
+/// Per-setup snapshot for the dashboard. Replaces the flat SetupA/B/C/D fields.
+/// </summary>
+public class SetupSnapshot
+{
+    public string   Id             { get; set; } = "";    // "A", "B", "C", "D" (later: "b-mnq-1")
+    public string   Label          { get; set; } = "";    // "B — Breakout [BONGA]"
+    public string   StrategyType   { get; set; } = "";    // "Pullback", "Retest", etc.
+    public string   Ticker         { get; set; } = "";
+    public decimal  PointValue     { get; set; }
+    public decimal  LastPrice      { get; set; }
+    public bool     Enabled        { get; set; }
+    public int      State          { get; set; }          // state machine value
+    public bool     PastCutoff     { get; set; }
+
+    // Trade
+    public ActiveTradeView? Trade  { get; set; }
+    public int      TradeCount     { get; set; }
+    public int      MaxTrades      { get; set; }
+    public bool     StickyTgt      { get; set; }
+    public bool     StickyStp      { get; set; }
+
+    // Daily stats
+    public int      Wins           { get; set; }
+    public int      Losses         { get; set; }
+    public decimal  WinPnl         { get; set; }
+    public decimal  LossPnl        { get; set; }
+    public decimal  Expectancy     { get; set; }
+
+    // Per-setup ORB
+    public decimal  OrbHigh        { get; set; }
+    public decimal  OrbLow         { get; set; }
+    public decimal  OrbMid         { get; set; }
+    public decimal  OrbRange       { get; set; }
+    public bool     OrbBullClose   { get; set; }
+    public bool     OrbBearClose   { get; set; }
+    public decimal  OrbAtrRatio    { get; set; }
+    public bool     OrbFormed      { get; set; }
 }
 
 /// <summary>
