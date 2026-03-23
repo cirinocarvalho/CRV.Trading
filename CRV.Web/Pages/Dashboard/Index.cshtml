@@ -478,6 +478,13 @@ function setText(id, text, cls) {
     if (cls != null) el.className = cls;
 }
 
+function findSetup(snap, id) {
+    if (snap.setups && Array.isArray(snap.setups)) {
+        return snap.setups.find(s => s.id === id) || null;
+    }
+    return null;
+}
+
 // ── Lightweight Charts (own data from Tradovate stream) ──────
 let _lwcChart = null;
 let _lwcSeries = null;
@@ -912,14 +919,13 @@ function updateDashboard(d) {
     }
     setText("stat-expectancy", exp ? fmtDol(exp) : "—",
             exp ? pnlCls(exp) : "stat-value font-monospace");
-    setText("a-expectancy", d.expectancyA ? fmtDol(d.expectancyA) : "—",
-            d.expectancyA ? pnlCls(d.expectancyA) + " font-monospace" : "font-monospace");
-    setText("b-expectancy", d.expectancyB ? fmtDol(d.expectancyB) : "—",
-            d.expectancyB ? pnlCls(d.expectancyB) + " font-monospace" : "font-monospace");
-    setText("c-expectancy", d.expectancyC ? fmtDol(d.expectancyC) : "—",
-            d.expectancyC ? pnlCls(d.expectancyC) + " font-monospace" : "font-monospace");
-    setText("d-expectancy", d.expectancyD ? fmtDol(d.expectancyD) : "—",
-            d.expectancyD ? pnlCls(d.expectancyD) + " font-monospace" : "font-monospace");
+    if (d.setups) {
+        d.setups.forEach(s => {
+            var eid = s.id.toLowerCase() + "-expectancy";
+            setText(eid, s.expectancy ? fmtDol(s.expectancy) : "—",
+                    s.expectancy ? pnlCls(s.expectancy) + " font-monospace" : "font-monospace");
+        });
+    }
 
     // ── DD Limit gauge ─────────────────────────────────────
     const ddUsed  = Math.min(Math.abs(pnl < 0 ? pnl : 0), maxDailyLoss);
@@ -958,15 +964,13 @@ function updateDashboard(d) {
     // ── Session state badge ──────────────────────────────────
     const sessBadge = document.getElementById("dash-session-badge");
     if (sessBadge) {
+        var allCutoff = d.setups && d.setups.length > 0 && d.setups.every(s => s.pastCutoff);
+        var someCutoff = d.setups && d.setups.some(s => s.pastCutoff);
         if (d.sessionEnded)                        { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
-        else if (d.pastCutoffA && d.pastCutoffB && d.pastCutoffC && d.pastCutoffD)
+        else if (allCutoff)
                                                    { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
-        else if (d.pastCutoffA || d.pastCutoffB || d.pastCutoffC || d.pastCutoffD) {
-            var cutoffs = [];
-            if (d.pastCutoffA) cutoffs.push("A");
-            if (d.pastCutoffB) cutoffs.push("B");
-            if (d.pastCutoffC) cutoffs.push("C");
-            if (d.pastCutoffD) cutoffs.push("D");
+        else if (someCutoff) {
+            var cutoffs = d.setups.filter(s => s.pastCutoff).map(s => s.id);
             sessBadge.textContent = "CUTOFF (" + cutoffs.join(",") + ")";
             sessBadge.className = "badge setup-armed";
         }
@@ -987,15 +991,9 @@ function updateDashboard(d) {
     }
 
     // ── Setup panels ─────────────────────────────────────────
-    // d.setupA / d.setupB are ActiveTradeView objects (null when idle/armed/retest)
-    updateSetup("a", d.setupA, d.setupAState, d.setupAEnabled !== false, d.pastCutoffA, d.sessionEnded,
-        d.tradeCountA >= d.maxTradesA && d.maxTradesA > 0, d.lastPriceA, d.tickerA, d.pointValueA);
-    updateSetup("b", d.setupB, d.setupBState, d.setupBEnabled !== false, d.pastCutoffB, d.sessionEnded,
-        d.tradeCountB >= d.maxTradesB && d.maxTradesB > 0, d.lastPriceB, d.tickerB, d.pointValueB);
-    updateSetup("c", d.setupC, d.setupCState, d.setupCEnabled !== false, d.pastCutoffC, d.sessionEnded,
-        d.tradeCountC >= d.maxTradesC && d.maxTradesC > 0, d.lastPriceC, d.tickerC, d.pointValueC);
-    updateSetup("d", d.setupD, d.setupDState, d.setupDEnabled !== false, d.pastCutoffD, d.sessionEnded,
-        d.tradeCountD >= d.maxTradesD && d.maxTradesD > 0, d.lastPriceD, d.tickerD, d.pointValueD);
+    ["A","B","C","D"].forEach(id => {
+        updateSetup(id.toLowerCase(), findSetup(d, id), d.sessionEnded);
+    });
 
     // ── ORB window (dynamic per session) ─────────────────────
     if (d.orbWindowStart && d.orbWindowEnd) {
@@ -1004,8 +1002,6 @@ function updateDashboard(d) {
     }
 
     // Active setups — find which setups belong to the selected group
-    // Uses d.tickerA/B (setup ticker) and d.setupAState/BState (state machine)
-    // State: A: 0=Idle ±1=Armed ±2=Active | B: 0=Idle ±1=Armed ±2=Retest ±3=Active
     var activeSetups = [];
     var signalsList = [];
 
@@ -1021,28 +1017,18 @@ function updateDashboard(d) {
         return t;
     }
 
-    ["a","b","c","d"].forEach(id => {
-        var ID = id.toUpperCase();
-        var ticker = d["ticker" + ID] || "";
-        var state  = d["setup" + ID + "State"] || 0;
-        var trade  = d["setup" + ID];  // ActiveTradeView (null when no active trade)
-
-        // Filter to selected group
-        if (_selectedGroup && _tickerToGroup(ticker) !== _selectedGroup) return;
-
-        // Active trade (A: ±2, B: ±3)
-        if (trade && trade.entry > 0) {
-            activeSetups.push(ID + (trade.direction === 0 ? " Long" : " Short"));
-        }
-        // Armed/Retest signals (non-zero state, not in active trade)
-        else if (state !== 0) {
-            var absState = Math.abs(state);
-            var dir = state > 0 ? "▲" : "▼";
-            if (id === "a" && absState === 1) signalsList.push(ID + " Armed " + dir);
-            else if (id === "b" && absState === 1) signalsList.push(ID + " Armed " + dir);
-            else if (id === "b" && absState === 2) signalsList.push(ID + " Retest " + dir);
-        }
-    });
+    if (d.setups) {
+        d.setups.forEach(s => {
+            if (_selectedGroup && _tickerToGroup(s.ticker) !== _selectedGroup) return;
+            var ID = s.id;
+            if (s.trade && s.trade.entry > 0) {
+                activeSetups.push(ID + (s.trade.direction === 0 ? " Long" : " Short"));
+            } else if (s.state !== 0) {
+                var dir = s.state > 0 ? "▲" : "▼";
+                signalsList.push(ID + " Armed " + dir);
+            }
+        });
+    }
     setText("stat-active-setup", activeSetups.length > 0 ? activeSetups.join(", ") : "—");
 
     // ── Ticker Group context panels (Market Context, FB, ORB, VWAP, ATR) ──
@@ -1100,14 +1086,14 @@ function updateDashboard(d) {
     }
 
     // ── Per-setup trade counts [N/Max] ─────────────────────────
-    ["a","b","c","d"].forEach(id => {
-        var key = "tradeCount" + id.toUpperCase();
-        var maxKey = "maxTrades" + id.toUpperCase();
-        var el = document.getElementById("count-" + id);
-        if (el && d[key] != null) {
-            el.textContent = "[" + d[key] + "/" + (d[maxKey] ?? 0) + "]";
-        }
-    });
+    if (d.setups) {
+        d.setups.forEach(s => {
+            var el = document.getElementById("count-" + s.id.toLowerCase());
+            if (el) {
+                el.textContent = "[" + s.tradeCount + "/" + (s.maxTrades ?? 0) + "]";
+            }
+        });
+    }
 
     // ── Alerts from snapshot ─────────────────────────────────
     const alerts = d.recentAlerts;
@@ -1175,7 +1161,17 @@ function _setupBadge(id, state) {
 // trade = ActiveTradeView | null,  state = integer from setupAState / setupBState
 // enabled = bool from setupAEnabled / setupBEnabled
 // pastCutoff / sessionEnded = booleans to override badge when time has passed
-function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTradesReached, lastPrice, ticker, pointValue) {
+function updateSetup(id, setup, sessionEnded) {
+    if (!setup) return;
+    var trade = setup.trade;
+    var state = setup.state;
+    var enabled = setup.enabled !== false;
+    var pastCutoff = setup.pastCutoff;
+    var maxTradesReached = setup.tradeCount >= setup.maxTrades;
+    var lastPrice = setup.lastPrice;
+    var ticker = setup.ticker;
+    var pointValue = setup.pointValue;
+
     const statusEl  = document.getElementById("status-" + id);
     const enabledEl = document.getElementById("enabled-" + id);
     const exitBtn   = document.getElementById("btn-exit-" + id);
