@@ -35,7 +35,7 @@ public class FalseBreakoutDetectorTests
 
         Assert.True(det.OrbTracker.BreakoutActive);
         Assert.Equal(Direction.Long, det.OrbTracker.BreakoutDirection);
-        Assert.Equal(1, det.OrbTracker.BarsInBreakout);
+        Assert.Equal(0, det.OrbTracker.BarsInBreakout);
     }
 
     [Fact]
@@ -57,7 +57,8 @@ public class FalseBreakoutDetectorTests
         var det = CreateDetector(maxMinutesOrb: 15, tfMinutes: 5); // 3 bars max
         var today = DateTime.UtcNow.Date;
 
-        for (int i = 0; i < 4; i++)
+        // Detection bar (BarsInBreakout = 0) + 4 continuation bars → BarsInBreakout = 4 > 3 → expires
+        for (int i = 0; i < 5; i++)
         {
             var bar = new Bar(today.AddHours(10).AddMinutes(i * 5), 102m, 103m, 101.5m, 102.5m, 100);
             det.OnBar(bar, today, orbHigh: 101m, orbLow: 99m, orbFormed: true,

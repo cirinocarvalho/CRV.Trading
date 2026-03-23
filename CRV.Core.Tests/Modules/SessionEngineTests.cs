@@ -47,9 +47,12 @@ public class SessionEngineTests
         Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(18, 0)));
         // 23:59 still Asia
         Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(23, 59)));
-        // 00:00 is AsiaEnd boundary, should NOT be Asia (< 00:00 is false for 00:00)
-        // Actually TimeOnly(0,0) is midnight. t >= 18:00 || t < 00:00 => 00:00 >= 18:00 is false, 00:00 < 00:00 is false
-        Assert.NotEqual(SessionType.Asia, engine.DetectSession(new TimeOnly(0, 0)));
+        // 00:00 midnight is within Asia (AsiaEnd = 02:00, so 00:00 < 02:00 is true)
+        Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(0, 0)));
+        // 01:59 still Asia
+        Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(1, 59)));
+        // 02:00 is AsiaEnd boundary, no longer Asia
+        Assert.NotEqual(SessionType.Asia, engine.DetectSession(new TimeOnly(2, 0)));
     }
 
     // ── Session high/low tracking ────────────────────────────────

@@ -1,0 +1,116 @@
+@page "/auth/schwab"
+@model CRV.Web.Pages.Auth.SchwabModel
+@{
+    ViewData["Title"] = "Schwab Authentication";
+    ViewData["Page"]  = "schwab-auth";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<div class="d-flex align-items-center mb-3 gap-3">
+    <h5 class="mb-0"><i class="bi bi-shield-lock me-2 text-warning"></i>Schwab Authentication</h5>
+    @if (Model.IsAuthenticated)
+    {
+        <span class="badge bg-success ms-auto"><i class="bi bi-check-circle me-1"></i>Connected</span>
+    }
+    else
+    {
+        <span class="badge bg-warning text-dark ms-auto"><i class="bi bi-exclamation-circle me-1"></i>Not Connected</span>
+    }
+</div>
+
+@if (Model.SuccessMessage is not null)
+{
+    <div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-check-circle-fill"></i>
+        <span>@Model.SuccessMessage</span>
+    </div>
+}
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span>@Model.ErrorMessage</span>
+    </div>
+}
+
+<div class="card" style="max-width:520px">
+    <div class="card-body">
+        @if (Model.IsAuthenticated)
+        {
+            <p class="mb-3">
+                Your Schwab account is <strong class="text-success">authorized</strong>.
+                Tokens are persisted to the configured token file and refreshed automatically
+                before each request. No action is needed unless you encounter authentication errors.
+            </p>
+            <p class="small text-muted mb-3">
+                Schwab refresh tokens expire after <strong>7 days of inactivity</strong>.
+                Starting the live engine at least once per week will keep the token alive.
+                Re-authenticate below if the engine reports a token error.
+            </p>
+
+            @if (Model.Accounts.Count > 0)
+            {
+                <div class="alert alert-info py-2 mb-3">
+                    <p class="mb-1 fw-bold small"><i class="bi bi-key me-1"></i>Account Hash Values</p>
+                    <p class="small mb-2">
+                        Copy the <code>Hash</code> for your <strong>futures</strong> account
+                        (Type&nbsp;=&nbsp;<code>FUTURES</code>) into
+                        <code>appsettings.json</code> as <code>Schwab:AccountId</code>.
+                    </p>
+                    <table class="table table-sm table-dark mb-0 font-monospace" style="font-size:.8rem">
+                        <thead><tr><th>Account #</th><th>Type</th><th>Hash (→ Schwab:AccountId)</th></tr></thead>
+                        <tbody>
+                        @foreach (var (num, hash, accountType) in Model.Accounts)
+                        {
+                            <tr>
+                                <td>@num</td>
+                                <td>
+                                    @if (accountType == "FUTURES" || accountType == "FUTURES_AND_FOREX")
+                                    {
+                                        <span class="badge bg-warning text-dark">@accountType</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-secondary">@(string.IsNullOrEmpty(accountType) ? "—" : accountType)</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="user-select-all">@hash</span>
+                                    <button class="btn btn-outline-secondary btn-sm py-0 ms-2"
+                                            onclick="navigator.clipboard.writeText('@hash')">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="mb-3">
+                CRV Trading needs permission to access your Schwab account for
+                <strong>live order placement</strong> and <strong>streaming market data</strong>.
+            </p>
+            <p class="small text-muted mb-3">
+                Click the button below to be redirected to Schwab's secure login page.
+                After you authorize the app, you will be returned here automatically.
+            </p>
+        }
+
+        <a href="?handler=Authorize" class="btn btn-warning fw-bold">
+            <i class="bi bi-box-arrow-up-right me-2"></i>
+            @(Model.IsAuthenticated ? "Re-authenticate with Schwab" : "Connect with Schwab")
+        </a>
+    </div>
+    <div class="card-footer small text-muted">
+        <strong>Redirect URI:</strong> Set <code>Schwab:RedirectUri</code> in
+        <code>appsettings.json</code> to the exact callback URL registered in your
+        <a href="https://developer.schwab.com" target="_blank" rel="noopener">Schwab developer app</a>
+        (e.g. <code>https://127.0.0.1:5001/auth/schwab</code>).
+        Tokens are stored in the path configured as <code>Schwab:TokenFile</code>.
+    </div>
+</div>

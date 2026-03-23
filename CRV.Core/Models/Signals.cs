@@ -399,6 +399,7 @@ public class TickerGroupSnapshot
     public decimal BarHigh         { get; set; }
     public decimal BarLow          { get; set; }
     public decimal BarClose        { get; set; }
+    public long    BarVolume       { get; set; }
 
     // False Breakout
     public bool    FBOrbBreakoutActive       { get; set; }

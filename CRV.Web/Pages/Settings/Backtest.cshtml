@@ -9,7 +9,7 @@
     Layout = "~/Pages/Shared/_Layout.cshtml";
 
     string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "pnl-zero";
-    string Pnl(decimal v)    => (v >= 0 ? "+" : "") + v.ToString("C0");
+    string Pnl(decimal v)    => (v >= 0 ? "+$" : "-$") + Math.Abs(v).ToString("N0");
 
     // Eastern Time — handles EST/EDT automatically
     TimeZoneInfo etTz;
@@ -28,8 +28,13 @@
     <h5 class="mb-0"><i class="bi bi-clock-history me-2 text-warning"></i>Backtest</h5>
     @if (Model.Result != null)
     {
+        var distinctTickers = Model.Result.Trades
+            .Select(t => string.IsNullOrEmpty(t.Ticker) ? Model.Result.Config.Ticker : t.Ticker)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var tickerLabel = distinctTickers.Count > 1 ? "Multi Inst" : (distinctTickers.FirstOrDefault() ?? Model.Result.Config.Ticker);
         <span class="badge bg-dark border border-secondary font-monospace ms-auto small">
-            @Model.Result.Config.Ticker
+            @tickerLabel
             &nbsp;&middot;&nbsp;@Model.Result.BtConfig.From.ToString("MMM d yyyy") &rarr; @Model.Result.BtConfig.To.ToString("MMM d yyyy")
             &nbsp;&middot;&nbsp;ran @ToEtTime(Model.Result.GeneratedAt) @ToEtLabel(Model.Result.GeneratedAt)
         </span>
@@ -152,9 +157,8 @@
                     (Title: "Total",             Icon: "bi-bar-chart-fill",             M: r.Total),
                     (Title: "Setup A [XACUZZY]", Icon: "bi-triangle-fill",              M: r.SetupA),
                     (Title: "Setup B [BONGA]",   Icon: "bi-arrow-up-right-circle-fill", M: r.SetupB),
-                    (Title: "Setup C [SWEEP]",   Icon: "bi-arrow-repeat",               M: r.SetupC),
-                    (Title: "Setup D [DRIVE]",   Icon: "bi-lightning-fill",             M: r.SetupD),
-                    (Title: "Setup F [VWAP]",    Icon: "bi-graph-down-arrow",           M: r.SetupF),
+                    (Title: "Setup C [NABO]",     Icon: "bi-arrow-return-left",  M: r.SetupC),
+                    (Title: "Setup D [CHAYALA]", Icon: "bi-arrow-return-right", M: r.SetupD),
                 })
                 {
                     var m = card.M;
@@ -234,7 +238,7 @@
             <table class="table table-sm table-hover trade-table font-monospace mb-0">
                 <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
                     <tr>
-                        <th>#</th><th>In (@(Model.Result != null ? ToEtLabel(Model.Result.Trades.FirstOrDefault()?.EnteredAt ?? DateTime.UtcNow) : "ET"))</th><th>Out</th><th>Dur</th><th>Setup</th><th>Dir</th>
+                        <th>#</th><th>In (@(Model.Result != null ? ToEtLabel(Model.Result.Trades.FirstOrDefault()?.EnteredAt ?? DateTime.UtcNow) : "ET"))</th><th>Out</th><th>Dur</th><th>Setup</th><th>Instr</th><th>Dir</th>
                         <th class="text-end">Entry</th><th class="text-end">Exit</th>
                         <th class="text-end">Stop</th><th class="text-end">Target</th>
                         <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
@@ -260,6 +264,7 @@
                             <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
                             <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
                             <td><span class="badge bg-warning text-dark">@t.Setup</span></td>
+                            <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
                             <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@t.EffectiveDirection</td>
                             <td class="text-end">@t.Entry.ToString("F2")</td>
                             <td class="text-end">@t.Exit.ToString("F2")</td>

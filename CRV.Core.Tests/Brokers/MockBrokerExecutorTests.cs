@@ -1,12 +1,20 @@
 using CRV.Core.Models;
 using CRV.Live.Brokers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class MockBrokerExecutorTests
 {
-    static MockBrokerExecutor Build() =>
-        new MockBrokerExecutor(NullLogger<MockBrokerExecutor>.Instance);
+    static MockBrokerExecutor Build()
+    {
+        // Provide a real scope factory backed by an empty ServiceCollection.
+        // DB persist calls will fail silently (no TradingDbContext registered),
+        // which is fine for unit tests that only validate in-memory behavior.
+        var sp = new ServiceCollection().BuildServiceProvider();
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        return new MockBrokerExecutor(NullLogger<MockBrokerExecutor>.Instance, scopeFactory);
+    }
 
     [Fact]
     public async Task OnEntry_CreatesOcoOrders_AllWorking()
@@ -60,7 +68,7 @@ public class MockBrokerExecutorTests
         await exec.OnEntrySignalAsync(sig);
 
         var workingId = exec.GetOrders().First(o => o.Status == "WORKING").OrderId;
-        exec.CancelOrder(workingId);
+        await exec.CancelOrderAsync(workingId);
         Assert.Equal("CANCELED", exec.GetOrders().Single(o => o.OrderId == workingId).Status);
     }
 

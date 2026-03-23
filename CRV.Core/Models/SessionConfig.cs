@@ -24,6 +24,12 @@ public abstract class SetupConfigBase
     public int     MaxAdverseMinutes  { get; set; } = 0;
     public decimal HiVolMult          { get; set; } = 1.0m;
     public int     MaxContracts       { get; set; } = 2;
+
+    // Per-setup instrument override (false = use global instrument)
+    public bool    UseCustomTicker    { get; set; } = false;
+    public string  CustomTicker       { get; set; } = "";
+    public decimal CustomPointValue   { get; set; } = 0;
+    public decimal CustomTickSize     { get; set; } = 0;
 }
 
 // ── Setup A — Pullback ──────────────────────────────────────────────────────
@@ -142,6 +148,10 @@ public class SessionConfig
         c.EntryTickOffsetA  = SetupA.EntryTickOffset;
         c.UseVwapA          = SetupA.UseVwap;
         c.UseOrbCloseA      = SetupA.UseOrbClose;
+        c.UseCustomTickerA  = SetupA.UseCustomTicker;
+        c.TickerA           = SetupA.CustomTicker;
+        c.PointValueA       = SetupA.CustomPointValue;
+        c.TickSizeA         = SetupA.CustomTickSize;
 
         // ── Setup B ────────────────────────────────────────────────────────
         c.EnableB           = SetupB.Enabled;
@@ -169,6 +179,10 @@ public class SessionConfig
         c.EntryTickOffsetB  = SetupB.EntryTickOffset;
         c.UseVwapB          = SetupB.UseVwap;
         c.UseOrbCloseB      = SetupB.UseOrbClose;
+        c.UseCustomTickerB  = SetupB.UseCustomTicker;
+        c.TickerB           = SetupB.CustomTicker;
+        c.PointValueB       = SetupB.CustomPointValue;
+        c.TickSizeB         = SetupB.CustomTickSize;
 
         // ── Setup C ────────────────────────────────────────────────────────
         c.EnableC           = SetupC.Enabled;
@@ -191,6 +205,10 @@ public class SessionConfig
         c.StopPctC          = SetupC.StopPct;
         c.TargetPctC        = SetupC.TargetPct;
         c.EntryTickOffsetC  = SetupC.EntryTickOffset;
+        c.UseCustomTickerC  = SetupC.UseCustomTicker;
+        c.TickerC           = SetupC.CustomTicker;
+        c.PointValueC       = SetupC.CustomPointValue;
+        c.TickSizeC         = SetupC.CustomTickSize;
 
         // ── Setup D ────────────────────────────────────────────────────────
         c.EnableD           = SetupD.Enabled;
@@ -213,6 +231,10 @@ public class SessionConfig
         c.StopPctD          = SetupD.StopPct;
         c.TargetPctD        = SetupD.TargetPct;
         c.EntryTickOffsetD  = SetupD.EntryTickOffset;
+        c.UseCustomTickerD  = SetupD.UseCustomTicker;
+        c.TickerD           = SetupD.CustomTicker;
+        c.PointValueD       = SetupD.CustomPointValue;
+        c.TickSizeD         = SetupD.CustomTickSize;
 
         return c;
     }
@@ -259,6 +281,10 @@ public class SessionConfig
             EntryTickOffset   = cfg.EntryTickOffsetA,
             UseVwap           = cfg.UseVwapA,
             UseOrbClose       = cfg.UseOrbCloseA,
+            UseCustomTicker   = cfg.UseCustomTickerA,
+            CustomTicker      = cfg.TickerA,
+            CustomPointValue  = cfg.PointValueA,
+            CustomTickSize    = cfg.TickSizeA,
         },
 
         SetupB = new SetupConfigB
@@ -287,6 +313,10 @@ public class SessionConfig
             EntryTickOffset   = cfg.EntryTickOffsetB,
             UseVwap           = cfg.UseVwapB,
             UseOrbClose       = cfg.UseOrbCloseB,
+            UseCustomTicker   = cfg.UseCustomTickerB,
+            CustomTicker      = cfg.TickerB,
+            CustomPointValue  = cfg.PointValueB,
+            CustomTickSize    = cfg.TickSizeB,
         },
 
         SetupC = new SetupConfigC
@@ -311,6 +341,10 @@ public class SessionConfig
             StopPct           = cfg.StopPctC,
             TargetPct         = cfg.TargetPctC,
             EntryTickOffset   = cfg.EntryTickOffsetC,
+            UseCustomTicker   = cfg.UseCustomTickerC,
+            CustomTicker      = cfg.TickerC,
+            CustomPointValue  = cfg.PointValueC,
+            CustomTickSize    = cfg.TickSizeC,
         },
 
         SetupD = new SetupConfigD
@@ -335,6 +369,10 @@ public class SessionConfig
             StopPct           = cfg.StopPctD,
             TargetPct         = cfg.TargetPctD,
             EntryTickOffset   = cfg.EntryTickOffsetD,
+            UseCustomTicker   = cfg.UseCustomTickerD,
+            CustomTicker      = cfg.TickerD,
+            CustomPointValue  = cfg.PointValueD,
+            CustomTickSize    = cfg.TickSizeD,
         },
     };
 

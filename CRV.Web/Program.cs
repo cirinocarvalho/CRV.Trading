@@ -99,10 +99,13 @@ builder.Services.AddSingleton(sp => new TradovateAuthService(
     tvCfg["Password"]   ?? "",
     int.TryParse(tvCfg["Cid"], out var tvCid) ? tvCid : 0,
     tvCfg["Secret"]     ?? "",
+    tvCfg["DeviceId"]   ?? "",
+    tvCfg["AppId"]      ?? "CRVBot",
     tvCfg["TokenFile"]  ?? "tradovate_tokens.json",
     tvCfg["ApiBaseUrl"] ?? "https://live.tradovateapi.com/v1",
     tvCfg["MdWssUrl"]   ?? "wss://md.tradovateapi.com/v1/websocket",
-    sp.GetRequiredService<IHttpClientFactory>()));
+    sp.GetRequiredService<IHttpClientFactory>(),
+    sp.GetRequiredService<ILogger<TradovateAuthService>>()));
 
 // ── Broker executors ─────────────────────────────────────────
 // MockBrokerExecutor is a singleton fallback registered in DI.
@@ -120,6 +123,7 @@ builder.Services.AddSingleton<SnapshotBroadcastService>();
 // ── Backtest ──────────────────────────────────────────────────
 builder.Services.AddSingleton<BacktestRunnerService>();
 builder.Services.AddScoped<CRV.Backtest.DataLoaders.CsvBarLoader>();
+builder.Services.AddScoped<CRV.Web.Services.TradeRepository>();
 
 var app = builder.Build();
 

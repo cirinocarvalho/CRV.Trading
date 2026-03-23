@@ -3,12 +3,13 @@ using CRV.Core.Models;
 namespace CRV.Core.Strategy;
 
 /// <summary>
-/// Thread-safe fixed-capacity ring buffer for storing recent bars.
-/// Used by TickerGroup to maintain chart history for the dashboard.
+/// Thread-safe fixed-capacity ring buffer for storing recent bars
+/// with parallel VWAP values. Used by TickerGroup for the dashboard chart.
 /// </summary>
 public class BarRingBuffer
 {
     private readonly Bar[] _buffer;
+    private readonly decimal[] _vwaps;  // parallel VWAP value per bar
     private readonly object _lock = new();
     private int _head;   // next write position
     private int _count;
@@ -16,18 +17,45 @@ public class BarRingBuffer
     public BarRingBuffer(int capacity)
     {
         _buffer = new Bar[capacity];
+        _vwaps  = new decimal[capacity];
     }
 
     public int Count { get { lock (_lock) return _count; } }
 
-    /// <summary>Add a confirmed bar to the buffer.</summary>
+    /// <summary>
+    /// Add a confirmed bar. If the latest bar has the same timestamp,
+    /// update it in place (prevents duplicates from backfill/replay).
+    /// </summary>
     public void Add(Bar bar)
     {
         lock (_lock)
         {
+            // Check if latest bar has the same timestamp → update in place
+            if (_count > 0)
+            {
+                int lastIdx = (_head - 1 + _buffer.Length) % _buffer.Length;
+                if (_buffer[lastIdx].Time == bar.Time)
+                {
+                    _buffer[lastIdx] = bar;
+                    return;
+                }
+            }
+
             _buffer[_head] = bar;
+            _vwaps[_head]  = 0;
             _head = (_head + 1) % _buffer.Length;
             if (_count < _buffer.Length) _count++;
+        }
+    }
+
+    /// <summary>Set the VWAP value for the most recently added bar.</summary>
+    public void SetVwap(decimal vwap)
+    {
+        lock (_lock)
+        {
+            if (_count == 0) return;
+            int lastIdx = (_head - 1 + _buffer.Length) % _buffer.Length;
+            _vwaps[lastIdx] = vwap;
         }
     }
 
@@ -41,6 +69,21 @@ public class BarRingBuffer
             {
                 int idx = (_head - _count + i + _buffer.Length) % _buffer.Length;
                 result.Add(_buffer[idx]);
+            }
+            return result;
+        }
+    }
+
+    /// <summary>Return all (bar, vwap) pairs oldest→newest.</summary>
+    public List<(Bar Bar, decimal Vwap)> ToListWithVwap()
+    {
+        lock (_lock)
+        {
+            var result = new List<(Bar, decimal)>(_count);
+            for (int i = 0; i < _count; i++)
+            {
+                int idx = (_head - _count + i + _buffer.Length) % _buffer.Length;
+                result.Add((_buffer[idx], _vwaps[idx]));
             }
             return result;
         }

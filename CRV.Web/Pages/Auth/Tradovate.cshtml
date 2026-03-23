@@ -1,0 +1,54 @@
+@page "/auth/tradovate"
+@model CRV.Web.Pages.Auth.TradovateAuthModel
+@{
+    ViewData["Title"] = "Tradovate Auth";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<div class="row justify-content-center">
+    <div class="col-12 col-md-6 col-lg-5">
+        <h5 class="mb-4"><i class="bi bi-shield-lock me-2 text-warning"></i>Tradovate Connection</h5>
+
+        @if (Model.SuccessMessage is not null)
+        {
+            <div class="alert alert-success py-2">@Model.SuccessMessage</div>
+        }
+        @if (Model.ErrorMessage is not null)
+        {
+            <div class="alert alert-danger py-2">@Model.ErrorMessage</div>
+        }
+
+        <div class="settings-section mb-3">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <i class="bi bi-@(Model.IsAuthenticated ? "check-circle-fill text-success" : "x-circle-fill text-warning")"></i>
+                <strong>Status:</strong>
+                <span>@(Model.IsAuthenticated ? "Connected — tokens valid" : "Not connected")</span>
+            </div>
+
+            <div class="text-muted small mb-3">
+                Credentials are read from user-secrets (<code>Tradovate:Username</code>,
+                <code>Tradovate:Password</code>, <code>Tradovate:Cid</code>, <code>Tradovate:Secret</code>).
+                No credentials are entered here — they are pre-configured via <code>dotnet user-secrets</code>.
+            </div>
+
+            <form method="post" asp-page-handler="Connect" class="mb-2">
+                <button type="submit" class="btn btn-warning w-100 fw-bold">
+                    <i class="bi bi-plug me-1"></i>Connect (Authenticate)
+                </button>
+            </form>
+
+            @if (Model.IsAuthenticated)
+            {
+                <form method="post" asp-page-handler="Renew">
+                    <button type="submit" class="btn btn-outline-secondary w-100">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Renew Token
+                    </button>
+                </form>
+            }
+        </div>
+
+        <a href="/settings/live" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Live Settings
+        </a>
+    </div>
+</div>

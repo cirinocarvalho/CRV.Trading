@@ -1,5 +1,9 @@
+using CRV.Backtest.DataLoaders;
 using CRV.Core.Interfaces;
+using CRV.Core.Strategy;
 using CRV.Live;
+using CRV.Live.Brokers.Schwab;
+using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -16,16 +20,20 @@ public class EngineController : ControllerBase
     private readonly ILastPriceProvider     _prices;
     private readonly SnapshotBroadcastService _broadcast;
     private readonly TradeRepository _trades;
+    private readonly IServiceProvider _sp;
+    private readonly ILoggerFactory _loggerFactory;
 
     public EngineController(LiveEngineOrchestrator engine, StrategyConfigService cfgSvc,
                             ILastPriceProvider prices, SnapshotBroadcastService broadcast,
-                            TradeRepository trades)
+                            TradeRepository trades, IServiceProvider sp, ILoggerFactory loggerFactory)
     {
         _engine = engine;
         _cfgSvc = cfgSvc;
         _prices = prices;
         _broadcast = broadcast;
         _trades = trades;
+        _sp = sp;
+        _loggerFactory = loggerFactory;
     }
 
     [HttpPost("start")]
@@ -108,20 +116,109 @@ public class EngineController : ControllerBase
         return ok ? Ok(new { status = "ok", message }) : BadRequest(new { status = "error", message });
     }
 
-    /// <summary>Returns bar history for a ticker group (for Lightweight Charts).</summary>
+    /// <summary>Returns bar history for a ticker group (for Lightweight Charts).
+    /// Falls back to Schwab REST API when the in-memory buffer is empty (e.g. market closed).</summary>
     [HttpGet("bars/{groupKey}")]
-    public IActionResult Bars(string groupKey)
+    public async Task<IActionResult> Bars(string groupKey, CancellationToken ct)
     {
-        var bars = _engine.GetBarHistory(groupKey);
-        var result = bars.Select(b => new
+        var barsWithVwap = _engine.GetBarHistoryWithVwap(groupKey);
+
+        // If engine has bars in buffer, use them
+        if (barsWithVwap.Count > 0)
         {
-            time  = new DateTimeOffset(b.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
-            open  = b.Open,
-            high  = b.High,
-            low   = b.Low,
-            close = b.Close
-        });
-        return Ok(result);
+            return Ok(barsWithVwap.Select(bv => new
+            {
+                time  = new DateTimeOffset(bv.Bar.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
+                open  = bv.Bar.Open, high = bv.Bar.High, low = bv.Bar.Low, close = bv.Bar.Close,
+                volume = bv.Bar.Volume,
+                vwap  = bv.Vwap
+            }));
+        }
+
+        // Fallback: fetch historical bars from broker REST/WS API
+        var cfg = _cfgSvc.Current;
+        var ticker = ResolveTickerForGroup(groupKey, cfg);
+        if (string.IsNullOrEmpty(ticker)) return Ok(Array.Empty<object>());
+
+        var tf    = cfg.ExecutionTFMinutes;
+        var toUtc = DateTime.UtcNow;
+        var fromUtc = toUtc.AddMinutes(-tf * 200); // ~200 bars back
+
+        // 15-second timeout so the chart doesn't hang if the broker API is slow/down
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        try
+        {
+            var result = new List<object>();
+
+            if (cfg.Broker is "Tradovate" or "TradovateReplay")
+            {
+                var auth   = _sp.GetRequiredService<TradovateAuthService>();
+                var mdToken = await auth.GetMdAccessTokenAsync();
+                var log    = _loggerFactory.CreateLogger<TradovateHistoricalLoader>();
+                var loader = new TradovateHistoricalLoader(mdToken, log, auth.MdWssUrl);
+                var tvSymbol = FuturesSymbol.ToTradovate(ticker);
+
+                await foreach (var b in loader.LoadAsync(tvSymbol, tf, fromUtc, toUtc, ct: cts.Token))
+                {
+                    result.Add(new
+                    {
+                        time  = new DateTimeOffset(b.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
+                        open  = b.Open, high = b.High, low = b.Low, close = b.Close,
+                        volume = b.Volume
+                    });
+                }
+            }
+            else if (cfg.Broker == "Schwab")
+            {
+                var auth  = _sp.GetRequiredService<SchwabAuthService>();
+                var token = await auth.GetAccessTokenAsync();
+                var hf    = _sp.GetRequiredService<IHttpClientFactory>();
+                var loader = new SchwabHistoricalLoader(
+                    token, _loggerFactory.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
+
+                await foreach (var b in loader.LoadAsync(ticker, tf, fromUtc, toUtc, cts.Token))
+                {
+                    result.Add(new
+                    {
+                        time  = new DateTimeOffset(b.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
+                        open  = b.Open, high = b.High, low = b.Low, close = b.Close,
+                        volume = b.Volume
+                    });
+                }
+            }
+
+            return Ok(result);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+        {
+            _loggerFactory.CreateLogger<EngineController>()
+                .LogWarning("Chart bars request timed out for {Broker}/{Group}", cfg.Broker, groupKey);
+            return Ok(Array.Empty<object>());
+        }
+        catch (Exception ex)
+        {
+            _loggerFactory.CreateLogger<EngineController>()
+                .LogWarning(ex, "Failed to fetch historical bars from {Broker} for chart", cfg.Broker);
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    /// <summary>Resolve the broker ticker for a group key (NQ, ES, GC, CL) from config.</summary>
+    private static string? ResolveTickerForGroup(string groupKey, CRV.Core.Models.StrategyConfig cfg)
+    {
+        // Check each setup's effective ticker to find one matching this group
+        var tickers = new[] { cfg.EffectiveTickerA, cfg.EffectiveTickerB, cfg.EffectiveTickerC, cfg.EffectiveTickerD };
+        foreach (var t in tickers)
+        {
+            if (!string.IsNullOrEmpty(t) && TickerGroup.GetGroupKey(t) == groupKey)
+                return t;
+        }
+        // Fallback: if the main ticker matches
+        if (TickerGroup.GetGroupKey(cfg.Ticker) == groupKey)
+            return cfg.Ticker;
+        return null;
     }
 
     /// <summary>Returns today's completed trades for the dashboard table.</summary>

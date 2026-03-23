@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "crv-web",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "CRV.Web", "--urls", "http://0.0.0.0:5050"],
+      "port": 5050,
+      "autoPort": false
+    }
+  ]
+}

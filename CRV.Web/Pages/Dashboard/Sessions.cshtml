@@ -1,9 +1,18 @@
 @page "/dashboard/sessions"
 @model CRV.Web.Pages.Dashboard.SessionsModel
+@using CRV.Core.Models
 @{
     ViewData["Title"] = "Session Detail";
     ViewData["Page"]  = "sessions";
     Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    TimeZoneInfo etTz;
+    try   { etTz = TimeZoneInfo.FindSystemTimeZoneById("America/New_York"); }
+    catch { etTz = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); }
+    string ToEt(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d HH:mm:ss");
+    string ToEtTime(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm:ss");
+    string Pnl(decimal v) => (v >= 0 ? "+$" : "-$") + Math.Abs(v).ToString("N0");
+    string PnlCls(decimal v) => v >= 0 ? "pnl-pos" : "pnl-neg";
 }
 
 <div class="d-flex align-items-center gap-3 mb-3">
@@ -33,83 +42,137 @@
 
 <div class="tab-content">
     @{
-        var sessionData = new (string Id, List<CRV.Core.Models.TradeRecord> Trades, bool IsActive)[]
+        var sessionData = new (string Id, List<TradeRecord> Trades, bool IsActive)[]
         {
             ("Asia",   Model.AsiaTrades,   true),
             ("London", Model.LondonTrades, false),
             ("NY",     Model.NYTrades,     false)
         };
     }
-    @foreach (var session in sessionData)
+    @foreach (var sess in sessionData)
     {
-        <div class="tab-pane fade @(session.IsActive ? "show active" : "")" id="det-@session.Id" role="tabpanel">
-            @if (session.Trades.Count == 0)
+        <div class="tab-pane fade @(sess.IsActive ? "show active" : "")" id="det-@sess.Id" role="tabpanel">
+            @if (sess.Trades.Count == 0)
             {
                 <p class="text-muted mt-3">No trades this session.</p>
             }
             else
             {
-                var wins   = session.Trades.Count(t => t.IsWin);
-                var losses = session.Trades.Count - wins;
-                var pnl    = session.Trades.Sum(t => t.NetPnl);
+                var wins   = sess.Trades.Count(t => t.IsWin);
+                var losses = sess.Trades.Count - wins;
+                var pnl    = sess.Trades.Sum(t => t.NetPnl);
+
                 <div class="row g-2 mb-3 mt-2">
                     <div class="col-6 col-md-3">
                         <div class="card p-2 text-center">
                             <div class="text-muted small">Trades</div>
-                            <div class="fs-5 fw-bold">@session.Trades.Count</div>
+                            <div class="fs-5 fw-bold font-monospace">@sess.Trades.Count</div>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="card p-2 text-center">
-                            <div class="text-muted small">Wins</div>
-                            <div class="fs-5 fw-bold text-success">@wins</div>
+                            <div class="text-muted small">Win / Loss</div>
+                            <div class="fs-5 fw-bold font-monospace">@wins / @losses</div>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="card p-2 text-center">
-                            <div class="text-muted small">Losses</div>
-                            <div class="fs-5 fw-bold text-danger">@losses</div>
+                            <div class="text-muted small">Win Rate</div>
+                            <div class="fs-5 fw-bold font-monospace">@(sess.Trades.Count > 0 ? ((decimal)wins / sess.Trades.Count * 100).ToString("F0") : "0")%</div>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="card p-2 text-center">
                             <div class="text-muted small">Net PnL</div>
-                            <div class="fs-5 fw-bold @(pnl >= 0 ? "text-success" : "text-danger")">@pnl.ToString("C0")</div>
+                            <div class="fs-5 fw-bold font-monospace @PnlCls(pnl)">@Pnl(pnl)</div>
                         </div>
                     </div>
                 </div>
-                <table class="table table-sm table-striped align-middle">
-                    <thead>
-                        <tr>
-                            <th>Setup</th>
-                            <th>Dir</th>
-                            <th>Entry</th>
-                            <th>Exit</th>
-                            <th>PnL</th>
-                            <th>R</th>
-                            <th>Exit Reason</th>
-                            <th>Time</th>
-                            <th>Duration</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var t in session.Trades)
-                        {
-                            <tr class="@(t.IsWin ? "table-success" : "table-danger")">
-                                <td>@t.Setup</td>
-                                <td>@t.Direction</td>
-                                <td class="font-monospace">@t.Entry.ToString("F2")</td>
-                                <td class="font-monospace">@t.Exit.ToString("F2")</td>
-                                <td class="font-monospace">@t.NetPnl.ToString("C0")</td>
-                                <td class="font-monospace">@t.RMultiple.ToString("F2")</td>
-                                <td>@t.ExitReason</td>
-                                <td class="font-monospace">@t.EnteredAt.ToString("HH:mm")</td>
-                                <td class="font-monospace">@t.Duration.ToString(@"mm\:ss")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
+
+                <div class="settings-section">
+                    <div class="d-flex align-items-center mb-2">
+                        <h6 class="mb-0 text-warning"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
+                        <span class="badge bg-success font-monospace ms-2">@sess.Trades.Count trades</span>
+                        <span class="ms-2 small text-muted">@wins W / @losses L</span>
+                        <button type="button" class="btn btn-sm btn-outline-light ms-auto" onclick="exportSessionCsv('@sess.Id')"><i class="bi bi-download me-1"></i>CSV</button>
+                    </div>
+                    <div class="table-responsive" style="max-height:600px;overflow-y:auto;">
+                        <table class="table table-sm table-hover trade-table font-monospace mb-0" id="tl-@sess.Id">
+                            <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
+                                <tr>
+                                    <th>#</th><th>In (EST)</th><th>Out</th><th>Dur</th><th>Setup</th><th>Instr</th><th>Dir</th>
+                                    <th class="text-end">Entry</th><th class="text-end">Exit</th>
+                                    <th class="text-end">Stop</th><th class="text-end">Target</th>
+                                    <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
+                                    <th class="text-end">Gross</th><th class="text-end">Comm</th>
+                                    <th class="text-end">Net</th><th class="text-end">R</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ int rowNum = 0; }
+                                @foreach (var t in sess.Trades.OrderBy(t => t.EnteredAt))
+                                {
+                                    rowNum++;
+                                    string rowCls = t.IsWin ? "table-success bg-opacity-10" : "table-danger bg-opacity-10";
+                                    string reasonBadge = t.ExitReason switch
+                                    {
+                                        ExitReason.Target     => "bg-success",
+                                        ExitReason.Stop       => "bg-danger",
+                                        _                     => "bg-secondary"
+                                    };
+                                    <tr class="@rowCls">
+                                        <td class="td-dim">@rowNum</td>
+                                        <td class="td-time">@ToEt(t.EnteredAt)</td>
+                                        <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
+                                        <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
+                                        <td><span class="badge bg-warning text-dark">@t.Setup</span></td>
+                                        <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
+                                        <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@(t.EffectiveDirection == Direction.Long ? "▲" : "▼") @t.EffectiveDirection</td>
+                                        <td class="text-end">@t.Entry.ToString("F2")</td>
+                                        <td class="text-end">@t.Exit.ToString("F2")</td>
+                                        <td class="text-end td-dim">@t.InitialStop.ToString("F2")</td>
+                                        <td class="text-end td-dim">@t.Target.ToString("F2")</td>
+                                        <td class="text-end">@t.Contracts</td>
+                                        <td class="text-center">@if (t.PartialFilled) { <i class="bi bi-check-lg"></i> } else { <span class="td-dim">—</span> }</td>
+                                        <td><span class="badge @reasonBadge small">@t.ExitReason</span></td>
+                                        <td class="text-end @PnlCls(t.GrossPnl)">@Pnl(t.GrossPnl)</td>
+                                        <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
+                                        <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
+                                        <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             }
         </div>
     }
 </div>
+
+@section Scripts {
+<script>
+function exportSessionCsv(sessionId) {
+    const table = document.getElementById('tl-' + sessionId);
+    if (!table) return;
+    const rows = table.querySelectorAll('tr');
+    const lines = [];
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('th, td');
+        const vals = Array.from(cells).map(c => {
+            let t = c.innerText.replace(/"/g, '""').trim();
+            return '"' + t + '"';
+        });
+        lines.push(vals.join(','));
+    });
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'session_' + sessionId.toLowerCase() + '_trades.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+}

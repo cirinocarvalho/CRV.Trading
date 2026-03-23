@@ -430,8 +430,10 @@ public class OrbStrategyEngine
         _orbLoggedFormed     = true;
         _orbRestoredFromCache = true;
         _orbAtrRatio         = cache.OrbAtrRatio;
-        _log.LogInformation("ORB restored from cache — H:{H:F2} L:{L:F2} R:{R:F2} ATR%:{A:F3}",
-            cache.OrbHigh, cache.OrbLow, _orb.OrbRange, cache.OrbAtrRatio);
+        _openingDrive.Restore(cache.OpeningDriveBull, cache.OpeningDriveBear, cache.DriveRangePctATR);
+        _log.LogInformation("ORB restored from cache — H:{H:F2} L:{L:F2} R:{R:F2} ATR%:{A:F3} Drive:{D}",
+            cache.OrbHigh, cache.OrbLow, _orb.OrbRange, cache.OrbAtrRatio,
+            cache.OpeningDriveBull ? "Bull" : cache.OpeningDriveBear ? "Bear" : "None");
     }
 
     /// <summary>
@@ -767,7 +769,6 @@ public class OrbStrategyEngine
             // Recompute gross PnL precisely from exit price
             int cts = preTrade.Contracts;
             int remCts = xsig.Contracts;
-            decimal initStop = preTrade.CurrentStop; // best available — pre-trade stop may have been moved to BE
             // Use the entry from preTrade to compute gross PnL for remaining contracts
             decimal pnl = (isLong ? xsig.ExitPrice - preTrade.Entry : preTrade.Entry - xsig.ExitPrice)
                           * PointValueFor(setup) * remCts;
@@ -781,9 +782,8 @@ public class OrbStrategyEngine
             }
             decimal comm  = cts * 2 * _cfg.CommissionPerSide;
             decimal net   = pnl - comm;
-            // InitialStop: for accurate R-multiple we need the original stop, not the
-            // potentially BE-moved stop. We'll approximate with the pre-trade stop.
-            decimal risk  = Math.Abs(preTrade.Entry - preTrade.CurrentStop) * PointValueFor(setup) * cts;
+            decimal initStop = preTrade.InitialStop != 0 ? preTrade.InitialStop : preTrade.CurrentStop;
+            decimal risk  = Math.Abs(preTrade.Entry - initStop) * PointValueFor(setup) * cts;
             decimal rMult = risk > 0 ? pnl / risk : 0;
 
             var trade = new TradeRecord
@@ -793,7 +793,7 @@ public class OrbStrategyEngine
                 Ticker         = _cfg.Ticker,
                 Contracts      = cts,
                 Entry          = preTrade.Entry,
-                InitialStop    = preTrade.CurrentStop,
+                InitialStop    = initStop,
                 Target         = preTrade.Target,
                 Partial        = preTrade.Partial,
                 Exit           = xsig.ExitPrice,
@@ -1261,12 +1261,15 @@ public class OrbStrategyEngine
             OrbStateCacheService.Save(new OrbStateCache
             {
                 TradingDate = bar.Time.Date,
-                Symbol      = _cfg.Ticker,
+                Symbol      = _cfg.Ticker?.TrimStart('/') ?? "",
                 SessionId   = _activeSessionId,
                 OrbHigh     = _orb.OrbHigh,
                 OrbLow      = _orb.OrbLow,
                 CloseRelPct = _orb.CloseRelPct,
                 OrbAtrRatio = _orbAtrRatio,
+                OpeningDriveBull  = _openingDrive.OpeningDriveBull,
+                OpeningDriveBear  = _openingDrive.OpeningDriveBear,
+                DriveRangePctATR  = _openingDrive.DriveRangePctATR,
                 SavedAtUtc  = DateTime.UtcNow
             });
         }

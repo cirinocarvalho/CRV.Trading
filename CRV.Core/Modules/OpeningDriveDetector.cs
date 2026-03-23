@@ -54,35 +54,35 @@ public class OpeningDriveDetector : IEngineModule
     public void FreezeAtOrbClose(decimal orbRange)
     {
         decimal driveRange = _driveHigh - _driveLow;
-        if (driveRange <= 0 || CurrentAtr <= 0) return;
+
+        if (driveRange <= 0 || CurrentAtr <= 0)
+            return;
 
         DriveRangePctATR = orbRange / CurrentAtr;
         bool rangeOk = DriveRangePctATR >= _cfg.DriveRangeAtrMult;
 
-        // Bull drive: more bull bars, close above VWAP, close in upper 30% of drive range
-        bool bullDrive = _bullCount > _bearCount * _cfg.DriveBullBearRatio
-                         && CurrentVwap > 0 && _driveHigh >= CurrentVwap  // close > vwap approximated by driveHigh
-                         && rangeOk;
+        // Adaptive ratio: with large TF bars (e.g. 15-min) and a 30-min ORB window,
+        // only 2–3 bars accumulate.  Requiring bullCount > bearCount * 2 means ALL
+        // bars must be the same direction — too restrictive.  When ≤ 4 bars, relax
+        // to a simple majority (> 50%) so a 2-1 or 3-1 split can still trigger drive.
+        int totalBars = _bullCount + _bearCount;
+        int effectiveRatio = totalBars <= 4 ? 1 : _cfg.DriveBullBearRatio;
 
-        // Bear drive: more bear bars, close below VWAP, close in lower 30% of drive range
-        bool bearDrive = _bearCount > _bullCount * _cfg.DriveBullBearRatio
-                         && CurrentVwap > 0 && _driveLow <= CurrentVwap
-                         && rangeOk;
+        // Bull drive: more bull bars, close above VWAP, range meets ATR threshold
+        bool bullRatio = _bullCount > _bearCount * effectiveRatio;
+        bool bullVwap = CurrentVwap > 0 && _driveHigh >= CurrentVwap;
+        bool bullDrive = bullRatio && bullVwap && rangeOk;
 
-        // For bull: last close should be in upper portion (>= driveLow + 0.7 * driveRange)
-        // For bear: last close should be in lower portion (<= driveLow + 0.3 * driveRange)
-        // We use the drive high/low as proxy since we track the range
+        // Bear drive: more bear bars, close below VWAP, range meets ATR threshold
+        bool bearRatio = _bearCount > _bullCount * effectiveRatio;
+        bool bearVwap = CurrentVwap > 0 && _driveLow <= CurrentVwap;
+        bool bearDrive = bearRatio && bearVwap && rangeOk;
+
         if (bullDrive)
-        {
-            // Check that the closing area is in the upper 30%
-            // driveHigh is always >= driveLow + 0.7 * driveRange (it IS the high)
             OpeningDriveBull = true;
-        }
 
         if (bearDrive)
-        {
             OpeningDriveBear = true;
-        }
 
         OpeningDriveConfirmed = OpeningDriveBull || OpeningDriveBear;
     }
@@ -108,6 +108,15 @@ public class OpeningDriveDetector : IEngineModule
     }
 
     public bool IsPullbackValid => OpeningDriveConfirmed && DrivePullbackPct < _cfg.MaxDrivePullback;
+
+    /// <summary>Restore cached opening drive state after engine restart.</summary>
+    public void Restore(bool bull, bool bear, decimal driveRangePctATR)
+    {
+        OpeningDriveBull = bull;
+        OpeningDriveBear = bear;
+        OpeningDriveConfirmed = bull || bear;
+        DriveRangePctATR = driveRangePctATR;
+    }
 
     public void OnBar(Bar bar, DateTime tradingDate) { }
     public void OnTick(decimal price, DateTime utcTime) { }

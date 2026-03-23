@@ -64,14 +64,48 @@ public class SessionManagerTests
     }
 
     [Fact]
-    public void Validate_RejectsMidnightSpanning()
+    public void Validate_AcceptsMidnightSpanning()
     {
         var sessions = new List<SessionConfig>
         {
-            new() { SessionId = SessionId.Asia, Enabled = true, RthStart = new(22, 0), RthEnd = new(2, 0) }, // spans midnight
+            new() { SessionId = SessionId.Asia, Enabled = true, RthStart = new(22, 0), RthEnd = new(2, 0),
+                    OrbStart = new(22, 0), OrbEnd = new(23, 0) },
         };
         var errors = SessionManager.Validate(sessions);
-        Assert.Contains(errors, e => e.Contains("midnight"));
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void GetActiveSession_MidnightSpanning_BeforeMidnight()
+    {
+        var sessions = new List<SessionConfig>
+        {
+            new() { SessionId = SessionId.Asia, Enabled = true, RthStart = new(19, 0), RthEnd = new(2, 0) },
+        };
+        var mgr = new SessionManager(sessions);
+        Assert.Equal(SessionId.Asia, mgr.GetActiveSession(new(23, 30))?.SessionId);
+    }
+
+    [Fact]
+    public void GetActiveSession_MidnightSpanning_AfterMidnight()
+    {
+        var sessions = new List<SessionConfig>
+        {
+            new() { SessionId = SessionId.Asia, Enabled = true, RthStart = new(19, 0), RthEnd = new(2, 0) },
+        };
+        var mgr = new SessionManager(sessions);
+        Assert.Equal(SessionId.Asia, mgr.GetActiveSession(new(0, 20))?.SessionId);
+    }
+
+    [Fact]
+    public void GetActiveSession_MidnightSpanning_OutsideWindow()
+    {
+        var sessions = new List<SessionConfig>
+        {
+            new() { SessionId = SessionId.Asia, Enabled = true, RthStart = new(19, 0), RthEnd = new(2, 0) },
+        };
+        var mgr = new SessionManager(sessions);
+        Assert.Null(mgr.GetActiveSession(new(15, 0)));
     }
 
     [Fact]

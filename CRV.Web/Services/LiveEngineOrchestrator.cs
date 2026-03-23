@@ -44,6 +44,14 @@ public class LiveEngineOrchestrator : BackgroundService
         return eng?.GetBarHistory(groupKey) ?? new List<CRV.Core.Models.Bar>();
     }
 
+    /// <summary>Get bar history with VWAP for a specific ticker group.</summary>
+    public List<(CRV.Core.Models.Bar Bar, decimal Vwap)> GetBarHistoryWithVwap(string groupKey)
+    {
+        ComposableEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        return eng?.GetBarHistoryWithVwap(groupKey) ?? new List<(CRV.Core.Models.Bar, decimal)>();
+    }
+
     /// <summary>Force-exit a specific setup immediately at current market price.</summary>
     public async Task ForceExitSetup(SetupId setupId)
     {
@@ -522,7 +530,10 @@ public class LiveEngineOrchestrator : BackgroundService
                     await engineLock.WaitAsync(ct);
                     try
                     {
-                        await CheckSessionTransitionAsync(time);
+                        // Use the later of tick time and wall-clock for session transition
+                        // (ticks may queue in the channel and arrive slightly stale)
+                        var tickTransitionTime = time > DateTime.UtcNow ? time : DateTime.UtcNow;
+                        await CheckSessionTransitionAsync(tickTransitionTime);
                         await engine.ProcessPriceTickAsync(price, time, tickTicker);
                     }
                     catch (OperationCanceledException) { break; }
@@ -546,6 +557,7 @@ public class LiveEngineOrchestrator : BackgroundService
             //   1. lastDailyReset is seeded (first streaming bar won't ResetDaily)
             //   2. If a session is active: Reconfigure + ORB cache restore happen now,
             //      so backfill bars build ORB into clean (post-reset) groups.
+            SessionConfig? preInitSession = null; // saved for post-backfill ReseedSessionRange
             //   3. SessionManager._activeSession is seeded so the first streaming bar's
             //      CheckTransition returns None (no redundant reset).
             // We deliberately do NOT call CheckSessionTransitionAsync() here because
@@ -561,6 +573,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
                 // Seed SessionManager + engine with the currently active session (if any)
                 var initSession = sessionMgr.GetActiveSession(initLocalTime);
+                preInitSession = initSession;
                 if (initSession != null)
                 {
                     // Advance SessionManager internal state so CheckTransition returns None
@@ -595,11 +608,13 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
                 else
                 {
-                    // Check if we're past any enabled session's RTH end today.
-                    // If so, the session already ended — set engine idle so the dashboard
-                    // shows "SESSION ENDED" instead of "TRADING" / "IDLE".
-                    bool pastAnySession = sessions.Any(s => s.Enabled && initLocalTime > s.RthEnd);
-                    if (pastAnySession)
+                    // No active session right now.  Check if we're past ALL enabled
+                    // sessions' RTH end today (i.e. the trading day is over).
+                    // The old check used Any(), which incorrectly fired when Asia/London
+                    // had ended but we were in the gap BETWEEN London end and NY start
+                    // (e.g. 08:30–09:30 ET), setting the engine idle and wiping ORB state.
+                    bool pastAllSessions = sessions.Where(s => s.Enabled).All(s => initLocalTime > s.RthEnd);
+                    if (pastAllSessions && sessions.Any(s => s.Enabled))
                     {
                         newEngine.SetIdle();
                         await hub.Clients.All.SendAsync("EngineStatusChanged", "Session Ended");
@@ -626,6 +641,17 @@ public class LiveEngineOrchestrator : BackgroundService
                     totalBackfill += n;
                 }
                 _log.LogInformation("Schwab backfill complete: {Count} bars loaded for warmup.", totalBackfill);
+                // Reset trade counters accumulated during backfill — warmup replays the
+                // entire day (Asia→London→NY) so counters include prior-session trades.
+                // This zeros them so only live trades count. Minor cosmetic issue: trades
+                // that already happened in the current session during backfill show 0.
+                if (totalBackfill > 0) newEngine.ResetWarmupCounters();
+                // Re-seed session range reference after backfill. During pre-init,
+                // OnSessionBoundary ran before backfill when session-engine levels
+                // (London H/L, Asia H/L) were still 0. Now that backfill has populated
+                // them, re-seed so SessionRangeTracker has a valid reference range.
+                if (totalBackfill > 0 && preInitSession != null)
+                    newEngine.ReseedSessionRange(preInitSession.SessionId);
                 // Publish initial snapshot immediately so dashboard shows warmed-up values
                 if (totalBackfill > 0) await _engine.PublishCurrentStateAsync();
             }
@@ -646,8 +672,14 @@ public class LiveEngineOrchestrator : BackgroundService
                 await engineLock.WaitAsync(ct);
                 try
                 {
-                    await CheckSessionTransitionAsync(bar.Time);
-                    if (bar.IsConfirmed && bar.Time < warmupCutoffUtc)
+                    var isWarmup = bar.IsConfirmed && bar.Time < warmupCutoffUtc;
+                    // For live bars use wall-clock time for session transition — bar.Time is the
+                    // bar's OPEN timestamp which can be up to one bar-period stale (e.g. 08:25 for
+                    // an 08:25-08:30 bar), causing entries after the session actually ended.
+                    // For warmup bars use bar.Time so historical replay uses correct timestamps.
+                    var transitionTime = isWarmup ? bar.Time : DateTime.UtcNow;
+                    await CheckSessionTransitionAsync(transitionTime);
+                    if (isWarmup)
                         await _engine.WarmupBarAsync(bar, barTicker, ct);
                     else
                         await _engine.ProcessBarAsync(bar, barTicker, ct);

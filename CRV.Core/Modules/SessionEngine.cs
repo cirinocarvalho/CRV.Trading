@@ -51,7 +51,7 @@ public class SessionEngine : IEngineModule
     public bool AsiaCompressed { get; private set; }
 
     // Current session type
-    public SessionType CurrentSession { get; private set; } = SessionType.PreMarket;
+    public SessionType CurrentSession { get; set; } = SessionType.PreMarket;
 
     // Set externally by engine before calling OnBar
     public decimal CurrentAtr  { get; set; }
@@ -202,7 +202,7 @@ public class SessionEngine : IEngineModule
 
     public SessionType DetectSession(TimeOnly time)
     {
-        // Asia wraps midnight: 18:00-00:00
+        // Asia wraps midnight: 18:00-02:00
         if (time >= _cfg.AsiaStart || time < _cfg.AsiaEnd)
             return SessionType.Asia;
         if (time >= _cfg.LondonStart && time < _cfg.LondonEnd)

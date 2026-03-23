@@ -1,0 +1,85 @@
+@page "/auth/tradestation"
+@model CRV.Web.Pages.Auth.TradeStationModel
+@{
+    ViewData["Title"] = "TradeStation Authentication";
+    ViewData["Page"]  = "ts-auth";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+}
+
+<div class="d-flex align-items-center mb-3 gap-3">
+    <h5 class="mb-0"><i class="bi bi-shield-lock me-2 text-warning"></i>TradeStation Authentication</h5>
+    @if (Model.IsAuthenticated)
+    {
+        <span class="badge bg-success ms-auto"><i class="bi bi-check-circle me-1"></i>Connected</span>
+    }
+    else
+    {
+        <span class="badge bg-warning text-dark ms-auto"><i class="bi bi-exclamation-circle me-1"></i>Not Connected</span>
+    }
+</div>
+
+@if (Model.SuccessMessage is not null)
+{
+    <div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-check-circle-fill"></i>
+        <span>@Model.SuccessMessage</span>
+    </div>
+}
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span>@Model.ErrorMessage</span>
+    </div>
+}
+
+<div class="card" style="max-width:540px">
+    <div class="card-body">
+        @if (Model.IsAuthenticated)
+        {
+            <p class="mb-3">
+                Your TradeStation account is <strong class="text-success">authorized</strong>.
+                Tokens are persisted to the configured token file and refreshed automatically
+                before each request. No action is needed unless you encounter authentication errors.
+            </p>
+            <p class="small text-muted mb-3">
+                TradeStation refresh tokens issued with <code>offline_access</code> scope are
+                long-lived. Re-authenticate below only if the engine reports a token error.
+            </p>
+        }
+        else
+        {
+            <p class="mb-3">
+                CRV Trading needs permission to access your TradeStation account for
+                <strong>live order placement</strong>, <strong>streaming market data</strong>,
+                and <strong>account/position queries</strong>.
+            </p>
+            <p class="small text-muted mb-3">
+                Click the button below to be redirected to TradeStation's secure login page.
+                After you authorize the app, you will be returned here automatically.
+            </p>
+        }
+
+        <a href="?handler=Authorize" class="btn btn-warning fw-bold">
+            <i class="bi bi-box-arrow-up-right me-2"></i>
+            @(Model.IsAuthenticated ? "Re-authenticate with TradeStation" : "Connect with TradeStation")
+        </a>
+    </div>
+    <div class="card-footer small text-muted">
+        <p class="mb-1">
+            <strong>Redirect URI:</strong> Set <code>TradeStation:RedirectUri</code> in
+            <code>appsettings.json</code> and register the exact same URL in your
+            <a href="https://developer.tradestation.com" target="_blank" rel="noopener">TradeStation developer app</a>
+            (e.g. <code>https://127.0.0.1:5001/auth/tradestation</code>).
+        </p>
+        <p class="mb-0">
+            <strong>Scopes requested:</strong>
+            <code>openid profile offline_access MarketData ReadAccount Trade Crypto</code>
+        </p>
+        <p class="mb-0 mt-1">
+            Tokens are stored in the path configured as <code>TradeStation:TokenFile</code>
+            (default: <code>tradestation_tokens.json</code>) — add this file to <code>.gitignore</code>.
+        </p>
+    </div>
+</div>

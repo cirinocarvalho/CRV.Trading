@@ -126,6 +126,18 @@ public class OrbCalculator
         _lastTradingDate  = tradingDate;   // prevent session-reset from wiping restored state
     }
 
+    /// <summary>
+    /// Seed ORB high/low as a floor when restarting inside the ORB window.
+    /// Keeps the ORB in "forming" state — subsequent bars can only expand the range.
+    /// </summary>
+    public void SeedFloor(decimal high, decimal low)
+    {
+        _high   = Math.Max(_high, high);
+        _low    = (_low == decimal.MaxValue) ? low : Math.Min(_low, low);
+        _active = true;   // still forming
+        _isSet  = false;  // not finalized yet
+    }
+
     /// <summary>Update the ORB window times for a new session.</summary>
     public void Reconfigure(TimeOnly orbStart, TimeOnly orbEnd)
     {

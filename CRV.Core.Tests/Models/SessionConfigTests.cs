@@ -49,13 +49,7 @@ public class SessionConfigTests
         TargetPctB        = 100,
         PartialPctB       = 50,
         MinRrB            = 1.5m,
-        // C
-        EnableC              = true,
-        ContractsC           = 2,
-        MaxContractsC        = 2,
-        MaxTradesC           = 4,
-        PartialPctC          = 50,
-        MinRrC               = 1.5m,
+        // Module params
         SweepMinPenetration  = 0.75m,
         SweepMinBodyReject   = 1.50m,
         SweepEqualTolerance  = 2.50m,
@@ -100,19 +94,6 @@ public class SessionConfigTests
                 UseVwap           = false,
                 UseOrbClose       = true,
             },
-            SetupC = new SetupConfigC
-            {
-                Enabled             = true,
-                Contracts           = 2,
-                MaxContracts        = 2,
-                MaxTrades           = 4,
-                PartialPct          = 50,
-                MinRr               = 1.5m,
-                SweepMinPenetration = 0.75m,
-                SweepMinBodyReject  = 1.50m,
-                SweepEqualTolerance = 2.50m,
-                SweepConfirmBars    = 2,
-            },
         };
     }
 
@@ -149,17 +130,6 @@ public class SessionConfigTests
         Assert.Equal(150,     result.TargetPctA);
     }
 
-    [Fact]
-    public void ToLegacyConfig_MapsSetupCSpecificFields()
-    {
-        var session = NySessionFromBase();
-        var global  = BaseGlobal();
-
-        var result = session.ToLegacyConfig(global);
-
-        Assert.Equal(0.75m, result.SweepMinPenetration);
-        Assert.Equal(2,     result.SweepConfirmBars);
-    }
 
     [Fact]
     public void ToLegacyConfig_PreservesGlobalInstrumentFields()
@@ -207,10 +177,6 @@ public class SessionConfigTests
         Assert.Equal(global.UseOrbCloseA, session.SetupA.UseOrbClose);
 
         // Setup C fields
-        Assert.Equal(global.SweepMinPenetration, session.SetupC.SweepMinPenetration);
-        Assert.Equal(global.SweepConfirmBars,    session.SetupC.SweepConfirmBars);
-        Assert.Equal(global.SweepMinBodyReject,  session.SetupC.SweepMinBodyReject);
-        Assert.Equal(global.SweepEqualTolerance, session.SetupC.SweepEqualTolerance);
     }
 
     [Fact]

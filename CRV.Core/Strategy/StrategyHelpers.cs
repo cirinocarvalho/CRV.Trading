@@ -75,7 +75,8 @@ public static class ExitProcessor
         decimal entry, decimal stopLvl, decimal target, decimal partial,
         int contracts, decimal currentPnl, bool partialHit,
         bool usePartial, bool useBE, decimal pointValue,
-        decimal barHigh, decimal barLow)
+        decimal barHigh, decimal barLow,
+        int fixedPartialCts = 0)
     {
         if (!active) return new(false, false, currentPnl, false, partialHit, stopLvl);
 
@@ -83,14 +84,16 @@ public static class ExitProcessor
         decimal newStop = stopLvl;
         bool    newPart = partialHit;
 
-        int half    = (int)Math.Floor(contracts * 0.5);
+        int half    = fixedPartialCts > 0
+            ? Math.Min(fixedPartialCts, contracts - 1)
+            : (int)Math.Floor(contracts * 0.5);
         int partCts = usePartial ? half              : 0;
         int remCts  = usePartial ? contracts - half  : contracts;
 
         bool targetHit = isLong ? barHigh >= target : barLow <= target;
 
-        // Partial
-        if (usePartial && !partialHit && !targetHit)
+        // Partial — only fire when there are actually contracts to partial
+        if (usePartial && !partialHit && !targetHit && half > 0)
         {
             bool partCrossed = isLong ? barHigh >= partial : barLow <= partial;
             if (partCrossed)
@@ -124,10 +127,13 @@ public static class ExitProcessor
 
     public static decimal ForcedExit(
         bool isLong, decimal entry, decimal closePrice,
-        int contracts, bool partialHit, bool usePartial, decimal pointValue)
+        int contracts, bool partialHit, bool usePartial, decimal pointValue,
+        int fixedPartialCts = 0)
     {
-        int half   = (int)Math.Floor(contracts * 0.5);
-        int remCts = (usePartial && partialHit) ? contracts - half : contracts;
+        int half   = fixedPartialCts > 0
+            ? Math.Min(fixedPartialCts, contracts - 1)
+            : (int)Math.Floor(contracts * 0.5);
+        int remCts = (usePartial && partialHit && half > 0) ? contracts - half : contracts;
         return (isLong ? closePrice - entry : entry - closePrice) * pointValue * remCts;
     }
 }

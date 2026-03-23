@@ -83,7 +83,12 @@ public class ComposableEngine
     /// </summary>
     public async Task ProcessBarAsync(Bar bar, string ticker, CancellationToken ct = default)
     {
-        if (_idle) return;
+        if (_idle)
+        {
+            // Still publish snapshot so dashboard shows live prices during idle
+            await PublishSnapshotInternal();
+            return;
+        }
 
         var groupKey = TickerGroup.GetGroupKey(ticker);
         if (!_groups.TryGetValue(groupKey, out var group)) return;
@@ -126,7 +131,7 @@ public class ComposableEngine
     /// </summary>
     public async Task ProcessPriceTickAsync(decimal price, DateTime utcTime, string ticker)
     {
-        if (_idle) return;
+        if (_idle) return;  // prices still update via ILastPriceProvider (bar feed level)
         if (!_tickModeEnabled) return;
         if (price <= 0) return;
         if (Risk.DdBreached) return;
@@ -225,6 +230,18 @@ public class ComposableEngine
     /// </summary>
     public void SetActiveSessionId(string sessionId) => _activeSessionId = sessionId;
 
+    /// <summary>
+    /// Reset only trade counters on all strategies. Call after warmup completes
+    /// so per-setup [N/Max] counts reflect the current session, not accumulated
+    /// warmup trades from prior sessions. Preserves arm state and sticky signals.
+    /// </summary>
+    public void ResetWarmupCounters()
+    {
+        foreach (var strategy in _strategies.Values)
+            strategy.ResetTradeCounters();
+        Risk.ResetDay();
+    }
+
     /// <summary>Enable tick-based entry/exit evaluation.</summary>
     public void EnableTickMode() => _tickModeEnabled = true;
 
@@ -247,7 +264,7 @@ public class ComposableEngine
         }
 
         foreach (var (setupId, strategy) in _strategies)
-            strategy.Reset();
+            strategy.ResetSession();
 
         _idle = false;
     }
@@ -296,7 +313,7 @@ public class ComposableEngine
         if (strategy.IsActive)
         {
             var preTrade = strategy.GetActiveTrade(px);
-            strategy.ForceExit(px, DateTime.UtcNow);
+            strategy.ForceExit(px, DateTime.UtcNow, ExitReason.Manual);
 
             // Collect and route the exit signal
             if (strategy.PendingExit is { } xsig)
@@ -320,6 +337,13 @@ public class ComposableEngine
 
         foreach (var (setupId, strategy) in _strategies)
         {
+            // Clear armed strategies — they must not fire entries after session end
+            if (strategy.IsArmed && !strategy.IsActive)
+            {
+                strategy.ResetSession();
+                continue;
+            }
+
             if (!strategy.IsActive) continue;
 
             // Use per-setup ticker so multi-instrument setups get the right price
@@ -378,17 +402,20 @@ public class ComposableEngine
         var groupSnapshots = new Dictionary<string, TickerGroupSnapshot>();
         foreach (var (key, group) in _groups)
         {
-            var gs = group.BuildGroupSnapshot();
-            // Find a representative ticker for this group from registered strategies
+            // Find the representative ticker to get live price
+            string? repTicker = null;
             foreach (var (setupId, gk) in _setupToGroupKey)
             {
                 if (gk == key && _strategies.TryGetValue(setupId, out var strat)
                     && !string.IsNullOrEmpty(strat.Ticker))
                 {
-                    gs.Ticker = strat.Ticker.TrimStart('/');
+                    repTicker = strat.Ticker;
                     break;
                 }
             }
+            var livePrice = repTicker != null ? _prices.GetLastPrice(repTicker) : 0m;
+            var gs = group.BuildGroupSnapshot(livePrice);
+            if (repTicker != null) gs.Ticker = repTicker.TrimStart('/');
             groupSnapshots[key] = gs;
         }
 
@@ -456,6 +483,14 @@ public class ComposableEngine
         return new List<Bar>();
     }
 
+    /// <summary>Get bar history with VWAP for a specific ticker group.</summary>
+    public List<(Bar Bar, decimal Vwap)> GetBarHistoryWithVwap(string groupKey)
+    {
+        if (_groups.TryGetValue(groupKey, out var group))
+            return group.GetBarHistoryWithVwap();
+        return new List<(Bar, decimal)>();
+    }
+
     /// <summary>Get active trade view for a specific setup, or null.</summary>
     public ActiveTradeView? GetActiveTrade(SetupId setupId)
     {
@@ -482,12 +517,14 @@ public class ComposableEngine
     {
         var groupKey = TickerGroup.GetGroupKey(cache.Symbol);
         if (_groups.TryGetValue(groupKey, out var group))
-            group.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio);
+            group.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio,
+                cache.OpeningDriveBull, cache.OpeningDriveBear, cache.DriveRangePctATR);
         else
         {
             // Fallback: apply to all groups (backward compat — single-ticker setups)
             foreach (var g in _groups.Values)
-                g.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio);
+                g.RestoreOrb(cache.OrbHigh, cache.OrbLow, cache.CloseRelPct, cache.TradingDate, cache.OrbAtrRatio,
+                    cache.OpeningDriveBull, cache.OpeningDriveBear, cache.DriveRangePctATR);
         }
     }
 
@@ -496,11 +533,11 @@ public class ComposableEngine
     {
         var groupKey = TickerGroup.GetGroupKey(cache.Symbol);
         if (_groups.TryGetValue(groupKey, out var group))
-            group.SeedOrbFloor(cache.OrbHigh, cache.OrbLow);
+            group.SeedOrbFloor(cache.OrbHigh, cache.OrbLow, cache.TradingDate);
         else
         {
             foreach (var g in _groups.Values)
-                g.SeedOrbFloor(cache.OrbHigh, cache.OrbLow);
+                g.SeedOrbFloor(cache.OrbHigh, cache.OrbLow, cache.TradingDate);
         }
     }
 
@@ -522,6 +559,18 @@ public class ComposableEngine
     {
         foreach (var group in _groups.Values)
             group.SeedModuleHistory(dailyBars);
+    }
+
+    /// <summary>
+    /// Re-seed session range reference on each TickerGroup after backfill.
+    /// During pre-init, OnSessionBoundary runs before backfill so session-engine
+    /// levels (London H/L, Asia H/L) are still 0. After backfill populates them,
+    /// call this to set the FalseBreakout SessionRangeTracker reference range.
+    /// </summary>
+    public void ReseedSessionRange(SessionId sessionId)
+    {
+        foreach (var group in _groups.Values)
+            group.OnSessionBoundary(sessionId);
     }
 
     // ── Private helpers ─────────────────────────────────────────────

@@ -72,6 +72,8 @@ public interface ISetupStrategy
     string Name { get; }
     bool IsActive { get; }
     bool IsArmed { get; }
+    int CutoffHour { get; }
+    int CutoffMinute { get; }
 
     /// <summary>The ticker symbol this setup trades (may differ from global config for multi-instrument).</summary>
     string Ticker { get; }
@@ -88,14 +90,36 @@ public interface ISetupStrategy
     /// <summary>Reconfigure for new session or settings change.</summary>
     void Reconfigure(StrategySetupConfig config);
 
-    /// <summary>Reset all state for new trading day/session.</summary>
+    /// <summary>Reset all state for new trading day (clears trade counts, P&amp;L stats).</summary>
     void Reset();
+
+    /// <summary>
+    /// Reset for intra-day session transition.
+    /// Clears trade state (arm, entry, stops) and per-session counters (trade count,
+    /// direction-traded flags) but preserves daily P&amp;L stats (wins, losses, winPnl, lossPnl).
+    /// </summary>
+    void ResetSession();
+
+    /// <summary>
+    /// Reset only trade counters and P&amp;L stats accumulated during warmup.
+    /// Preserves arm state, sticky signals, and other strategy logic state so the
+    /// dashboard shows correct Armed/Idle badges immediately after warmup completes.
+    /// </summary>
+    void ResetTradeCounters();
 
     // ── Pending signals (consumed by engine after OnBar/OnTick) ──
     EntrySignal? PendingEntry { get; }
     ExitSignal? PendingExit { get; }
     PartialSignal? PendingPartial { get; }
     BESignal? PendingBE { get; }
+
+    /// <summary>
+    /// Snapshot of the active trade captured just before BookExit resets state.
+    /// Used by RouteSignalsAsync to build the TradeRecord, since GetActiveTrade
+    /// returns null after the strategy has already transitioned to idle.
+    /// Cleared by ClearPendingSignals.
+    /// </summary>
+    ActiveTradeView? PreExitTrade { get; }
 
     /// <summary>Adjust levels after broker reports actual fill price.</summary>
     void ApplyFill(decimal actualFillPrice);
@@ -108,6 +132,12 @@ public interface ISetupStrategy
 
     /// <summary>Request force exit of active trade.</summary>
     void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd);
+
+    /// <summary>
+    /// Disarm the strategy (reset to idle) without affecting trade counters or P&amp;L.
+    /// Used when per-setup cutoff is reached to clear stale armed/waiting states.
+    /// </summary>
+    void Disarm();
 
     /// <summary>Snapshot for dashboard display.</summary>
     SetupStateSnapshot GetSnapshot();

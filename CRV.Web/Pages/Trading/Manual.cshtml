@@ -1,0 +1,788 @@
+@page "/trading/manual"
+@model CRV.Web.Pages.Trading.ManualModel
+@{
+    ViewData["Title"] = "Manual Trade";
+    ViewData["Page"]  = "manual-trade";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    // Determine which mode class to pre-show on server render (after a POST with errors)
+    var mode      = Model.Order.InputMode;   // "Points" | "Dollars" | "Price"
+    var modeCls   = mode == "Dollars" ? "usd" : mode == "Price" ? "price" : "pts";
+}
+
+<div class="d-flex align-items-center mb-3 gap-3">
+    <h5 class="mb-0"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Manual Trade</h5>
+    <span class="badge bg-dark border border-secondary ms-auto font-monospace">
+        Broker: <strong class="text-warning">@Model.CurrentBroker</strong>
+    </span>
+</div>
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="alert alert-danger" role="alert">
+        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>Errors</strong>
+        <ul class="mb-0 mt-1">
+            @foreach (var e in Model.Errors) { <li>@e</li> }
+        </ul>
+    </div>
+}
+
+@if (Model.Placed.Count > 0)
+{
+    <div class="alert alert-success" role="alert">
+        <strong><i class="bi bi-check-circle-fill me-1"></i>Orders Placed</strong>
+        <ul class="mb-0 mt-1 font-monospace small">
+            @foreach (var p in Model.Placed) { <li>@p</li> }
+        </ul>
+    </div>
+}
+
+<form method="post" class="row g-3" id="form-place-order">
+
+<!-- ── Left: Instrument + Direction ─────────────────────────── -->
+<div class="col-12 col-md-6 col-xl-4">
+    <div class="settings-section">
+        <h6><i class="bi bi-currency-dollar me-1"></i>Instrument</h6>
+
+        <!-- Grouped instrument selector -->
+        <div class="mb-2">
+            <label class="form-label small">Instrument</label>
+            <select id="m-instr-select" class="form-select form-select-sm" onchange="mInstrChange()">
+                <optgroup label="Mini">
+                    <option value="NQ">NQ  — E-mini Nasdaq-100</option>
+                    <option value="ES">ES  — E-mini S&amp;P 500</option>
+                    <option value="YM">YM  — E-mini Dow Jones</option>
+                    <option value="RTY">RTY — E-mini Russell 2000</option>
+                    <option value="GC">GC  — Gold</option>
+                    <option value="CL">CL  — Crude Oil</option>
+                    <option value="BTC">BTC — Bitcoin</option>
+                </optgroup>
+                <optgroup label="Micro">
+                    <option value="MNQ">MNQ — Micro Nasdaq-100</option>
+                    <option value="MES">MES — Micro S&amp;P 500</option>
+                    <option value="MYM">MYM — Micro Dow Jones</option>
+                    <option value="M2K">M2K — Micro Russell 2000</option>
+                    <option value="MGC">MGC — Micro Gold</option>
+                    <option value="MCL">MCL — Micro Crude Oil</option>
+                    <option value="MBT">MBT — Micro Bitcoin</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <!-- Active contract display -->
+        <div class="mb-3">
+            <label class="form-label small">Active Contract</label>
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
+                <input id="m-contract-display" class="form-control font-monospace fw-bold" readonly />
+                <span class="input-group-text text-muted small" id="m-pv-label">—</span>
+            </div>
+            <input type="hidden" name="Order.Ticker"     id="m-ticker-hidden"   value="@Model.Order.Ticker" />
+            <input type="hidden" name="Order.PointValue" id="m-pv-hidden"       value="@Model.Order.PointValue" />
+        </div>
+
+        <h6 class="mt-3"><i class="bi bi-arrows-expand me-1"></i>Direction</h6>
+        <div class="d-flex gap-2 mb-2">
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="Order.Direction" id="dir-long"
+                       value="Long" checked="@(Model.Order.Direction == "Long")" />
+                <label class="form-check-label text-success fw-bold" for="dir-long">▲ LONG</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="Order.Direction" id="dir-short"
+                       value="Short" checked="@(Model.Order.Direction == "Short")" />
+                <label class="form-check-label text-danger fw-bold" for="dir-short">▼ SHORT</label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Middle: Order Parameters ─────────────────────────────── -->
+<div class="col-12 col-md-6 col-xl-4">
+    <div class="settings-section">
+        <h6><i class="bi bi-pencil-square me-1"></i>Order Parameters</h6>
+
+        <!-- Input mode selector -->
+        <div class="mb-3">
+            <label class="form-label small">Input Mode</label>
+            <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Input mode">
+                <input type="radio" class="btn-check" name="Order.InputMode" id="mode-pts"
+                       value="Points"  autocomplete="off" @(mode == "Points"  ? "checked" : "") />
+                <label class="btn btn-outline-secondary" for="mode-pts">
+                    <i class="bi bi-rulers me-1"></i>Points
+                </label>
+
+                <input type="radio" class="btn-check" name="Order.InputMode" id="mode-usd"
+                       value="Dollars" autocomplete="off" @(mode == "Dollars" ? "checked" : "") />
+                <label class="btn btn-outline-secondary" for="mode-usd">
+                    <i class="bi bi-currency-dollar me-1"></i>Dollars
+                </label>
+
+                <input type="radio" class="btn-check" name="Order.InputMode" id="mode-price"
+                       value="Price"   autocomplete="off" @(mode == "Price"   ? "checked" : "") />
+                <label class="btn btn-outline-secondary" for="mode-price">
+                    <i class="bi bi-pin-map me-1"></i>Price Level
+                </label>
+            </div>
+        </div>
+
+        <!-- Entry price — always shown -->
+        <div class="mb-2">
+            <label class="form-label small">Entry Price</label>
+            <input name="Order.EntryPrice" id="m-entry" type="number" step="0.25"
+                   value="@Model.Order.EntryPrice" class="form-control form-control-sm font-monospace"
+                   placeholder="e.g. 21500.00" oninput="updatePreview()" />
+        </div>
+
+        <!-- Contracts — always shown -->
+        <div class="mb-2">
+            <label class="form-label small">Contracts</label>
+            <input name="Order.Contracts" id="m-contracts" type="number" min="1" max="50"
+                   value="@Model.Order.Contracts" class="form-control form-control-sm"
+                   oninput="updatePreview()" />
+        </div>
+
+        <!-- ── Stop & Target — POINTS mode ───────────────────── -->
+        <div class="row g-2 mb-2 mode-row mode-pts @(modeCls != "pts" ? "d-none" : "")">
+            <div class="col-6">
+                <label class="form-label small">Stop Distance (pts)</label>
+                <input name="Order.StopPoints" id="m-stop-pts" type="number" step="0.25" min="0"
+                       value="@Model.Order.StopPoints" class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 20" oninput="updatePreview()" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Target Distance (pts)</label>
+                <input name="Order.TargetPoints" id="m-target-pts" type="number" step="0.25" min="0"
+                       value="@Model.Order.TargetPoints" class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 40" oninput="updatePreview()" />
+            </div>
+        </div>
+
+        <!-- ── Stop & Target — DOLLARS mode ──────────────────── -->
+        <div class="row g-2 mb-2 mode-row mode-usd @(modeCls != "usd" ? "d-none" : "")">
+            <div class="col-6">
+                <label class="form-label small">Stop Risk ($)</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text text-danger">$</span>
+                    <input name="Order.StopDollars" id="m-stop-usd" type="number" step="1" min="0"
+                           value="@(Model.Order.StopDollars > 0 ? Model.Order.StopDollars : "")"
+                           class="form-control font-monospace"
+                           placeholder="e.g. 200" oninput="updatePreview()" />
+                </div>
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Target Profit ($)</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text text-success">$</span>
+                    <input name="Order.TargetDollars" id="m-target-usd" type="number" step="1" min="0"
+                           value="@(Model.Order.TargetDollars > 0 ? Model.Order.TargetDollars : "")"
+                           class="form-control font-monospace"
+                           placeholder="e.g. 1000" oninput="updatePreview()" />
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Stop & Target — PRICE mode ────────────────────── -->
+        <div class="row g-2 mb-2 mode-row mode-price @(modeCls != "price" ? "d-none" : "")">
+            <div class="col-6">
+                <label class="form-label small">Stop Price</label>
+                <input name="Order.StopPrice" id="m-stop-price" type="number" step="0.25" min="0"
+                       value="@(Model.Order.StopPrice > 0 ? Model.Order.StopPrice : "")"
+                       class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 21400" oninput="updatePreview()" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Target Price</label>
+                <input name="Order.TargetPrice" id="m-target-price" type="number" step="0.25" min="0"
+                       value="@(Model.Order.TargetPrice > 0 ? Model.Order.TargetPrice : "")"
+                       class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 21700" oninput="updatePreview()" />
+            </div>
+        </div>
+
+        <!-- ── Partial exit toggle ────────────────────────────── -->
+        <div class="form-check mb-2">
+            <input type="hidden" name="Order.UsePartial" value="false" />
+            <input class="form-check-input" type="checkbox" name="Order.UsePartial" value="true"
+                   id="chk-partial" @(Model.Order.UsePartial ? "checked" : "")
+                   onchange="togglePartial(this.checked)" />
+            <label class="form-check-label small fw-bold" for="chk-partial">Partial Exit (2 OCO brackets)</label>
+        </div>
+
+        <div id="partial-section" class="@(Model.Order.UsePartial ? "" : "d-none")">
+            <!-- Partial contracts — always shown inside partial section -->
+            <div class="mb-2">
+                <label class="form-label small">Partial Contracts</label>
+                <input name="Order.PartialContracts" id="m-partial-cts" type="number" min="1"
+                       value="@Model.Order.PartialContracts" class="form-control form-control-sm"
+                       oninput="updatePreview()" />
+            </div>
+
+            <!-- Partial distance — POINTS mode -->
+            <div class="mode-row mode-pts @(modeCls != "pts" ? "d-none" : "")">
+                <label class="form-label small">Partial At (pts)</label>
+                <input name="Order.PartialPoints" id="m-partial-pts" type="number" step="0.25" min="0"
+                       value="@Model.Order.PartialPoints" class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 20" oninput="updatePreview()" />
+            </div>
+
+            <!-- Partial distance — DOLLARS mode -->
+            <div class="mode-row mode-usd @(modeCls != "usd" ? "d-none" : "")">
+                <label class="form-label small">Partial Target Profit ($)</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text text-warning">$</span>
+                    <input name="Order.PartialDollars" id="m-partial-usd" type="number" step="1" min="0"
+                           value="@(Model.Order.PartialDollars > 0 ? Model.Order.PartialDollars : "")"
+                           class="form-control font-monospace"
+                           placeholder="e.g. 300" oninput="updatePreview()" />
+                </div>
+            </div>
+
+            <!-- Partial distance — PRICE mode -->
+            <div class="mode-row mode-price @(modeCls != "price" ? "d-none" : "")">
+                <label class="form-label small">Partial Target Price</label>
+                <input name="Order.PartialPrice" id="m-partial-price" type="number" step="0.25" min="0"
+                       value="@(Model.Order.PartialPrice > 0 ? Model.Order.PartialPrice : "")"
+                       class="form-control form-control-sm font-monospace"
+                       placeholder="e.g. 21600" oninput="updatePreview()" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Right: Price Preview + Submit ────────────────────────── -->
+<div class="col-12 col-xl-4">
+    <div class="settings-section">
+        <h6><i class="bi bi-calculator me-1"></i>Order Preview</h6>
+        <table class="table table-sm table-borderless mb-3 trade-table font-monospace" id="preview-table">
+            <tbody>
+                <tr><td class="text-muted">Direction</td><td id="pv-dir">—</td></tr>
+                <tr><td class="text-muted">Entry</td><td id="pv-entry">—</td></tr>
+                <tr class="pv-stop">
+                    <td class="pv-lbl">Stop</td>
+                    <td id="pv-stop">—</td>
+                </tr>
+                <tr id="pv-partial-row" class="pv-partial d-none">
+                    <td class="pv-lbl">Partial Target<br/><small id="pv-partial-cts-label"></small></td>
+                    <td id="pv-partial">—</td>
+                </tr>
+                <tr class="pv-target">
+                    <td class="pv-lbl">Full Target<br/><small id="pv-remaining-label"></small></td>
+                    <td id="pv-target">—</td>
+                </tr>
+                <tr><td class="text-muted">Stop Distance</td><td id="pv-stop-pts">—</td></tr>
+                <tr><td class="text-muted">Target Distance</td><td id="pv-tgt-pts">—</td></tr>
+                <tr><td class="text-muted">Risk / Reward</td><td id="pv-rr">—</td></tr>
+                <tr><td class="text-muted">Max Risk ($)</td><td id="pv-risk-usd">—</td></tr>
+                <tr><td class="text-muted">Max Reward ($)</td><td id="pv-reward-usd">—</td></tr>
+            </tbody>
+        </table>
+
+        <button type="button" class="btn btn-warning w-100 fw-bold" onclick="confirmPlaceOrder()">
+            <i class="bi bi-send-fill me-2"></i>Place Order(s)
+        </button>
+        <div class="small text-muted mt-2 text-center">
+            Orders are sent directly to the active broker.
+            Verify prices in your broker platform before trading.
+        </div>
+    </div>
+</div>
+
+</form>
+
+<!-- ══ Live Positions ═════════════════════════════════════════════════════ -->
+<div class="row g-3 mt-1">
+<div class="col-12">
+    <div class="settings-section">
+        <div class="d-flex align-items-center mb-2 gap-2">
+            <h6 class="mb-0"><i class="bi bi-bar-chart-fill me-1 text-info"></i>Live Futures Positions</h6>
+            <span class="badge bg-secondary ms-2" id="pos-last-updated">—</span>
+            <div class="form-check form-switch ms-3 mb-0">
+                <input class="form-check-input" type="checkbox" id="pos-auto" checked />
+                <label class="form-check-label small" for="pos-auto">Auto-refresh</label>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="loadPositions()">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+            </button>
+        </div>
+
+        <div id="pos-error" class="alert alert-danger d-none small py-1 mb-2"></div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Direction</th>
+                        <th class="text-end">Qty</th>
+                        <th class="text-end">Avg Price</th>
+                        <th class="text-end">Unrealized P&amp;L</th>
+                        <th class="text-end">Day P&amp;L</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="pos-tbody">
+                    <tr><td colspan="7" class="text-center text-muted small py-3">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- Hidden form used by position Flat buttons (JS populates it) -->
+<form id="pos-flat-form" method="post" class="d-none">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="symbol"    id="pos-flat-symbol" />
+    <input type="hidden" name="contracts" id="pos-flat-contracts" />
+    <input type="hidden" name="isLong"    id="pos-flat-islong" />
+</form>
+
+<!-- ══ Manage Position ════════════════════════════════════════════════════ -->
+<div class="row g-3 mt-1">
+<div class="col-12">
+    <div class="settings-section border-danger">
+        <h6 class="text-danger"><i class="bi bi-exclamation-octagon-fill me-1"></i>Manage Position</h6>
+        <p class="small text-muted mb-3">
+            These actions operate on the <strong class="font-monospace text-warning">@Model.CurrentTicker</strong>
+            account configured for <strong class="text-warning">@Model.CurrentBroker</strong>.
+            They are independent of the automated engine.
+        </p>
+
+        <div class="row g-3">
+
+            <!-- ── Cancel All Open Orders ─────────────────────── -->
+            <div class="col-12 col-md-6">
+                <div class="border border-warning rounded p-3 h-100">
+                    <h6><i class="bi bi-x-circle me-1 text-warning"></i>Cancel All Open Orders</h6>
+                    <p class="small text-muted mb-3">
+                        Cancels every pending order for <span class="font-monospace">@Model.CurrentTicker</span>
+                        on the broker — bracket legs, limit entries, stops.
+                        Does <em>not</em> close an already-filled position.
+                    </p>
+                    <form method="post" asp-page-handler="CancelAll" class="d-grid" id="form-cancel-all">
+                        @Html.AntiForgeryToken()
+                        <button type="button" class="btn btn-outline-warning fw-bold" onclick="confirmCancelAll()">
+                            <i class="bi bi-x-circle-fill me-2"></i>Cancel All Open Orders
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ── Flat Position at Market ───────────────────── -->
+            <div class="col-12 col-md-6">
+                <div class="border border-danger rounded p-3 h-100">
+                    <h6><i class="bi bi-dash-square me-1 text-danger"></i>Flat Position at Market</h6>
+                    <p class="small text-muted mb-2">
+                        Sends a market order to close an existing filled position immediately.
+                        Select the direction <em>you are currently in</em>.
+                    </p>
+                    <form method="post" asp-page-handler="Flat" id="form-flat">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-2">
+                            <label class="form-label small">Current Position Direction</label>
+                            <div class="d-flex gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio"
+                                           name="Flat.Direction" id="flat-long" value="Long" checked />
+                                    <label class="form-check-label text-success fw-bold" for="flat-long">▲ Long</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio"
+                                           name="Flat.Direction" id="flat-short" value="Short" />
+                                    <label class="form-check-label text-danger fw-bold" for="flat-short">▼ Short</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small">Contracts to Close</label>
+                            <input name="Flat.Contracts" type="number" min="1" max="100"
+                                   value="@Model.Flat.Contracts"
+                                   class="form-control form-control-sm" style="max-width:120px" />
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="button" class="btn btn-danger fw-bold"
+                                    onclick="confirmFlat()">
+                                <i class="bi bi-dash-square-fill me-2"></i>Flat at Market
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </div><!-- /row -->
+    </div>
+</div>
+</div><!-- /manage row -->
+
+<!-- ══ Confirmation Modal ═══════════════════════════════════════════════ -->
+<div class="modal fade" id="confirmModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title" id="confirmModal-title">Confirm</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body font-monospace small" id="confirmModal-body"></div>
+            <div class="modal-footer border-secondary py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm" id="confirmModal-ok">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="~/js/crv-instruments.js" asp-append-version="true"></script>
+<script>
+// ── Confirmation modal helper ────────────────────────────────
+const _modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+function showConfirm(title, bodyHtml, btnClass, onConfirm) {
+    document.getElementById('confirmModal-title').textContent = title;
+    document.getElementById('confirmModal-body').innerHTML    = bodyHtml;
+    const okBtn = document.getElementById('confirmModal-ok');
+    okBtn.className = 'btn btn-sm ' + (btnClass || 'btn-warning');
+    okBtn.textContent = 'Confirm';
+    // Clone to remove old listeners
+    const fresh = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(fresh, okBtn);
+    fresh.addEventListener('click', () => { _modal.hide(); onConfirm(); });
+    _modal.show();
+}
+
+// ── Fetch last price from engine ──────────────────────────────
+async function fetchLastPrice(ticker) {
+    try {
+        const r = await fetch('/api/engine/price/' + encodeURIComponent(ticker));
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.price > 0) {
+            document.getElementById('m-entry').value = d.price.toFixed(2);
+            updatePreview();
+        }
+    } catch { /* ignore — entry stays empty */ }
+}
+
+// ── Instrument selector ───────────────────────────────────────
+function mInstrChange() {
+    const base = document.getElementById('m-instr-select').value;
+    const info = window.CRV_findInstrument(base);
+    if (!info) return;
+    const ticker = window.CRV_activeContract(base);
+    document.getElementById('m-contract-display').value = ticker;
+    document.getElementById('m-ticker-hidden').value    = ticker;
+    document.getElementById('m-pv-hidden').value        = info.pointValue;
+    document.getElementById('m-pv-label').textContent   = '$' + info.pointValue + '/pt';
+    fetchLastPrice(ticker);
+    updatePreview();
+}
+
+// Initialise from current ticker
+(function () {
+    const ticker = document.getElementById('m-ticker-hidden').value;
+    const base   = window.CRV_parseBase(ticker);
+    const sel    = document.getElementById('m-instr-select');
+    if (base) sel.value = base;
+    mInstrChange();   // computes & sets the current front-month contract + fetches last price
+})();
+
+// ── Input mode toggle ─────────────────────────────────────────
+function setMode(slug) {
+    // slug is one of: 'pts', 'usd', 'price'
+    document.querySelectorAll('.mode-row').forEach(el => {
+        const match = el.classList.contains('mode-' + slug);
+        el.classList.toggle('d-none', !match);
+    });
+    updatePreview();
+}
+
+document.querySelectorAll('input[name="Order.InputMode"]').forEach(r =>
+    r.addEventListener('change', () => {
+        const slug = r.value === 'Dollars' ? 'usd' : r.value === 'Price' ? 'price' : 'pts';
+        setMode(slug);
+    })
+);
+
+// ── Partial toggle ────────────────────────────────────────────
+function togglePartial(on) {
+    document.getElementById('partial-section').classList.toggle('d-none', !on);
+    updatePreview();
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function getDir()  { return document.getElementById('dir-long')?.checked ? 'Long' : 'Short'; }
+function getMode() {
+    const r = document.querySelector('input[name="Order.InputMode"]:checked');
+    return r ? r.value : 'Points';   // "Points" | "Dollars" | "Price"
+}
+function fv(id)    { return parseFloat(document.getElementById(id)?.value) || 0; }
+function iv(id)    { return parseInt(document.getElementById(id)?.value)   || 0; }
+
+// ── Price preview ─────────────────────────────────────────────
+function updatePreview() {
+    const mode       = getMode();
+    const dir        = getDir();
+    const isLong     = dir === 'Long';
+    const entry      = fv('m-entry');
+    const contracts  = iv('m-contracts') || 1;
+    const pointValue = fv('m-pv-hidden') || 20;
+    const usePartial = document.getElementById('chk-partial')?.checked;
+    const partCts    = iv('m-partial-cts') || 1;
+    const remCts     = Math.max(1, contracts - partCts);
+
+    // Derive stop / target / partial distances in POINTS from the active mode
+    let stopPts, tgtPts, partPts;
+
+    if (mode === 'Dollars') {
+        const pvAll  = pointValue * contracts;
+        const pvRem  = pointValue * remCts;
+        const pvPart = pointValue * partCts;
+        stopPts = pvAll  > 0 ? fv('m-stop-usd')    / pvAll                          : 0;
+        tgtPts  = (usePartial ? pvRem : pvAll) > 0
+                    ? fv('m-target-usd') / (usePartial ? pvRem : pvAll)              : 0;
+        partPts = pvPart > 0 ? fv('m-partial-usd') / pvPart                         : 0;
+    } else if (mode === 'Price') {
+        const sp = fv('m-stop-price');
+        const tp = fv('m-target-price');
+        const pp = fv('m-partial-price');
+        stopPts = entry > 0 && sp > 0 ? (isLong ? entry - sp : sp - entry)          : 0;
+        tgtPts  = entry > 0 && tp > 0 ? (isLong ? tp - entry : entry - tp)          : 0;
+        partPts = entry > 0 && pp > 0 ? (isLong ? pp - entry : entry - pp)          : 0;
+    } else {
+        // Points mode
+        stopPts = fv('m-stop-pts');
+        tgtPts  = fv('m-target-pts');
+        partPts = fv('m-partial-pts');
+    }
+
+    // Compute absolute price levels for display
+    const stop   = entry > 0 && stopPts > 0 ? (isLong ? entry - stopPts : entry + stopPts) : null;
+    const target = entry > 0 && tgtPts  > 0 ? (isLong ? entry + tgtPts  : entry - tgtPts)  : null;
+    const part   = entry > 0 && partPts > 0 ? (isLong ? entry + partPts : entry - partPts) : null;
+
+    const rr = stopPts > 0 && tgtPts > 0 ? (tgtPts / stopPts).toFixed(2) : null;
+
+    // Dollar amounts
+    const riskUsd   = stopPts > 0 ? (stopPts * pointValue * contracts).toFixed(0) : null;
+    // Reward = partial slice + runner slice (or full if no partial)
+    let rewardUsd = null;
+    if (tgtPts > 0) {
+        const runnerCts = usePartial ? remCts : contracts;
+        let total = tgtPts * pointValue * runnerCts;
+        if (usePartial && partPts > 0) total += partPts * pointValue * partCts;
+        rewardUsd = total.toFixed(0);
+    }
+
+    function set(id, val, cls) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = val ?? '—';
+        if (cls !== undefined) el.className = cls;
+    }
+
+    set('pv-dir',      dir,  isLong ? 'pnl-pos fw-bold' : 'pnl-neg fw-bold');
+    set('pv-entry',    entry    > 0 ? entry.toFixed(2)                : null);
+    set('pv-stop',     stop    != null ? stop.toFixed(2)              : null);
+    set('pv-stop-pts', stopPts > 0 ? stopPts.toFixed(2) + ' pts'     : null);
+    set('pv-tgt-pts',  tgtPts  > 0 ? tgtPts.toFixed(2)  + ' pts'     : null);
+    set('pv-target',   target  != null
+        ? target.toFixed(2) + (usePartial ? ` (${remCts} cts)` : ` (${contracts} cts)`)
+        : null);
+    set('pv-rr',       rr ? `1 : ${rr}` : null);
+    set('pv-risk-usd',   riskUsd   ? `$${Number(riskUsd).toLocaleString()}`   : null);
+    set('pv-reward-usd', rewardUsd ? `$${Number(rewardUsd).toLocaleString()}` : null);
+
+    const partRow = document.getElementById('pv-partial-row');
+    if (partRow) partRow.classList.toggle('d-none', !usePartial);
+
+    if (usePartial) {
+        set('pv-partial', part != null ? part.toFixed(2) + ` (${partCts} cts)` : null);
+        const lbl = document.getElementById('pv-partial-cts-label');
+        if (lbl) lbl.textContent = remCts > 0 ? `${remCts} cts continue to full target` : '';
+    }
+}
+
+// Wire direction radios
+document.querySelectorAll('input[name="Order.Direction"]').forEach(r =>
+    r.addEventListener('change', updatePreview));
+
+updatePreview();
+
+// ── Live Positions ────────────────────────────────────────────
+let _posTimer = null;
+
+function loadPositions() {
+    fetch('?handler=Positions')
+        .then(r => r.json())
+        .then(data => renderPositions(data))
+        .catch(err => {
+            document.getElementById('pos-error').textContent = 'Load error: ' + err;
+            document.getElementById('pos-error').classList.remove('d-none');
+        });
+}
+
+function renderPositions(data) {
+    const tbody = document.getElementById('pos-tbody');
+    const errEl = document.getElementById('pos-error');
+    errEl.classList.add('d-none');
+
+    if (data.error) {
+        errEl.textContent = data.error;
+        errEl.classList.remove('d-none');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">Error loading positions.</td></tr>';
+        return;
+    }
+
+    const positions = Array.isArray(data) ? data : [];
+    document.getElementById('pos-last-updated').textContent =
+        new Date().toLocaleTimeString();
+
+    if (positions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">No open futures positions.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = positions.map(p => {
+        const isLong   = p.direction === 'LONG';
+        const dirCls   = isLong ? 'text-success' : 'text-danger';
+        const dirIcon  = isLong ? '▲' : '▼';
+        const pnlCls   = v => v == null ? '' : v >= 0 ? 'pnl-pos' : 'pnl-neg';
+        const fmt      = v => v == null ? '—' : '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        const fmtP     = v => v == null ? '—' : Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        const qty      = Math.abs(p.quantity);
+
+        return `<tr>
+            <td class="font-monospace fw-bold">${p.symbol}</td>
+            <td class="${dirCls} fw-bold">${dirIcon} ${p.direction}</td>
+            <td class="text-end">${qty}</td>
+            <td class="text-end">${fmtP(p.averagePrice)}</td>
+            <td class="text-end ${pnlCls(p.unrealizedPnl)}">${fmt(p.unrealizedPnl)}</td>
+            <td class="text-end ${pnlCls(p.dayPnl)}">${fmt(p.dayPnl)}</td>
+            <td class="text-end">
+                <button class="btn btn-danger btn-sm py-0 px-2"
+                        onclick="flatPosition('${p.symbol}', ${qty}, ${isLong})">
+                    <i class="bi bi-x-lg me-1"></i>Flat
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function flatPosition(symbol, contracts, isLong) {
+    const dir = isLong ? 'LONG' : 'SHORT';
+    showConfirm(
+        'Flat Position',
+        `<div class="mb-2">Close <strong class="${isLong ? 'text-success' : 'text-danger'}">${dir}</strong> position:</div>
+         <table class="table table-sm table-borderless mb-0 text-light">
+           <tr><td class="text-muted pe-3">Symbol</td><td><strong>${symbol}</strong></td></tr>
+           <tr><td class="text-muted pe-3">Contracts</td><td>${contracts}</td></tr>
+           <tr><td class="text-muted pe-3">Order Type</td><td>MARKET</td></tr>
+         </table>`,
+        'btn-danger',
+        () => {
+            document.getElementById('pos-flat-symbol').value    = symbol;
+            document.getElementById('pos-flat-contracts').value = contracts;
+            document.getElementById('pos-flat-islong').value    = isLong;
+            document.getElementById('pos-flat-form').action     = '?handler=FlatPosition';
+            document.getElementById('pos-flat-form').submit();
+        }
+    );
+}
+
+function startPositionTimer() {
+    if (_posTimer) clearInterval(_posTimer);
+    _posTimer = setInterval(() => {
+        if (document.getElementById('pos-auto')?.checked) loadPositions();
+    }, 5000);
+}
+
+loadPositions();
+startPositionTimer();
+document.getElementById('pos-auto')?.addEventListener('change', e => {
+    if (e.target.checked) { loadPositions(); startPositionTimer(); }
+    else if (_posTimer) { clearInterval(_posTimer); _posTimer = null; }
+});
+
+// ── Flat confirmation ─────────────────────────────────────────
+function confirmFlat() {
+    const dir  = document.querySelector('input[name="Flat.Direction"]:checked')?.value ?? 'Long';
+    const cts  = document.querySelector('input[name="Flat.Contracts"]')?.value ?? '1';
+    const side = dir === 'Long' ? 'SELL (close Long)' : 'BUY (close Short)';
+    showConfirm(
+        'Flat at Market',
+        `<div class="mb-2">Send <strong>MARKET</strong> order to close position:</div>
+         <table class="table table-sm table-borderless mb-0 text-light">
+           <tr><td class="text-muted pe-3">Action</td><td><strong>${side}</strong></td></tr>
+           <tr><td class="text-muted pe-3">Contracts</td><td>${cts}</td></tr>
+           <tr><td class="text-muted pe-3">Broker</td><td>@Model.CurrentBroker</td></tr>
+         </table>
+         <div class="mt-2 text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>This will close the position immediately at market price.</div>`,
+        'btn-danger',
+        () => document.getElementById('form-flat').submit()
+    );
+}
+
+// ── Cancel All confirmation ──────────────────────────────────
+function confirmCancelAll() {
+    showConfirm(
+        'Cancel All Orders',
+        `<div class="mb-2">Cancel <strong>ALL</strong> pending orders:</div>
+         <table class="table table-sm table-borderless mb-0 text-light">
+           <tr><td class="text-muted pe-3">Ticker</td><td><strong>@Model.CurrentTicker</strong></td></tr>
+           <tr><td class="text-muted pe-3">Broker</td><td>@Model.CurrentBroker</td></tr>
+         </table>
+         <div class="mt-2 text-muted small">Brackets, limits, and stops will all be cancelled. Does not close filled positions.</div>`,
+        'btn-warning',
+        () => document.getElementById('form-cancel-all').submit()
+    );
+}
+
+// ── Place Order confirmation ─────────────────────────────────
+function confirmPlaceOrder() {
+    const dir    = getDir();
+    const isLong = dir === 'Long';
+    const entry  = fv('m-entry');
+    const cts    = iv('m-contracts') || 1;
+    const ticker = document.getElementById('m-contract-display')?.value || '—';
+    const pv     = document.getElementById('pv-stop')?.textContent || '—';
+    const tv     = document.getElementById('pv-target')?.textContent || '—';
+    const rr     = document.getElementById('pv-rr')?.textContent || '—';
+    const risk   = document.getElementById('pv-risk-usd')?.textContent || '—';
+    const reward = document.getElementById('pv-reward-usd')?.textContent || '—';
+    const usePartial = document.getElementById('chk-partial')?.checked;
+    const partialTgt = document.getElementById('pv-partial')?.textContent || '—';
+    const partCts    = iv('m-partial-cts') || 1;
+
+    if (!entry || entry <= 0) { document.getElementById('m-entry').focus(); return; }
+
+    let partialRows = '';
+    if (usePartial) {
+        partialRows = `
+           <tr><td colspan="2" class="pt-2 pb-1"><strong class="text-warning"><i class="bi bi-layers me-1"></i>Partial Exit</strong></td></tr>
+           <tr><td class="text-muted pe-3">Partial Target</td><td>${partialTgt}</td></tr>
+           <tr><td class="text-muted pe-3">Partial Contracts</td><td>${partCts}</td></tr>`;
+    }
+
+    showConfirm(
+        'Place Order',
+        `<div class="mb-2">Submit bracket order to broker:</div>
+         <table class="table table-sm table-borderless mb-0 text-light">
+           <tr><td class="text-muted pe-3">Ticker</td><td><strong>${ticker}</strong></td></tr>
+           <tr><td class="text-muted pe-3">Direction</td><td class="${isLong ? 'text-success' : 'text-danger'} fw-bold">${isLong ? '▲ LONG' : '▼ SHORT'}</td></tr>
+           <tr><td class="text-muted pe-3">Entry</td><td>${entry.toFixed(2)}</td></tr>
+           <tr><td class="text-muted pe-3">Stop</td><td>${pv}</td></tr>
+           <tr><td class="text-muted pe-3">Target</td><td>${tv}</td></tr>
+           <tr><td class="text-muted pe-3">Contracts</td><td>${cts}</td></tr>${partialRows}
+           <tr><td class="text-muted pe-3">R:R</td><td>${rr}</td></tr>
+           <tr><td class="text-muted pe-3">Max Risk</td><td>${risk}</td></tr>
+           <tr><td class="text-muted pe-3">Max Reward</td><td>${reward}</td></tr>
+         </table>`,
+        'btn-warning',
+        () => document.getElementById('form-place-order').submit()
+    );
+}
+</script>
+}

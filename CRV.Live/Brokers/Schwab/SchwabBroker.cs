@@ -22,6 +22,7 @@ public class SchwabAuthService
     private readonly string _appSecret;
     private readonly string _redirectUri;
     private readonly string _tokenFile;
+    private readonly IHttpClientFactory? _httpFactory;
 
     /// <summary>Schwab REST API base URL (e.g. https://api.schwabapi.com). Configurable via appsettings.</summary>
     public string ApiBaseUrl { get; }
@@ -41,16 +42,20 @@ public class SchwabAuthService
     public SchwabAuthService(
         string appKey, string appSecret, string redirectUri, string tokenFile,
         string apiBaseUrl = "https://api.schwabapi.com",
-        string wssBaseUrl = "wss://streamer-api.schwab.com/ws")
+        string wssBaseUrl = "wss://streamer-api.schwab.com/ws",
+        IHttpClientFactory? httpFactory = null)
     {
         _appKey      = appKey;
         _appSecret   = appSecret;
         _redirectUri = redirectUri;
         _tokenFile   = tokenFile;
+        _httpFactory = httpFactory;
         ApiBaseUrl   = apiBaseUrl.TrimEnd('/');
         WssBaseUrl   = wssBaseUrl.TrimEnd('/');
         LoadTokens();
     }
+
+    private HttpClient CreateClient() => _httpFactory?.CreateClient("Schwab") ?? new HttpClient();
 
     /// <summary>Returns the Schwab OAuth2 authorization URL to redirect the user to.</summary>
     public string BuildAuthorizationUrl()
@@ -111,7 +116,7 @@ public class SchwabAuthService
     public async Task<SchwabStreamerInfo> GetStreamerInfoAsync()
     {
         var token = await GetAccessTokenAsync();
-        using var http = new HttpClient();
+        using var http = CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var resp = await http.GetAsync($"{ApiBaseUrl}/trader/v1/userPreference");
         var json = await resp.Content.ReadAsStringAsync();
@@ -135,7 +140,7 @@ public class SchwabAuthService
 
     private async Task<string> PostTokenAsync(Dictionary<string, string> fields)
     {
-        using var http = new HttpClient();
+        using var http = CreateClient();
         var creds = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_appKey}:{_appSecret}"));
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", creds);
 
@@ -177,7 +182,7 @@ public class SchwabAuthService
                 ? DateTime.Parse(exp.GetString()!, null, System.Globalization.DateTimeStyles.RoundtripKind)
                 : DateTime.MinValue;
         }
-        catch { /* ignore corrupt / missing token file */ }
+        catch (Exception) { /* non-critical: corrupt or missing token file — will re-auth */ }
     }
 
     private void SaveTokens()
@@ -193,7 +198,7 @@ public class SchwabAuthService
                 expiry_utc    = _tokenExpiry.ToString("O"),
             }));
         }
-        catch { /* token save failure is non-fatal */ }
+        catch (Exception) { /* non-critical: token save failure — will refresh on next GetAccessTokenAsync */ }
     }
 }
 
@@ -227,6 +232,7 @@ public class SchwabBarFeed : IBarFeed
         builder.BarClosed  += bar => _channel.Writer.TryWrite(bar);
         builder.BarUpdated += bar => _channel.Writer.TryWrite(bar);
 
+        int attempt = 0;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -236,6 +242,7 @@ public class SchwabBarFeed : IBarFeed
                 _log.LogInformation("Schwab WSS connecting to {Url}…", si.SocketUrl);
                 await ws.ConnectAsync(new Uri(si.SocketUrl), ct);
                 _log.LogInformation("Schwab WSS connected.");
+                attempt = 0; // reset backoff on successful connect
 
                 var buf = new byte[65536];
 
@@ -246,8 +253,10 @@ public class SchwabBarFeed : IBarFeed
                 var loginResp = await ReceiveTextAsync(ws, buf, ct);
                 if (loginResp == null)
                 {
-                    _log.LogWarning("Schwab WSS closed before login response.");
-                    await Task.Delay(5000, ct);
+                    attempt++;
+                    var d = Math.Min(60, (int)Math.Pow(2, attempt));
+                    _log.LogWarning("Schwab WSS closed before login response. Retry in {Delay}s", d);
+                    await Task.Delay(d * 1000 + Random.Shared.Next(0, 500), ct);
                     continue;
                 }
                 _log.LogInformation("Schwab WSS login response: {Resp}",
@@ -256,8 +265,10 @@ public class SchwabBarFeed : IBarFeed
                 // Check login success — response.content.code == 0
                 if (!IsLoginSuccess(loginResp))
                 {
-                    _log.LogError("Schwab WSS login FAILED. Retrying in 30s.");
-                    await Task.Delay(30000, ct);
+                    attempt++;
+                    var d = Math.Min(60, (int)Math.Pow(2, attempt + 3)); // start at 16s for auth failures
+                    _log.LogError("Schwab WSS login FAILED. Retrying in {Delay}s (attempt {Attempt})", d, attempt);
+                    await Task.Delay(d * 1000 + Random.Shared.Next(0, 500), ct);
                     continue;
                 }
 
@@ -282,20 +293,22 @@ public class SchwabBarFeed : IBarFeed
                         var text = Encoding.UTF8.GetString(buf, 0, r.Count);
                         ProcessMessage(text, builder);
                         msgCount++;
-                        if (msgCount <= 5)
-                            _log.LogDebug("Schwab WSS data msg #{N}: {Len} bytes", msgCount, r.Count);
                     }
                 }
 
-                _log.LogWarning("Schwab WSS disconnected (state={State}, msgs={N}). Reconnecting in 5s…",
-                    ws.State, msgCount);
+                attempt++;
+                var dDc = Math.Min(60, (int)Math.Pow(2, attempt));
+                _log.LogWarning("Schwab WSS disconnected (state={State}, msgs={N}). Reconnecting in {Delay}s…",
+                    ws.State, msgCount, dDc);
+                await Task.Delay(dDc * 1000 + Random.Shared.Next(0, 500), ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _log.LogError(ex, "Schwab stream error — reconnecting in 5s");
+                attempt++;
+                var dErr = Math.Min(60, (int)Math.Pow(2, attempt));
+                _log.LogError(ex, "Schwab stream error — reconnecting in {Delay}s (attempt {Attempt})", dErr, attempt);
+                await Task.Delay(dErr * 1000 + Random.Shared.Next(0, 500), ct);
             }
-
-            await Task.Delay(5000, ct);
         }
     }
 
@@ -408,44 +421,70 @@ public class SchwabBarFeed : IBarFeed
 // ── Order Executor ────────────────────────────────────────────
 public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
 {
-    private readonly SchwabAuthService _auth;
-    private readonly StrategyConfig    _cfg;
-    private readonly ILogger           _log;
+    private readonly SchwabAuthService    _auth;
+    private readonly StrategyConfig       _cfg;
+    private readonly ILogger              _log;
+    private readonly IHttpClientFactory?  _httpFactory;
 
-    // Stateful order tracking — cleared on each new entry
-    private string?   _entryOrderId;
-    private string?   _stopOrderId;        // OCO stop leg (may move to BE after partial)
-    private string?   _targetOrderId;      // OCO limit-target leg (cancelled when partial fires)
-    private string?   _partialOrderId;     // partial-exit LIMIT order placed at partial level
-    private Direction _direction;
+    // Per-setup order leg tracking — supports all 5 setups (A/B/C/D/F)
+    private class SetupState
+    {
+        public string?    EntryOrderId  { get; set; }
+        public string?    StopOrderId   { get; set; }
+        public string?    TargetOrderId { get; set; }
+        public string?    PartialOrderId { get; set; }
+        public Direction? Direction     { get; set; }
+
+        public string? Ticker { get; set; }
+        public void Clear()
+        {
+            EntryOrderId = StopOrderId = TargetOrderId = PartialOrderId = null;
+            Direction = null;
+            Ticker = null;
+        }
+    }
+
+    private readonly Dictionary<SetupId, SetupState> _states = new()
+    {
+        [SetupId.A] = new(), [SetupId.B] = new(),
+        [SetupId.C] = new(), [SetupId.D] = new(), [SetupId.F] = new()
+    };
 
     private string BaseUrl =>
         $"{_auth.ApiBaseUrl}/trader/v1/accounts/{_cfg.AccountId}/orders";
 
-    public SchwabExecutor(SchwabAuthService auth, StrategyConfig cfg, ILogger<SchwabExecutor> log)
-    { _auth = auth; _cfg = cfg; _log = log; }
+    public SchwabExecutor(SchwabAuthService auth, StrategyConfig cfg, ILogger<SchwabExecutor> log,
+        IHttpClientFactory? httpFactory = null)
+    { _auth = auth; _cfg = cfg; _log = log; _httpFactory = httpFactory; }
 
-    public async Task OnEntrySignalAsync(EntrySignal sig)
+    private HttpClient CreateClient() => _httpFactory?.CreateClient("Schwab") ?? new HttpClient();
+
+    public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[SCHWAB] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
             sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
 
-        _direction = sig.Direction;
+        var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
+        var state = _states[sig.Setup];
+        state.Direction = sig.Direction;
+        state.Ticker = ticker;
         // Futures instructions: BUY / SELL (not BUY_TO_OPEN / SELL_TO_CLOSE — those are options-only)
         var entryInstr = sig.Direction == Direction.Long ? "BUY"  : "SELL";
         var closeInstr = sig.Direction == Direction.Long ? "SELL" : "BUY";
 
+        bool isLimit = sig.OrderType == "Limit";
         var body = new
         {
             orderStrategyType = "TRIGGER",
             session           = "NORMAL",
             duration          = "DAY",
-            orderType         = "MARKET",
+            orderType         = isLimit ? "LIMIT" : "MARKET",
+            price             = isLimit ? (decimal?)sig.Entry : null,
             quantity          = sig.Contracts,
             orderLegCollection = new[]
             {
                 new { instruction = entryInstr, quantity = sig.Contracts,
-                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
+                      instrument  = new { symbol = ticker, assetType = "FUTURE" } }
             },
             childOrderStrategies = new[]
             {
@@ -465,7 +504,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                             orderLegCollection = new[]
                             {
                                 new { instruction = closeInstr, quantity = sig.Contracts,
-                                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
+                                      instrument  = new { symbol = ticker, assetType = "FUTURE" } }
                             }
                         },
                         new // Stop
@@ -479,7 +518,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                             orderLegCollection = new[]
                             {
                                 new { instruction = closeInstr, quantity = sig.Contracts,
-                                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
+                                      instrument  = new { symbol = ticker, assetType = "FUTURE" } }
                             }
                         }
                     }
@@ -487,13 +526,19 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             }
         };
 
-        _entryOrderId = await PlaceOrderAsync(body);
-        _log.LogInformation("[SCHWAB] Bracket accepted, entryOrderId={Id}", _entryOrderId);
+        state.EntryOrderId = await PlaceOrderAsync(body);
+        _log.LogInformation("[SCHWAB] Setup {S} bracket accepted, entryOrderId={Id}", sig.Setup, state.EntryOrderId);
 
         // The TRIGGER POST returns only the parent order ID in the Location header.
         // Child OCO order IDs are not in the response body — we must GET the order to find them.
-        if (_entryOrderId != null)
-            (_targetOrderId, _stopOrderId) = await FetchChildOrderIdsAsync(_entryOrderId);
+        decimal? fillPrice = null;
+        if (state.EntryOrderId != null)
+        {
+            fillPrice = await GetFillPriceAsync(state.EntryOrderId);
+            (state.TargetOrderId, state.StopOrderId) = await FetchChildOrderIdsAsync(state.EntryOrderId);
+        }
+
+        return fillPrice;
     }
 
     public async Task OnPartialSignalAsync(PartialSignal sig)
@@ -501,14 +546,15 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
             sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
 
-        if (_targetOrderId != null)
+        var state = _states[sig.Setup];
+        if (state.TargetOrderId != null)
         {
-            await CancelOrderAsync(_targetOrderId);
-            _targetOrderId = null;
+            await CancelOrderAsync(state.TargetOrderId);
+            state.TargetOrderId = null;
         }
         else
         {
-            _log.LogWarning("[SCHWAB] OnPartialSignal: _targetOrderId not set — cannot cancel bracket target");
+            _log.LogWarning("[SCHWAB] OnPartialSignal {S}: TargetOrderId not set — cannot cancel bracket target", sig.Setup);
         }
 
         var closeInstr = sig.Direction == Direction.Long ? "SELL" : "BUY";
@@ -523,12 +569,12 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             orderLegCollection = new[]
             {
                 new { instruction = closeInstr, quantity = sig.ContractsExited,
-                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
+                      instrument  = new { symbol = state.Ticker ?? _cfg.Ticker, assetType = "FUTURE" } }
             }
         };
 
-        _partialOrderId = await PlaceOrderAsync(body);
-        _log.LogDebug("[SCHWAB] Partial limit placed, ID={Id}", _partialOrderId);
+        state.PartialOrderId = await PlaceOrderAsync(body);
+        _log.LogDebug("[SCHWAB] Setup {S} partial limit placed, ID={Id}", sig.Setup, state.PartialOrderId);
     }
 
     public async Task OnBESignalAsync(BESignal sig)
@@ -536,34 +582,31 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] MOVE_BE {S} → {P} ({Q}ct)",
             sig.Setup, sig.NewStop, sig.ContractsRemaining);
 
-        if (_stopOrderId != null)
+        var state = _states[sig.Setup];
+        if (state.StopOrderId != null)
         {
-            await CancelOrderAsync(_stopOrderId);
-            _stopOrderId = null;
+            var closeInstr = sig.Direction == Direction.Long ? "SELL" : "BUY";
+            var body = new
+            {
+                orderStrategyType  = "SINGLE",
+                session            = "NORMAL",
+                duration           = "DAY",
+                orderType          = "STOP",
+                stopPrice          = sig.NewStop,
+                quantity           = sig.ContractsRemaining,
+                orderLegCollection = new[]
+                {
+                    new { instruction = closeInstr, quantity = sig.ContractsRemaining,
+                          instrument  = new { symbol = state.Ticker ?? _cfg.Ticker, assetType = "FUTURE" } }
+                }
+            };
+            var ok = await ReplaceOrderAsync(state.StopOrderId, body);
+            if (ok) _log.LogDebug("[SCHWAB] Setup {S} stop modified to BE @ {P}", sig.Setup, sig.NewStop);
         }
         else
         {
-            _log.LogWarning("[SCHWAB] OnBESignal: _stopOrderId not set — cannot cancel existing stop");
+            _log.LogWarning("[SCHWAB] OnBESignal {S}: StopOrderId not set — cannot modify stop", sig.Setup);
         }
-
-        var closeInstr = sig.Direction == Direction.Long ? "SELL" : "BUY";
-        var body = new
-        {
-            orderStrategyType  = "SINGLE",
-            session            = "NORMAL",
-            duration           = "DAY",
-            orderType          = "STOP",
-            stopPrice          = sig.NewStop,
-            quantity           = sig.ContractsRemaining,
-            orderLegCollection = new[]
-            {
-                new { instruction = closeInstr, quantity = sig.ContractsRemaining,
-                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
-            }
-        };
-
-        _stopOrderId = await PlaceOrderAsync(body);
-        _log.LogDebug("[SCHWAB] BE stop placed, ID={Id}", _stopOrderId);
     }
 
     public async Task OnExitSignalAsync(ExitSignal sig)
@@ -571,14 +614,27 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] EXIT {S} {R} @ {P} {Q}ct",
             sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
 
+        var state = _states[sig.Setup];
+
         // Cancel any open bracket / partial legs
-        foreach (var id in new[] { _stopOrderId, _targetOrderId, _partialOrderId }
+        foreach (var id in new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId }
                      .Where(x => x != null))
             await CancelOrderAsync(id!);
 
-        _entryOrderId = _stopOrderId = _targetOrderId = _partialOrderId = null;
+        var direction = state.Direction ?? Direction.Long;
+        var exitTicker = state.Ticker ?? (!string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker);
+        state.Clear();
 
-        var closeInstr = _direction == Direction.Long ? "SELL" : "BUY";
+        // For Stop/Target exits the broker's bracket already filled — no market order needed.
+        // Only SessionEnd/AdverseTime/Manual require a market close.
+        bool brokerHandledExit = sig.Reason is ExitReason.Stop or ExitReason.Target;
+        if (brokerHandledExit)
+        {
+            _log.LogDebug("[SCHWAB] EXIT {S}: {R} — broker bracket filled, no market order needed", sig.Setup, sig.Reason);
+            return;
+        }
+
+        var closeInstr = direction == Direction.Long ? "SELL" : "BUY";
         var body = new
         {
             orderStrategyType  = "SINGLE",
@@ -589,7 +645,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             orderLegCollection = new[]
             {
                 new { instruction = closeInstr, quantity = sig.Contracts,
-                      instrument  = new { symbol = _cfg.Ticker, assetType = "FUTURE" } }
+                      instrument  = new { symbol = exitTicker, assetType = "FUTURE" } }
             }
         };
 
@@ -597,7 +653,117 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogDebug("[SCHWAB] Market close placed, ID={Id}", orderId);
     }
 
+    public async Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    {
+        _log.LogInformation("[SCHWAB] LEVELS_ADJUSTED {S} → Stop={St} Target={T} Qty={Q}",
+            setup, newStop, newTarget, contracts);
+
+        var state      = _states[setup];
+        var direction  = state.Direction ?? Direction.Long;
+        var closeInstr = direction == Direction.Long ? "SELL" : "BUY";
+        var sym        = state.Ticker ?? _cfg.Ticker;
+
+        // Modify stop
+        if (state.StopOrderId != null)
+        {
+            var stopBody = new
+            {
+                orderStrategyType  = "SINGLE",
+                session            = "NORMAL",
+                duration           = "DAY",
+                orderType          = "STOP",
+                stopPrice          = newStop,
+                quantity           = contracts,
+                orderLegCollection = new[]
+                {
+                    new { instruction = closeInstr, quantity = contracts,
+                          instrument  = new { symbol = sym, assetType = "FUTURE" } }
+                }
+            };
+            var ok = await ReplaceOrderAsync(state.StopOrderId, stopBody);
+            if (ok) _log.LogDebug("[SCHWAB] Setup {S} stop modified → {P}", setup, newStop);
+        }
+        else
+            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: StopOrderId not set", setup);
+
+        // Modify target
+        if (state.TargetOrderId != null)
+        {
+            var targetBody = new
+            {
+                orderStrategyType  = "SINGLE",
+                session            = "NORMAL",
+                duration           = "DAY",
+                orderType          = "LIMIT",
+                price              = newTarget,
+                quantity           = contracts,
+                orderLegCollection = new[]
+                {
+                    new { instruction = closeInstr, quantity = contracts,
+                          instrument  = new { symbol = sym, assetType = "FUTURE" } }
+                }
+            };
+            var ok = await ReplaceOrderAsync(state.TargetOrderId, targetBody);
+            if (ok) _log.LogDebug("[SCHWAB] Setup {S} target modified → {P}", setup, newTarget);
+        }
+        else
+            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: TargetOrderId not set", setup);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Polls the Schwab order status endpoint for a fill price.
+    /// Retries up to 15 times at 200ms intervals. Returns null on timeout or error.
+    /// </summary>
+    private async Task<decimal?> GetFillPriceAsync(string orderId)
+    {
+        for (int attempt = 0; attempt < 15; attempt++)
+        {
+            if (attempt > 0) await Task.Delay(200);
+            try
+            {
+                var token = await _auth.GetAccessTokenAsync();
+                using var http = CreateClient();
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                var resp = await http.GetAsync($"{BaseUrl}/{orderId}");
+                if (!resp.IsSuccessStatusCode) continue;
+
+                var body = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+
+                // Schwab fills: status == "FILLED", price in orderActivityCollection[].executionLegs[].price
+                if (doc.RootElement.TryGetProperty("status", out var status) &&
+                    status.GetString() == "FILLED" &&
+                    doc.RootElement.TryGetProperty("orderActivityCollection", out var activities))
+                {
+                    foreach (var activity in activities.EnumerateArray())
+                    {
+                        if (!activity.TryGetProperty("executionLegs", out var legs)) continue;
+                        foreach (var leg in legs.EnumerateArray())
+                        {
+                            if (leg.TryGetProperty("price", out var p))
+                            {
+                                var fill = p.GetDecimal();
+                                _log.LogInformation("[SCHWAB] Fill price for order {Id}: {Price}",
+                                    orderId, fill);
+                                return fill;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[SCHWAB] GetFillPriceAsync attempt {N} failed", attempt + 1);
+            }
+        }
+
+        _log.LogWarning("[SCHWAB] Could not retrieve fill price for order {Id} after polling", orderId);
+        return null;
+    }
 
     /// <summary>
     /// Schwab TRIGGER orders return only the parent order ID in the Location header.
@@ -613,7 +779,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             try
             {
                 var token = await _auth.GetAccessTokenAsync();
-                using var http = new HttpClient();
+                using var http = CreateClient();
                 http.DefaultRequestHeaders.Authorization =
                     new AuthenticationHeaderValue("Bearer", token);
 
@@ -666,7 +832,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
     private async Task<string?> PlaceOrderAsync(object body)
     {
         var token = await _auth.GetAccessTokenAsync();
-        using var http = new HttpClient();
+        using var http = CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = false });
@@ -701,7 +867,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         try
         {
             var token = await _auth.GetAccessTokenAsync();
-            using var http = new HttpClient();
+            using var http = CreateClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var url = $"{BaseUrl}/{orderId}";
@@ -718,6 +884,39 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         catch (Exception ex)
         {
             _log.LogError(ex, "[SCHWAB] CancelOrderAsync {Id} failed", orderId);
+        }
+    }
+
+    /// <summary>Replaces/modifies an existing order via PUT /trader/v1/accounts/{hash}/orders/{orderId}.</summary>
+    private async Task<bool> ReplaceOrderAsync(string orderId, object orderBody)
+    {
+        try
+        {
+            var token = await _auth.GetAccessTokenAsync();
+            using var http = CreateClient();
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"{BaseUrl}/{orderId}";
+            _log.LogDebug("[SCHWAB] PUT {Url}", url);
+
+            var json = JsonSerializer.Serialize(orderBody);
+            using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            using var resp = await http.PutAsync(url, content);
+            var body = await resp.Content.ReadAsStringAsync();
+            _log.LogDebug("[SCHWAB] Replace {Status} {Body}", (int)resp.StatusCode, body);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogError("[SCHWAB] Replace order {Id} failed: {Status} {Body}",
+                    orderId, (int)resp.StatusCode, body);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[SCHWAB] ReplaceOrderAsync {Id} failed", orderId);
+            return false;
         }
     }
 }

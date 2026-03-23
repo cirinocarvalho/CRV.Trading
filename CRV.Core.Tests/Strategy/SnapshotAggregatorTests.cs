@@ -18,6 +18,8 @@ public class SnapshotAggregatorTests
         public decimal PointValue { get; init; } = 20m;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
+        public int CutoffHour { get; set; } = 23;
+        public int CutoffMinute { get; set; } = 59;
 
         private SetupStateSnapshot _snapshot = new();
         private ActiveTradeView? _activeTrade;
@@ -33,10 +35,14 @@ public class SnapshotAggregatorTests
         public void OnTick(decimal price, DateTime utc, OrbState orb, IndicatorState indicators, ModuleState modules) { }
         public void Reconfigure(StrategySetupConfig config) { }
         public void Reset() { }
+        public void ResetSession() { }
+        public void ResetTradeCounters() { }
+        public void Disarm() { }
         public EntrySignal? PendingEntry => null;
         public ExitSignal? PendingExit => null;
         public PartialSignal? PendingPartial => null;
         public BESignal? PendingBE => null;
+        public ActiveTradeView? PreExitTrade => null;
         public void ApplyFill(decimal actualFillPrice) { }
         public void ClearPendingSignals() { }
         public void RevertEntry() { }

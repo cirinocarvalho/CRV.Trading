@@ -62,6 +62,8 @@ public class ComposableEngineTests
         public decimal PointValue { get; set; } = 20m;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
+        public int CutoffHour { get; set; } = 23;
+        public int CutoffMinute { get; set; } = 59;
 
         public int OnBarCallCount { get; private set; }
         public int OnTickCallCount { get; private set; }
@@ -72,6 +74,7 @@ public class ComposableEngineTests
         public ExitSignal? PendingExit { get; set; }
         public PartialSignal? PendingPartial { get; set; }
         public BESignal? PendingBE { get; set; }
+        public ActiveTradeView? PreExitTrade { get; set; }
 
         public StrategySetupConfig? LastConfig { get; private set; }
         public bool ForceExitCalled { get; private set; }
@@ -82,6 +85,12 @@ public class ComposableEngineTests
 
         public void Reconfigure(StrategySetupConfig config) { LastConfig = config; }
         public void Reset()
+        {
+            ResetCallCount++;
+        }
+        public void ResetTradeCounters() { }
+        public void Disarm() { }
+        public void ResetSession()
         {
             ResetCallCount++;
             OnBarCallCount = 0;

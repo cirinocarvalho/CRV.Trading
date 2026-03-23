@@ -71,6 +71,73 @@ namespace CRV.Core.Migrations
                     b.ToTable("BacktestRuns");
                 });
 
+            modelBuilder.Entity("CRV.Core.Models.OrderRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Broker")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Direction")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("FillPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FilledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("LimitPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OcoGroupId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("PlacedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("StopPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Broker");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("PlacedAt");
+
+                    b.ToTable("Orders");
+                });
+
             modelBuilder.Entity("CRV.Core.Models.StrategyConfig", b =>
                 {
                     b.Property<int>("Id")
@@ -84,6 +151,18 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("AllowBothSameBar")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("AllowRearmAfterBeA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowRearmAfterBeB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowRearmAfterBeC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowRearmAfterBeD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<decimal>("AtrFilterPct")
                         .HasColumnType("TEXT");
 
@@ -94,17 +173,74 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("CloseAtRthClose")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("CloseAtRthCloseA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CloseAtRthCloseB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CloseAtRthCloseC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CloseAtRthCloseD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<decimal>("CommissionPerSide")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Contracts")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("ContractsA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ContractsB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ContractsC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ContractsD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("CutoffHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffHourA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffHourB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffHourC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffHourD")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("CutoffMinute")
                         .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffMinuteA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffMinuteB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffMinuteC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CutoffMinuteD")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DriveBullBearRatio")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("DriveMaxPullback")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("DriveRangeAtrMult")
+                        .HasColumnType("TEXT");
 
                     b.Property<bool>("EnableA")
                         .HasColumnType("INTEGER");
@@ -112,10 +248,22 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("EnableB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("EnableC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("EnableD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("EntryTickOffsetA")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("EntryTickOffsetB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EntryTickOffsetC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EntryTickOffsetD")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Exchange")
@@ -132,10 +280,67 @@ namespace CRV.Core.Migrations
                     b.Property<int>("ExecutionTFMinutes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("ExitMinutesBefore")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("FBMaxPenetrationPctOrb")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("FBMaxPenetrationPctSR")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FBMaxTimeOutsideMinutesOrb")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FBMaxTimeOutsideMinutesSR")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FBMaxTrendDayScore")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("FBMinRejectionBodyPct")
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal>("HiVolMult")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal>("HiVolMultA")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("HiVolMultB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("HiVolMultC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("HiVolMultD")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MaxAdverseMinutesA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxAdverseMinutesB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxAdverseMinutesC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxAdverseMinutesD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("MaxContracts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxContractsA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxContractsB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxContractsC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxContractsD")
                         .HasColumnType("INTEGER");
 
                     b.Property<decimal>("MaxDailyLoss")
@@ -147,10 +352,22 @@ namespace CRV.Core.Migrations
                     b.Property<int>("MaxTradesB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("MaxTradesC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxTradesD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<decimal>("MinRrA")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("MinRrB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("MinRrC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("MinRrD")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ModeA")
@@ -168,11 +385,51 @@ namespace CRV.Core.Migrations
                     b.Property<decimal>("NearPct")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal>("NearPctA")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("NearPctB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("NearPctC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("NearPctD")
+                        .HasColumnType("TEXT");
+
                     b.Property<TimeOnly>("OrbEnd")
                         .HasColumnType("TEXT");
 
                     b.Property<TimeOnly>("OrbStart")
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderTypeA")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderTypeB")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderTypeC")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderTypeD")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PartialCtsA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PartialCtsB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PartialCtsC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PartialCtsD")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("PartialPctA")
                         .HasColumnType("INTEGER");
@@ -180,11 +437,38 @@ namespace CRV.Core.Migrations
                     b.Property<int>("PartialPctB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("PartialPctC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PartialPctD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<decimal>("PointValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PointValueA")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PointValueB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PointValueC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PointValueD")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("PullbackPct")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("ReplayBalance")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ReplayDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ReplaySpeed")
+                        .HasColumnType("INTEGER");
 
                     b.Property<decimal>("RetestPct")
                         .HasColumnType("TEXT");
@@ -195,13 +479,37 @@ namespace CRV.Core.Migrations
                     b.Property<TimeOnly>("RthStart")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("SaveReplayTrades")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("SessionStartHour")
                         .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("ShallowPullbackMax")
+                        .HasColumnType("TEXT");
 
                     b.Property<decimal>("StopPctA")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("StopPctB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("StopPctC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("StopPctD")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SweepConfirmBars")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("SweepEqualTolerance")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("SweepMinBodyReject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("SweepMinPenetration")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("TargetPctA")
@@ -210,16 +518,53 @@ namespace CRV.Core.Migrations
                     b.Property<int>("TargetPctB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("TargetPctC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TargetPctD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<decimal>("TickSize")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("TickSizeA")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("TickSizeB")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("TickSizeC")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("TickSizeD")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Ticker")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("TickerA")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TickerB")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TickerC")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TickerD")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Timezone")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("TrendDayThreshold")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -230,10 +575,34 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("UseBeB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("UseBeC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseBeD")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseCustomTickerA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseCustomTickerB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseCustomTickerC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseCustomTickerD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("UseDailyLossLimit")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UseOrbClose")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseOrbCloseA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseOrbCloseB")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UsePartialA")
@@ -242,10 +611,25 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("UsePartialB")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("UsePartialC")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UsePartialD")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("UseTimeFilter")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UseVwap")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseVwapA")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("UseVwapB")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("VwapDevPeriod")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");

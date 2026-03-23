@@ -2,20 +2,51 @@
 
 ## Strategy Engine (`CRV.Core`)
 
-`OrbStrategyEngine` processes bars one at a time. It supports five setups:
+### Composable Engine
 
-**Core Setups (entry/exit managed by engine):**
-- **Setup A — Pullback**: enters on a pullback to within `NearPct`% of the ORB high/low after an initial move of at least `PullbackPct`% of the opening range
-- **Setup B — Breakout Retest**: enters on a retest of the ORB boundary within `RetestPct`% after a confirmed breakout
+`ComposableEngine` is a thin coordinator that manages multiple instruments and setups simultaneously. It replaces the earlier monolithic `OrbStrategyEngine` with a modular design:
+
+```
+ComposableEngine
+ ├─ TickerGroup("NQ")           ← shared ATR, VWAP, ORB, modules for NQ/MNQ
+ │    ├─ PullbackStrategy       (Setup A)
+ │    └─ RetestStrategy         (Setup B)
+ ├─ TickerGroup("ES")           ← shared indicators for ES/MES
+ │    └─ OrbFakeoutStrategy     (Setup C)
+ ├─ RiskManager                 ← global daily P&L, loss limit
+ └─ SnapshotAggregator          ← builds EngineSnapshot from all groups
+```
+
+**Key components:**
+
+| Component | File | Role |
+|-----------|------|------|
+| `ComposableEngine` | `Strategy/ComposableEngine.cs` | Orchestrates bar/tick routing, signal dispatch, snapshot publishing |
+| `TickerGroup` | `Strategy/TickerGroup.cs` | Per-instrument coordinator — owns shared indicators (ATR, VWAP, ORB) and modules (session, sweep, drive, trend); dispatches bars/ticks to its strategies; enforces cross-setup entry suppression |
+| `ISetupStrategy` | `Strategy/ISetupStrategy.cs` | Interface all setups implement: `OnBar`, `OnTick`, `PendingEntry/Exit`, `GetSnapshot`, `GetActiveTrade` |
+| `StrategyFactory` | `Strategy/StrategyFactory.cs` | Static factory — creates `PullbackStrategy`, `RetestStrategy`, `OrbFakeoutStrategy`, or `SessionFakeoutStrategy` from config |
+| `RiskManager` | `Strategy/RiskManager.cs` | Tracks daily P&L, wins/losses, max drawdown; enforces daily loss limit |
+| `SnapshotAggregator` | `Strategy/SnapshotAggregator.cs` | Builds `EngineSnapshot` from per-strategy snapshots, risk state, indicator state, module state, and per-setup last prices |
+| `ILastPriceProvider` | `Interfaces/IInterfaces.cs` | Simple price cache — `GetLastPrice(ticker)` / `UpdatePrice(ticker, price)` — used by snapshot aggregator for per-setup last price display |
+| `BarRingBuffer` | `Strategy/BarRingBuffer.cs` | Thread-safe ring buffer (200 bars) with parallel VWAP values; deduplicates bars by timestamp; feeds the dashboard chart via `GET /api/engine/bars/{groupKey}` |
+
+### Setups
+
+**Core Setups (entry/exit managed by strategy):**
+- **Setup A — Pullback** (`PullbackStrategy`): enters on a pullback to within `NearPct`% of the ORB high/low after an initial move of at least `PullbackPct`% of the opening range
+- **Setup B — Breakout Retest** (`RetestStrategy`): enters on a retest of the ORB boundary within `RetestPct`% after a confirmed breakout
 
 **Module-Driven Setups (signals from analytical modules):**
-- **Setup C — Sweep Reversal**: liquidity sweep of key level (PDH/PDL/equal highs-lows) + rejection + VWAP alignment
-- **Setup D — Opening Drive Pullback**: confirmed opening drive + trend day + shallow VWAP pullback
-- **Setup F — Midday VWAP Reversion**: extended beyond 2-sigma VWAP band during midday session + rejection candle
+- **Setup C — ORB False Breakout** (`OrbFakeoutStrategy`): detects failed breakouts above/below the ORB range; quality filters include rejection body %, penetration depth, VWAP side, and trend day score
+- **Setup D — Session Range False Breakout** (`SessionFakeoutStrategy`): same pattern applied to prior session high/low (Asia H/L for London, London H/L for NY); range locked at session boundaries via `FalseBreakoutDetector.OnSessionStart()`
+
+Each strategy implements `ISetupStrategy` and is self-contained: it receives `OrbState`, `IndicatorState`, and `ModuleState` from its `TickerGroup` and emits pending signals (`PendingEntry`, `PendingExit`, etc.) that `ComposableEngine` routes to the broker and event sink.
 
 Within each bar, entry is evaluated **before** exit. This means a bar whose high/low breaches the stop or target on the same bar as entry is processed immediately — same-bar entry+exit is possible in both backtest and live modes.
 
 All computed price levels (stop, target, partial, pullback entry) are snapped to the nearest valid tick via `LevelCalculator.RoundToTick(price, tickSize)` using `StrategyConfig.TickSize` (default `0.25` for NQ).
+
+### Signal Flow
 
 The engine emits signals via `IStrategyEventSink`:
 
@@ -29,17 +60,32 @@ The engine emits signals via `IStrategyEventSink`:
 
 ## Live Trading (`CRV.Live`)
 
+### Multi-Ticker Pipeline
+
 ```
-SchwabBarFeed / TradeStationBarFeed / TradovateBarFeed
-    |  IAsyncEnumerable<Bar>                |  IBarFeed.OnPriceTick (L1 ticks, live only)
+IMultiTickerBarFeed  ──  streams (Bar, ticker) tuples + OnPriceTick(price, utc, ticker)
+    │
+    ├─ SchwabMultiTickerBarFeed      ← single WSS, comma-separated keys
+    ├─ TradovateMultiTickerBarFeed   ← single WSS, separate subscriptions per symbol
+    ├─ MultiTickerFeedMux            ← wraps N single-ticker IBarFeed instances (TradeStation)
+    │
 LiveEngineOrchestrator --- SemaphoreSlim(1,1) + Channel<tick> ---
-    -> OrbStrategyEngine.ProcessBarAsync()           (bar close: arm conditions)
-    -> OrbStrategyEngine.ProcessPriceTickAsync()     (every L1 tick: entry/exit/stop eval)
+    -> ComposableEngine.ProcessBarAsync(bar, ticker)       (bar close: arm conditions)
+    -> ComposableEngine.ProcessPriceTickAsync(price, utc, ticker)  (every L1 tick)
     -> IOrderExecutor (SchwabExecutor / TradeStationExecutor / TradovateExecutor / MockBrokerExecutor)
     -> IStrategyEventSink -> SignalREventSink -> browser dashboard (+ alert ding audio)
 ```
 
-`LiveEngineOrchestrator` is a singleton `BackgroundService`. It is started on-demand from the Settings/Live page. If the configured broker fails to resolve, it falls back to `MockBrokerExecutor` and broadcasts a warning to the dashboard.
+`LiveEngineOrchestrator` is a singleton `BackgroundService`. It is started on-demand from the Settings/Live page. When multiple setups trade different instruments, the orchestrator creates a broker-specific multi-ticker feed:
+
+| Broker | Multi-Ticker Feed | Connection Model |
+|--------|-------------------|------------------|
+| Schwab | `SchwabMultiTickerBarFeed` | Single WSS — `CHART_FUTURES` + `LEVELONE_FUTURES` with comma-separated `keys` (e.g. `/NQH26,/ESH26`); routes bars/ticks by symbol field in content rows |
+| Tradovate | `TradovateMultiTickerBarFeed` | Single WSS — sends separate `md/getchart` + `md/subscribeQuote` per symbol; routes by subscription ID → ticker mapping dictionaries |
+| TradeStation | `MultiTickerFeedMux` | Wraps N independent HTTP chunked streams (one per symbol) — no connection sharing possible |
+| Tradovate Replay | `TradovateMultiTickerBarFeed` | Same as Tradovate with `PostAuthAction` and `ChartStartOverride` for replay-specific handshake |
+
+If the configured broker fails to resolve, the orchestrator falls back to `MockBrokerExecutor` and broadcasts a warning to the dashboard.
 
 ### Tick Mode
 
@@ -54,7 +100,7 @@ The data broker (`cfg.Broker`) and the order execution broker (`cfg.EffectiveExe
 
 ### Analytical Modules (`CRV.Core/Modules/`)
 
-The engine owns 6 analytical modules via composition. All implement `IEngineModule` (OnBar, OnTick, NewSession) and are called in sequence during bar/tick processing. Configuration lives in `ModuleConfig`.
+Each `TickerGroup` owns 5 analytical modules via composition. All implement `IEngineModule` (OnBar, OnTick, NewSession) and are called in sequence during bar/tick processing. Configuration lives in `ModuleConfig`. Modules provide market context shared across all strategies in the group.
 
 | Module | Purpose | Key Outputs |
 |--------|---------|-------------|
@@ -63,11 +109,12 @@ The engine owns 6 analytical modules via composition. All implement `IEngineModu
 | `VwapModel` | Wraps `VwapIndicator` with deviation bands and state classification | `VwapState` (-2 to +2), `Upper1/2`, `Lower1/2`, reversion/pullback signals |
 | `OpeningDriveDetector` | Accumulates bar stats during ORB window, classifies drive | `OpeningDriveBull/Bear`, `DriveRangePctATR` |
 | `TrendDayFilter` | Score-based trend day classification (0-5) | `BullScore`, `BearScore`, `TrendDayBull/Bear` (score >= 4) |
-| `CompositeSetupEngine` | Evaluates combined setups C/D/F from all module outputs | `SetupCBull/Bear`, `SetupDBull/Bear`, `SetupFBull/Bear` |
 
 Historical levels are seeded at engine start from broker REST daily bars via `IBarFeed.FetchDailyBarsAsync`.
 
 ### Bar Feeds
+
+**Single-ticker feeds** (`IBarFeed` — one connection per symbol):
 
 | Broker | Protocol | Subscription |
 |--------|----------|-------------|
@@ -75,7 +122,15 @@ Historical levels are seeded at engine start from broker REST daily bars via `IB
 | TradeStation | HTTP streaming (SSE-style JSON lines) | `/v3/marketdata/stream/barcharts/{symbol}` |
 | Tradovate | WebSocket (Tradovate MD API) | `md/getchart` (1-min bars) + `md/subscribeQuote` (L1 ticks) |
 
-All feeds auto-reconnect on error with a 5 s backoff.
+**Multi-ticker feeds** (`IMultiTickerBarFeed` — shared connections where possible):
+
+| Class | Broker | Connection Model |
+|-------|--------|------------------|
+| `SchwabMultiTickerBarFeed` | Schwab | Single WSS with comma-separated `keys` — routes by field `"0"` (chart) and `"key"` (L1) |
+| `TradovateMultiTickerBarFeed` | Tradovate | Single WSS with per-symbol `md/getchart` + `md/subscribeQuote` — routes by subscription ID dictionaries (`_reqIdToTicker`, `_chartIdToTicker`, `_quoteIdToTicker`) |
+| `MultiTickerFeedMux` | TradeStation / any | Wraps N single-ticker `IBarFeed` instances into one `IMultiTickerBarFeed` stream; also provides `Single()` static helper for wrapping one feed without channel overhead |
+
+All feeds auto-reconnect on error with exponential backoff. Multi-ticker feeds stream `(Bar, string ticker)` tuples and fire `OnPriceTick(price, utc, ticker)` events with the ticker parameter for routing.
 
 ### Order Executors
 
@@ -117,7 +172,7 @@ Brokers use different symbol formats. `StrategyConfig.Ticker` stores the **canon
 | Route | Purpose |
 |-------|---------|
 | `/` | Home / status summary |
-| `/Dashboard` | Live P&L, trades, session badge, stream health, alert feed, Exit Now buttons (SignalR) |
+| `/Dashboard` | Live P&L, trades, Lightweight Charts (candlestick + volume + VWAP + ORB levels), per-group Market Context, per-setup last price with blinking dot, USD values on Stop/Partial/Target, session badge, stream health, alert feed, Exit Now buttons (SignalR) |
 | `/Settings/Live` | Start/stop engine, broker + strategy config |
 | `/Backtest` | Run backtest + view results |
 | `/Settings/Backtest` | Backtest config + inline results (metric cards, equity curve, trade log) |
@@ -132,7 +187,7 @@ Brokers use different symbol formats. `StrategyConfig.Ticker` stores the **canon
 
 | Service | Purpose |
 |---------|---------|
-| `LiveEngineOrchestrator` | Live engine lifecycle, broker fallback alerting |
+| `LiveEngineOrchestrator` | Live engine lifecycle, multi-ticker feed creation, broker fallback alerting |
 | `BacktestRunnerService` | On-demand backtests |
 | `DailyStatsService` | In-memory today's P&L/win stats |
 | `StrategyConfigService` | Loads/saves `StrategyConfig` from SQLite |

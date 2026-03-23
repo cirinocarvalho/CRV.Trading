@@ -1,0 +1,120 @@
+/* CRV Trading — dark theme stylesheet */
+:root {
+    --crv-green:  #00ff88;
+    --crv-red:    #ff4466;
+    --crv-yellow: #ffd700;
+    --crv-blue:   #4db8ff;
+    --crv-bg:     #0d0d0d;
+    --crv-card:   #111318;
+    --crv-border: #2a2d36;
+}
+
+body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+.card { background: var(--crv-card) !important; border: 1px solid var(--crv-border) !important; border-radius: 10px; }
+.card-header { background: rgba(255,255,255,.04) !important; border-bottom: 1px solid var(--crv-border); }
+
+.stat-value      { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-label      { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: #888; }
+
+/* Make all top stat cards equal height with centered content */
+.stat-card-row > div > .card { height: 100%; display: flex; flex-direction: column; justify-content: center; }
+.font-monospace  { font-family: 'Cascadia Code','Fira Code','Consolas',monospace !important; }
+
+.pnl-pos  { color: var(--crv-green);  }
+.pnl-neg  { color: var(--crv-red);    }
+.pnl-zero { color: #888; }
+
+.badge-live   { background: var(--crv-green);   color: #000; }
+.badge-paper  { background: var(--crv-yellow);  color: #000; }
+.badge-halted { background: var(--crv-red);     color: #fff; }
+
+/* DD gauge flash animation */
+@keyframes dd-flash {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+}
+.dd-breached { animation: dd-flash 1s ease-in-out infinite; }
+
+/* Setup status badges */
+.setup-idle      { background: #1a1a2e; border: 1px solid #444;              color: #888; }
+.setup-armed     { background: #2e2a00; border: 1px solid var(--crv-yellow); color: var(--crv-yellow); }
+.setup-retest    { background: #2e1c00; border: 1px solid #ff8c00;           color: #ff8c00; }
+.setup-long      { background: #0f2a1a; border: 1px solid #00cc66;           color: #00ff88; }
+.setup-short     { background: #2a0f1a; border: 1px solid #cc0033;           color: #ff4466; }
+
+/* DD progress bar */
+.dd-bar-track { background: #1a1a1a; border-radius: 4px; height: 8px; overflow:hidden; }
+.dd-bar-fill  { height: 100%; border-radius: 4px; transition: width .5s ease; }
+
+/* Alerts feed */
+.alert-feed { max-height: 320px; overflow-y: auto; font-size: .82rem; }
+.alert-item { padding: 6px 10px; border-bottom: 1px solid var(--crv-border); font-family: monospace; }
+.alert-item:last-child { border-bottom: none; }
+.alert-item.entry   { border-left: 3px solid var(--crv-green); }
+.alert-item.exit    { border-left: 3px solid var(--crv-red); }
+.alert-item.partial { border-left: 3px solid var(--crv-yellow); }
+.alert-item.info    { border-left: 3px solid var(--crv-blue); }
+
+/* Trade table */
+.trade-table th { background: #0d0f14; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #888; border-color: var(--crv-border); }
+.trade-table td { border-color: var(--crv-border); font-size: .85rem; font-family: monospace; }
+/* Dim (secondary) cells — fixed gray that stays readable on both win/loss row tints.
+   Overrides Bootstrap dark-mode text-muted which renders as near-white. */
+.trade-table .td-dim  { color: #7a8393 !important; }
+.trade-table .td-eod  { font-size: .78rem; color: #6b7280 !important; }
+.trade-table .td-time { font-size: .75rem; white-space: nowrap; }
+
+/* Settings form */
+.settings-section { background: #111318; border: 1px solid var(--crv-border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+.settings-section h6 { color: var(--crv-yellow); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .75rem; }
+
+.form-control, .form-select {
+    background: #0d0f14 !important;
+    border: 1px solid var(--crv-border) !important;
+    color: #e0e0e0 !important;
+}
+.form-control:focus, .form-select:focus {
+    border-color: var(--crv-yellow) !important;
+    box-shadow: 0 0 0 2px rgba(255,215,0,.15) !important;
+}
+.form-check-input:checked { background-color: var(--crv-yellow); border-color: var(--crv-yellow); }
+
+/* Stream health indicator */
+.stream-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #555; /* default = no data */
+    flex-shrink: 0;
+}
+.stream-dot.live {
+    background: var(--crv-green);
+    animation: stream-pulse 2s ease-in-out infinite;
+}
+.stream-dot.stale {
+    background: var(--crv-yellow);
+    animation: none;
+}
+@keyframes stream-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .3; }
+}
+
+/* Navbar */
+.navbar { height: 52px; }
+.nav-link { color: #aaa !important; font-size: .875rem; }
+.nav-link.active { color: var(--crv-yellow) !important; }
+.nav-link:hover  { color: #fff !important; }
+
+/* Cards grid */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .75rem; }
+
+/* Order Preview highlight rows — explicit dark-theme tints (replaces BS table-danger/warning/success) */
+.pv-stop    { background: rgba(255,  68, 102, .20) !important; }
+.pv-partial { background: rgba(255, 215,   0, .15) !important; }
+.pv-target  { background: rgba(  0, 255, 136, .15) !important; }
+.pv-stop    .pv-lbl { color: #ff6680; font-size: .82rem; }
+.pv-partial .pv-lbl { color: #ffd000; font-size: .82rem; }
+.pv-target  .pv-lbl { color: #00cc66; font-size: .82rem; }
+.pv-stop    .pv-lbl small,
+.pv-partial .pv-lbl small,
+.pv-target  .pv-lbl small { color: #7a8393; }

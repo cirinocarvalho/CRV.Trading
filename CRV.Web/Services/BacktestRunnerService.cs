@@ -3,6 +3,8 @@ using CRV.Backtest.Engine;
 using CRV.Backtest.Results;
 using CRV.Core.Interfaces;
 using CRV.Core.Models;
+using CRV.Live;
+using CRV.Live.Brokers.Schwab;
 using Microsoft.Extensions.Logging;
 
 namespace CRV.Web.Services;
@@ -34,11 +36,32 @@ public class BacktestRunnerService
         try
         {
             using var scope = _sp.CreateScope();
-            var bars = await GetBarsAsync(cfg, btCfg, scope, ct);
+
+            // Collect distinct tickers from enabled setup configs
+            var setupTickers = cfg.ToSetupConfigs()
+                .Where(s => s.Enabled)
+                .Select(s => s.Ticker)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             var log = scope.ServiceProvider.GetRequiredService<ILogger<BacktestEngine>>();
             var engine = new BacktestEngine(cfg, btCfg, log);
 
-            return await engine.RunAsync(bars, ct);
+            if (btCfg.DataSource == "CSV")
+            {
+                // CSV only has one ticker's data — use single-stream overload.
+                // Setups on other tickers won't receive bars and won't trade (no ghost trades).
+                var bars = LoadCsvBars(cfg, btCfg, scope);
+                var loggedBars = LogBarsAsync(bars, cfg.Ticker, btCfg, ct);
+                return await engine.RunAsync(loggedBars, ct);
+            }
+            else
+            {
+                // API sources: fetch bars per distinct ticker, merge chronologically
+                var taggedBars = await LoadMultiTickerBarsAsync(cfg, btCfg, setupTickers, scope, ct);
+                var loggedBars = LogTaggedBarsAsync(taggedBars, btCfg, ct);
+                return await engine.RunAsync(loggedBars, ct);
+            }
         }
         finally
         {
@@ -46,57 +69,219 @@ public class BacktestRunnerService
         }
     }
 
-    private static async Task<IAsyncEnumerable<CRV.Core.Models.Bar>> GetBarsAsync(
-        StrategyConfig cfg, BacktestConfig btCfg, IServiceScope scope, CancellationToken ct)
+    /// <summary>
+    /// Loads bars for multiple tickers from the API and merges them chronologically
+    /// into a single tagged stream for multi-ticker backtesting.
+    /// </summary>
+    private async Task<IAsyncEnumerable<(string Ticker, Bar Bar)>> LoadMultiTickerBarsAsync(
+        StrategyConfig cfg, BacktestConfig btCfg, List<string> tickers,
+        IServiceScope scope, CancellationToken ct)
     {
-        return btCfg.DataSource switch
+        var tickerStreams = new Dictionary<string, IAsyncEnumerable<Bar>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var ticker in tickers)
         {
-            "Schwab"       => await LoadSchwabBarsAsync(cfg, btCfg, scope),
-            "TradeStation" => await LoadTradeStationBarsAsync(cfg, btCfg, scope),
-            "Tradovate"    => await LoadTradovateBarsAsync(cfg, btCfg, scope),
-            _              => LoadCsvBars(cfg, btCfg, scope) // default: CSV
+            // Create a temporary cfg clone pointing to each ticker for bar loading
+            var bars = btCfg.DataSource switch
+            {
+                "Schwab"       => await LoadBarsForTickerAsync(ticker, btCfg, scope, "Schwab"),
+                "TradeStation" => await LoadBarsForTickerAsync(ticker, btCfg, scope, "TradeStation"),
+                "Tradovate"    => await LoadBarsForTickerAsync(ticker, btCfg, scope, "Tradovate"),
+                _              => throw new InvalidOperationException($"Unknown data source: {btCfg.DataSource}")
+            };
+            tickerStreams[ticker] = bars;
+        }
+
+        return MergeChronologicallyAsync(tickerStreams, ct);
+    }
+
+    /// <summary>
+    /// Fetches bars for a single ticker from the configured API source,
+    /// handling contract roll splits.
+    /// </summary>
+    private async Task<IAsyncEnumerable<Bar>> LoadBarsForTickerAsync(
+        string ticker, BacktestConfig btCfg, IServiceScope scope, string source)
+    {
+        var root = FuturesSymbol.RootSymbol(ticker);
+        var segments = ContractRollCalendar.SplitByContract(root, btCfg.From, btCfg.To);
+
+        return source switch
+        {
+            "Schwab" => ConcatSegments(segments, (t, from, to) =>
+            {
+                var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
+                var log    = scope.ServiceProvider.GetRequiredService<ILogger<SchwabHistoricalLoader>>();
+                var hf     = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+                var loader = new SchwabHistoricalLoader(auth.GetAccessTokenAsync().Result, log, auth.ApiBaseUrl, hf);
+                return loader.LoadAsync(FuturesSymbol.ToSchwab(t), 1, from, to);
+            }),
+            "TradeStation" => ConcatSegments(segments, (t, from, to) =>
+            {
+                var auth   = scope.ServiceProvider.GetRequiredService<CRV.Live.Brokers.TradeStation.TradeStationAuthService>();
+                var log    = scope.ServiceProvider.GetRequiredService<ILogger<TradeStationHistoricalLoader>>();
+                var hf     = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+                var loader = new TradeStationHistoricalLoader(auth.GetAccessTokenAsync().Result, log, auth.ApiBaseUrl, hf);
+                return loader.LoadAsync(FuturesSymbol.ToTradeStation(t), 1, from, to);
+            }),
+            "Tradovate" => ConcatSegments(segments, (t, from, to) =>
+            {
+                var auth   = scope.ServiceProvider.GetRequiredService<CRV.Live.Brokers.Tradovate.TradovateAuthService>();
+                var log    = scope.ServiceProvider.GetRequiredService<ILogger<TradovateHistoricalLoader>>();
+                var loader = new TradovateHistoricalLoader(auth.GetMdAccessTokenAsync().Result, log, auth.MdWssUrl);
+                return loader.LoadAsync(FuturesSymbol.ToTradovate(t), 1, from, to);
+            }),
+            _ => throw new InvalidOperationException($"Unknown source: {source}")
         };
     }
 
-    private static IAsyncEnumerable<CRV.Core.Models.Bar> LoadCsvBars(
+    /// <summary>
+    /// Merges multiple per-ticker bar streams into a single chronologically-ordered
+    /// tagged stream using a sorted merge (priority queue).
+    /// </summary>
+    private static async IAsyncEnumerable<(string Ticker, Bar Bar)> MergeChronologicallyAsync(
+        Dictionary<string, IAsyncEnumerable<Bar>> streams,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        // Materialize each stream into a list first (bars are already in memory for API sources)
+        // then merge-sort them by time. This avoids complex async enumerator juggling.
+        var allBars = new List<(string Ticker, Bar Bar)>();
+
+        foreach (var (ticker, stream) in streams)
+        {
+            await foreach (var bar in stream.WithCancellation(ct))
+                allBars.Add((ticker, bar));
+        }
+
+        // Sort by bar time, then by ticker for deterministic ordering
+        allBars.Sort((a, b) =>
+        {
+            int cmp = a.Bar.Time.CompareTo(b.Bar.Time);
+            return cmp != 0 ? cmp : string.Compare(a.Ticker, b.Ticker, StringComparison.OrdinalIgnoreCase);
+        });
+
+        foreach (var item in allBars)
+            yield return item;
+    }
+
+    /// <summary>
+    /// Wraps a bar stream to log the first and last bar timestamps/prices and total count.
+    /// Detects price jumps >10% between consecutive bars which indicate stale/wrong contract data.
+    /// </summary>
+    private async IAsyncEnumerable<Bar> LogBarsAsync(
+        IAsyncEnumerable<Bar> bars, string ticker, BacktestConfig btCfg,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        Bar? first = null;
+        Bar? last = null;
+        int count = 0;
+        int skipped = 0;
+
+        await foreach (var bar in bars.WithCancellation(ct))
+        {
+            first ??= bar;
+
+            if (last != null && last.Close > 0 && bar.Open > 0 && last.Time.Date == bar.Time.Date)
+            {
+                decimal pctChange = Math.Abs(bar.Open - last.Close) / last.Close;
+                if (pctChange > 0.10m)
+                {
+                    _log.LogWarning(
+                        "Data anomaly [{Ticker}]: intra-session price jump {Pct:P1} between {T1:u} C={C1:F2} and {T2:u} O={O2:F2}",
+                        ticker, pctChange, last.Time, last.Close, bar.Time, bar.Open);
+                    skipped++;
+                    continue;
+                }
+            }
+
+            last = bar;
+            count++;
+            yield return bar;
+        }
+
+        if (first != null)
+            _log.LogInformation(
+                "Backtest data [{Source}/{Ticker}]: {Count} bars ({Skipped} skipped), first={FirstTime:u} last={LastTime:u}",
+                btCfg.DataSource, ticker, count, skipped, first.Time, last!.Time);
+        else
+            _log.LogWarning("Backtest data [{Source}/{Ticker}]: 0 bars returned!", btCfg.DataSource, ticker);
+    }
+
+    /// <summary>
+    /// Wraps a tagged bar stream with per-ticker logging and anomaly detection.
+    /// </summary>
+    private async IAsyncEnumerable<(string Ticker, Bar Bar)> LogTaggedBarsAsync(
+        IAsyncEnumerable<(string Ticker, Bar Bar)> bars, BacktestConfig btCfg,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        var lastByTicker = new Dictionary<string, Bar>(StringComparer.OrdinalIgnoreCase);
+        var countByTicker = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        await foreach (var (ticker, bar) in bars.WithCancellation(ct))
+        {
+            // Per-ticker anomaly detection
+            if (lastByTicker.TryGetValue(ticker, out var last) &&
+                last.Close > 0 && bar.Open > 0 && last.Time.Date == bar.Time.Date)
+            {
+                decimal pctChange = Math.Abs(bar.Open - last.Close) / last.Close;
+                if (pctChange > 0.10m)
+                {
+                    _log.LogWarning(
+                        "Data anomaly [{Ticker}]: intra-session price jump {Pct:P1} between {T1:u} and {T2:u}",
+                        ticker, pctChange, last.Time, bar.Time);
+                    continue; // skip anomalous bars
+                }
+            }
+
+            lastByTicker[ticker] = bar;
+            countByTicker[ticker] = countByTicker.GetValueOrDefault(ticker) + 1;
+            yield return (ticker, bar);
+        }
+
+        foreach (var (ticker, count) in countByTicker)
+            _log.LogInformation("Backtest data [{Source}/{Ticker}]: {Count} bars loaded.", btCfg.DataSource, ticker, count);
+    }
+
+    private IAsyncEnumerable<Bar> LoadCsvBars(
         StrategyConfig cfg, BacktestConfig btCfg, IServiceScope scope)
     {
         if (string.IsNullOrEmpty(btCfg.CsvPath))
             throw new InvalidOperationException("CSV path not set.");
 
         var loader = scope.ServiceProvider.GetRequiredService<CsvBarLoader>();
-        // Return raw 1-minute bars.  BacktestEngine.RunAsync handles execution-TF aggregation
-        // internally and fires four OHLC ticks per 1-min bar for intra-TF entry/exit evaluation.
         return loader.LoadAsync(btCfg.CsvPath, btCfg.From, btCfg.To);
     }
 
-    private static async Task<IAsyncEnumerable<CRV.Core.Models.Bar>> LoadSchwabBarsAsync(
-        StrategyConfig cfg, BacktestConfig btCfg, IServiceScope scope)
+    /// <summary>
+    /// Concatenates bar streams from multiple contract segments into a single stream.
+    /// Each segment uses the correct ticker for its date range (auto-roll).
+    /// </summary>
+    private async IAsyncEnumerable<Bar> ConcatSegments(
+        List<(string Ticker, DateTime From, DateTime To)> segments,
+        Func<string, DateTime, DateTime, IAsyncEnumerable<Bar>> loadFn,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        var auth   = scope.ServiceProvider.GetRequiredService<CRV.Live.Brokers.Schwab.SchwabAuthService>();
-        var token  = await auth.GetAccessTokenAsync();
-        var log    = scope.ServiceProvider.GetRequiredService<ILogger<SchwabHistoricalLoader>>();
-        var loader = new SchwabHistoricalLoader(token, log, auth.ApiBaseUrl);
-        return loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, btCfg.From, btCfg.To);
-    }
+        Bar? prevSegmentLast = null;
+        foreach (var (ticker, from, to) in segments)
+        {
+            var expected = ContractRollCalendar.ActiveContract(FuturesSymbol.RootSymbol(ticker), from);
+            if (!string.Equals(ticker, expected, StringComparison.OrdinalIgnoreCase))
+                _log.LogWarning(
+                    "Contract mismatch: segment uses {Ticker} but active contract on {Date:d} is {Expected}",
+                    ticker, from, expected);
 
-    private static async Task<IAsyncEnumerable<CRV.Core.Models.Bar>> LoadTradeStationBarsAsync(
-        StrategyConfig cfg, BacktestConfig btCfg, IServiceScope scope)
-    {
-        var auth   = scope.ServiceProvider.GetRequiredService<CRV.Live.Brokers.TradeStation.TradeStationAuthService>();
-        var token  = await auth.GetAccessTokenAsync();
-        var log    = scope.ServiceProvider.GetRequiredService<ILogger<TradeStationHistoricalLoader>>();
-        var loader = new TradeStationHistoricalLoader(token, log, auth.ApiBaseUrl);
-        return loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, btCfg.From, btCfg.To);
-    }
-
-    private static async Task<IAsyncEnumerable<CRV.Core.Models.Bar>> LoadTradovateBarsAsync(
-        StrategyConfig cfg, BacktestConfig btCfg, IServiceScope scope)
-    {
-        var auth    = scope.ServiceProvider.GetRequiredService<CRV.Live.Brokers.Tradovate.TradovateAuthService>();
-        var mdToken = await auth.GetMdAccessTokenAsync();
-        var log     = scope.ServiceProvider.GetRequiredService<ILogger<TradovateHistoricalLoader>>();
-        var loader  = new TradovateHistoricalLoader(mdToken, log, auth.MdWssUrl);
-        return loader.LoadAsync(cfg.Ticker, cfg.ExecutionTFMinutes, btCfg.From, btCfg.To);
+            await foreach (var bar in loadFn(ticker, from, to).WithCancellation(ct))
+            {
+                if (prevSegmentLast != null && prevSegmentLast.Close > 0 && bar.Open > 0)
+                {
+                    decimal pctChange = Math.Abs(bar.Open - prevSegmentLast.Close) / prevSegmentLast.Close;
+                    if (pctChange > 0.10m)
+                        _log.LogWarning(
+                            "Cross-segment price jump {Pct:P1}: {Prev:F2} → {Cur:F2} at segment boundary",
+                            pctChange, prevSegmentLast.Close, bar.Open);
+                }
+                prevSegmentLast = bar;
+                yield return bar;
+            }
+        }
     }
 }

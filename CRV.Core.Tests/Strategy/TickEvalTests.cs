@@ -29,7 +29,7 @@ public class TickEvalTests
         StopPctA           = 0.10m,
         TargetPctA         = 100,
         PartialPctA        = 50,
-        NearPct            = 0.15m,
+        NearPctA           = 0.15m,
         PullbackPct        = 0.50m,
         MinRrA             = 1.0m,
         UseVwap            = false,
@@ -192,8 +192,15 @@ public class TickEvalTests
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
-        var armBar = new Bar(
+        // Settle bar: first live bar after warmup clears the cooldown guard
+        // (neutral price, doesn't arm — mid-range between ORB high/low)
+        var settleBar = new Bar(
             new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
+            20500m, 20500m, 20500m, 20500m, 100, IsConfirmed: true);
+        await eng.ProcessBarAsync(settleBar);
+
+        var armBar = new Bar(
+            new DateTime(2026, 3, 10, 14, 10, 0, DateTimeKind.Utc),
             20900m, 20960m, 20880m, 20940m, 500, IsConfirmed: true);
         await eng.ProcessBarAsync(armBar);
         Assert.Single(sink.Entries);
@@ -277,6 +284,98 @@ public class TickEvalTests
         Assert.Empty(sink.Exits);        // trade still open (partial, not full exit)
     }
 
+    // ── Setup B: UsePartialB = false ──────────────────────────
+
+    static StrategyConfig CfgB() => new()
+    {
+        Ticker             = "NQH26",
+        ExecutionTFMinutes = 5,
+        OrbStart           = new TimeOnly(9, 30),
+        OrbEnd             = new TimeOnly(10, 0),
+        RthStart           = new TimeOnly(9, 30),
+        RthEnd             = new TimeOnly(16, 0),
+        SessionStartHour   = 18,
+        EnableA            = false,
+        EnableB            = true,
+        Contracts          = 2,
+        TargetPctB         = 100,
+        PartialPctB        = 50,
+        StopPctB           = 0.50m,
+        MinRrB             = 1.0m,
+        RetestPct          = 0.05m,
+        UsePartialB        = false,
+        UseBeB             = false,
+        MaxTradesB         = 5,
+        ModeB              = "Aggressive",
+        UseVwap            = false,
+        AtrFilterPct       = 0m,
+        TickSize           = 0.25m,
+        PointValue         = 20m,
+        CommissionPerSide  = 0m,
+        MaxTradesA         = 5,
+    };
+
+    /// <summary>
+    /// Regression: UsePartialB=false must not prevent Setup B trades.
+    /// Bug report: unchecking "partial exit" made all Setup B trades disappear.
+    /// </summary>
+    [Fact]
+    public async Task SetupB_UsePartialFalse_AggressiveLong_EntersAndExitsAtTarget()
+    {
+        var cfg = CfgB(); // UsePartialB = false
+        var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
+
+        var day = new DateTime(2026, 3, 10);
+        // ORB: High=21000, Low=20000, Range=1000
+        await FeedOrbBars(eng, 21000m, 20000m, day);
+
+        // Arm bar: close > orbHigh → _stB = 1 (aggressive: armed, entry deferred to tick)
+        var armBar = new Bar(
+            new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
+            21000m, 21100m, 20900m, 21050m, 500, IsConfirmed: true);
+        await eng.ProcessBarAsync(armBar);
+        Assert.Empty(sink.Entries); // tick mode: no bar-level entry
+
+        // First tick: aggressive → enters at _armEntryB = armBar.Open = 21000
+        await eng.ProcessPriceTickAsync(21030m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
+        Assert.Single(sink.Entries);
+        Assert.Equal(Direction.Long, sink.Entries[0].Direction);
+        Assert.Equal(SetupId.B, sink.Entries[0].Setup);
+
+        decimal target = sink.Entries[0].Target; // = 22000
+        // Tick above target → should exit at target even with UsePartialB=false
+        await eng.ProcessPriceTickAsync(target + 1m, new DateTime(2026, 3, 10, 14, 7, 0, DateTimeKind.Utc));
+
+        Assert.Single(sink.Exits);                               // MUST record exit
+        Assert.Equal(ExitReason.Target, sink.Exits[0].Reason);
+    }
+
+    [Fact]
+    public async Task SetupB_UsePartialFalse_AggressiveLong_EntersAndExitsAtStop()
+    {
+        var cfg = CfgB();
+        var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
+
+        var day = new DateTime(2026, 3, 10);
+        await FeedOrbBars(eng, 21000m, 20000m, day);
+
+        var armBar = new Bar(
+            new DateTime(2026, 3, 10, 14, 5, 0, DateTimeKind.Utc),
+            21000m, 21100m, 20900m, 21050m, 500, IsConfirmed: true);
+        await eng.ProcessBarAsync(armBar);
+        await eng.ProcessPriceTickAsync(21030m, new DateTime(2026, 3, 10, 14, 6, 0, DateTimeKind.Utc));
+        Assert.Single(sink.Entries);
+
+        decimal stop = sink.Entries[0].Stop; // = 20500
+        // Tick below stop → should exit at stop even with UsePartialB=false
+        await eng.ProcessPriceTickAsync(stop - 1m, new DateTime(2026, 3, 10, 14, 7, 0, DateTimeKind.Utc));
+
+        Assert.Single(sink.Exits);
+        Assert.Equal(ExitReason.Stop, sink.Exits[0].Reason);
+    }
+
     // ── Test doubles ──────────────────────────────────────────
     public class TestSink : IStrategyEventSink
     {
@@ -291,7 +390,7 @@ public class TickEvalTests
     }
     public class NullExecutor : IOrderExecutor
     {
-        public Task OnEntrySignalAsync(EntrySignal s)   => Task.CompletedTask;
+        public Task<decimal?> OnEntrySignalAsync(EntrySignal s) => Task.FromResult<decimal?>(null);
         public Task OnPartialSignalAsync(PartialSignal s) => Task.CompletedTask;
         public Task OnBESignalAsync(BESignal s)         => Task.CompletedTask;
         public Task OnExitSignalAsync(ExitSignal s)     => Task.CompletedTask;

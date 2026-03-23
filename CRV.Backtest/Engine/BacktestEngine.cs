@@ -31,7 +31,7 @@ public class BacktestConfig
     public string   BacktestSession  { get; set; } = "NY";
 }
 
-/// <summary>Runs historical bars through OrbStrategyEngine and collects trade results.</summary>
+/// <summary>Runs historical bars through ComposableEngine and collects trade results.</summary>
 public class BacktestEngine
 {
     private readonly StrategyConfig _cfg;
@@ -42,8 +42,26 @@ public class BacktestEngine
     { _cfg = cfg; _btCfg = btCfg; _log = log; }
 
     /// <summary>
-    /// Run the backtest over <paramref name="bars"/>, which may be raw 1-minute bars (CSV)
-    /// or pre-resampled execution-TF bars (API sources).
+    /// Single-ticker backward-compatible overload.
+    /// Routes all bars through the global ticker.
+    /// </summary>
+    public Task<BacktestResult> RunAsync(IAsyncEnumerable<Bar> bars, CancellationToken ct = default)
+    {
+        // Wrap as tagged stream using the global ticker
+        return RunAsync(TagBars(bars, _cfg.Ticker), ct);
+
+        static async IAsyncEnumerable<(string Ticker, Bar Bar)> TagBars(
+            IAsyncEnumerable<Bar> bars, string ticker,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await foreach (var b in bars.WithCancellation(ct))
+                yield return (ticker, b);
+        }
+    }
+
+    /// <summary>
+    /// Multi-ticker overload. Accepts a pre-merged chronological stream of (ticker, bar) pairs.
+    /// Each setup keeps its own per-instrument ticker; bars route to the correct TickerGroup.
     /// <para>
     /// Tick simulation: for each input bar the engine receives four synthetic price ticks
     /// (Open, High, Low, Close) so that entry and exit levels are evaluated at every
@@ -52,7 +70,7 @@ public class BacktestEngine
     /// bar close, giving "armed by execution TF, filled by minute" semantics.
     /// </para>
     /// </summary>
-    public async Task<BacktestResult> RunAsync(IAsyncEnumerable<Bar> bars, CancellationToken ct = default)
+    public async Task<BacktestResult> RunAsync(IAsyncEnumerable<(string Ticker, Bar Bar)> taggedBars, CancellationToken ct = default)
     {
         var trades   = new List<TradeRecord>();
         var sink     = new BacktestSink(trades);
@@ -60,10 +78,18 @@ public class BacktestEngine
         var executor = new BacktestExecutor(_btCfg, _cfg, sink);
         var engineConfig = _cfg.ToEngineConfig();
         var engine   = new ComposableEngine(executor, sink, prices, engineConfig);
+
+        // Only register enabled setups.
+        // Collect distinct tickers for multi-ticker bar loading.
+        var setupTickers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var setupCfg in _cfg.ToSetupConfigs())
         {
             if (setupCfg.Enabled)
+            {
                 engine.AddSetup(setupCfg);
+                setupTickers.Add(setupCfg.Ticker);
+            }
         }
 
         // Enable tick mode: bar-level entry/exit skipped in ProcessBarAsync;
@@ -88,18 +114,13 @@ public class BacktestEngine
 
         int tfMinutes = Math.Max(1, _btCfg.ExecutionTFMinutes);
 
-        // ── Inline execution-TF bucket state ──────────────────────
-        DateTime? bucketKey = null;
-        decimal   bOpen = 0, bHigh = 0, bLow = 0, bClose = 0;
-        long      bVolume   = 0;
-        int       tfBarsOut = 0;   // completed TF bars emitted so far
+        // ── Per-ticker execution-TF bucket state ─────────────────────
+        var buckets = new Dictionary<string, BucketState>(StringComparer.OrdinalIgnoreCase);
+        int tfBarsOut = 0;   // completed TF bars emitted (global warmup counter)
 
-        // Accumulate per-bucket 1-min bar tick data; fired when the bucket closes
-        var pending = new List<(decimal O, decimal H, decimal L, decimal C, DateTime T)>();
-
-        await foreach (var bar in bars.WithCancellation(ct))
+        await foreach (var (ticker, bar) in taggedBars.WithCancellation(ct))
         {
-            // ── Session transitions ────────────────────────────────────
+            // ── Session transitions (based on bar time, ticker-independent) ──
             var local     = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
             var localTime = TimeOnly.FromDateTime(local);
             var tradingDate = _cfg.TradingDate(local);
@@ -123,126 +144,106 @@ public class BacktestEngine
                     betweenSessions = true;
                     break;
             }
-            // ──────────────────────────────────────────────────────────
+
+            // ── Per-ticker bucket aggregation ────────────────────────────
+            if (!buckets.TryGetValue(ticker, out var bkt))
+            {
+                bkt = new BucketState();
+                buckets[ticker] = bkt;
+            }
 
             var key      = BucketStart(bar.Time, tfMinutes);
-            bool newBkt  = bucketKey == null || key != bucketKey;
+            bool newBkt  = bkt.BucketKey == null || key != bkt.BucketKey;
 
-            if (newBkt && bucketKey != null)
+            if (newBkt && bkt.BucketKey != null)
             {
-                // ── Emit the completed TF bucket ───────────────────
-                var tfBar    = new Bar(bucketKey.Value, bOpen, bHigh, bLow, bClose, bVolume);
-                bool isWarmup = tfBarsOut < _btCfg.WarmupBars;
-
-                if (isWarmup || betweenSessions)
-                {
-                    // Between sessions: feed bars as warmup so ATR/VWAP stay alive.
-                    // The engine is idle after SessionEnded, so we must un-idle
-                    // temporarily to let the warmup path through.
-                    if (betweenSessions) engine.ClearIdle();
-                    await engine.WarmupBarAsync(tfBar, _cfg.Ticker, ct);
-                    if (betweenSessions) engine.SetIdle();
-                }
-                else
-                {
-                    // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
-                    //    Each OHLC tick gets a distinct sub-second offset within the bar's minute
-                    //    so entry and exit timestamps are distinguishable.
-                    //    Tick order depends on bar direction:
-                    //      Bullish (C>=O): O→L→H→C  (price dips first, then rallies)
-                    //      Bearish (C<O):  O→H→L→C  (price rallies first, then sells off)
-                    foreach (var (o, h, l, c, t) in pending)
-                    {
-                        prices.UpdatePrice(_cfg.Ticker, o);
-                        await engine.ProcessPriceTickAsync(o, t, _cfg.Ticker);                       // Open  +0s
-                        if (c >= o)
-                        {   // Bullish: O → L → H → C
-                            prices.UpdatePrice(_cfg.Ticker, l);
-                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), _cfg.Ticker);
-                            prices.UpdatePrice(_cfg.Ticker, h);
-                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), _cfg.Ticker);
-                        }
-                        else
-                        {   // Bearish: O → H → L → C
-                            prices.UpdatePrice(_cfg.Ticker, h);
-                            await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), _cfg.Ticker);
-                            prices.UpdatePrice(_cfg.Ticker, l);
-                            await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), _cfg.Ticker);
-                        }
-                        prices.UpdatePrice(_cfg.Ticker, c);
-                        await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), _cfg.Ticker);        // Close +45s
-                    }
-                    // 2. Process the completed TF bar to update indicators and arm state
-                    prices.UpdatePrice(_cfg.Ticker, bClose);
-                    await engine.ProcessBarAsync(tfBar, _cfg.Ticker, ct);
-                }
-
+                // ── Emit the completed TF bucket for this ticker ─────
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, ct);
                 tfBarsOut++;
-                pending.Clear();
 
                 // Start new bucket
-                bucketKey = key;
-                bOpen = bar.Open; bHigh = bar.High; bLow = bar.Low; bClose = bar.Close; bVolume = bar.Volume;
+                bkt.BucketKey = key;
+                bkt.Open = bar.Open; bkt.High = bar.High; bkt.Low = bar.Low; bkt.Close = bar.Close; bkt.Volume = bar.Volume;
+                bkt.Pending.Clear();
             }
-            else if (bucketKey == null)
+            else if (bkt.BucketKey == null)
             {
-                // First bar ever
-                bucketKey = key;
-                bOpen = bar.Open; bHigh = bar.High; bLow = bar.Low; bClose = bar.Close; bVolume = bar.Volume;
+                // First bar for this ticker
+                bkt.BucketKey = key;
+                bkt.Open = bar.Open; bkt.High = bar.High; bkt.Low = bar.Low; bkt.Close = bar.Close; bkt.Volume = bar.Volume;
             }
             else
             {
-                // Extend current bucket with this bar's OHLCV
-                if (bar.High > bHigh) bHigh = bar.High;
-                if (bar.Low  < bLow)  bLow  = bar.Low;
-                bClose   = bar.Close;
-                bVolume += bar.Volume;
+                // Extend current bucket
+                if (bar.High > bkt.High) bkt.High = bar.High;
+                if (bar.Low  < bkt.Low)  bkt.Low  = bar.Low;
+                bkt.Close   = bar.Close;
+                bkt.Volume += bar.Volume;
             }
 
-            // Queue tick data for live-phase buckets only (warmup bars fire no ticks)
+            // Queue tick data for live-phase buckets only
             if (tfBarsOut >= _btCfg.WarmupBars)
-                pending.Add((bar.Open, bar.High, bar.Low, bar.Close, bar.Time));
+                bkt.Pending.Add((bar.Open, bar.High, bar.Low, bar.Close, bar.Time));
         }
 
-        // ── Emit final (possibly incomplete) TF bucket ────────────
-        if (bucketKey != null)
+        // ── Emit final (possibly incomplete) TF buckets for each ticker ──
+        foreach (var (ticker, bkt) in buckets)
         {
-            var tfBar    = new Bar(bucketKey.Value, bOpen, bHigh, bLow, bClose, bVolume);
-            bool isWarmup = tfBarsOut < _btCfg.WarmupBars;
-
-            if (isWarmup || betweenSessions)
+            if (bkt.BucketKey != null)
             {
-                if (betweenSessions) engine.ClearIdle();
-                await engine.WarmupBarAsync(tfBar, _cfg.Ticker, ct);
-                if (betweenSessions) engine.SetIdle();
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, ct);
+                tfBarsOut++;
             }
-            else
-            {
-                foreach (var (o, h, l, c, t) in pending)
-                {
-                    prices.UpdatePrice(_cfg.Ticker, o);
-                    await engine.ProcessPriceTickAsync(o, t, _cfg.Ticker);
-                    if (c >= o)
-                    {   prices.UpdatePrice(_cfg.Ticker, l);
-                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), _cfg.Ticker);
-                        prices.UpdatePrice(_cfg.Ticker, h);
-                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), _cfg.Ticker); }
-                    else
-                    {   prices.UpdatePrice(_cfg.Ticker, h);
-                        await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), _cfg.Ticker);
-                        prices.UpdatePrice(_cfg.Ticker, l);
-                        await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), _cfg.Ticker); }
-                    prices.UpdatePrice(_cfg.Ticker, c);
-                    await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), _cfg.Ticker);
-                }
-                prices.UpdatePrice(_cfg.Ticker, bClose);
-                await engine.ProcessBarAsync(tfBar, _cfg.Ticker, ct);
-            }
-            tfBarsOut++;
         }
 
         _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades.", tfBarsOut, trades.Count);
         return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg);
+    }
+
+    /// <summary>Emit a completed execution-TF bucket: fire OHLC ticks then process bar.</summary>
+    private async Task EmitBucket(
+        ComposableEngine engine, InMemoryPriceProvider prices,
+        BucketState bkt, string ticker,
+        int tfBarsOut, bool betweenSessions,
+        CancellationToken ct)
+    {
+        var tfBar    = new Bar(bkt.BucketKey!.Value, bkt.Open, bkt.High, bkt.Low, bkt.Close, bkt.Volume);
+        bool isWarmup = tfBarsOut < _btCfg.WarmupBars;
+
+        if (isWarmup || betweenSessions)
+        {
+            if (betweenSessions) engine.ClearIdle();
+            await engine.WarmupBarAsync(tfBar, ticker, ct);
+            if (betweenSessions) engine.SetIdle();
+        }
+        else
+        {
+            // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
+            foreach (var (o, h, l, c, t) in bkt.Pending)
+            {
+                prices.UpdatePrice(ticker, o);
+                await engine.ProcessPriceTickAsync(o, t, ticker);
+                if (c >= o)
+                {   // Bullish: O → L → H → C
+                    prices.UpdatePrice(ticker, l);
+                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), ticker);
+                    prices.UpdatePrice(ticker, h);
+                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), ticker);
+                }
+                else
+                {   // Bearish: O → H → L → C
+                    prices.UpdatePrice(ticker, h);
+                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), ticker);
+                    prices.UpdatePrice(ticker, l);
+                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), ticker);
+                }
+                prices.UpdatePrice(ticker, c);
+                await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
+            }
+            // 2. Process the completed TF bar to update indicators and arm state
+            prices.UpdatePrice(ticker, bkt.Close);
+            await engine.ProcessBarAsync(tfBar, ticker, ct);
+        }
     }
 
     /// <summary>Returns the start DateTime of the N-minute execution-TF bucket containing <paramref name="t"/>.</summary>
@@ -251,6 +252,15 @@ public class BacktestEngine
         int totalMins  = t.Hour * 60 + t.Minute;
         int bucketMins = totalMins / tfMinutes * tfMinutes;
         return t.Date.AddMinutes(bucketMins);
+    }
+
+    /// <summary>Per-ticker bucket state for execution-TF aggregation.</summary>
+    private class BucketState
+    {
+        public DateTime? BucketKey;
+        public decimal Open, High, Low, Close;
+        public long Volume;
+        public readonly List<(decimal O, decimal H, decimal L, decimal C, DateTime T)> Pending = new();
     }
 }
 

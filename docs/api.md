@@ -4,6 +4,17 @@
 
 Endpoints are rate-limited to 5 req/s via the `engine-api` policy and documented at `/swagger` in Development.
 
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/engine/start` | POST | Start the engine |
+| `/api/engine/stop` | POST | Stop the engine |
+| `/api/engine/status` | GET | Current engine state + last snapshot |
+| `/api/engine/stream` | GET | SSE stream of engine snapshots (heartbeat every ~30s) |
+| `/api/engine/price/{ticker}` | GET | Last known price for a ticker (tries canonical then broker-formatted) |
+| `/api/engine/force-orb` | POST | Force-set ORB from historical broker bars |
+| `/api/engine/bars/{groupKey}` | GET | Bar history for a ticker group (Lightweight Charts); returns `[{time, open, high, low, close, volume, vwap}]`; falls back to Schwab/Tradovate REST when in-memory buffer is empty |
+| `/api/engine/trades/today` | GET | Today's completed trades for the dashboard table |
+
 ## SignalR Hub
 
 **Endpoint:** `/hubs/trading`
@@ -62,6 +73,43 @@ Endpoints are rate-limited to 5 req/s via the `engine-api` policy and documented
 | `setupCBull` / `setupCBear` | bool | Sweep Reversal setup active |
 | `setupDBull` / `setupDBear` | bool | Opening Drive Pullback setup active |
 | `setupFBull` / `setupFBear` | bool | Midday VWAP Reversion setup active |
+| `groupSnapshots` | `dict<string, TickerGroupSnapshot>` | Per-instrument-group context data keyed by group (NQ, ES, GC, etc.) |
+| `tickerA` / `tickerB` | string | Broker ticker symbol per setup |
+| `pointValueA` / `pointValueB` | decimal | Dollar-per-point multiplier per setup |
+| `lastPriceA` / `lastPriceB` | decimal | Last traded price per setup |
+
+### TickerGroupSnapshot Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `groupKey` | string | Group identifier (NQ, ES, GC, CL, etc.) |
+| `ticker` | string | Representative broker ticker for this group |
+| `currentSession` | string | Active session name |
+| `sessionHigh` / `sessionLow` | decimal | Session high/low |
+| `prevDayHigh` / `prevDayLow` | decimal | Previous day high/low |
+| `asiaCompressed` | bool | Asia range < ATR × 1.2 |
+| `lastSweep` | string | Last sweep event (e.g. "PDH Bear") |
+| `vwap` | decimal | Session VWAP |
+| `vwapUpper1` / `vwapLower1` | decimal | VWAP ±1σ bands |
+| `vwapUpper2` / `vwapLower2` | decimal | VWAP ±2σ bands |
+| `vwapState` | int | VWAP regime (+2/+1/0/-1/-2) |
+| `openingDriveBull` / `openingDriveBear` | bool | Opening drive detected |
+| `trendScoreBull` / `trendScoreBear` | int | Trend day score (0–5) |
+| `orbHigh` / `orbLow` / `orbMid` / `orbRange` | decimal | ORB levels |
+| `orbBullClose` / `orbBearClose` | bool | ORB close quality |
+| `orbAtrRatio` | decimal | Frozen ORB/ATR ratio |
+| `orbFormed` | bool | ORB window complete |
+| `atr` | decimal | ATR(14) value |
+| `barTime` | long | Current bar UTC unix seconds (for live chart) |
+| `barOpen` / `barHigh` / `barLow` / `barClose` | decimal | Current bar OHLC (with live price injected) |
+| `barVolume` | long | Current bar volume |
+| `fbOrbBreakoutActive` / `fbSessionBreakoutActive` | bool | False breakout tracking active |
+| `fbOrbBarsInBreakout` / `fbSessionBarsInBreakout` | int | Bars spent in breakout |
+| `fbOrbPenetrationDepth` / `fbSessionPenetrationDepth` | decimal | Breakout penetration depth |
+| `fbOrbActivated` / `fbSessionActivated` | bool | False breakout activated |
+| `isCompoundFakeout` | bool | Both ORB + session range false breakouts active |
+| `driveScore` / `sweepScore` / `vwapDevScore` | decimal | Signal component scores |
+| `signalStrength` | decimal | Composite signal strength (0–5) |
 
 ### ActiveTradeView Fields
 
@@ -94,3 +142,14 @@ The nav bar is updated directly by `crv-hub.js`. Page scripts subscribe to `crv:
 **Alert sounds:** `crv-hub.js` plays a synthesized ding (Web Audio API) on every `Alert` message. Each alert type has a distinct frequency: ENTRY (880 Hz), EXIT (660 Hz), PARTIAL/MOVE_BE (784 Hz). No audio files required.
 
 **Initial state sync:** On SignalR connect/reconnect, `crv-hub.js` fetches `GET /api/engine/status` and dispatches `crv:update` / `crv:status` immediately. `connection.onclose()` forces the badge to `OFFLINE`.
+
+## Dashboard Chart
+
+The dashboard chart uses **TradingView Lightweight Charts v4** loaded from CDN. It renders OHLCV candlesticks, volume histogram, volume MA(21), dynamic VWAP line, and ORB price lines.
+
+**Data flow:**
+1. **History** — `GET /api/engine/bars/{groupKey}` returns ~200 bars from the in-memory `BarRingBuffer`; if the buffer is empty (market closed), falls back to Schwab/Tradovate REST historical API with a 15-second timeout
+2. **Live updates** — each `EngineSnapshot` includes `groupSnapshots[key].barTime/barOpen/barHigh/barLow/barClose/barVolume` with live price injected from `ILastPriceProvider`; the JS `_lwcUpdateCandle()` calls `series.update()` to append or update the forming candle
+3. **VWAP** — stored per-bar in `BarRingBuffer` via `SetVwap()` after each confirmed bar; rendered as a white 50% opacity `LineSeries`
+4. **ORB levels** — rendered as `createPriceLine()` markers (green dashed for high/low, yellow for mid); removed and recreated on instrument switch
+5. **Timezone** — bars are stored as UTC; JS applies an ET offset before feeding to Lightweight Charts

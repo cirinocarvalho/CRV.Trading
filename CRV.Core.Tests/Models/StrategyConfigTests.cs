@@ -25,7 +25,7 @@ public class StrategyConfigTests
         CutoffMinute     = 30,
         EnableA          = true,
         StopPctA         = 0.10m,
-        NearPct          = 0.15m,
+        NearPctA         = 0.15m,
         PullbackPct      = 0.50m,
         MinRrA           = 1.5m,
         MaxTradesA       = 5,
@@ -185,4 +185,21 @@ public class StrategyConfigTests
         var errors = cfg.Validate();
         Assert.DoesNotContain(errors, e => e.Contains("StopPctB"));
     }
+
+    // ── Setup C validation ───────────────────────────────────
+
+
+
+
+
+    // ── Setup D validation ───────────────────────────────────
+
+
+
+
+    // ── Setup F validation ───────────────────────────────────
+
+
+
+
 }

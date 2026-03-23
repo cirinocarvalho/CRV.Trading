@@ -39,6 +39,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
     // ── Re-arm guard (prevents re-entering same side after stop) ──
     private bool _bullTraded = false;
     private bool _bearTraded = false;
+    private bool _pastCutoff = false;
 
     // ── Counters ──────────────────────────────────────────────────
     private int     _tradeCount  = 0;
@@ -57,6 +58,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
     private ExitSignal?    _pendingExit    = null;
     private PartialSignal? _pendingPartial = null;
     private BESignal?      _pendingBe      = null;
+    private ActiveTradeView? _preExitTrade = null;
 
     public OrbFakeoutStrategy(StrategySetupConfig cfg)
     {
@@ -71,12 +73,15 @@ public class OrbFakeoutStrategy : ISetupStrategy
     public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 2 || _state == -2;
     public bool         IsArmed      => _state == 1 || _state == -1;
+    public int          CutoffHour   => _cfg.CutoffHour;
+    public int          CutoffMinute => _cfg.CutoffMinute;
 
     // ── Pending signals ───────────────────────────────────────────
     public EntrySignal?   PendingEntry   => _pendingEntry;
     public ExitSignal?    PendingExit    => _pendingExit;
     public PartialSignal? PendingPartial => _pendingPartial;
     public BESignal?      PendingBE      => _pendingBe;
+    public ActiveTradeView? PreExitTrade => _preExitTrade;
 
     public void ClearPendingSignals()
     {
@@ -84,6 +89,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _pendingExit    = null;
         _pendingPartial = null;
         _pendingBe      = null;
+        _preExitTrade   = null;
         _stickyTgt  = false;
         _stickyStop = false;
     }
@@ -117,6 +123,32 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
+    }
+
+    public void Disarm()
+    {
+        if (!IsActive) { _state = 0; _armEntry = 0; _pastCutoff = true; }
+    }
+
+    public void ResetSession()
+    {
+        _state     = 0; _armEntry  = 0;
+        _entry     = 0; _stop      = 0; _target    = 0; _partial   = 0;
+        _initStop  = 0; _contracts = 0;
+        _partHit   = false; _pnl   = 0; _entryTime = DateTime.MinValue;
+        _stickyTgt = false; _stickyStop = false;
+        _bullTraded = false; _bearTraded = false;
+        _pastCutoff = false;
+        _tradeCount = 0;
+        _lastAtrRatio = 0;
+        ClearPendingSignals();
+        // Note: _wins, _losses, _winPnl, _lossPnl are preserved (daily P&L)
+    }
+
+    public void ResetTradeCounters()
+    {
+        _tradeCount = 0;
+        _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
     }
 
     // ── OnBar ──────────────────────────────────────────────────────
@@ -330,6 +362,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
         State       = _state,
         IsActive    = IsActive,
         IsArmed     = IsArmed,
+        PastCutoff  = _pastCutoff,
         TradeCount  = _tradeCount,
         MaxTrades   = _cfg.MaxTrades,
         StickyTgt   = _stickyTgt,
@@ -357,6 +390,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
             Setup              = _cfg.SetupId,
             Direction          = isLong ? Direction.Long : Direction.Short,
             Entry              = _entry,
+            InitialStop        = _initStop,
             CurrentStop        = _stop,
             Target             = _target,
             Partial            = _partial,
@@ -366,6 +400,8 @@ public class OrbFakeoutStrategy : ISetupStrategy
             LastPrice          = lastPrice,
             UnrealizedPnl      = unrealized + _pnl,
             EnteredAt          = _entryTime,
+            Ticker             = _cfg.Ticker,
+            PointValue         = _cfg.PointValue,
         };
     }
 
@@ -438,6 +474,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
 
     private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)
     {
+        // Capture trade snapshot BEFORE resetting state — RouteSignalsAsync needs it
+        _preExitTrade = GetActiveTrade(exitPx);
+
         int remCts = (_partHit && _cfg.UsePartial)
             ? _contracts - CalcPartialCts(_contracts, _cfg.PartialCts) : _contracts;
 

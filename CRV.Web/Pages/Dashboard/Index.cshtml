@@ -85,14 +85,14 @@
 
 <!-- ── Row 2: Setup A + B ──────────────────────────────────── -->
 <div class="row g-3 mb-3">
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("a", "bi-triangle-fill",              "A — Pullback",        Model.Config.MaxTradesA, null))
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("b", "bi-arrow-up-right-circle-fill", "B — Breakout",        Model.Config.MaxTradesB, null))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("a", "bi-triangle-fill",              "A — Pullback [XACUZZY]",        Model.Config.MaxTradesA, null))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("b", "bi-arrow-up-right-circle-fill", "B — Breakout [BONGA]",        Model.Config.MaxTradesB, null))
 </div>
 
 <!-- ── Row 3: Setup C + D (False Breakout) ────────────────── -->
 <div class="row g-3 mb-3">
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("c", "bi-arrow-return-left",  "C — ORB Fakeout",     Model.Config.MaxTradesC, "setupC-card"))
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("d", "bi-arrow-return-right", "D — Session Fakeout", Model.Config.MaxTradesD, "setupD-card"))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("c", "bi-arrow-return-left",  "C — ORB Fakeout [NABO]",     Model.Config.MaxTradesC, "setupC-card"))
+    @await Html.PartialAsync("_SetupCard", new SetupCardModel("d", "bi-arrow-return-right", "D — Session Fakeout [CHAYALA]", Model.Config.MaxTradesD, "setupD-card"))
 </div>
 
 <!-- ── Ticker Group Selector ──────────────────────────────── -->
@@ -100,10 +100,10 @@
     <span class="text-muted small me-1">Instrument:</span>
 </div>
 
-<!-- ── Row 4: Market Context + False Breakout (1/3) | Empty slot (2/3) ── -->
+<!-- ── Row 4: Market Context + False Breakout + Key Levels | Chart ── -->
 <div class="row g-3 mb-3">
-    <!-- Left column: Market Context stacked above False Breakout -->
-    <div class="col-12 col-lg-4">
+    <!-- Left column: stacked cards (same width as Alerts Feed below) -->
+    <div class="col-12 col-lg-5">
         <!-- Market Context -->
         <div class="card mb-3">
             <div class="card-header d-flex align-items-center gap-2">
@@ -235,10 +235,16 @@
         </div>
     </div>
 
-    <!-- Right column: Lightweight Charts (stretches to match left column) -->
-    <div class="col-12 col-lg-8 d-flex">
-        <div class="card flex-fill">
-            <div class="card-body p-0 position-relative" id="tv-chart-container" style="min-height:400px">
+    <!-- Right column: Lightweight Charts (same width as Today's Trades below) -->
+    <div class="col-12 col-lg-7 d-flex">
+        <div class="card flex-fill d-flex flex-column">
+            <div class="card-body p-0 position-relative flex-fill" id="tv-chart-container" style="min-height:460px">
+                <div id="tv-chart-placeholder" class="d-flex align-items-center justify-content-center h-100 text-muted" style="position:absolute;inset:0;z-index:2;pointer-events:none;background:#000">
+                    <div class="text-center">
+                        <i class="bi bi-bar-chart-line" style="font-size:3rem;opacity:.3"></i>
+                        <div class="mt-2">Market Closed — chart loads when data is available</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -475,35 +481,84 @@ function setText(id, text, cls) {
 // ── Lightweight Charts (own data from Tradovate stream) ──────
 let _lwcChart = null;
 let _lwcSeries = null;
+let _lwcVolSeries = null;   // volume histogram
+let _lwcVolMaSeries = null; // volume MA(21) line
+let _lwcLastVolMa = 0;     // last MA value for live updates
+let _lwcVwapSeries = null;  // VWAP line series
 let _lwcCurrentGroup = null;
-let _lwcPriceLines = {};   // { orbHigh, orbLow, orbMid, vwap }
+let _lwcPriceLines = {};   // { orbHigh, orbLow }
 let _lwcMarkers = [];      // trade entry/exit markers
 let _lwcLastBarTime = 0;   // track bar transitions
+let _lwcDataReady = false; // prevent updates before initial setData
+let _lwcHasData = false;   // series has at least one data point
+let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 }; // cache to avoid re-creating
+
+// Compute ET offset in seconds (handles EDT/EST automatically)
+function _getEtOffsetSec() {
+    var now = new Date();
+    var utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
+    var etStr  = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    return (new Date(etStr) - new Date(utcStr)) / 1000;
+}
 
 function _initLwcChart() {
     var container = document.getElementById("tv-chart-container");
     if (!container || _lwcChart) return;
 
     _lwcChart = LightweightCharts.createChart(container, {
-        layout:     { background: { color: '#1a1a2e' }, textColor: '#a0a0b0' },
-        grid:       { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+        layout:     { background: { color: '#131722' }, textColor: '#d1d4dc' },
+        grid:       { vertLines: { visible: false }, horzLines: { visible: false } },
         crosshair:  { mode: LightweightCharts.CrosshairMode.Normal },
-        timeScale:  { timeVisible: true, secondsVisible: false, borderColor: '#2a2a3e' },
-        rightPriceScale: { borderColor: '#2a2a3e' },
-        width:  container.clientWidth,
-        height: container.clientHeight,
+        timeScale:  { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
+        rightPriceScale: { borderColor: '#2a2e39' },
+        width:  container.clientWidth || 800,
+        height: container.clientHeight || 460,
     });
 
-    _lwcSeries = _lwcChart.addSeries(LightweightCharts.CandlestickSeries, {
-        upColor: '#22c55e', downColor: '#ef4444',
-        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
-        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    _lwcSeries = _lwcChart.addCandlestickSeries({
+        upColor:       '#131722',   // hollow body (matches background)
+        downColor:     '#7f1d1d',   // solid dark red
+        borderUpColor: '#2a6f6f',   // teal border
+        borderDownColor:'#7f1d1d',  // dark red border
+        wickUpColor:   '#2a6f6f',   // teal wick
+        wickDownColor: '#7f1d1d',   // dark red wick
+        lastValueVisible: false,    // disable last-value label on Y axis
+        priceLineVisible: false,    // disable horizontal price line at current price
     });
+
+    // Volume histogram — pinned to bottom, 15% of chart height
+    _lwcVolSeries = _lwcChart.addHistogramSeries({
+        priceFormat:    { type: 'volume' },
+        priceScaleId:   'vol',
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+    });
+    _lwcChart.priceScale('vol').applyOptions({
+        scaleMargins: { top: 0.85, bottom: 0 },
+        drawTicks:    false,
+        visible:      false,          // hide volume axis — only show candlestick price scale
+        autoScale:    true,
+    });
+
+    // Volume MA(21) line — overlaid on the volume pane
+    _lwcVolMaSeries = _lwcChart.addLineSeries({
+        color:          'rgba(128, 128, 128, 0.5)',
+        lineWidth:      1,
+        priceFormat:    { type: 'volume' },
+        priceScaleId:   'vol',
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+    });
+
+    // VWAP line — disabled (data still available in Key Levels card)
+    // _lwcVwapSeries = _lwcChart.addLineSeries({ ... });
 
     // Responsive resize
     var ro = new ResizeObserver(function(entries) {
         var r = entries[0].contentRect;
-        if (_lwcChart) _lwcChart.resize(r.width, r.height);
+        if (_lwcChart && r.width > 0 && r.height > 0) _lwcChart.resize(r.width, r.height);
     });
     ro.observe(container);
 }
@@ -516,47 +571,127 @@ function _lwcRemovePriceLines() {
 }
 
 function _lwcUpdatePriceLines(gs) {
-    if (!_lwcSeries || !gs) return;
-    _lwcRemovePriceLines();
-    if (gs.orbHigh > 0 && gs.orbFormed) {
-        _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: gs.orbHigh, color: '#22c55e', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
-        _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: gs.orbLow,  color: '#ef4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
-        _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: gs.orbMid,  color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
-    }
-    if (gs.vwap > 0) {
-        _lwcPriceLines.vwap = _lwcSeries.createPriceLine({ price: gs.vwap, color: '#3b82f6', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'VWAP' });
-    }
+    if (!_lwcDataReady || !_lwcSeries || !gs) return;
+    // Never create price lines on a series with no data — LWC throws "Value is null"
+    if (!_lwcHasData) return;
+    try {
+        var wantOrb = gs.orbHigh > 0 && gs.orbFormed;
+        var h = wantOrb ? gs.orbHigh : 0;
+        var l = wantOrb ? gs.orbLow  : 0;
+        var m = wantOrb ? gs.orbMid  : 0;
+        // Skip if nothing changed (avoids remove+recreate race with LWC render cycle)
+        if (h === _lwcPriceLineValues.orbHigh && l === _lwcPriceLineValues.orbLow && m === _lwcPriceLineValues.orbMid) return;
+        _lwcRemovePriceLines();
+        _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m };
+        if (wantOrb) {
+            _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: h, color: '#2a6f6f', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
+            _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: l, color: '#7f1d1d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
+            _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: m, color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
+        }
+    } catch(e) { /* suppress during group switch */ }
 }
 
+let _lwcLoadSeq = 0;  // guard against stale async responses
 async function _lwcLoadGroup(groupKey) {
     if (!_lwcChart) _initLwcChart();
-    if (!_lwcSeries) return;
+    if (!_lwcSeries) { console.warn("[LWC] no series"); return; }
     _lwcCurrentGroup = groupKey;
     _lwcMarkers = [];
     _lwcLastBarTime = 0;
+    _lwcLastVolMa = 0;
+    _lwcDataReady = false;  // block live updates until setData completes
+    _lwcHasData = false;
+    _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 };
+    // Remove old price lines BEFORE loading new data (avoids "Value is null")
+    _lwcRemovePriceLines();
+    var seq = ++_lwcLoadSeq;
+    var ph = document.getElementById("tv-chart-placeholder");
     try {
+        console.log("[LWC] fetching bars for", groupKey);
         var resp = await fetch("/api/engine/bars/" + encodeURIComponent(groupKey));
-        if (!resp.ok) { _lwcSeries.setData([]); return; }
+        if (!resp.ok) { console.warn("[LWC] bad response", resp.status); _lwcSeries.setData([]); return; }
         var bars = await resp.json();
+        if (seq !== _lwcLoadSeq) return;  // stale response — a newer group was selected
+        console.log("[LWC] received", bars.length, "bars");
+        // Shift UTC timestamps to ET for display (LWC renders raw timestamps on axis)
+        var etOffset = _getEtOffsetSec();
+        bars.forEach(function(b) { b.time += etOffset; });
+        // Filter out bars with null/zero/NaN OHLC values (warmup bars before first trade)
+        var rawLen = bars.length;
+        bars = bars.filter(function(b) {
+            return b.time > 0 && b.open > 0 && b.high > 0 && b.low > 0 && b.close > 0;
+        });
+        console.log("[LWC]", bars.length, "of", rawLen, "bars passed filter");
         _lwcSeries.setData(bars);
         _lwcSeries.setMarkers([]);
-        if (bars.length > 0) _lwcLastBarTime = bars[bars.length - 1].time;
+        _lwcHasData = bars.length > 0;
+
+        // Volume histogram — color based on candle direction
+        var volData = bars.map(function(b) {
+            return { time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(42,111,111,0.4)' : 'rgba(127,29,29,0.4)' };
+        });
+        _lwcVolSeries.setData(volData);
+
+        // Volume MA(21)
+        var maLen = 21;
+        var maData = [];
+        for (var i = 0; i < bars.length; i++) {
+            if (i < maLen - 1) continue;
+            var sum = 0;
+            for (var j = i - maLen + 1; j <= i; j++) sum += (bars[j].volume || 0);
+            maData.push({ time: bars[i].time, value: sum / maLen });
+        }
+        _lwcVolMaSeries.setData(maData);
+        if (maData.length > 0) _lwcLastVolMa = maData[maData.length - 1].value;
+
+        // VWAP line disabled — data still available in Key Levels card
+
+        if (bars.length > 0) {
+            _lwcLastBarTime = bars[bars.length - 1].time;
+            if (ph) ph.remove();
+        } else {
+            /* placeholder already removed */
+        }
+        _lwcDataReady = true;  // allow live updates now
         _lwcChart.timeScale().fitContent();
+        _lwcChart.priceScale('right').applyOptions({ autoScale: true });
     } catch(e) {
-        console.warn("Failed to load bars for", groupKey, e);
-        _lwcSeries.setData([]);
+        console.error("[LWC] Failed to load bars for", groupKey, e);
+        try { _lwcSeries.setData([]); } catch(x) {}
+        try { _lwcVolSeries.setData([]); } catch(x) {}
+        try { _lwcVolMaSeries.setData([]); } catch(x) {}
+        // _lwcVwapSeries disabled
     }
 }
 
 function _lwcUpdateCandle(gs) {
-    if (!_lwcSeries || !gs || gs.barTime === 0) return;
-    _lwcSeries.update({ time: gs.barTime, open: gs.barOpen, high: gs.barHigh, low: gs.barLow, close: gs.barClose });
-    _lwcLastBarTime = gs.barTime;
+    if (!_lwcDataReady || !_lwcSeries || !gs || gs.barTime === 0) return;
+    if (!gs.barOpen || !gs.barHigh || !gs.barLow || !gs.barClose) return;
+    try {
+    var t = gs.barTime + _getEtOffsetSec();
+    // Only update if this timestamp is >= the last known bar time (never overwrite history)
+    if (_lwcLastBarTime > 0 && t < _lwcLastBarTime) return;
+    _lwcSeries.update({ time: t, open: gs.barOpen, high: gs.barHigh, low: gs.barLow, close: gs.barClose });
+    _lwcHasData = true;
+    // Update volume bar for current candle
+    if (_lwcVolSeries) {
+        var volColor = gs.barClose >= gs.barOpen ? 'rgba(42,111,111,0.4)' : 'rgba(127,29,29,0.4)';
+        _lwcVolSeries.update({ time: t, value: gs.barVolume || 0, color: volColor });
+    }
+    // Keep volume MA line in sync so LWC doesn't throw "Value is null"
+    // when the line series has fewer data points than the candle series.
+    if (_lwcVolMaSeries) {
+        _lwcVolMaSeries.update({ time: t, value: _lwcLastVolMa || 0 });
+    }
+    _lwcLastBarTime = t;
+    var ph = document.getElementById("tv-chart-placeholder");
+    if (ph) ph.remove();
+    } catch(e) { /* suppress during group switch */ }
 }
 
 function _lwcAddTradeMarker(time, isEntry, isLong) {
-    // Snap to nearest bar time (floor to execution TF)
-    var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : time;
+    // Snap to nearest bar time; fallback to current unix time if no bars yet
+    var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : (time > 0 ? time : Math.floor(Date.now() / 1000) + _getEtOffsetSec());
     if (isEntry) {
         _lwcMarkers.push({
             time: markerTime,
@@ -868,8 +1003,47 @@ function updateDashboard(d) {
         if (el) el.textContent = d.orbWindowStart + "–" + d.orbWindowEnd;
     }
 
-    // Active setups (module signals — informational only)
-    setText("stat-active-setup", "—");
+    // Active setups — find which setups belong to the selected group
+    // Uses d.tickerA/B (setup ticker) and d.setupAState/BState (state machine)
+    // State: A: 0=Idle ±1=Armed ±2=Active | B: 0=Idle ±1=Armed ±2=Retest ±3=Active
+    var activeSetups = [];
+    var signalsList = [];
+
+    function _tickerToGroup(t) {
+        t = (t || "").replace(/^\//, "");
+        if (t.startsWith("NQ") || t.startsWith("MNQ")) return "NQ";
+        if (t.startsWith("ES") || t.startsWith("MES")) return "ES";
+        if (t.startsWith("GC") || t.startsWith("MGC")) return "GC";
+        if (t.startsWith("CL") || t.startsWith("MCL")) return "CL";
+        if (t.startsWith("YM") || t.startsWith("MYM")) return "YM";
+        if (t.startsWith("RTY") || t.startsWith("M2K")) return "RTY";
+        if (t.startsWith("BTC") || t.startsWith("MBT")) return "BTC";
+        return t;
+    }
+
+    ["a","b","c","d"].forEach(id => {
+        var ID = id.toUpperCase();
+        var ticker = d["ticker" + ID] || "";
+        var state  = d["setup" + ID + "State"] || 0;
+        var trade  = d["setup" + ID];  // ActiveTradeView (null when no active trade)
+
+        // Filter to selected group
+        if (_selectedGroup && _tickerToGroup(ticker) !== _selectedGroup) return;
+
+        // Active trade (A: ±2, B: ±3)
+        if (trade && trade.entry > 0) {
+            activeSetups.push(ID + (trade.direction === 0 ? " Long" : " Short"));
+        }
+        // Armed/Retest signals (non-zero state, not in active trade)
+        else if (state !== 0) {
+            var absState = Math.abs(state);
+            var dir = state > 0 ? "▲" : "▼";
+            if (id === "a" && absState === 1) signalsList.push(ID + " Armed " + dir);
+            else if (id === "b" && absState === 1) signalsList.push(ID + " Armed " + dir);
+            else if (id === "b" && absState === 2) signalsList.push(ID + " Retest " + dir);
+        }
+    });
+    setText("stat-active-setup", activeSetups.length > 0 ? activeSetups.join(", ") : "—");
 
     // ── Ticker Group context panels (Market Context, FB, ORB, VWAP, ATR) ──
     // Cache group snapshots and build pills on first snapshot
@@ -882,6 +1056,16 @@ function updateDashboard(d) {
             var sel = _selectedGroup || keys[0];
             if (_groupSnapshots[sel]) {
                 _applyGroupContext(_groupSnapshots[sel]);
+                // Append setup armed/retest signals to the Signals row (after _applyGroupContext)
+                if (signalsList.length > 0) {
+                    var el = document.getElementById("stat-sweep-info");
+                    if (el) {
+                        var existing = el.textContent;
+                        el.textContent = (existing && existing !== "—")
+                            ? existing + " | " + signalsList.join(", ")
+                            : signalsList.join(", ");
+                    }
+                }
                 // Live candle update for active chart group
                 if (sel === _lwcCurrentGroup) {
                     _lwcUpdateCandle(_groupSnapshots[sel]);
@@ -905,10 +1089,12 @@ function updateDashboard(d) {
                 "H: " + d.sessionHigh.toFixed(2) + " L: " + (d.sessionLow > 0 ? d.sessionLow.toFixed(2) : "—"));
     }
 
-    // VWAP position (uses global lastPrice + selected group's VWAP)
-    var selVwap = _selectedGroup && _groupSnapshots[_selectedGroup] ? _groupSnapshots[_selectedGroup].vwap : d.vwap;
-    if (selVwap > 0 && d.lastPrice > 0) {
-        const above = d.lastPrice > selVwap;
+    // VWAP position — uses the selected group's price and VWAP
+    var selGs = _selectedGroup && _groupSnapshots[_selectedGroup] ? _groupSnapshots[_selectedGroup] : null;
+    var selVwap = selGs ? selGs.vwap : d.vwap;
+    var selPrice = selGs ? selGs.barClose : d.lastPrice;  // group's live price, not global
+    if (selVwap > 0 && selPrice > 0) {
+        const above = selPrice > selVwap;
         setText("stat-vwap-pos", above ? "Above VWAP" : "Below VWAP",
             "small " + (above ? "pnl-pos" : "pnl-neg"));
     }
@@ -1062,23 +1248,32 @@ function updateSetup(id, trade, state, enabled, pastCutoff, sessionEnded, maxTra
 
     // Partial — dollar gain + points distance
     const partPrice = trade.partial;
-    let partLabel = (partPrice?.toFixed(2) ?? "—") + (trade.partialFilled ? " ✓" : "");
-    if (partPrice != null && trade.entry != null && pv > 0 && !trade.partialFilled) {
-        const partCts = trade.contracts - rem;
-        const actualPartCts = partCts > 0 ? partCts : Math.floor(trade.contracts / 2);
-        const partUsd = Math.abs(partPrice - trade.entry) * actualPartCts * pv;
+    let partLabel = partPrice?.toFixed(2) ?? "—";
+    if (partPrice != null && trade.entry != null && pv > 0) {
+        const partCts = trade.partialFilled
+            ? (trade.contracts - trade.remainingContracts)   // actual exited contracts
+            : Math.floor(trade.contracts / 2);               // projected
+        const partUsd = Math.abs(partPrice - trade.entry) * partCts * pv;
         const partPts = Math.abs(partPrice - trade.entry);
         partLabel += " | $" + Math.round(partUsd).toLocaleString() + " | " + partPts.toFixed(2) + " pts";
     }
+    if (trade.partialFilled) partLabel += " ✓";
     setText(id + "-partial", partLabel);
 
-    // Target — dollar reward + points distance
+    // Target — realistic total P&L (partial + remaining to target)
     const tgtPrice = trade.target;
     let tgtLabel = tgtPrice?.toFixed(2) ?? "—";
     if (tgtPrice != null && trade.entry != null && pv > 0) {
-        const tgtUsd = Math.abs(tgtPrice - trade.entry) * rem * pv;
         const tgtPts = Math.abs(tgtPrice - trade.entry);
-        tgtLabel += " | $" + Math.round(tgtUsd).toLocaleString() + " | " + tgtPts.toFixed(2) + " pts";
+        const partCts = Math.floor(trade.contracts / 2);
+        const remCts  = trade.contracts - partCts;  // contracts that ride to target
+        // Target P&L for remaining contracts
+        const tgtRemUsd = tgtPts * remCts * pv;
+        // Partial P&L for exited contracts (add projected partial gain)
+        const partPts = partPrice != null ? Math.abs(partPrice - trade.entry) : 0;
+        const partLockedUsd = partPts * partCts * pv;
+        const totalUsd = tgtRemUsd + partLockedUsd;
+        tgtLabel += " | $" + Math.round(totalUsd).toLocaleString() + " | " + tgtPts.toFixed(2) + " pts";
     }
     setText(id + "-target", tgtLabel);
 
@@ -1146,5 +1341,34 @@ function addTradeRow(t) {
 
 // ── Initialize Lightweight Charts on page load ───────────────
 _initLwcChart();
+
+// Eagerly try to load chart bars on page load (don't wait for SignalR).
+(async function() {
+    try {
+        var resp = await fetch("/api/engine/status");
+        if (!resp.ok) return;
+        var s = await resp.json();
+        var d = s && s.snapshot;
+        if (d && d.groupSnapshots) {
+            var keys = Object.keys(d.groupSnapshots).sort();
+            if (keys.length > 0) {
+                _groupSnapshots = d.groupSnapshots;
+                _buildGroupPills(keys);
+                var sel = _selectedGroup || keys[0];
+                _selectedGroup = sel;
+                _applyGroupContext(d.groupSnapshots[sel]);
+                await _lwcLoadGroup(sel);
+                if (d.groupSnapshots[sel]) _lwcUpdatePriceLines(d.groupSnapshots[sel]);
+                return;
+            }
+        }
+    } catch(e) { console.warn("Status fetch failed, trying direct bar load", e); }
+    // Fallback: if status had no group snapshots, try pills already in DOM
+    var pills = document.querySelectorAll("#group-selector button");
+    if (pills.length > 0) {
+        var key = pills[0].dataset.group;
+        if (key) { _selectedGroup = key; await _lwcLoadGroup(key); }
+    }
+})();
 </script>
 }

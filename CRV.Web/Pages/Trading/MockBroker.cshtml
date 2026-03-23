@@ -1,0 +1,251 @@
+@page "/trading/mock"
+@model CRV.Web.Pages.Trading.MockBrokerModel
+@using CRV.Core.Models
+@{
+    ViewData["Title"] = "Mock Broker";
+    ViewData["Page"]  = "mock-broker";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    TimeZoneInfo etTz;
+    try   { etTz = TimeZoneInfo.FindSystemTimeZoneById("America/New_York"); }
+    catch { etTz = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); }
+
+    string ToEt(DateTime utc)     => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d HH:mm");
+    string ToEtTime(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm");
+    string EtLabel(DateTime utc)  => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).IsDaylightSavingTime() ? "EDT" : "EST";
+    string PnlCls(decimal v)      => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "";
+    string Pnl(decimal v)         => (v >= 0 ? "+$" : "-$") + Math.Abs(v).ToString("N0");
+}
+
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+    <h5 class="mb-0"><i class="bi bi-robot me-2 text-warning"></i>Mock Broker</h5>
+    <span class="badge bg-secondary font-monospace">@Model.AllTrades.Count total trades</span>
+
+    <!-- Day selector -->
+    @if (Model.AvailableDates.Count > 0)
+    {
+        <form method="get" class="d-flex align-items-center gap-2 ms-auto">
+            <label class="form-label small mb-0 text-muted">Day:</label>
+            <select name="date" class="form-select form-select-sm" style="width:auto"
+                    onchange="this.form.submit()">
+                @foreach (var d in Model.AvailableDates)
+                {
+                    var isSelected = d == Model.SelectedDate;
+                    var isToday    = d == DateOnly.FromDateTime(DateTime.Today);
+                    <option value="@d.ToString("yyyy-MM-dd")" selected="@(isSelected ? "selected" : null)">
+                        @d.ToString("MMM d, yyyy")@(isToday ? " (Today)" : "")
+                    </option>
+                }
+            </select>
+        </form>
+    }
+</div>
+
+@if (Model.AllTrades.Count == 0)
+{
+    <div class="settings-section d-flex flex-column align-items-center justify-content-center py-5 text-center opacity-50">
+        <i class="bi bi-robot" style="font-size:3rem;color:#ffd700;"></i>
+        <div class="mt-3 text-muted">No mock trades yet.</div>
+        <div class="text-muted small mt-1">
+            Set <strong>Exec Broker</strong> to <strong>Mock (Paper)</strong> in Live Settings and run the engine.
+        </div>
+    </div>
+}
+else
+{
+    <!-- Metric cards -->
+    <div class="row g-2 mb-3">
+        @foreach (var card in new[] {
+            (Title: "All Trades", Icon: "bi-bar-chart-fill",             M: Model.Total),
+            (Title: "Setup A",    Icon: "bi-triangle-fill",              M: Model.SetupA),
+            (Title: "Setup B",    Icon: "bi-arrow-up-right-circle-fill", M: Model.SetupB),
+            (Title: "Setup C",    Icon: "bi-arrow-return-left",          M: Model.SetupC),
+            (Title: "Setup D",    Icon: "bi-arrow-return-right",         M: Model.SetupD),
+        })
+        {
+            var m = card.M;
+            <div class="col-12 col-md-4">
+                <div class="settings-section">
+                    <h6 class="mb-2">
+                        <i class="bi @card.Icon me-1"></i>@card.Title
+                        <span class="fw-normal text-muted small ms-1">(@m.TotalTrades trades)</span>
+                    </h6>
+                    <div class="d-flex justify-content-between py-1 border-bottom border-secondary">
+                        <span class="text-muted small">Net P&amp;L</span>
+                        <span class="font-monospace small @PnlCls(m.NetPnl)">@Pnl(m.NetPnl)</span>
+                    </div>
+                    <div class="d-flex justify-content-between py-1 border-bottom border-secondary">
+                        <span class="text-muted small">Win Rate</span>
+                        <span class="font-monospace small @(m.WinRate >= 50 ? "pnl-pos" : "pnl-neg")">@m.WinRate.ToString("F1")%</span>
+                    </div>
+                    <div class="d-flex justify-content-between py-1">
+                        <span class="text-muted small">Avg R</span>
+                        <span class="font-monospace small @PnlCls(m.AvgR)">@m.AvgR.ToString("F2")R</span>
+                    </div>
+                    <div class="d-flex justify-content-between py-1" title="E = (Win% × AvgWin) − (Loss% × AvgLoss)">
+                        <span class="text-muted small">Expectancy</span>
+                        <span class="font-monospace small @PnlCls(m.Expectancy)">@Pnl(m.Expectancy)</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Equity curve — full history -->
+    <div class="settings-section mb-3">
+        <h6 class="mb-3">
+            <i class="bi bi-graph-up me-1"></i>Equity Curve
+            <span class="text-muted fw-normal small ms-2">@Model.AllTrades.Count trades</span>
+            @{ var totalNet = Model.AllTrades.Sum(t => t.NetPnl); }
+            <span class="badge ms-2 @(totalNet >= 0 ? "bg-success" : "bg-danger") font-monospace small">@Pnl(totalNet)</span>
+        </h6>
+        <canvas id="equity-chart" style="max-height:200px;"></canvas>
+    </div>
+
+    <!-- Trade log for selected day -->
+    <div class="settings-section">
+        <div class="d-flex align-items-center mb-2">
+            <h6 class="mb-0">
+                <i class="bi bi-list-columns me-1"></i>Trades &mdash; @Model.SelectedDate.ToString("MMM d, yyyy")
+            </h6>
+            <span class="badge bg-secondary font-monospace ms-2">@Model.Trades.Count trades</span>
+            @if (Model.Trades.Count > 0)
+            {
+                <span class="ms-2 small text-muted">
+                    @Model.Trades.Count(t => t.IsWin) W / @Model.Trades.Count(t => !t.IsWin) L
+                </span>
+            }
+        </div>
+
+        @if (Model.Trades.Count == 0)
+        {
+            <div class="text-muted small py-3 text-center">No trades for this day.</div>
+        }
+        else
+        {
+            var firstTrade = Model.Trades[0];
+            <div class="table-responsive" style="max-height:460px;overflow-y:auto;">
+                <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                    <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
+                        <tr>
+                            <th>#</th>
+                            <th>In (@EtLabel(firstTrade.EnteredAt))</th>
+                            <th>Out</th><th>Dur</th><th>Setup</th><th>Instr</th><th>Dir</th>
+                            <th class="text-end">Entry</th><th class="text-end">Exit</th>
+                            <th class="text-end">Stop</th><th class="text-end">Target</th>
+                            <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
+                            <th class="text-end">Gross</th><th class="text-end">Comm</th>
+                            <th class="text-end">Net</th><th class="text-end">R</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int rowNum = 0; }
+                        @foreach (var t in Model.Trades)
+                        {
+                            rowNum++;
+                            var rowCls = t.IsWin ? "table-success bg-opacity-10" : "table-danger bg-opacity-10";
+                            var reasonBadge = t.ExitReason switch
+                            {
+                                ExitReason.Target => "bg-success",
+                                ExitReason.Stop   => "bg-danger",
+                                _                 => "bg-secondary"
+                            };
+                            var dur = t.Duration.TotalHours >= 1
+                                ? $"{(int)t.Duration.TotalHours}h{t.Duration.Minutes:D2}m"
+                                : $"{(int)t.Duration.TotalMinutes}m";
+                            <tr class="@rowCls">
+                                <td class="td-dim">@rowNum</td>
+                                <td class="td-time">@ToEt(t.EnteredAt)</td>
+                                <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
+                                <td class="td-dim">@dur</td>
+                                <td>
+                                    <span class="badge @(t.Setup == SetupId.A ? "bg-info text-dark" : "bg-warning text-dark")">
+                                        @t.Setup
+                                    </span>
+                                </td>
+                                <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
+                                <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">
+                                    @t.EffectiveDirection
+                                </td>
+                                <td class="text-end">@t.Entry.ToString("F2")</td>
+                                <td class="text-end">@t.Exit.ToString("F2")</td>
+                                <td class="text-end td-dim">@t.InitialStop.ToString("F2")</td>
+                                <td class="text-end td-dim">@t.Target.ToString("F2")</td>
+                                <td class="text-end">@t.Contracts</td>
+                                <td class="text-center">
+                                    @if (t.PartialFilled)
+                                    {
+                                        <i class="bi bi-check-lg"></i>
+                                    }
+                                    else
+                                    {
+                                        <span class="td-dim">&#x2014;</span>
+                                    }
+                                </td>
+                                <td><span class="badge @reasonBadge small">@t.ExitReason</span></td>
+                                <td class="text-end @(t.GrossPnl >= 0 ? "pnl-pos" : "pnl-neg")">@Pnl(t.GrossPnl)</td>
+                                <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
+                                <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
+                                <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+@if (Model.AllTrades.Count > 0)
+{
+    decimal running = 0m;
+    var pts = Model.AllTrades.Select(t =>
+    {
+        running += t.NetPnl;
+        return (t.EnteredAt, running);
+    }).ToList();
+
+    <text>
+<script>
+(function() {
+    const labels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        pts.Select(p => TimeZoneInfo.ConvertTimeFromUtc(p.EnteredAt, etTz).ToString("M/d"))));
+    const values = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        pts.Select(p => (double)p.running)));
+    const lastEquity = values[values.length - 1];
+    const lineColor  = lastEquity >= 0 ? '#00ff88' : '#ff4466';
+    const fillColor  = lastEquity >= 0 ? 'rgba(0,255,136,.07)' : 'rgba(255,68,102,.07)';
+    new Chart(document.getElementById('equity-chart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Equity', data: values, borderColor: lineColor, backgroundColor: fillColor,
+                  borderWidth: 2, pointRadius: values.length <= 80 ? 3 : 0, pointHoverRadius: 5,
+                  fill: true, tension: 0.15 },
+                { label: 'Zero', data: new Array(values.length).fill(0),
+                  borderColor: 'rgba(255,255,255,.18)', borderDash: [4,4], borderWidth: 1,
+                  pointRadius: 0, fill: false },
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ctx.datasetIndex === 0
+                    ? ' $' + ctx.parsed.y.toLocaleString('en-US', { maximumFractionDigits: 0 }) : null }}
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 14, color: '#666', font: { size: 11 } }, grid: { color: '#1a1d24' } },
+                y: { ticks: { color: '#666', font: { size: 11 }, callback: v => '$' + v.toLocaleString() }, grid: { color: '#1a1d24' } },
+            },
+        },
+    });
+}());
+</script>
+    </text>
+}
+}

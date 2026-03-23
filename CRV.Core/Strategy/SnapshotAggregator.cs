@@ -1,3 +1,4 @@
+using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Core.Modules;
 
@@ -24,6 +25,9 @@ public static class SnapshotAggregator
         public IndicatorState Indicators { get; init; }
         public decimal OrbAtrRatio { get; init; }
 
+        // ── Per-setup ORB state (each ticker group has its own ORB) ──
+        public Dictionary<SetupId, OrbState> PerSetupOrb { get; init; } = new();
+
         // ── Session / time state ────────────────────────────────
         public DateTime BarTime { get; init; }
         public string Ticker { get; init; } = "";
@@ -34,6 +38,9 @@ public static class SnapshotAggregator
         public string ActiveSessionId { get; init; } = "";
         public string OrbWindowStart { get; init; } = "";
         public string OrbWindowEnd { get; init; } = "";
+
+        // ── Price provider (for per-setup last price) ────────────
+        public ILastPriceProvider? Prices { get; init; }
 
         // ── Config values ───────────────────────────────────────
         public decimal DailyLossLimit { get; init; }
@@ -81,6 +88,9 @@ public static class SnapshotAggregator
 
         // Alerts
         public List<AlertEvent> RecentAlerts { get; init; } = new();
+
+        // Per-ticker-group snapshots for dashboard selector
+        public Dictionary<string, TickerGroupSnapshot> GroupSnapshots { get; init; } = new();
     }
 
     /// <summary>
@@ -165,6 +175,7 @@ public static class SnapshotAggregator
             SignalStrength = inputs.SignalStrength,
 
             RecentAlerts = inputs.RecentAlerts,
+            GroupSnapshots = inputs.GroupSnapshots,
 
             // Default enabled to false; strategies will override
             SetupAEnabled = false,
@@ -176,8 +187,14 @@ public static class SnapshotAggregator
         // Map each strategy to per-setup fields by SetupId
         foreach (var strategy in inputs.Strategies)
         {
+            // Per-setup last price from the strategy's own ticker
+            var setupLastPrice = inputs.Prices != null && !string.IsNullOrEmpty(strategy.Ticker)
+                ? inputs.Prices.GetLastPrice(strategy.Ticker)
+                : inputs.LastPrice;
+            if (setupLastPrice <= 0) setupLastPrice = inputs.LastPrice;
+
             var ss = strategy.GetSnapshot();
-            var trade = strategy.GetActiveTrade(inputs.LastPrice);
+            var trade = strategy.GetActiveTrade(setupLastPrice);
 
             switch (strategy.SetupId)
             {
@@ -195,6 +212,16 @@ public static class SnapshotAggregator
                     snap.TodayLossesA  = ss.Losses;
                     snap.TodayWinPnlA  = ss.WinPnl;
                     snap.TodayLossPnlA = ss.LossPnl;
+                    snap.LastPriceA    = setupLastPrice;
+                    snap.TickerA       = strategy.Ticker?.TrimStart('/') ?? "";
+                    snap.PointValueA   = strategy.PointValue;
+                    if (inputs.PerSetupOrb.TryGetValue(SetupId.A, out var orbA))
+                    {
+                        snap.OrbHighA = orbA.High; snap.OrbLowA = orbA.Low; snap.OrbMidA = orbA.Mid;
+                        snap.OrbRangeA = orbA.Range; snap.OrbBullCloseA = orbA.BullClose;
+                        snap.OrbBearCloseA = orbA.BearClose; snap.OrbAtrRatioA = orbA.AtrRatio;
+                        snap.OrbFormedA = orbA.IsSet;
+                    }
                     break;
 
                 case SetupId.B:
@@ -211,6 +238,16 @@ public static class SnapshotAggregator
                     snap.TodayLossesB  = ss.Losses;
                     snap.TodayWinPnlB  = ss.WinPnl;
                     snap.TodayLossPnlB = ss.LossPnl;
+                    snap.LastPriceB    = setupLastPrice;
+                    snap.TickerB       = strategy.Ticker?.TrimStart('/') ?? "";
+                    snap.PointValueB   = strategy.PointValue;
+                    if (inputs.PerSetupOrb.TryGetValue(SetupId.B, out var orbB))
+                    {
+                        snap.OrbHighB = orbB.High; snap.OrbLowB = orbB.Low; snap.OrbMidB = orbB.Mid;
+                        snap.OrbRangeB = orbB.Range; snap.OrbBullCloseB = orbB.BullClose;
+                        snap.OrbBearCloseB = orbB.BearClose; snap.OrbAtrRatioB = orbB.AtrRatio;
+                        snap.OrbFormedB = orbB.IsSet;
+                    }
                     break;
 
                 case SetupId.C:
@@ -227,6 +264,16 @@ public static class SnapshotAggregator
                     snap.TodayLossesC  = ss.Losses;
                     snap.TodayWinPnlC  = ss.WinPnl;
                     snap.TodayLossPnlC = ss.LossPnl;
+                    snap.LastPriceC    = setupLastPrice;
+                    snap.TickerC       = strategy.Ticker?.TrimStart('/') ?? "";
+                    snap.PointValueC   = strategy.PointValue;
+                    if (inputs.PerSetupOrb.TryGetValue(SetupId.C, out var orbC))
+                    {
+                        snap.OrbHighC = orbC.High; snap.OrbLowC = orbC.Low; snap.OrbMidC = orbC.Mid;
+                        snap.OrbRangeC = orbC.Range; snap.OrbBullCloseC = orbC.BullClose;
+                        snap.OrbBearCloseC = orbC.BearClose; snap.OrbAtrRatioC = orbC.AtrRatio;
+                        snap.OrbFormedC = orbC.IsSet;
+                    }
                     break;
 
                 case SetupId.D:
@@ -243,6 +290,16 @@ public static class SnapshotAggregator
                     snap.TodayLossesD  = ss.Losses;
                     snap.TodayWinPnlD  = ss.WinPnl;
                     snap.TodayLossPnlD = ss.LossPnl;
+                    snap.LastPriceD    = setupLastPrice;
+                    snap.TickerD       = strategy.Ticker?.TrimStart('/') ?? "";
+                    snap.PointValueD   = strategy.PointValue;
+                    if (inputs.PerSetupOrb.TryGetValue(SetupId.D, out var orbD))
+                    {
+                        snap.OrbHighD = orbD.High; snap.OrbLowD = orbD.Low; snap.OrbMidD = orbD.Mid;
+                        snap.OrbRangeD = orbD.Range; snap.OrbBullCloseD = orbD.BullClose;
+                        snap.OrbBearCloseD = orbD.BearClose; snap.OrbAtrRatioD = orbD.AtrRatio;
+                        snap.OrbFormedD = orbD.IsSet;
+                    }
                     break;
             }
         }

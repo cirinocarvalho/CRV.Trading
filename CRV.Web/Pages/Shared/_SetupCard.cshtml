@@ -21,9 +21,18 @@
             </button>
         </div>
         <div class="card-body p-0">
-            <table class="table table-sm mb-0 trade-table" id="table-@id">
+            <table class="table table-sm mb-0 trade-table" id="table-@id" style="font-size:.95rem">
                 <tbody>
-                    <tr><td class="text-muted" style="width:45%">Direction</td><td id="@id-dir">—</td></tr>
+                    <tr>
+                        <td class="text-muted" style="width:40%">Last Price</td>
+                        <td class="d-flex align-items-center gap-1">
+                            <span id="@id-price" class="font-monospace fw-bold">—</span>
+                            <span class="stream-dot" id="@id-price-dot"></span>
+                            <span id="@id-price-age" class="text-muted small"></span>
+                            <span id="@id-ticker" class="text-muted small ms-1"></span>
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">Direction</td><td id="@id-dir">—</td></tr>
                     <tr><td class="text-muted">Entry</td><td id="@id-entry" class="font-monospace">—</td></tr>
                     <tr><td class="text-muted">Stop</td><td id="@id-stop" class="font-monospace">—</td></tr>
                     <tr><td class="text-muted">Partial (50%)</td><td id="@id-partial" class="font-monospace">—</td></tr>

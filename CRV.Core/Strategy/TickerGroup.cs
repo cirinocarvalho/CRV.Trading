@@ -150,26 +150,36 @@ public class TickerGroup
 
             _atr.Update(bar);
             _vwap.Update(bar, tradingDate);
+
+            // Store VWAP value alongside the last added bar
+            _barBuffer.SetVwap(_vwap.Value);
             if (bar.Close > 0) _lastBarClose = bar.Close;
+
+            // Always keep OpeningDrive's ATR/VWAP current — they are used by
+            // FreezeAtOrbClose and must reflect the latest values even if ATR
+            // was not ready during earlier ORB-window bars.
+            _openingDrive.CurrentAtr = _atr.Value;
+            _openingDrive.CurrentVwap = _vwap.Value;
+
+            // Accumulate bull/bear counts and drive range during ORB window
+            if (!_orb.IsSet)
+            {
+                _openingDrive.AccumulateOrbBar(bar);
+            }
 
             // Freeze ORB/ATR ratio when ORB first forms
             if (_orb.IsSet && _orbAtrRatio == 0 && _atr.IsReady && _atr.Value > 0)
             {
                 _orbAtrRatio = _orb.OrbRange / _atr.Value;
                 _orbJustFormed = true;
+                // Evaluate opening drive now that the ORB window has closed
+                _openingDrive.FreezeAtOrbClose(_orb.OrbRange);
             }
 
             // Module updates
             _sessionEngine.CurrentAtr = _atr.Value;
             _sessionEngine.CurrentVwap = _vwap.Value;
             _sessionEngine.OnBar(bar, tradingDate);
-
-            if (!_orb.IsSet)
-            {
-                _openingDrive.CurrentAtr = _atr.Value;
-                _openingDrive.CurrentVwap = _vwap.Value;
-                _openingDrive.AccumulateOrbBar(bar);
-            }
 
             _vwapModel.OnBar(bar, tradingDate);
 
@@ -182,9 +192,23 @@ public class TickerGroup
                 orbHigh: _orb.OrbHigh, orbLow: _orb.OrbLow);
             _sweepDetector.OnBar(bar, tradingDate);
 
+            // FalseBreakout BEFORE TrendDay update (matches OrbStrategyEngine order —
+            // fakeout filter uses previous bar's trend scores, not current bar's)
             _falseBreakout.OnBar(bar, tradingDate,
                 _orb.OrbHigh, _orb.OrbLow, _orb.IsSet,
                 _vwap.Value, _trendDay.BullScore, _trendDay.BearScore);
+
+            // Trend day scoring — only on confirmed bars (matches OrbStrategyEngine guard)
+            if (_orb.IsSet && bar.IsConfirmed)
+            {
+                _trendDay.Update(
+                    _openingDrive.OpeningDriveBull, _openingDrive.OpeningDriveBear,
+                    bar.Close, _vwap.Value,
+                    _orb.OrbHigh, _orb.OrbLow, _orb.OrbMid,
+                    _sessionEngine.SessionHigh,
+                    _sessionEngine.SessionLow < decimal.MaxValue ? _sessionEngine.SessionLow : bar.Low,
+                    _orb.OrbMid);
+            }
 
             // Build state snapshots once for all strategies
             var orbState = BuildOrbState();
@@ -194,12 +218,30 @@ public class TickerGroup
             // Reset cross-setup coordination flag
             _enteredThisBar = false;
 
+            // Per-setup cutoff: compute local time once for all strategies
+            var localTime = TimeOnly.FromDateTime(local);
+
             // Dispatch to each strategy, tracking whether fakeout signals get consumed.
             // OrbTracker: clear activation when Setup C newly arms (one-shot, allows new fakeout detection).
             // SessionRangeTracker: do NOT clear — session fakeout persists for the whole session,
             // allowing Setup D to re-arm after BE exits from the same session boundary signal.
             foreach (var strategy in _strategies)
             {
+                // Per-setup cutoff — skip evaluation if past this setup's cutoff time
+                // (matches OrbStrategyEngine behavior: no new arms/entries past cutoff)
+                if (IsPastCutoff(strategy, localTime))
+                {
+                    // Force-exit active trades past cutoff (CloseAtRthClose behavior)
+                    if (strategy.IsActive)
+                    {
+                        var px = bar.Close > 0 ? bar.Close : _lastBarClose;
+                        strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                    }
+                    // Disarm stale armed/waiting states so dashboard shows IDLE
+                    strategy.Disarm();
+                    continue;
+                }
+
                 bool orbActivated = _falseBreakout.OrbTracker.IsActivated;
                 bool wasArmed     = strategy.IsArmed || strategy.IsActive;
 
@@ -253,8 +295,20 @@ public class TickerGroup
             var indState = BuildIndicatorState();
             var modState = BuildModuleState();
 
+            // Per-setup cutoff for tick path
+            var tickLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _tz);
+            var tickLocalTime = TimeOnly.FromDateTime(tickLocal);
+
             foreach (var strategy in _strategies)
             {
+                if (IsPastCutoff(strategy, tickLocalTime))
+                {
+                    if (strategy.IsActive)
+                        strategy.ForceExit(price, utc, ExitReason.SessionEnd);
+                    strategy.Disarm();
+                    continue;
+                }
+
                 strategy.OnTick(price, utc, orbState, indState, modState);
 
                 if (strategy.PendingEntry != null)
@@ -322,14 +376,28 @@ public class TickerGroup
     /// </summary>
     public void Reset()
     {
-        _atr.Reset();
+        // NOTE: Do NOT reset _atr — ATR is a rolling 14-bar indicator that should
+        // persist across sessions.  Resetting it at every session boundary forces
+        // a 70-minute warmup (14 × 5-min bars) during which ATR reads 0.
         _vwap.Reset();
         _orb.Reset();
-        _barBuffer.Clear();
+        // NOTE: Do NOT clear _barBuffer — chart history should persist across sessions.
+        // The ring buffer naturally rolls off old bars as new ones arrive.
         _currentBar = null;
         _lastBarClose = 0;
         _orbAtrRatio = 0;
         _enteredThisBar = false;
+
+        // Reset session-scoped modules. When sessions switch on the same trading date
+        // (e.g. London→NY), the date-change guard in ProcessBarAsync does NOT fire,
+        // so these modules would retain stale state from the prior session.
+        // Matches OrbStrategyEngine.Reconfigure() which calls NewSession() on each.
+        // NOTE: Do NOT reset _sessionEngine or _falseBreakout here — _sessionEngine
+        // tracks daily levels (PDH/PDL, Asia/London highs) across sessions, and
+        // _falseBreakout's reference range was just set by OnSessionBoundary().
+        _openingDrive.NewSession(_lastDate);
+        _trendDay.NewSession(_lastDate);
+        _sweepDetector.NewSession(_lastDate);
 
         foreach (var s in _strategies)
             s.Reset();
@@ -344,27 +412,43 @@ public class TickerGroup
     /// <summary>Return bar history for the REST chart endpoint (thread-safe).</summary>
     public List<Bar> GetBarHistory() => _barBuffer.ToList();
 
+    /// <summary>Return bar history with VWAP values for the REST chart endpoint.</summary>
+    public List<(Bar Bar, decimal Vwap)> GetBarHistoryWithVwap() => _barBuffer.ToListWithVwap();
+
     /// <summary>
     /// Build a complete snapshot of this group's module/indicator state
     /// for the dashboard ticker-group selector.
     /// </summary>
-    public TickerGroupSnapshot BuildGroupSnapshot()
+    public TickerGroupSnapshot BuildGroupSnapshot(decimal livePrice = 0)
     {
         // Current bar for live candle (unconfirmed or latest confirmed)
         var bar = _currentBar;
         long barTime = 0;
+        decimal barOpen = bar?.Open ?? 0, barHigh = bar?.High ?? 0;
+        decimal barLow = bar?.Low ?? 0, barClose = bar?.Close ?? 0;
+
         if (bar != null)
+        {
             barTime = new DateTimeOffset(bar.Time, TimeSpan.Zero).ToUnixTimeSeconds();
+            // Incorporate live price into the current candle (updates between confirmed bars)
+            if (livePrice > 0)
+            {
+                barClose = livePrice;
+                if (livePrice > barHigh) barHigh = livePrice;
+                if (livePrice < barLow)  barLow  = livePrice;
+            }
+        }
 
         return new()
         {
         GroupKey = _tickerKey,
         // Current bar
         BarTime  = barTime,
-        BarOpen  = bar?.Open  ?? 0,
-        BarHigh  = bar?.High  ?? 0,
-        BarLow   = bar?.Low   ?? 0,
-        BarClose = bar?.Close ?? 0,
+        BarOpen  = barOpen,
+        BarHigh  = barHigh,
+        BarLow   = barLow,
+        BarClose = barClose,
+        BarVolume = bar?.Volume ?? 0,
         // Session
         CurrentSession = _sessionEngine.CurrentSession.ToString(),
         SessionHigh = _sessionEngine.SessionHigh,
@@ -406,22 +490,34 @@ public class TickerGroup
         FBOrbActivated = _falseBreakout.OrbTracker.IsActivated,
         FBSessionActivated = _falseBreakout.SessionRangeTracker.IsActivated,
         IsCompoundFakeout = _falseBreakout.IsCompoundFakeout,
+        // Signal Strength
+        DriveScore = ComputeDriveScore(),
+        SweepScore = ComputeSweepScore(),
+        VwapDevScore = ComputeVwapDevScore(),
+        SignalStrength = ComputeSignalStrength(),
         };
     }
 
     // ── ORB cache support ────────────────────────────────────────
 
     /// <summary>Restore ORB state from cache after engine restart.</summary>
-    public void RestoreOrb(decimal orbHigh, decimal orbLow, decimal closeRelPct, DateTime tradingDate, decimal orbAtrRatio)
+    public void RestoreOrb(decimal orbHigh, decimal orbLow, decimal closeRelPct, DateTime tradingDate, decimal orbAtrRatio,
+        bool driveBull = false, bool driveBear = false, decimal driveRangePctATR = 0)
     {
         _orb.Restore(orbHigh, orbLow, closeRelPct, tradingDate);
         _orbAtrRatio = orbAtrRatio;
+        _openingDrive.Restore(driveBull, driveBear, driveRangePctATR);
+
+        // Seed _lastDate so the first backfill bar doesn't trigger a false
+        // date-change that would call NewSession() and wipe the restored state.
+        _lastDate = tradingDate;
     }
 
     /// <summary>Seed ORB floor from cache when restarting inside ORB window.</summary>
-    public void SeedOrbFloor(decimal orbHigh, decimal orbLow)
+    public void SeedOrbFloor(decimal orbHigh, decimal orbLow, DateTime tradingDate)
     {
         _orb.SeedFloor(orbHigh, orbLow);
+        _lastDate = tradingDate;
     }
 
     /// <summary>Seed module history from daily bars.</summary>
@@ -448,6 +544,9 @@ public class TickerGroup
             OrbLow      = _orb.OrbLow,
             CloseRelPct = _orb.CloseRelPct,
             OrbAtrRatio = _orbAtrRatio,
+            OpeningDriveBull  = _openingDrive.OpeningDriveBull,
+            OpeningDriveBear  = _openingDrive.OpeningDriveBear,
+            DriveRangePctATR  = _openingDrive.DriveRangePctATR,
             SavedAtUtc  = DateTime.UtcNow,
         };
         return true;
@@ -475,6 +574,7 @@ public class TickerGroup
         if (t.StartsWith("CL") || t.StartsWith("MCL")) return "CL";
         if (t.StartsWith("YM") || t.StartsWith("MYM")) return "YM";
         if (t.StartsWith("RTY") || t.StartsWith("M2K")) return "RTY";
+        if (t.StartsWith("BTC") || t.StartsWith("MBT")) return "BTC";
         return t;
     }
 
@@ -485,6 +585,13 @@ public class TickerGroup
     /// direction opposite to <paramref name="isLong"/>. Used to prevent opposing
     /// positions on the same instrument.
     /// </summary>
+    /// <summary>Check if the current time is past this strategy's per-setup cutoff.</summary>
+    private static bool IsPastCutoff(ISetupStrategy strategy, TimeOnly localTime)
+    {
+        var cutoff = new TimeOnly(strategy.CutoffHour, strategy.CutoffMinute);
+        return localTime >= cutoff;
+    }
+
     private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
     {
         foreach (var s in _strategies)
@@ -497,6 +604,37 @@ public class TickerGroup
                 return true;
         }
         return false;
+    }
+
+    // ── Signal-strength helpers (ported from OrbStrategyEngine) ───
+
+    private decimal ComputeDriveScore()
+    {
+        if (!_openingDrive.OpeningDriveBull && !_openingDrive.OpeningDriveBear) return 0m;
+        var threshold = _cfg.DriveRangeAtrMult;
+        if (threshold <= 0) return 0m;
+        var raw = _openingDrive.DriveRangePctATR / threshold * 3m;
+        return Math.Clamp(Math.Round(raw, 1), 0m, 5m);
+    }
+
+    private decimal ComputeSweepScore()
+    {
+        var count = _sweepDetector.ActiveSweeps.Count;
+        if (count == 0) return 0m;
+        return Math.Min(5m, count * 2.5m);
+    }
+
+    private decimal ComputeVwapDevScore()
+    {
+        return Math.Abs((int)_vwapModel.State) * 2.5m;
+    }
+
+    private decimal ComputeSignalStrength()
+    {
+        var d = ComputeDriveScore();
+        var s = ComputeSweepScore();
+        var v = ComputeVwapDevScore();
+        return Math.Round((d + s + v) / 3m, 1);
     }
 
     private OrbState BuildOrbState() => new(

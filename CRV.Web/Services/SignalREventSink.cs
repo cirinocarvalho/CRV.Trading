@@ -73,52 +73,29 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
         _consumerTask.Wait(TimeSpan.FromSeconds(5));
     }
 
-    public async Task OnEntryAsync(EntrySignal sig)
-    {
-        await _hub.Clients.All.SendAsync("Alert", new
-        {
-            time    = sig.Time.ToString("HH:mm:ss"),
-            setup   = sig.Setup.ToString(),
-            type    = "ENTRY",
-            color   = sig.Direction == Direction.Long ? "green" : "red",
-            message = $"{sig.Direction} {sig.Contracts}ct @ {sig.Entry:F2} | Stop {sig.Stop:F2} | Tgt {sig.Target:F2}"
-        });
-    }
+    // Alert events (entry/partial/BE/exit) are handled by the engine's AddAlert ring buffer
+    // and pushed to the dashboard via OnSnapshotAsync. No duplicate SignalR "Alert" here.
 
-    public async Task OnPartialAsync(PartialSignal sig)
-    {
-        await _hub.Clients.All.SendAsync("Alert", new
-        {
-            time    = sig.Time.ToString("HH:mm:ss"),
-            setup   = sig.Setup.ToString(),
-            type    = "PARTIAL",
-            color   = "yellow",
-            message = $"Partial {sig.ContractsExited}ct @ {sig.PartialPrice:F2}"
-        });
-    }
+    public Task OnEntryAsync(EntrySignal sig) => Task.CompletedTask;
 
-    public async Task OnBEMoveAsync(BESignal sig)
-    {
-        await _hub.Clients.All.SendAsync("Alert", new
-        {
-            time    = sig.Time.ToString("HH:mm:ss"),
-            setup   = sig.Setup.ToString(),
-            type    = "MOVE_BE",
-            color   = "yellow",
-            message = $"Stop → BE {sig.NewStop:F2}"
-        });
-    }
+    public Task OnPartialAsync(PartialSignal sig) => Task.CompletedTask;
+
+    public Task OnBEMoveAsync(BESignal sig) => Task.CompletedTask;
 
     public async Task OnExitAsync(ExitSignal sig, TradeRecord trade)
     {
-        // Broadcast alert immediately — don't block on DB write
-        await _hub.Clients.All.SendAsync("Alert", new
+        // Push completed trade to dashboard table in real-time
+        await _hub.Clients.All.SendAsync("Trade", new
         {
-            time    = sig.Time.ToString("HH:mm:ss"),
-            setup   = sig.Setup.ToString(),
-            type    = "EXIT",
-            color   = sig.Reason == ExitReason.Target ? "green" : "red",
-            message = $"{sig.Reason} @ {sig.ExitPrice:F2} | Net {(trade.NetPnl >= 0 ? "+" : "")}${trade.NetPnl:F0} | {trade.RMultiple:F1}R"
+            time     = TimeZoneInfo.ConvertTimeFromUtc(sig.Time, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).ToString("HH:mm:ss"),
+            setup    = sig.Setup.ToString(),
+            ticker   = trade.Ticker?.TrimStart('/') ?? "",
+            dir      = trade.Direction.ToString(),
+            entry    = trade.Entry,
+            exit     = trade.Exit,
+            reason   = trade.ExitReason.ToString(),
+            netPnl   = trade.NetPnl,
+            r        = trade.RMultiple
         });
 
         // Enqueue trade for durable background persistence (retries on failure)
@@ -126,10 +103,8 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
             _log.LogError("Trade queue full — trade {SessionId} may be lost!", trade.SessionId);
     }
 
-    public Task OnSnapshotAsync(EngineSnapshot snap)
+    public async Task OnSnapshotAsync(EngineSnapshot snap)
     {
-        // Snapshots now stream via SSE (SnapshotBroadcastService).
-        // SignalR remains for Alert and EngineStatusChanged only.
-        return Task.CompletedTask;
+        await _hub.Clients.All.SendAsync("Update", snap);
     }
 }

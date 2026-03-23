@@ -19,13 +19,24 @@ public class SessionManager
     public SessionConfig? ActiveSession => _activeSession;
 
     /// <summary>Find the enabled session whose RTH window contains the given local time, or null.</summary>
+    /// <remarks>Supports midnight-spanning sessions (e.g. Asia 19:00→02:00).</remarks>
     public SessionConfig? GetActiveSession(TimeOnly localTime)
     {
         foreach (var s in _sessions)
         {
             if (!s.Enabled) continue;
-            if (localTime >= s.RthStart && localTime < s.RthEnd)
-                return s;
+            if (s.RthEnd > s.RthStart)
+            {
+                // Normal window (e.g. 09:30→16:00)
+                if (localTime >= s.RthStart && localTime < s.RthEnd)
+                    return s;
+            }
+            else
+            {
+                // Midnight-spanning window (e.g. 19:00→02:00)
+                if (localTime >= s.RthStart || localTime < s.RthEnd)
+                    return s;
+            }
         }
         return null;
     }
@@ -63,19 +74,22 @@ public class SessionManager
 
         foreach (var s in sessions.Where(s => s.Enabled))
         {
-            if (s.RthEnd <= s.RthStart)
-                errors.Add($"Session {s.SessionId}: RthEnd must be after RthStart (cannot span midnight).");
+            if (s.RthEnd == s.RthStart)
+                errors.Add($"Session {s.SessionId}: RthEnd must differ from RthStart.");
             if (s.OrbEnd <= s.OrbStart)
                 errors.Add($"Session {s.SessionId}: OrbEnd must be after OrbStart.");
-            if (s.OrbStart < s.RthStart || s.OrbEnd > s.RthEnd)
+            // ORB window must be within RTH window
+            bool rthSpansMidnight = s.RthEnd < s.RthStart;
+            if (!rthSpansMidnight && (s.OrbStart < s.RthStart || s.OrbEnd > s.RthEnd))
                 errors.Add($"Session {s.SessionId}: ORB window must be within RTH window.");
         }
 
-        // Check for overlap between enabled sessions
+        // Check for overlap between enabled sessions (simplified — skip for midnight-spanning)
         var enabled = sessions.Where(s => s.Enabled).OrderBy(s => s.RthStart).ToList();
         for (int i = 0; i < enabled.Count - 1; i++)
         {
-            if (enabled[i].RthEnd > enabled[i + 1].RthStart)
+            if (enabled[i].RthEnd > enabled[i].RthStart &&  // non-spanning only
+                enabled[i].RthEnd > enabled[i + 1].RthStart)
                 errors.Add($"Sessions {enabled[i].SessionId} and {enabled[i + 1].SessionId} overlap.");
         }
 

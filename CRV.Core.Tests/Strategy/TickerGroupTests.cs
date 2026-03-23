@@ -36,6 +36,8 @@ public class TickerGroupTests
         public decimal PointValue { get; set; } = 20m;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
+        public int CutoffHour { get; set; } = 23;
+        public int CutoffMinute { get; set; } = 59;
 
         public int OnBarCallCount { get; private set; }
         public int OnTickCallCount { get; private set; }
@@ -49,6 +51,7 @@ public class TickerGroupTests
         public ExitSignal? PendingExit { get; set; }
         public PartialSignal? PendingPartial { get; set; }
         public BESignal? PendingBE { get; set; }
+        public ActiveTradeView? PreExitTrade { get; set; }
 
         public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules)
         {
@@ -70,6 +73,12 @@ public class TickerGroupTests
 
         public void Reconfigure(StrategySetupConfig config) { }
         public void Reset()
+        {
+            OnBarCallCount = 0;
+        }
+        public void ResetTradeCounters() { }
+        public void Disarm() { }
+        public void ResetSession()
         {
             OnBarCallCount = 0;
             OnTickCallCount = 0;

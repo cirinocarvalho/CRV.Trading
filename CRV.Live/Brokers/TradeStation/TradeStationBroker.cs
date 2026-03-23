@@ -31,6 +31,7 @@ public class TradeStationAuthService
     private readonly string _clientSecret;
     private readonly string _redirectUri;
     private readonly string _tokenFile;
+    private readonly IHttpClientFactory? _httpFactory;
 
     /// <summary>TradeStation REST API base URL (e.g. https://api.tradestation.com). Configurable via appsettings.</summary>
     public string ApiBaseUrl  { get; }
@@ -49,16 +50,20 @@ public class TradeStationAuthService
     public TradeStationAuthService(
         string clientId, string clientSecret, string redirectUri, string tokenFile,
         string apiBaseUrl  = "https://api.tradestation.com",
-        string authBaseUrl = "https://signin.tradestation.com")
+        string authBaseUrl = "https://signin.tradestation.com",
+        IHttpClientFactory? httpFactory = null)
     {
         _clientId     = clientId;
         _clientSecret = clientSecret;
         _redirectUri  = redirectUri;
         _tokenFile    = tokenFile;
+        _httpFactory  = httpFactory;
         ApiBaseUrl    = apiBaseUrl.TrimEnd('/');
         AuthBaseUrl   = authBaseUrl.TrimEnd('/');
         LoadTokens();
     }
+
+    private HttpClient CreateClient() => _httpFactory?.CreateClient("TradeStation") ?? new HttpClient();
 
     /// <summary>Returns the TradeStation OAuth2 authorization URL to redirect the user to.</summary>
     public string BuildAuthorizationUrl()
@@ -126,7 +131,7 @@ public class TradeStationAuthService
     /// </summary>
     private async Task<string> PostTokenAsync(Dictionary<string, string> fields)
     {
-        using var http = new HttpClient();
+        using var http = CreateClient();
         var resp = await http.PostAsync($"{AuthBaseUrl}/oauth/token", new FormUrlEncodedContent(fields));
         var json = await resp.Content.ReadAsStringAsync();
         if (!resp.IsSuccessStatusCode)
@@ -163,7 +168,7 @@ public class TradeStationAuthService
                 ? DateTime.Parse(ex.GetString()!, null, System.Globalization.DateTimeStyles.RoundtripKind)
                 : DateTime.MinValue;
         }
-        catch { /* ignore corrupt / missing token file */ }
+        catch (Exception) { /* non-critical: corrupt or missing token file — will re-auth */ }
     }
 
     private void SaveTokens()
@@ -179,7 +184,7 @@ public class TradeStationAuthService
                 expiry_utc    = _tokenExpiry.ToString("O"),
             }));
         }
-        catch { /* token save failure is non-fatal */ }
+        catch (Exception) { /* non-critical: token save failure — will refresh on next GetAccessTokenAsync */ }
     }
 }
 
@@ -190,14 +195,18 @@ public class TradeStationBarFeed : IBarFeed
     private readonly StrategyConfig          _cfg;
     private readonly ILastPriceProvider      _prices;
     private readonly ILogger                 _log;
+    private readonly IHttpClientFactory?     _httpFactory;
     private readonly System.Threading.Channels.Channel<Bar> _channel =
         System.Threading.Channels.Channel.CreateUnbounded<Bar>();
 
     /// <inheritdoc />
     public event Action<decimal, DateTime>? OnPriceTick;
 
-    public TradeStationBarFeed(TradeStationAuthService auth, StrategyConfig cfg, ILastPriceProvider prices, ILogger<TradeStationBarFeed> log)
-    { _auth = auth; _cfg = cfg; _prices = prices; _log = log; }
+    public TradeStationBarFeed(TradeStationAuthService auth, StrategyConfig cfg, ILastPriceProvider prices,
+        ILogger<TradeStationBarFeed> log, IHttpClientFactory? httpFactory = null)
+    { _auth = auth; _cfg = cfg; _prices = prices; _log = log; _httpFactory = httpFactory; }
+
+    private HttpClient CreateClient() => _httpFactory?.CreateClient("TradeStation") ?? new HttpClient();
 
     public async IAsyncEnumerable<Bar> StreamAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
@@ -213,11 +222,12 @@ public class TradeStationBarFeed : IBarFeed
         builder.BarClosed  += bar => _channel.Writer.TryWrite(bar);
         builder.BarUpdated += bar => _channel.Writer.TryWrite(bar);
 
+        int attempt = 0;
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                using var http = new HttpClient();
+                using var http = CreateClient();
                 var token = await _auth.GetAccessTokenAsync();
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -237,6 +247,7 @@ public class TradeStationBarFeed : IBarFeed
                 using var reader = new System.IO.StreamReader(await resp.Content.ReadAsStreamAsync(ct));
 
                 _log.LogInformation("TradeStation bar stream connected.");
+                attempt = 0; // reset backoff on successful connect
 
                 while (!ct.IsCancellationRequested)
                 {
@@ -248,8 +259,11 @@ public class TradeStationBarFeed : IBarFeed
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _log.LogError(ex, "TS stream error — reconnecting in 5s");
-                await Task.Delay(5000, ct);
+                attempt++;
+                var delaySec = Math.Min(60, (int)Math.Pow(2, attempt));
+                var jitter   = Random.Shared.Next(0, 500);
+                _log.LogError(ex, "TS stream error — reconnecting in {Delay}s (attempt {Attempt})", delaySec, attempt);
+                await Task.Delay(delaySec * 1000 + jitter, ct);
             }
         }
     }
@@ -281,7 +295,9 @@ public class TradeStationBarFeed : IBarFeed
                 && rtProp.ValueKind == JsonValueKind.False;
 
             if (!isHistorical)
+            {
                 OnPriceTick?.Invoke(close, utc);
+            }
 
             if (isHistorical)
             {
@@ -321,34 +337,60 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
     private readonly TradeStationAuthService _auth;
     private readonly StrategyConfig          _cfg;
     private readonly ILogger                 _log;
+    private readonly IHttpClientFactory?     _httpFactory;
 
-    // Stateful order tracking — cleared on each new entry
-    private string?   _entryOrderId;
-    private string?   _stopOrderId;    // bracket stop leg (may move to BE after partial)
-    private string?   _targetOrderId;  // bracket limit-target leg (cancelled when partial fires)
-    private string?   _partialOrderId; // partial-exit LIMIT order placed at partial level
-    private Direction _direction;
+    // Per-setup order leg tracking — supports all 5 setups (A/B/C/D/F)
+    private class SetupState
+    {
+        public string?    EntryOrderId  { get; set; }
+        public string?    StopOrderId   { get; set; }
+        public string?    TargetOrderId { get; set; }
+        public string?    PartialOrderId { get; set; }
+        public Direction? Direction     { get; set; }
+        public string?    Ticker        { get; set; }
+
+        public void Clear()
+        {
+            EntryOrderId = StopOrderId = TargetOrderId = PartialOrderId = null;
+            Direction = null;
+            Ticker = null;
+        }
+    }
+
+    private readonly Dictionary<SetupId, SetupState> _states = new()
+    {
+        [SetupId.A] = new(), [SetupId.B] = new(),
+        [SetupId.C] = new(), [SetupId.D] = new(), [SetupId.F] = new()
+    };
 
     private string OrdersUrl => $"{_auth.ApiBaseUrl}/v3/orderexecution/orders";
 
-    public TradeStationExecutor(TradeStationAuthService auth, StrategyConfig cfg, ILogger<TradeStationExecutor> log)
-    { _auth = auth; _cfg = cfg; _log = log; }
+    public TradeStationExecutor(TradeStationAuthService auth, StrategyConfig cfg, ILogger<TradeStationExecutor> log,
+        IHttpClientFactory? httpFactory = null)
+    { _auth = auth; _cfg = cfg; _log = log; _httpFactory = httpFactory; }
 
-    public async Task OnEntrySignalAsync(EntrySignal sig)
+    private HttpClient CreateClient() => _httpFactory?.CreateClient("TradeStation") ?? new HttpClient();
+
+    public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[TS] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
             sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
 
-        _direction = sig.Direction;
+        var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
+        var state = _states[sig.Setup];
+        state.Direction = sig.Direction;
+        state.Ticker = ticker;
         var tradeAction = sig.Direction == Direction.Long ? "BUY"  : "SELLSHORT";
         var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
 
+        bool isLimit = sig.OrderType == "Limit";
         var body = new
         {
             AccountID   = _cfg.AccountId,
-            Symbol      = _cfg.Ticker,
+            Symbol      = ticker,
             Quantity    = sig.Contracts.ToString(),
-            OrderType   = "Market",
+            OrderType   = isLimit ? "Limit" : "Market",
+            LimitPrice  = isLimit ? sig.Entry.ToString("F2") : null,
             TradeAction = tradeAction,
             TimeInForce = new { Duration = "DAY" },
             OSOs        = new[]
@@ -361,7 +403,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         new // Limit target
                         {
                             AccountID   = _cfg.AccountId,
-                            Symbol      = _cfg.Ticker,
+                            Symbol      = ticker,
                             Quantity    = sig.Contracts.ToString(),
                             OrderType   = "Limit",
                             LimitPrice  = sig.Target.ToString("F2"),
@@ -371,7 +413,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         new // Stop market
                         {
                             AccountID   = _cfg.AccountId,
-                            Symbol      = _cfg.Ticker,
+                            Symbol      = ticker,
                             Quantity    = sig.Contracts.ToString(),
                             OrderType   = "StopMarket",
                             StopPrice   = sig.Stop.ToString("F2"),
@@ -384,11 +426,38 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         };
 
         var (entryId, targetId, stopId) = await PlaceBracketAsync(body);
-        _entryOrderId  = entryId;
-        _targetOrderId = targetId;
-        _stopOrderId   = stopId;
-        _log.LogDebug("[TS] Bracket placed — entry={E} target={T} stop={S}",
-            _entryOrderId, _targetOrderId, _stopOrderId);
+        state.EntryOrderId  = entryId;
+        state.TargetOrderId = targetId;
+        state.StopOrderId   = stopId;
+        _log.LogDebug("[TS] Setup {S} bracket placed — entry={E} target={T} stop={St}",
+            sig.Setup, entryId, targetId, stopId);
+
+        // Poll broker for the actual fill price
+        if (state.EntryOrderId != null)
+        {
+            var fill = await GetFillPriceAsync(state.EntryOrderId);
+            if (fill.HasValue)
+                _log.LogInformation("[TS] Entry fill price for {S}: {Fill}", sig.Setup, fill.Value);
+
+            // Discover bracket leg IDs if the POST response didn't include them.
+            // TradeStation OSO/BRK bracket responses may only return the parent entry ID —
+            // child orders (stop/target) are created by the exchange when the entry fills.
+            if (state.TargetOrderId is null || state.StopOrderId is null)
+            {
+                _log.LogInformation("[TS] Bracket leg IDs missing (target={T}, stop={S}) — polling account orders to discover",
+                    state.TargetOrderId, state.StopOrderId);
+                var (foundTarget, foundStop) = await FindBracketLegsAsync(
+                    state.EntryOrderId, sig.Target, sig.Stop, sig.Direction);
+                state.TargetOrderId ??= foundTarget;
+                state.StopOrderId   ??= foundStop;
+                _log.LogInformation("[TS] Setup {S} bracket legs resolved — target={T} stop={St}",
+                    sig.Setup, state.TargetOrderId, state.StopOrderId);
+            }
+
+            return fill;
+        }
+
+        return null;
     }
 
     public async Task OnPartialSignalAsync(PartialSignal sig)
@@ -396,21 +465,23 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
             sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
 
-        if (_targetOrderId != null)
+        var state = _states[sig.Setup];
+        if (state.TargetOrderId != null)
         {
-            await CancelOrderAsync(_targetOrderId);
-            _targetOrderId = null;
+            await CancelOrderAsync(state.TargetOrderId);
+            state.TargetOrderId = null;
         }
         else
         {
-            _log.LogWarning("[TS] OnPartialSignal: _targetOrderId not set — cannot cancel bracket target");
+            _log.LogWarning("[TS] OnPartialSignal {S}: TargetOrderId not set — cannot cancel bracket target", sig.Setup);
         }
 
         var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
+        var sym = state.Ticker ?? _cfg.Ticker;
         var body = new
         {
             AccountID   = _cfg.AccountId,
-            Symbol      = _cfg.Ticker,
+            Symbol      = sym,
             Quantity    = sig.ContractsExited.ToString(),
             OrderType   = "Limit",
             LimitPrice  = sig.PartialPrice.ToString("F2"),
@@ -418,8 +489,8 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
             TimeInForce = new { Duration = "DAY" }
         };
 
-        _partialOrderId = await PlaceSingleAsync(body);
-        _log.LogDebug("[TS] Partial limit placed, ID={Id}", _partialOrderId);
+        state.PartialOrderId = await PlaceSingleAsync(body);
+        _log.LogDebug("[TS] Setup {S} partial limit placed, ID={Id}", sig.Setup, state.PartialOrderId);
     }
 
     public async Task OnBESignalAsync(BESignal sig)
@@ -427,30 +498,27 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] MOVE_BE {S} → {P} ({Q}ct)",
             sig.Setup, sig.NewStop, sig.ContractsRemaining);
 
-        if (_stopOrderId != null)
+        var state = _states[sig.Setup];
+        if (state.StopOrderId != null)
         {
-            await CancelOrderAsync(_stopOrderId);
-            _stopOrderId = null;
+            var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
+            var body = new
+            {
+                AccountID   = _cfg.AccountId,
+                Symbol      = state.Ticker ?? _cfg.Ticker,
+                Quantity    = sig.ContractsRemaining.ToString(),
+                OrderType   = "StopMarket",
+                StopPrice   = sig.NewStop.ToString("F2"),
+                TradeAction = closeAction,
+                TimeInForce = new { Duration = "DAY" }
+            };
+            var ok = await ReplaceOrderAsync(state.StopOrderId, body);
+            if (ok) _log.LogDebug("[TS] Setup {S} stop modified to BE @ {P}", sig.Setup, sig.NewStop);
         }
         else
         {
-            _log.LogWarning("[TS] OnBESignal: _stopOrderId not set — cannot cancel existing stop");
+            _log.LogWarning("[TS] OnBESignal {S}: StopOrderId not set — cannot modify stop", sig.Setup);
         }
-
-        var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
-        var body = new
-        {
-            AccountID   = _cfg.AccountId,
-            Symbol      = _cfg.Ticker,
-            Quantity    = sig.ContractsRemaining.ToString(),
-            OrderType   = "StopMarket",
-            StopPrice   = sig.NewStop.ToString("F2"),
-            TradeAction = closeAction,
-            TimeInForce = new { Duration = "DAY" }
-        };
-
-        _stopOrderId = await PlaceSingleAsync(body);
-        _log.LogDebug("[TS] BE stop placed, ID={Id}", _stopOrderId);
     }
 
     public async Task OnExitSignalAsync(ExitSignal sig)
@@ -458,17 +526,31 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] EXIT {S} {R} @ {P} {Q}ct",
             sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
 
+        var state = _states[sig.Setup];
+
         // Cancel any open bracket / partial legs
-        foreach (var id in new[] { _stopOrderId, _targetOrderId, _partialOrderId }.Where(x => x != null))
+        foreach (var id in new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId }
+                     .Where(x => x != null))
             await CancelOrderAsync(id!);
 
-        _entryOrderId = _stopOrderId = _targetOrderId = _partialOrderId = null;
+        var direction = state.Direction ?? Direction.Long;
+        var exitTicker = state.Ticker ?? (!string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker);
+        state.Clear();
 
-        var closeAction = _direction == Direction.Long ? "SELL" : "BUYTOCOVER";
+        // For Stop/Target exits the broker's bracket already filled — no market order needed.
+        // Only SessionEnd/AdverseTime/Manual require a market close.
+        bool brokerHandledExit = sig.Reason is ExitReason.Stop or ExitReason.Target;
+        if (brokerHandledExit)
+        {
+            _log.LogDebug("[TS] EXIT {S}: {R} — broker bracket filled, no market order needed", sig.Setup, sig.Reason);
+            return;
+        }
+
+        var closeAction = direction == Direction.Long ? "SELL" : "BUYTOCOVER";
         var body = new
         {
             AccountID   = _cfg.AccountId,
-            Symbol      = _cfg.Ticker,
+            Symbol      = exitTicker,
             Quantity    = sig.Contracts.ToString(),
             OrderType   = "Market",
             TradeAction = closeAction,
@@ -479,7 +561,124 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogDebug("[TS] Market close placed, ID={Id}", orderId);
     }
 
+    public async Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    {
+        _log.LogInformation("[TS] LEVELS_ADJUSTED {S} Stop={St} Tgt={T} Qty={Q}", setup, newStop, newTarget, contracts);
+
+        var state       = _states[setup];
+        var direction   = state.Direction ?? Direction.Long;
+        var closeAction = direction == Direction.Long ? "SELL" : "BUYTOCOVER";
+        var sym = state.Ticker ?? _cfg.Ticker;
+        var qty = contracts.ToString();
+
+        // Modify stop
+        if (state.StopOrderId != null)
+        {
+            var stopBody = new
+            {
+                AccountID   = _cfg.AccountId,
+                Symbol      = sym,
+                Quantity    = qty,
+                OrderType   = "StopMarket",
+                StopPrice   = newStop.ToString("F2"),
+                TradeAction = closeAction,
+                TimeInForce = new { Duration = "DAY" }
+            };
+            var ok = await ReplaceOrderAsync(state.StopOrderId, stopBody);
+            if (ok) _log.LogDebug("[TS] Setup {S} stop modified → {P}", setup, newStop);
+        }
+        else
+            _log.LogWarning("[TS] OnLevelsAdjusted {S}: StopOrderId not set", setup);
+
+        // Modify target
+        if (state.TargetOrderId != null)
+        {
+            var tgtBody = new
+            {
+                AccountID   = _cfg.AccountId,
+                Symbol      = sym,
+                Quantity    = qty,
+                OrderType   = "Limit",
+                LimitPrice  = newTarget.ToString("F2"),
+                TradeAction = closeAction,
+                TimeInForce = new { Duration = "DAY" }
+            };
+            var ok = await ReplaceOrderAsync(state.TargetOrderId, tgtBody);
+            if (ok) _log.LogDebug("[TS] Setup {S} target modified → {P}", setup, newTarget);
+        }
+        else
+            _log.LogWarning("[TS] OnLevelsAdjusted {S}: TargetOrderId not set", setup);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Polls the broker for the fill price of a market entry order.
+    /// Retries up to 15 times at 200ms intervals. Returns null on timeout or error.
+    /// </summary>
+    private async Task<decimal?> GetFillPriceAsync(string orderId)
+    {
+        try
+        {
+            var token = await _auth.GetAccessTokenAsync();
+            using var http = CreateClient();
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"{_auth.ApiBaseUrl}/v3/orderexecution/orders/{orderId}";
+
+            for (int i = 0; i < 15; i++)
+            {
+                await Task.Delay(200);
+
+                using var resp = await http.GetAsync(url);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _log.LogDebug("[TS] GetFillPrice poll {I} — {Status}", i + 1, (int)resp.StatusCode);
+                    continue;
+                }
+
+                var body = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+
+                // Response may wrap in Orders array or return the order directly
+                JsonElement order;
+                if (doc.RootElement.TryGetProperty("Orders", out var orders))
+                {
+                    var first = orders.EnumerateArray().FirstOrDefault();
+                    order = first.ValueKind == JsonValueKind.Undefined ? doc.RootElement : first;
+                }
+                else
+                {
+                    order = doc.RootElement;
+                }
+
+                if (order.TryGetProperty("FilledPrice", out var fp))
+                {
+                    if (fp.ValueKind == JsonValueKind.Number)
+                        return fp.GetDecimal();
+                    if (fp.ValueKind == JsonValueKind.String &&
+                        decimal.TryParse(fp.GetString(), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0)
+                        return v;
+                }
+
+                // Check status — if still open/queued, keep polling
+                var status = order.TryGetProperty("StatusDescription", out var sd) ? sd.GetString() : null;
+                if (status != null && (status.Contains("Filled", StringComparison.OrdinalIgnoreCase)
+                    || status.Contains("Cancelled", StringComparison.OrdinalIgnoreCase)
+                    || status.Contains("Rejected", StringComparison.OrdinalIgnoreCase)))
+                    break;
+            }
+
+            _log.LogWarning("[TS] GetFillPrice timed out for order {Id}", orderId);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TS] GetFillPriceAsync failed for order {Id}", orderId);
+        }
+
+        return null;
+    }
 
     /// <summary>Places bracket order and returns (entryId, targetId, stopId) from Orders array.</summary>
     private async Task<(string? entry, string? target, string? stop)> PlaceBracketAsync(object body)
@@ -487,7 +686,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         try
         {
             var token = await _auth.GetAccessTokenAsync();
-            using var http = new HttpClient();
+            using var http = CreateClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = false });
@@ -497,7 +696,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 new StringContent(json, Encoding.UTF8, "application/json"));
 
             var respBody = await resp.Content.ReadAsStringAsync();
-            _log.LogDebug("[TS] Response {Status} {Body}", (int)resp.StatusCode, respBody);
+            _log.LogInformation("[TS] PlaceBracket raw response: {Body}", respBody);
 
             if (!resp.IsSuccessStatusCode)
             {
@@ -514,7 +713,10 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 arr.Count > idx && arr[idx].TryGetProperty("OrderID", out var p)
                     ? p.GetString() : null;
 
-            return (GetId(0), GetId(1), GetId(2));
+            var result = (GetId(0), GetId(1), GetId(2));
+            _log.LogInformation("[TS] PlaceBracket parsed — entry={E} target={T} stop={S}",
+                result.Item1, result.Item2, result.Item3);
+            return result;
         }
         catch (Exception ex)
         {
@@ -528,7 +730,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         try
         {
             var token = await _auth.GetAccessTokenAsync();
-            using var http = new HttpClient();
+            using var http = CreateClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = false });
@@ -568,7 +770,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         try
         {
             var token = await _auth.GetAccessTokenAsync();
-            using var http = new HttpClient();
+            using var http = CreateClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var url = $"{OrdersUrl}/{orderId}";
@@ -585,6 +787,134 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         catch (Exception ex)
         {
             _log.LogError(ex, "[TS] CancelOrderAsync {Id} failed", orderId);
+        }
+    }
+
+    /// <summary>
+    /// Discovers bracket leg order IDs by querying account orders after the entry fills.
+    /// TradeStation's OSO/BRK bracket POST response may only return the parent entry ID —
+    /// child orders are created by the exchange when the entry fills.
+    /// Polls GET /v3/orderexecution/orders/{accountId} and matches by price, direction, and order type.
+    /// </summary>
+    private async Task<(string? targetId, string? stopId)> FindBracketLegsAsync(
+        string entryOrderId, decimal targetPrice, decimal stopPrice, Direction direction)
+    {
+        const int maxAttempts = 10;
+        const int delayMs     = 300;
+
+        var closeAction = direction == Direction.Long ? "SELL" : "BUYTOCOVER";
+
+        try
+        {
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                await Task.Delay(delayMs);
+
+                var token = await _auth.GetAccessTokenAsync();
+                using var http = CreateClient();
+                http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                var url = $"{_auth.ApiBaseUrl}/v3/orderexecution/orders/{_cfg.AccountId}";
+                using var resp = await http.GetAsync(url);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _log.LogDebug("[TS] FindBracketLegs attempt {I} — GET orders returned {Status}",
+                        attempt + 1, (int)resp.StatusCode);
+                    continue;
+                }
+
+                var body = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+
+                if (!doc.RootElement.TryGetProperty("Orders", out var orders)) continue;
+
+                string? targetId = null, stopId = null;
+
+                foreach (var order in orders.EnumerateArray())
+                {
+                    var status = order.TryGetProperty("StatusDescription", out var sd) ? sd.GetString() : "";
+                    if (status is null ||
+                        !(status.Contains("Open", StringComparison.OrdinalIgnoreCase) ||
+                          status.Contains("Ack", StringComparison.OrdinalIgnoreCase) ||
+                          status.Contains("Queued", StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    var orderId = order.TryGetProperty("OrderID", out var oid) ? oid.GetString() : null;
+                    if (orderId is null || orderId == entryOrderId) continue;
+
+                    var tradeAction = order.TryGetProperty("TradeAction", out var ta) ? ta.GetString() : "";
+                    if (!string.Equals(tradeAction, closeAction, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var orderType = order.TryGetProperty("OrderType", out var ot) ? ot.GetString() : "";
+
+                    // Match target: Limit order at our target price
+                    if (targetId is null && orderType == "Limit" &&
+                        order.TryGetProperty("LimitPrice", out var lp))
+                    {
+                        var lpStr = lp.GetString() ?? lp.ToString();
+                        if (lpStr == targetPrice.ToString("F2"))
+                            targetId = orderId;
+                    }
+                    // Match stop: StopMarket order at our stop price
+                    else if (stopId is null && (orderType == "StopMarket" || orderType == "Stop") &&
+                             order.TryGetProperty("StopPrice", out var sp))
+                    {
+                        var spStr = sp.GetString() ?? sp.ToString();
+                        if (spStr == stopPrice.ToString("F2"))
+                            stopId = orderId;
+                    }
+
+                    if (targetId is not null && stopId is not null)
+                        return (targetId, stopId);
+                }
+
+                if (targetId is not null && stopId is not null)
+                    return (targetId, stopId);
+
+                _log.LogDebug("[TS] FindBracketLegs attempt {I}/{Max} — target={T} stop={S}",
+                    attempt + 1, maxAttempts, targetId, stopId);
+            }
+
+            _log.LogWarning("[TS] FindBracketLegsAsync timed out after {Max} attempts", maxAttempts);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TS] FindBracketLegsAsync failed");
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>Replaces/modifies an existing order via PUT /v3/orderexecution/orders/{orderId}.</summary>
+    private async Task<bool> ReplaceOrderAsync(string orderId, object body)
+    {
+        try
+        {
+            var token = await _auth.GetAccessTokenAsync();
+            using var http = CreateClient();
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"{OrdersUrl}/{orderId}";
+            _log.LogDebug("[TS] PUT {Url}", url);
+
+            var json = JsonSerializer.Serialize(body);
+            using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            using var resp = await http.PutAsync(url, content);
+            var respBody = await resp.Content.ReadAsStringAsync();
+            _log.LogDebug("[TS] Replace {Status} {Body}", (int)resp.StatusCode, respBody);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogError("[TS] Replace order {Id} failed: {Status} {Body}",
+                    orderId, (int)resp.StatusCode, respBody);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TS] ReplaceOrderAsync {Id} failed", orderId);
+            return false;
         }
     }
 }

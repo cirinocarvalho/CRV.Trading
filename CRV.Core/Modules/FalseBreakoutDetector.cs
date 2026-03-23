@@ -138,12 +138,15 @@ public class RangeBreakoutTracker
 
         if (!BreakoutActive)
         {
-            // Check for new breakout
+            // Check for new breakout.
+            // BarsInBreakout starts at 0: the detection bar itself doesn't count
+            // toward the max-time-outside limit, so that maxBarsAllowed=1
+            // gives 1 full bar for rejection (not 0).
             if (bar.Close > rangeHigh)
             {
                 BreakoutActive    = true;
                 BreakoutDirection = Direction.Long; // broke above
-                BarsInBreakout    = 1;
+                BarsInBreakout    = 0;
                 SweepHigh         = bar.High;
                 SweepLow          = bar.Low;
                 PenetrationDepth  = (bar.High - rangeHigh) / rangeSize;
@@ -152,7 +155,7 @@ public class RangeBreakoutTracker
             {
                 BreakoutActive    = true;
                 BreakoutDirection = Direction.Short; // broke below
-                BarsInBreakout    = 1;
+                BarsInBreakout    = 0;
                 SweepHigh         = bar.High;
                 SweepLow          = bar.Low;
                 PenetrationDepth  = (rangeLow - bar.Low) / rangeSize;

@@ -29,7 +29,8 @@ public record OrderView(
     decimal? LimitPrice,
     decimal? StopPrice,
     string   PlacedTime,
-    bool     CanCancel);
+    bool     CanCancel,
+    string?  Setup = null);  // Setup ID (A/B/C/D) — available for Mock orders
 
 /// <summary>
 /// One-shot broker operations used by the Manual Trading and Orders pages.
@@ -42,10 +43,10 @@ public static class ManualBrokerOps
     // ── Positions — TradeStation ──────────────────────────────────
 
     public static async Task<List<PositionView>> GetPositionsTradeStationAsync(
-        TradeStationAuthService auth, string accountId)
+        TradeStationAuthService auth, string accountId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var res  = await http.GetAsync($"{auth.ApiBaseUrl}/v3/brokerage/accounts/{accountId}/positions");
         var body = await res.Content.ReadAsStringAsync();
@@ -79,10 +80,10 @@ public static class ManualBrokerOps
     // ── Positions — Schwab ────────────────────────────────────────
 
     public static async Task<List<PositionView>> GetPositionsSchwabAsync(
-        SchwabAuthService auth, string accountId)
+        SchwabAuthService auth, string accountId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var res  = await http.GetAsync($"{auth.ApiBaseUrl}/trader/v1/accounts/{accountId}?fields=positions");
         var body = await res.Content.ReadAsStringAsync();
@@ -128,10 +129,11 @@ public static class ManualBrokerOps
 
     /// <param name="isCurrentLong">True if position is LONG → we SELL to close.</param>
     public static async Task<string> FlatAtMarketTradeStationAsync(
-        TradeStationAuthService auth, string accountId, string symbol, int contracts, bool isCurrentLong)
+        TradeStationAuthService auth, string accountId, string symbol, int contracts, bool isCurrentLong,
+        IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var closeAction = isCurrentLong ? "SELL" : "BUYTOCOVER";
         var body = JsonSerializer.Serialize(new
@@ -158,10 +160,11 @@ public static class ManualBrokerOps
     // ── Flat at Market — Schwab ───────────────────────────────────
 
     public static async Task<string> FlatAtMarketSchwabAsync(
-        SchwabAuthService auth, string accountId, string symbol, int contracts, bool isCurrentLong)
+        SchwabAuthService auth, string accountId, string symbol, int contracts, bool isCurrentLong,
+        IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         // Futures instructions: SELL / BUY (not SELL_TO_CLOSE / BUY_TO_CLOSE — those are options-only)
         var instruction = isCurrentLong ? "SELL" : "BUY";
@@ -193,10 +196,10 @@ public static class ManualBrokerOps
     // ── Cancel All Open Orders — TradeStation ─────────────────────
 
     public static async Task<List<string>> CancelAllTradeStationAsync(
-        TradeStationAuthService auth, string accountId, string symbol)
+        TradeStationAuthService auth, string accountId, string symbol, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var getRes  = await http.GetAsync($"{auth.ApiBaseUrl}/v3/brokerage/accounts/{accountId}/orders?status=Open");
         var getBody = await getRes.Content.ReadAsStringAsync();
@@ -231,10 +234,10 @@ public static class ManualBrokerOps
     // ── Cancel All Open Orders — Schwab ──────────────────────────
 
     public static async Task<List<string>> CancelAllSchwabAsync(
-        SchwabAuthService auth, string accountId, string symbol)
+        SchwabAuthService auth, string accountId, string symbol, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var baseUrl = $"{auth.ApiBaseUrl}/trader/v1/accounts/{accountId}/orders";
 
         // No status filter — fetch all recent orders and cancel any that are cancellable.
@@ -272,10 +275,10 @@ public static class ManualBrokerOps
     // ── Cancel Single Order — TradeStation ───────────────────────
 
     public static async Task<string> CancelOrderTradeStationAsync(
-        TradeStationAuthService auth, string orderId)
+        TradeStationAuthService auth, string orderId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var r = await http.DeleteAsync($"{auth.ApiBaseUrl}/v3/orderexecution/orders/{orderId}");
         return r.IsSuccessStatusCode
             ? $"TS order {orderId} cancelled."
@@ -285,10 +288,10 @@ public static class ManualBrokerOps
     // ── Cancel Single Order — Schwab ─────────────────────────────
 
     public static async Task<string> CancelOrderSchwabAsync(
-        SchwabAuthService auth, string accountId, string orderId)
+        SchwabAuthService auth, string accountId, string orderId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var r = await http.DeleteAsync($"{auth.ApiBaseUrl}/trader/v1/accounts/{accountId}/orders/{orderId}");
         return r.IsSuccessStatusCode
             ? $"Schwab order {orderId} cancelled."
@@ -298,10 +301,11 @@ public static class ManualBrokerOps
     // ── Orders — TradeStation ─────────────────────────────────────
 
     public static async Task<List<OrderView>> GetOrdersTradeStationAsync(
-        TradeStationAuthService auth, string accountId, string status, DateTime from, DateTime to)
+        TradeStationAuthService auth, string accountId, string status, DateTime from, DateTime to,
+        IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         // TS status for "all": omit status parameter; otherwise pass the code directly
         var statusParam = status == "ALL" ? "" : $"&status={status}";
@@ -341,10 +345,11 @@ public static class ManualBrokerOps
     // ── Orders — Schwab ───────────────────────────────────────────
 
     public static async Task<List<OrderView>> GetOrdersSchwabAsync(
-        SchwabAuthService auth, string accountId, string status, DateTime from, DateTime to)
+        SchwabAuthService auth, string accountId, string status, DateTime from, DateTime to,
+        IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         // Use UTC-kind dates so the trailing Z is accurate
         var fromStr     = DateTime.SpecifyKind(from.Date, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ");
@@ -433,20 +438,20 @@ public static class ManualBrokerOps
         return Task.FromResult(orders);
     }
 
-    public static Task<string> CancelOrderMockAsync(string orderId, MockBrokerExecutor? exec = null)
+    public static async Task<string> CancelOrderMockAsync(string orderId, MockBrokerExecutor? exec = null)
     {
-        if (exec == null) return Task.FromResult($"Mock: cancel order {orderId} (no executor)");
-        exec.CancelOrder(orderId);
-        return Task.FromResult($"Mock order {orderId} cancelled.");
+        if (exec == null) return $"Mock: cancel order {orderId} (no executor)";
+        await exec.CancelOrderAsync(orderId);
+        return $"Mock order {orderId} cancelled.";
     }
 
     // ── Positions — Tradovate ─────────────────────────────────────
 
     public static async Task<List<PositionView>> GetPositionsTradovateAsync(
-        TradovateAuthService auth, string accountId)
+        TradovateAuthService auth, string accountId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var res  = await http.GetAsync($"{auth.ApiBaseUrl}/position/list");
         var body = await res.Content.ReadAsStringAsync();
@@ -471,7 +476,7 @@ public static class ManualBrokerOps
                 using var sd = JsonDocument.Parse(symBody);
                 symbol = sd.RootElement.TryGetProperty("name", out var n) ? n.GetString() ?? symbol : symbol;
             }
-            catch { }
+            catch (Exception) { /* non-critical: symbol name lookup failed, using contract ID */ }
 
             list.Add(new PositionView(symbol, dir, Math.Abs(netPos), avgPrice, null, null));
         }
@@ -482,15 +487,43 @@ public static class ManualBrokerOps
 
     public static async Task<List<OrderView>> GetOrdersTradovateAsync(
         TradovateAuthService auth, string accountId,
-        string statusFilter, DateTime from, DateTime to)
+        string statusFilter, DateTime from, DateTime to, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
 
         var res  = await http.GetAsync($"{auth.ApiBaseUrl}/order/list");
         var body = await res.Content.ReadAsStringAsync();
         var list = new List<OrderView>();
-        if (!res.IsSuccessStatusCode) return list;
+        if (!res.IsSuccessStatusCode)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Tradovate] /order/list failed: {res.StatusCode} — {body}");
+            return list;
+        }
+
+        // Cache contract name lookups to avoid repeated API calls
+        var contractNames = new Dictionary<long, string>();
+
+        // Fetch fills to get qty/price for filled orders
+        var fillsByOrder = new Dictionary<long, (decimal qty, decimal price)>();
+        try
+        {
+            var fillRes  = await http.GetAsync($"{auth.ApiBaseUrl}/fill/list");
+            var fillBody = await fillRes.Content.ReadAsStringAsync();
+            if (fillRes.IsSuccessStatusCode)
+            {
+                using var fillDoc = JsonDocument.Parse(fillBody);
+                foreach (var f in fillDoc.RootElement.EnumerateArray())
+                {
+                    var fOrderId = f.TryGetProperty("orderId", out var foi) ? foi.GetInt64() : 0L;
+                    var fQty     = f.TryGetProperty("qty",     out var fq) && fq.ValueKind == JsonValueKind.Number ? fq.GetDecimal() : 0;
+                    var fPrice   = f.TryGetProperty("price",   out var fp) && fp.ValueKind == JsonValueKind.Number ? fp.GetDecimal() : 0;
+                    if (fOrderId > 0 && !fillsByOrder.ContainsKey(fOrderId))
+                        fillsByOrder[fOrderId] = (fQty, fPrice);
+                }
+            }
+        }
+        catch { /* fills are optional — don't fail the whole list */ }
 
         using var doc = JsonDocument.Parse(body);
         foreach (var o in doc.RootElement.EnumerateArray())
@@ -499,17 +532,59 @@ public static class ManualBrokerOps
             if (statusFilter != "ALL" && !string.Equals(status, statusFilter, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var orderId    = o.TryGetProperty("id",         out var id) ? id.GetInt64().ToString() : "";
+            var orderIdNum = o.TryGetProperty("id",         out var id) ? id.GetInt64() : 0L;
+            var orderId    = orderIdNum.ToString();
             var action     = o.TryGetProperty("action",     out var a)  ? a.GetString()  ?? "" : "";
-            var qty        = o.TryGetProperty("totalQty",   out var q)  ? q.GetDecimal() : 0;
-            var limit      = o.TryGetProperty("price",      out var lp) ? (decimal?)lp.GetDecimal() : null;
-            var stopPrice  = o.TryGetProperty("stopPrice",  out var sp) ? (decimal?)sp.GetDecimal() : null;
+
+            // Try order fields first, then fall back to fill data
+            fillsByOrder.TryGetValue(orderIdNum, out var fill);
+
+            // Skip OSO parent/container orders (no qty, no price — just wrappers)
+            var isOsoParent = o.TryGetProperty("osoId", out _) == false
+                           && o.TryGetProperty("parentId", out _) == false
+                           && (!o.TryGetProperty("qty", out var qCheck) || qCheck.ValueKind != JsonValueKind.Number || qCheck.GetInt32() == 0)
+                           && (!o.TryGetProperty("price", out var pCheck) || pCheck.ValueKind != JsonValueKind.Number)
+                           && (!o.TryGetProperty("stopPrice", out var spCheck) || spCheck.ValueKind != JsonValueKind.Number);
+            if (isOsoParent) continue;
+
+            var qty        = o.TryGetProperty("qty",        out var q1) && q1.ValueKind == JsonValueKind.Number ? q1.GetDecimal()
+                           : o.TryGetProperty("totalQty",   out var q2) && q2.ValueKind == JsonValueKind.Number ? q2.GetDecimal()
+                           : o.TryGetProperty("filledQty",  out var q3) && q3.ValueKind == JsonValueKind.Number ? q3.GetDecimal()
+                           : fill.qty > 0 ? fill.qty : 0;
+            var limit      = o.TryGetProperty("price",        out var lp) && lp.ValueKind == JsonValueKind.Number ? (decimal?)lp.GetDecimal()
+                           : o.TryGetProperty("avgFillPrice", out var afp) && afp.ValueKind == JsonValueKind.Number ? (decimal?)afp.GetDecimal()
+                           : fill.price > 0 ? (decimal?)fill.price : null;
+            var stopPrice  = o.TryGetProperty("stopPrice",  out var sp) && sp.ValueKind == JsonValueKind.Number
+                           ? (decimal?)sp.GetDecimal() : null;
             var placed     = o.TryGetProperty("timestamp",  out var ts) ? ts.GetString() ?? "" : "";
-            var ordType    = o.TryGetProperty("orderType",  out var ot) ? ot.GetString() ?? "" : "";
+            var ordType    = o.TryGetProperty("ordType",    out var ot1) ? ot1.GetString() ?? ""
+                           : o.TryGetProperty("orderType",  out var ot2) ? ot2.GetString() ?? ""
+                           : o.TryGetProperty("price", out _) && o.GetProperty("price").ValueKind == JsonValueKind.Number ? "Limit"
+                           : o.TryGetProperty("stopPrice", out _) && o.GetProperty("stopPrice").ValueKind == JsonValueKind.Number ? "Stop"
+                           : limit.HasValue ? "Limit" : "Market";
             var contractId = o.TryGetProperty("contractId", out var ci) ? ci.GetInt64() : 0L;
 
+            // Resolve contractId → symbol name
+            string symbol = contractId.ToString();
+            if (contractId > 0)
+            {
+                if (!contractNames.TryGetValue(contractId, out var cached))
+                {
+                    try
+                    {
+                        var symRes  = await http.GetAsync($"{auth.ApiBaseUrl}/contract/item?id={contractId}");
+                        var symBody = await symRes.Content.ReadAsStringAsync();
+                        using var sd = JsonDocument.Parse(symBody);
+                        cached = sd.RootElement.TryGetProperty("name", out var n) ? n.GetString() ?? symbol : symbol;
+                    }
+                    catch { cached = symbol; }
+                    contractNames[contractId] = cached;
+                }
+                symbol = cached;
+            }
+
             var canCancel  = status is "Working" or "PendingNew";
-            list.Add(new OrderView(orderId, contractId.ToString(), status, status, ordType,
+            list.Add(new OrderView(orderId, symbol, status, status, ordType,
                 action, qty, limit, stopPrice, placed, canCancel));
         }
         return list;
@@ -518,10 +593,10 @@ public static class ManualBrokerOps
     // ── Cancel Single Order — Tradovate ──────────────────────────
 
     public static async Task<string> CancelOrderTradovateAsync(
-        TradovateAuthService auth, string orderId)
+        TradovateAuthService auth, string orderId, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var body = new StringContent(
             JsonSerializer.Serialize(new { orderId = long.Parse(orderId) }),
             Encoding.UTF8, "application/json");
@@ -535,10 +610,10 @@ public static class ManualBrokerOps
 
     public static async Task<string> FlatAtMarketTradovateAsync(
         TradovateAuthService auth, string accountId,
-        string symbol, int contracts, bool isCurrentLong)
+        string symbol, int contracts, bool isCurrentLong, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var accountList = await http.GetStringAsync($"{auth.ApiBaseUrl}/account/list");
         using var ad    = JsonDocument.Parse(accountList);
         var acc         = ad.RootElement.EnumerateArray().First();
@@ -589,10 +664,10 @@ public static class ManualBrokerOps
         TradovateAuthService auth, string accountId,
         string symbol, string action, int qty,
         decimal entryPrice, decimal stopPrice, decimal targetPrice,
-        bool isMarket = true)
+        bool isMarket = true, IHttpClientFactory? httpFactory = null)
     {
         var token = await auth.GetAccessTokenAsync();
-        using var http = BearerClient(token);
+        using var http = BearerClient(token, httpFactory);
         var accountList = await http.GetStringAsync($"{auth.ApiBaseUrl}/account/list");
         using var ad    = JsonDocument.Parse(accountList);
         var acc         = ad.RootElement.EnumerateArray().First();
@@ -700,13 +775,13 @@ public static class ManualBrokerOps
                 if (first.TryGetProperty("OrderID", out var id)) return id.GetString();
             }
         }
-        catch { /* ignore */ }
+        catch (Exception) { /* non-critical: could not parse order ID from response */ }
         return null;
     }
 
-    private static HttpClient BearerClient(string token)
+    private static HttpClient BearerClient(string token, IHttpClientFactory? httpFactory = null)
     {
-        var http = new HttpClient();
+        var http = httpFactory?.CreateClient("Broker") ?? new HttpClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return http;

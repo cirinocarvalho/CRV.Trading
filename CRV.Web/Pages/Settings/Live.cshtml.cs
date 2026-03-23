@@ -22,7 +22,7 @@ public class LiveModel : PageModel
 
     [BindProperty] public StrategyConfig Config { get; set; } = new();
     public List<SessionConfig> Sessions { get; set; } = new();
-    [BindProperty] public string SessionsJson { get; set; } = "[]";
+    [BindProperty] public string? SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh
     public bool   Saved           => TempData["live_saved"] is not null;
     public bool   IsRunning       => _orchestrator.IsRunning;
@@ -92,11 +92,9 @@ public class LiveModel : PageModel
 
             // Reload from service so the form reflects persisted values, not half-bound POSTed values
             Config = _cfgSvc.Current.Clone();
+            Sessions = Config.Sessions ?? SessionConfig.CreateDefaults(Config);
             return Page();
         }
-
-        // PullbackPct is not shown in the UI — derive it from ModeA so it stays consistent
-        Config.PullbackPct = Config.IsAggressiveA ? 0.25m : 0.50m;
 
         // Preserve AccountId from the current in-memory config (not editable in the form)
         Config.AccountId = _cfgSvc.Current.AccountId;
@@ -113,10 +111,50 @@ public class LiveModel : PageModel
 
         try
         {
-            var sessions = System.Text.Json.JsonSerializer.Deserialize<List<SessionConfig>>(SessionsJson);
-            if (sessions != null) Config.Sessions = sessions;
+            if (!string.IsNullOrWhiteSpace(SessionsJson))
+            {
+                var jsonOpts = new System.Text.Json.JsonSerializerOptions
+                {
+                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+                };
+                var sessions = System.Text.Json.JsonSerializer.Deserialize<List<SessionConfig>>(SessionsJson, jsonOpts);
+                if (sessions != null)
+                {
+                    // All setup config is now edited inline in the session tabs.
+                    // Sync NY session → flat Config for backward compat (backtest, etc.)
+                    var ny = sessions.FirstOrDefault(s => s.SessionId == CRV.Core.Models.SessionId.NY);
+                    if (ny != null)
+                    {
+                        var flat = ny.ToLegacyConfig(Config);
+                        // ToLegacyConfig clones Config and overwrites per-setup fields,
+                        // preserving global fields (Broker, Ticker, PointValue, etc.)
+                        Config = flat;
+                    }
+
+                    Config.Sessions = sessions;
+                    foreach (var sess in sessions)
+                        _log.LogInformation("Session {Id}: Enabled={E} OrbStart={OS} OrbEnd={OE}",
+                            sess.SessionId, sess.Enabled, sess.OrbStart, sess.OrbEnd);
+                    // Sync flat config timing from the NY session (or first enabled) for backward compat
+                    var primary = (ny?.Enabled == true ? ny : null)
+                               ?? sessions.FirstOrDefault(s => s.Enabled);
+                    if (primary != null)
+                    {
+                        Config.OrbStart = primary.OrbStart;
+                        Config.OrbEnd   = primary.OrbEnd;
+                        Config.RthStart = primary.RthStart;
+                        Config.RthEnd   = primary.RthEnd;
+                    }
+                }
+            }
         }
-        catch { /* ignore invalid JSON on save */ }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Failed to deserialize SessionsJson: {Json}", SessionsJson);
+        }
+
+        // PullbackPct is not shown in the UI — derive it from ModeA so it stays consistent
+        Config.PullbackPct = Config.IsAggressiveA ? 0.25m : 0.50m;
 
         _cfgSvc.Update(Config);
         TempData["live_saved"] = "1";
