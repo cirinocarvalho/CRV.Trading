@@ -6,6 +6,9 @@ obj\*/
 *.user
 *.suo
 
+# Data files
+CRV.Web/Data/
+
 # Runtime data / secrets
 appsettings.Development.json
 schwab_tokens.json
