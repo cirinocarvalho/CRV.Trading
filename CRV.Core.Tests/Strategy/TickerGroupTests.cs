@@ -29,6 +29,7 @@ public class TickerGroupTests
     /// <summary>Minimal fake strategy for testing group dispatch without real strategy logic.</summary>
     private class FakeStrategy : ISetupStrategy
     {
+        public string Id { get; set; } = "A";
         public SetupId SetupId { get; set; } = SetupId.A;
         public StrategyType StrategyType => StrategyType.Pullback;
         public string Name => $"Fake{SetupId}";
@@ -132,7 +133,7 @@ public class TickerGroupTests
     public void AddStrategy_RegistersStrategy()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var fake = new FakeStrategy { SetupId = SetupId.A };
+        var fake = new FakeStrategy { Id = "A", SetupId = SetupId.A };
 
         group.AddStrategy(fake);
 
@@ -144,8 +145,8 @@ public class TickerGroupTests
     public void AddStrategy_MultipleStrategies()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
 
         group.AddStrategy(a);
         group.AddStrategy(b);
@@ -159,8 +160,8 @@ public class TickerGroupTests
     public async Task ProcessBarAsync_DispatchesToAllStrategies()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -180,7 +181,7 @@ public class TickerGroupTests
     public async Task ProcessBarAsync_UpdatesIndicatorsBeforeDispatch()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         // Feed enough bars for ATR to become ready (14 bars)
@@ -200,7 +201,7 @@ public class TickerGroupTests
     public async Task ProcessBarAsync_SkipsUnconfirmedBarsForIndicators()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
@@ -218,8 +219,8 @@ public class TickerGroupTests
     public async Task ProcessTickAsync_DispatchesToAllStrategies()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -240,8 +241,8 @@ public class TickerGroupTests
         cfg.AllowBothSameBar = false;
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -272,8 +273,8 @@ public class TickerGroupTests
         cfg.AllowBothSameBar = true;
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -298,7 +299,7 @@ public class TickerGroupTests
         cfg.AllowBothSameBar = false;
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         // Bar 1: entry produced
@@ -324,7 +325,7 @@ public class TickerGroupTests
     public async Task CollectAndClearSignals_ReturnsAllPendingSignals()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         a.PendingEntry = new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2,
@@ -344,7 +345,7 @@ public class TickerGroupTests
     public async Task CollectAndClearSignals_ClearsAfterCollect()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         a.PendingEntry = new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2,
@@ -395,7 +396,7 @@ public class TickerGroupTests
     public async Task Reset_ClearsAllState()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         // Feed a bar
@@ -414,7 +415,7 @@ public class TickerGroupTests
     public async Task ProcessBarAsync_SerializesConcurrentCalls()
     {
         var group = new TickerGroup("NQ", DefaultConfig());
-        var a = new FakeStrategy { SetupId = SetupId.A };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A };
         group.AddStrategy(a);
 
         // Fire multiple bars concurrently — none should throw
@@ -447,8 +448,8 @@ public class TickerGroupTests
         cfg.AllowBothSameBar = true; // disable same-bar guard so only opposing guard fires
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -472,8 +473,8 @@ public class TickerGroupTests
         cfg.AllowBothSameBar = true; // disable same-bar guard
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 
@@ -496,7 +497,7 @@ public class TickerGroupTests
         var cfg = DefaultConfig();
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A, IsActive = false };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = false };
         group.AddStrategy(a);
 
         a.PendingEntry = new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 115m, 110m, 2,
@@ -517,8 +518,8 @@ public class TickerGroupTests
         var cfg = DefaultConfig();
         var group = new TickerGroup("NQ", cfg);
 
-        var a = new FakeStrategy { SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { SetupId = SetupId.B };
+        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
+        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
         group.AddStrategy(a);
         group.AddStrategy(b);
 

@@ -8,6 +8,7 @@ namespace CRV.Core.Models;
 /// </summary>
 public class StrategySetupConfig
 {
+    public string Id { get; set; } = "";                 // unique key: "A", "B", "C", "D" (later: "b-mnq-1")
     public string Name { get; set; } = "";               // "A", "B", "C", "D"
     public SetupId SetupId { get; set; }
     public StrategyType StrategyType { get; set; }

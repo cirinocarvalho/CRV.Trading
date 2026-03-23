@@ -377,7 +377,7 @@ public class StrategyConfig
 
     internal StrategySetupConfig BuildSetupConfigA() => new()
     {
-        Name = "A", SetupId = SetupId.A,
+        Id = "A", Name = "A", SetupId = SetupId.A,
         StrategyType = CRV.Core.Strategy.StrategyType.Pullback,
         Enabled = EnableA,
         Ticker = EffectiveTickerA, PointValue = EffectivePointValueA,
@@ -397,7 +397,7 @@ public class StrategyConfig
 
     internal StrategySetupConfig BuildSetupConfigB() => new()
     {
-        Name = "B", SetupId = SetupId.B,
+        Id = "B", Name = "B", SetupId = SetupId.B,
         StrategyType = CRV.Core.Strategy.StrategyType.Retest,
         Enabled = EnableB,
         Ticker = EffectiveTickerB, PointValue = EffectivePointValueB,
@@ -417,7 +417,7 @@ public class StrategyConfig
 
     internal StrategySetupConfig BuildSetupConfigC() => new()
     {
-        Name = "C", SetupId = SetupId.C,
+        Id = "C", Name = "C", SetupId = SetupId.C,
         StrategyType = CRV.Core.Strategy.StrategyType.OrbFakeout,
         Enabled = EnableC,
         Ticker = EffectiveTickerC, PointValue = EffectivePointValueC,
@@ -437,7 +437,7 @@ public class StrategyConfig
 
     internal StrategySetupConfig BuildSetupConfigD() => new()
     {
-        Name = "D", SetupId = SetupId.D,
+        Id = "D", Name = "D", SetupId = SetupId.D,
         StrategyType = CRV.Core.Strategy.StrategyType.SessionFakeout,
         Enabled = EnableD,
         Ticker = EffectiveTickerD, PointValue = EffectivePointValueD,

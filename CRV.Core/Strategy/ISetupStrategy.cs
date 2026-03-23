@@ -46,6 +46,7 @@ public readonly record struct ModuleState(
 // ── Per-setup snapshot for dashboard ────────────────────────────
 public class SetupStateSnapshot
 {
+    public string Id { get; set; } = "";
     public SetupId SetupId { get; set; }
     public string Name { get; set; } = "";
     public int State { get; set; }           // state machine value
@@ -67,6 +68,7 @@ public class SetupStateSnapshot
 // ── Strategy interface ──────────────────────────────────────────
 public interface ISetupStrategy
 {
+    string Id { get; }
     SetupId SetupId { get; }
     StrategyType StrategyType { get; }
     string Name { get; }

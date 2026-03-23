@@ -55,6 +55,7 @@ public class ComposableEngineTests
     /// <summary>Minimal fake strategy for testing ComposableEngine dispatch.</summary>
     private class FakeStrategy : ISetupStrategy
     {
+        public string Id { get; set; } = "A";
         public SetupId SetupId { get; set; } = SetupId.A;
         public StrategyType StrategyType => StrategyType.Pullback;
         public string Name => $"Fake{SetupId}";
@@ -171,6 +172,7 @@ public class ComposableEngineTests
     private static StrategySetupConfig MakeSetupConfig(SetupId id, string ticker = "/NQH2026",
         StrategyType type = StrategyType.Pullback) => new()
     {
+        Id = id.ToString(),
         Name = id.ToString(),
         SetupId = id,
         StrategyType = type,
@@ -244,7 +246,7 @@ public class ComposableEngineTests
         engine.AddSetup(MakeSetupConfig(SetupId.B));
 
         // Force exit A — should trigger exit signal
-        await engine.ForceExitSetupAsync(SetupId.A);
+        await engine.ForceExitSetupAsync("A");
 
         // Since no trade is active, no exit signal should fire (strategy not active)
         // This verifies the method doesn't throw and routes correctly
@@ -436,7 +438,7 @@ public class ComposableEngineTests
         // Use internal test hook to inject signals
         var signals = new List<StrategySignals>
         {
-            new(new FakeStrategy { SetupId = SetupId.A },
+            new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
                 new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2, DateTime.UtcNow, Ticker: "/NQH2026"),
                 null, null, null)
         };
@@ -484,7 +486,7 @@ public class ComposableEngineTests
 
         var signals = new List<StrategySignals>
         {
-            new(new FakeStrategy { SetupId = SetupId.A },
+            new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
                 null, null,
                 new PartialSignal(SetupId.A, Direction.Long, 105m, 1, 1, 100m, DateTime.UtcNow),
                 null)
@@ -507,7 +509,7 @@ public class ComposableEngineTests
 
         var signals = new List<StrategySignals>
         {
-            new(new FakeStrategy { SetupId = SetupId.A },
+            new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
                 null, null, null,
                 new BESignal(SetupId.A, Direction.Long, 100m, 100m, 2, DateTime.UtcNow))
         };
@@ -599,7 +601,7 @@ public class ComposableEngineTests
         var engine = CreateEngine();
         engine.AddSetup(MakeSetupConfig(SetupId.A));
 
-        var trade = engine.GetActiveTrade(SetupId.A);
+        var trade = engine.GetActiveTrade("A");
         Assert.Null(trade);
     }
 

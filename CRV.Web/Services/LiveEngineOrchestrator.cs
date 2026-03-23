@@ -53,7 +53,7 @@ public class LiveEngineOrchestrator : BackgroundService
     }
 
     /// <summary>Force-exit a specific setup immediately at current market price.</summary>
-    public async Task ForceExitSetup(SetupId setupId)
+    public async Task ForceExitSetup(string setupId)
     {
         ComposableEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }

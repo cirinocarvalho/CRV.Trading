@@ -69,6 +69,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
     }
 
     // ── ISetupStrategy identity ───────────────────────────────────
+    public string       Id           => _cfg.Id;
     public SetupId      SetupId      => _cfg.SetupId;
     public StrategyType StrategyType => _cfg.StrategyType;
     public string       Name         => _cfg.Name;
@@ -365,6 +366,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
     // ── GetSnapshot ───────────────────────────────────────────────
     public SetupStateSnapshot GetSnapshot() => new()
     {
+        Id          = _cfg.Id,
         SetupId     = _cfg.SetupId,
         Name        = _cfg.Name,
         State       = _state,

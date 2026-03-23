@@ -11,6 +11,7 @@ public class SnapshotAggregatorTests
     /// <summary>Minimal ISetupStrategy stub for testing.</summary>
     private class StubStrategy : ISetupStrategy
     {
+        public string Id { get; init; } = "";
         public SetupId SetupId { get; init; }
         public StrategyType StrategyType { get; init; } = StrategyType.Pullback;
         public string Name { get; init; } = "Stub";
@@ -51,7 +52,7 @@ public class SnapshotAggregatorTests
 
     private static StubStrategy MakeStub(SetupId id, SetupStateSnapshot? ss = null, ActiveTradeView? trade = null)
     {
-        var stub = new StubStrategy { SetupId = id };
+        var stub = new StubStrategy { Id = id.ToString(), SetupId = id };
         if (ss != null) stub.SetSnapshot(ss);
         if (trade != null) stub.SetActiveTrade(trade);
         return stub;

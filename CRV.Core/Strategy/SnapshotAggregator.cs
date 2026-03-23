@@ -26,7 +26,7 @@ public static class SnapshotAggregator
         public decimal OrbAtrRatio { get; init; }
 
         // ── Per-setup ORB state (each ticker group has its own ORB) ──
-        public Dictionary<SetupId, OrbState> PerSetupOrb { get; init; } = new();
+        public Dictionary<string, OrbState> PerSetupOrb { get; init; } = new();
 
         // ── Session / time state ────────────────────────────────
         public DateTime BarTime { get; init; }
@@ -192,13 +192,13 @@ public static class SnapshotAggregator
 
             // Resolve per-setup ORB for Setups[] population
             OrbState perSetupOrb = default;
-            bool hasPerSetupOrb = inputs.PerSetupOrb?.TryGetValue(strategy.SetupId, out perSetupOrb) ?? false;
+            bool hasPerSetupOrb = inputs.PerSetupOrb?.TryGetValue(strategy.Id, out perSetupOrb) ?? false;
 
             // Populate dynamic Setups[] array
             snap.Setups.Add(new SetupSnapshot
             {
-                Id           = strategy.SetupId.ToString(),
-                Label        = $"{strategy.SetupId} — {strategy.Name}",
+                Id           = strategy.Id,
+                Label        = $"{strategy.Id} — {strategy.Name}",
                 StrategyType = strategy.StrategyType.ToString(),
                 Ticker       = strategy.Ticker?.TrimStart('/') ?? "",
                 PointValue   = strategy.PointValue,

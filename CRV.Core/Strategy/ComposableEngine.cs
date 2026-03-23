@@ -20,8 +20,8 @@ public class ComposableEngine
     private EngineConfig _config;
 
     private readonly Dictionary<string, TickerGroup> _groups = new();
-    private readonly Dictionary<SetupId, ISetupStrategy> _strategies = new();
-    private readonly Dictionary<SetupId, string> _setupToGroupKey = new();
+    private readonly Dictionary<string, ISetupStrategy> _strategies = new();
+    private readonly Dictionary<string, string> _setupToGroupKey = new();
 
     private bool _idle;
     private bool _tickModeEnabled;
@@ -71,8 +71,8 @@ public class ComposableEngine
         }
 
         group.AddStrategy(strategy);
-        _strategies[config.SetupId] = strategy;
-        _setupToGroupKey[config.SetupId] = groupKey;
+        _strategies[config.Id] = strategy;
+        _setupToGroupKey[config.Id] = groupKey;
     }
 
     // ── Bar/Tick processing ─────────────────────────────────────────
@@ -263,7 +263,7 @@ public class ComposableEngine
             group.Reset();
         }
 
-        foreach (var (setupId, strategy) in _strategies)
+        foreach (var (id, strategy) in _strategies)
             strategy.ResetSession();
 
         _idle = false;
@@ -279,7 +279,7 @@ public class ComposableEngine
         // Reconfigure existing strategies
         foreach (var setupCfg in setupConfigs)
         {
-            if (_strategies.TryGetValue(setupCfg.SetupId, out var strategy))
+            if (_strategies.TryGetValue(setupCfg.Id, out var strategy))
                 strategy.Reconfigure(setupCfg);
         }
     }
@@ -300,7 +300,7 @@ public class ComposableEngine
     }
 
     /// <summary>Force-exit a specific setup immediately at the current market price.</summary>
-    public async Task ForceExitSetupAsync(SetupId setupId)
+    public async Task ForceExitSetupAsync(string setupId)
     {
         if (!_strategies.TryGetValue(setupId, out var strategy)) return;
         if (!_setupToGroupKey.TryGetValue(setupId, out var groupKey)) return;
@@ -321,12 +321,12 @@ public class ComposableEngine
                 var trade = BuildTradeRecord(strategy, xsig, preTrade);
                 if (trade != null) Risk.RecordTrade(trade.NetPnl);
                 await _executor.OnExitSignalAsync(xsig);
-                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = setupId, Exit = xsig.ExitPrice });
+                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = strategy.SetupId, Exit = xsig.ExitPrice });
             }
             strategy.ClearPendingSignals();
         }
 
-        AddAlert("EXIT", setupId, $"Force exit @ {px:F2}", "orange");
+        AddAlert("EXIT", strategy.SetupId, $"Force exit @ {px:F2}", "orange");
         await PublishSnapshotInternal();
     }
 
@@ -335,7 +335,7 @@ public class ComposableEngine
     {
         var ts = utcTime ?? DateTime.UtcNow;
 
-        foreach (var (setupId, strategy) in _strategies)
+        foreach (var (id, strategy) in _strategies)
         {
             // Clear armed strategies — they must not fire entries after session end
             if (strategy.IsArmed && !strategy.IsActive)
@@ -358,7 +358,7 @@ public class ComposableEngine
                 var trade = BuildTradeRecord(strategy, xsig, preTrade);
                 if (trade != null) Risk.RecordTrade(trade.NetPnl);
                 await _executor.OnExitSignalAsync(xsig);
-                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = setupId, Exit = xsig.ExitPrice });
+                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = strategy.SetupId, Exit = xsig.ExitPrice });
             }
             strategy.ClearPendingSignals();
         }
@@ -388,13 +388,13 @@ public class ComposableEngine
         }
 
         // Build per-setup ORB state by looking up each strategy's ticker group
-        var perSetupOrb = new Dictionary<SetupId, OrbState>();
-        foreach (var (setupId, strategy) in _strategies)
+        var perSetupOrb = new Dictionary<string, OrbState>();
+        foreach (var (id, strategy) in _strategies)
         {
-            if (_setupToGroupKey.TryGetValue(setupId, out var gk) &&
+            if (_setupToGroupKey.TryGetValue(id, out var gk) &&
                 _groups.TryGetValue(gk, out var g))
             {
-                perSetupOrb[setupId] = g.GetOrbState();
+                perSetupOrb[id] = g.GetOrbState();
             }
         }
 
@@ -404,9 +404,9 @@ public class ComposableEngine
         {
             // Find the representative ticker to get live price
             string? repTicker = null;
-            foreach (var (setupId, gk) in _setupToGroupKey)
+            foreach (var (id, gk) in _setupToGroupKey)
             {
-                if (gk == key && _strategies.TryGetValue(setupId, out var strat)
+                if (gk == key && _strategies.TryGetValue(id, out var strat)
                     && !string.IsNullOrEmpty(strat.Ticker))
                 {
                     repTicker = strat.Ticker;
@@ -492,7 +492,7 @@ public class ComposableEngine
     }
 
     /// <summary>Get active trade view for a specific setup, or null.</summary>
-    public ActiveTradeView? GetActiveTrade(SetupId setupId)
+    public ActiveTradeView? GetActiveTrade(string setupId)
     {
         if (!_strategies.TryGetValue(setupId, out var strategy)) return null;
         // Use the setup's own ticker for correct last price on multi-instrument setups
