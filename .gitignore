@@ -1,6 +1,8 @@
 # .NET build output
 bin/
 obj/
+bin\*/
+obj\*/
 *.user
 *.suo
 
@@ -13,6 +15,9 @@ live_settings.json
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+orb_cache.json
+sessions.json
 
 # Rider / VS
 .idea/
