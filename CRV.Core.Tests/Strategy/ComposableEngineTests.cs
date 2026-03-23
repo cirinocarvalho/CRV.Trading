@@ -209,8 +209,8 @@ public class ComposableEngineTests
         engine.AddSetup(MakeSetupConfig(SetupId.B, "/NQH2026"));
 
         var snap = engine.GetSnapshot();
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.SetupBEnabled);
+        Assert.True(snap.Setups.First(s => s.Id == "A").Enabled);
+        Assert.True(snap.Setups.First(s => s.Id == "B").Enabled);
     }
 
     // ── 2. AddSetup groups NQ/MNQ setups into same TickerGroup ──
@@ -225,8 +225,8 @@ public class ComposableEngineTests
 
         // Both should be in the NQ group — verify via snapshot
         var snap = engine.GetSnapshot();
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.SetupBEnabled);
+        Assert.True(snap.Setups.First(s => s.Id == "A").Enabled);
+        Assert.True(snap.Setups.First(s => s.Id == "B").Enabled);
     }
 
     // ── 3. ForceExitSetup dispatches to correct strategy ──
@@ -278,8 +278,8 @@ public class ComposableEngineTests
         var snap = engine.GetSnapshot();
 
         Assert.Equal("/NQH2026", snap.Ticker);
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.SetupCEnabled);
+        Assert.True(snap.Setups.First(s => s.Id == "A").Enabled);
+        Assert.True(snap.Setups.First(s => s.Id == "C").Enabled);
         Assert.False(snap.TradingHalted);
     }
 
@@ -613,7 +613,7 @@ public class ComposableEngineTests
         engine.AddSetup(MakeSetupConfig(SetupId.C, "/ESH2026", StrategyType.OrbFakeout));
 
         var snap = engine.GetSnapshot();
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.SetupCEnabled);
+        Assert.True(snap.Setups.First(s => s.Id == "A").Enabled);
+        Assert.True(snap.Setups.First(s => s.Id == "C").Enabled);
     }
 }

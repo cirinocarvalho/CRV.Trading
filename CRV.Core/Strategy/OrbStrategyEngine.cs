@@ -1578,37 +1578,18 @@ public class OrbStrategyEngine
         decimal lastPx = _prices.GetLastPrice(_cfg.Ticker);
         if (lastPx == 0) lastPx = bar.Close > 0 ? bar.Close : _lastBarClose;
 
-        ActiveTradeView? viewA = _setupA.GetActiveTrade(lastPx);
-
-        ActiveTradeView? viewB = _setupB.GetActiveTrade(lastPx);
-
-        ActiveTradeView? viewC = _setupC.GetActiveTrade(lastPx);
-
-        ActiveTradeView? viewD = _setupD.GetActiveTrade(lastPx);
-
         await _sink.OnSnapshotAsync(new EngineSnapshot
         {
             Time   = bar.Time, Ticker = _cfg.Ticker, IsLive = true,
             LastPrice  = lastPx,
             LastUpdate = DateTime.UtcNow,
-            SetupA = viewA, SetupB = viewB,
-            SetupC = viewC, SetupD = viewD,
-
             TodayPnl    = _todayPnl,
             TodayTrades = _todayWins + _todayLosses,
             TodayWins   = _todayWins,
             TodayLosses = _todayLosses,
             TodayMaxDD  = _todayMaxDD,
 
-            TradeCountA = _setupA.GetSnapshot().TradeCount,
-            MaxTradesA = _cfg.MaxTradesA,
-            TradeCountB = _setupB.GetSnapshot().TradeCount, MaxTradesB = _cfg.MaxTradesB,
-            TradeCountC = _setupC.GetSnapshot().TradeCount, MaxTradesC = _cfg.MaxTradesC,
-            TradeCountD = _setupD.GetSnapshot().TradeCount, MaxTradesD = _cfg.MaxTradesD,
-
             Expectancy  = CalcExpectancy(_todayWins, _todayLosses, _todayWinPnl, _todayLossPnl),
-            ExpectancyA = CalcExpectancy(_todayWinsA, _todayLossesA, _todayWinPnlA, _todayLossPnlA),
-            ExpectancyB = CalcExpectancy(_todayWinsB, _todayLossesB, _todayWinPnlB, _todayLossPnlB),
 
             DailyLossLimit = _cfg.MaxDailyLoss,
             DailyLossUsed  = Math.Abs(Math.Min(0, _todayPnl)),
@@ -1627,32 +1608,10 @@ public class OrbStrategyEngine
 
             OrbFormed    = _orb.IsSet,
             PastCutoff   = _pastCutoff,
-            PastCutoffA  = _pastCutoffA,
-            PastCutoffB  = _pastCutoffB,
-            PastCutoffC  = _pastCutoffC,
-            PastCutoffD  = _pastCutoffD,
             SessionEnded = _rthEnded || IsWeekendClosed(),
             ActiveSessionId = _activeSessionId,
             OrbWindowStart  = _cfg.OrbStart.ToString("HH:mm"),
             OrbWindowEnd    = _cfg.OrbEnd.ToString("HH:mm"),
-
-            SetupAEnabled = _cfg.EnableA,
-            SetupBEnabled = _cfg.EnableB,
-            SetupCEnabled = _cfg.EnableC,
-            SetupDEnabled = _cfg.EnableD,
-            SetupAState = _setupA.GetSnapshot().State,
-            SetupBState = _setupB.GetSnapshot().State,
-            SetupCState = _setupC.GetSnapshot().State,
-            SetupDState = _setupD.GetSnapshot().State,
-
-            StickyTgtA = _setupA.GetSnapshot().StickyTgt,
-            StickyStpA = _setupA.GetSnapshot().StickyStp,
-            StickyTgtB = _setupB.GetSnapshot().StickyTgt,
-            StickyStpB = _setupB.GetSnapshot().StickyStp,
-            StickyTgtC = _setupC.GetSnapshot().StickyTgt,
-            StickyStpC = _setupC.GetSnapshot().StickyStp,
-            StickyTgtD = _setupD.GetSnapshot().StickyTgt,
-            StickyStpD = _setupD.GetSnapshot().StickyStp,
 
             // FalseBreakout module context
             FBOrbBreakoutActive      = _falseBreakout.OrbTracker.BreakoutActive,
@@ -1664,24 +1623,6 @@ public class OrbStrategyEngine
             FBOrbActivated           = _falseBreakout.OrbTracker.IsActivated,
             FBSessionActivated       = _falseBreakout.SessionRangeTracker.IsActivated,
             IsCompoundFakeout        = _falseBreakout.IsCompoundFakeout,
-
-            // Per-setup daily stats
-            TodayWinsA    = _todayWinsA,
-            TodayLossesA  = _todayLossesA,
-            TodayWinPnlA  = _todayWinPnlA,
-            TodayLossPnlA = _todayLossPnlA,
-            TodayWinsB    = _todayWinsB,
-            TodayLossesB  = _todayLossesB,
-            TodayWinPnlB  = _todayWinPnlB,
-            TodayLossPnlB = _todayLossPnlB,
-            TodayWinsC    = _todayWinsC,
-            TodayLossesC  = _todayLossesC,
-            TodayWinPnlC  = _todayWinPnlC,
-            TodayLossPnlC = _todayLossPnlC,
-            TodayWinsD    = _todayWinsD,
-            TodayLossesD  = _todayLossesD,
-            TodayWinPnlD  = _todayWinPnlD,
-            TodayLossPnlD = _todayLossPnlD,
 
             // Module outputs
             CurrentSession  = _sessionEngine.CurrentSession.ToString(),

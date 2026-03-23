@@ -69,6 +69,13 @@ public class SnapshotAggregatorTests
         LastPrice = 5000m,
     };
 
+    /// <summary>Helper to find a setup snapshot by Id letter.</summary>
+    private static SetupSnapshot FindSetup(EngineSnapshot snap, string id) =>
+        snap.Setups.First(s => s.Id == id);
+
+    private static SetupSnapshot? FindSetupOrNull(EngineSnapshot snap, string id) =>
+        snap.Setups.FirstOrDefault(s => s.Id == id);
+
     // ── Setup mapping tests ─────────────────────────────────────
 
     [Fact]
@@ -91,21 +98,22 @@ public class SnapshotAggregatorTests
         var inputs = DefaultInputs(MakeStub(SetupId.A, ss, trade));
         var snap = SnapshotAggregator.Build(inputs);
 
-        Assert.Equal(trade, snap.SetupA);
-        Assert.Equal(2, snap.TradeCountA);
-        Assert.Equal(3, snap.MaxTradesA);
-        Assert.Equal(1, snap.SetupAState);
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.PastCutoffA);
-        Assert.True(snap.StickyTgtA);
-        Assert.False(snap.StickyStpA);
-        Assert.Equal(3, snap.TodayWinsA);
-        Assert.Equal(1, snap.TodayLossesA);
-        Assert.Equal(300m, snap.TodayWinPnlA);
-        Assert.Equal(-50m, snap.TodayLossPnlA);
+        var a = FindSetup(snap, "A");
+        Assert.Equal(trade, a.Trade);
+        Assert.Equal(2, a.TradeCount);
+        Assert.Equal(3, a.MaxTrades);
+        Assert.Equal(1, a.State);
+        Assert.True(a.Enabled);
+        Assert.True(a.PastCutoff);
+        Assert.True(a.StickyTgt);
+        Assert.False(a.StickyStp);
+        Assert.Equal(3, a.Wins);
+        Assert.Equal(1, a.Losses);
+        Assert.Equal(300m, a.WinPnl);
+        Assert.Equal(-50m, a.LossPnl);
         // ExpectancyA: winRate=0.75, lossRate=0.25, avgWin=100, avgLoss=-50
         // 0.75*100 - 0.25*(-50) = 75 + 12.5 = 87.5
-        Assert.Equal(87.5m, snap.ExpectancyA);
+        Assert.Equal(87.5m, a.Expectancy);
     }
 
     [Fact]
@@ -121,15 +129,16 @@ public class SnapshotAggregatorTests
         var inputs = DefaultInputs(MakeStub(SetupId.B, ss));
         var snap = SnapshotAggregator.Build(inputs);
 
-        Assert.Null(snap.SetupB);   // no active trade
-        Assert.Equal(1, snap.TradeCountB);
-        Assert.Equal(2, snap.MaxTradesB);
-        Assert.Equal(-2, snap.SetupBState);
-        Assert.True(snap.SetupBEnabled);
-        Assert.False(snap.PastCutoffB);
-        Assert.False(snap.StickyTgtB);
-        Assert.True(snap.StickyStpB);
-        Assert.Equal(100m, snap.ExpectancyB);  // 1 win, 0 losses → 100
+        var b = FindSetup(snap, "B");
+        Assert.Null(b.Trade);   // no active trade
+        Assert.Equal(1, b.TradeCount);
+        Assert.Equal(2, b.MaxTrades);
+        Assert.Equal(-2, b.State);
+        Assert.True(b.Enabled);
+        Assert.False(b.PastCutoff);
+        Assert.False(b.StickyTgt);
+        Assert.True(b.StickyStp);
+        Assert.Equal(100m, b.Expectancy);  // 1 win, 0 losses -> 100
     }
 
     [Fact]
@@ -144,12 +153,13 @@ public class SnapshotAggregatorTests
         var inputs = DefaultInputs(MakeStub(SetupId.C, ss));
         var snap = SnapshotAggregator.Build(inputs);
 
-        Assert.Null(snap.SetupC);
-        Assert.Equal(0, snap.TradeCountC);
-        Assert.Equal(1, snap.MaxTradesC);
-        Assert.Equal(3, snap.SetupCState);
-        Assert.False(snap.SetupCEnabled);
-        Assert.Equal(0m, snap.ExpectancyC);
+        var c = FindSetup(snap, "C");
+        Assert.Null(c.Trade);
+        Assert.Equal(0, c.TradeCount);
+        Assert.Equal(1, c.MaxTrades);
+        Assert.Equal(3, c.State);
+        Assert.False(c.Enabled);
+        Assert.Equal(0m, c.Expectancy);
     }
 
     [Fact]
@@ -165,14 +175,15 @@ public class SnapshotAggregatorTests
         var inputs = DefaultInputs(MakeStub(SetupId.D, ss));
         var snap = SnapshotAggregator.Build(inputs);
 
-        Assert.Equal(5, snap.TradeCountD);
-        Assert.Equal(5, snap.MaxTradesD);
-        Assert.Equal(-1, snap.SetupDState);
-        Assert.True(snap.SetupDEnabled);
-        Assert.True(snap.StickyTgtD);
+        var d = FindSetup(snap, "D");
+        Assert.Equal(5, d.TradeCount);
+        Assert.Equal(5, d.MaxTrades);
+        Assert.Equal(-1, d.State);
+        Assert.True(d.Enabled);
+        Assert.True(d.StickyTgt);
         // Expectancy: winRate=0.5, avgWin=100, lossRate=0.5, avgLoss=-100
         // 0.5*100 - 0.5*(-100) = 50 + 50 = 100
-        Assert.Equal(100m, snap.ExpectancyD);
+        Assert.Equal(100m, d.Expectancy);
     }
 
     // ── Risk fields ─────────────────────────────────────────────
@@ -202,7 +213,7 @@ public class SnapshotAggregatorTests
         Assert.Equal(2, snap.TodayWins);
         Assert.Equal(1, snap.TodayLosses);
         Assert.Equal(500m, snap.DailyLossLimit);
-        Assert.Equal(0m, snap.DailyLossUsed);     // PnL is positive → 0
+        Assert.Equal(0m, snap.DailyLossUsed);     // PnL is positive -> 0
         Assert.False(snap.TradingHalted);
     }
 
@@ -268,16 +279,18 @@ public class SnapshotAggregatorTests
 
         var snap = SnapshotAggregator.Build(DefaultInputs(stubA, stubC));
 
-        Assert.NotNull(snap.SetupA);
-        Assert.Equal(Direction.Long, snap.SetupA!.Direction);
-        Assert.Equal(5000m, snap.SetupA.Entry);
+        var a = FindSetup(snap, "A");
+        Assert.NotNull(a.Trade);
+        Assert.Equal(Direction.Long, a.Trade!.Direction);
+        Assert.Equal(5000m, a.Trade.Entry);
 
-        Assert.Null(snap.SetupB);  // not provided
+        Assert.Null(FindSetupOrNull(snap, "B"));  // not provided
 
-        Assert.NotNull(snap.SetupC);
-        Assert.Equal(Direction.Short, snap.SetupC!.Direction);
+        var c = FindSetup(snap, "C");
+        Assert.NotNull(c.Trade);
+        Assert.Equal(Direction.Short, c.Trade!.Direction);
 
-        Assert.Null(snap.SetupD);  // not provided
+        Assert.Null(FindSetupOrNull(snap, "D"));  // not provided
     }
 
     // ── Missing setups produce defaults ─────────────────────────
@@ -285,7 +298,7 @@ public class SnapshotAggregatorTests
     [Fact]
     public void MissingSetups_ProduceDefaultZeroValues()
     {
-        // Only setup A provided; B, C, D should all be defaults
+        // Only setup A provided; B, C, D should not be in Setups[]
         var ss = new SetupStateSnapshot
         {
             SetupId = SetupId.A, TradeCount = 1, MaxTrades = 2,
@@ -293,23 +306,14 @@ public class SnapshotAggregatorTests
         };
         var snap = SnapshotAggregator.Build(DefaultInputs(MakeStub(SetupId.A, ss)));
 
-        // B
-        Assert.Null(snap.SetupB);
-        Assert.Equal(0, snap.TradeCountB);
-        Assert.Equal(0, snap.MaxTradesB);
-        Assert.Equal(0, snap.SetupBState);
-        Assert.False(snap.SetupBEnabled);
-        Assert.Equal(0m, snap.ExpectancyB);
+        // Only A should be in Setups[]
+        Assert.Single(snap.Setups);
+        Assert.Equal("A", snap.Setups[0].Id);
 
-        // C
-        Assert.Null(snap.SetupC);
-        Assert.Equal(0, snap.TradeCountC);
-        Assert.Equal(0m, snap.ExpectancyC);
-
-        // D
-        Assert.Null(snap.SetupD);
-        Assert.Equal(0, snap.TradeCountD);
-        Assert.Equal(0m, snap.ExpectancyD);
+        // B, C, D not present
+        Assert.Null(FindSetupOrNull(snap, "B"));
+        Assert.Null(FindSetupOrNull(snap, "C"));
+        Assert.Null(FindSetupOrNull(snap, "D"));
     }
 
     // ── OrbState + Indicator mapping ────────────────────────────
@@ -482,14 +486,14 @@ public class SnapshotAggregatorTests
     [Fact]
     public void CalcExpectancy_OnlyWins()
     {
-        // 2 wins totaling $300 → avgWin=150, winRate=1.0 → 150
+        // 2 wins totaling $300 -> avgWin=150, winRate=1.0 -> 150
         Assert.Equal(150m, SnapshotAggregator.CalcExpectancy(2, 0, 300m, 0m));
     }
 
     [Fact]
     public void CalcExpectancy_OnlyLosses()
     {
-        // 2 losses totaling -$200 → avgLoss=-100, lossRate=1.0 → 0 - 1*(-100) = 100
+        // 2 losses totaling -$200 -> avgLoss=-100, lossRate=1.0 -> 0 - 1*(-100) = 100
         Assert.Equal(100m, SnapshotAggregator.CalcExpectancy(0, 2, 0m, -200m));
     }
 
@@ -508,15 +512,15 @@ public class SnapshotAggregatorTests
 
         var snap = SnapshotAggregator.Build(DefaultInputs(strategies));
 
-        Assert.Equal(1, snap.TradeCountA);
-        Assert.Equal(2, snap.TradeCountB);
-        Assert.Equal(3, snap.TradeCountC);
-        Assert.Equal(4, snap.TradeCountD);
+        Assert.Equal(1, FindSetup(snap, "A").TradeCount);
+        Assert.Equal(2, FindSetup(snap, "B").TradeCount);
+        Assert.Equal(3, FindSetup(snap, "C").TradeCount);
+        Assert.Equal(4, FindSetup(snap, "D").TradeCount);
 
-        Assert.True(snap.SetupAEnabled);
-        Assert.True(snap.SetupBEnabled);
-        Assert.False(snap.SetupCEnabled);
-        Assert.True(snap.SetupDEnabled);
+        Assert.True(FindSetup(snap, "A").Enabled);
+        Assert.True(FindSetup(snap, "B").Enabled);
+        Assert.False(FindSetup(snap, "C").Enabled);
+        Assert.True(FindSetup(snap, "D").Enabled);
     }
 
     // ── RecentAlerts passthrough ────────────────────────────────

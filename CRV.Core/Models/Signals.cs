@@ -106,8 +106,6 @@ public class EngineSnapshot
     public DateTime   Time           { get; set; }
     public string     Ticker         { get; set; } = "";
     public bool       IsLive         { get; set; }
-    public ActiveTradeView? SetupA   { get; set; }
-    public ActiveTradeView? SetupB   { get; set; }
 
     // Daily P&L stats
     public decimal    TodayPnl        { get; set; }
@@ -116,18 +114,8 @@ public class EngineSnapshot
     public int        TodayLosses     { get; set; }
     public decimal    TodayMaxDD      { get; set; }
 
-    // Per-setup trade counts
-    public int        TradeCountA     { get; set; }
-    public int        MaxTradesA      { get; set; }
-    public int        TradeCountB     { get; set; }
-    public int        MaxTradesB      { get; set; }
-
-    // Expectancy (total + per setup)
+    // Expectancy (total)
     public decimal    Expectancy      { get; set; }
-    public decimal    ExpectancyA     { get; set; }
-    public decimal    ExpectancyB     { get; set; }
-    public decimal    ExpectancyC     { get; set; }
-    public decimal    ExpectancyD     { get; set; }
 
     // Daily loss limit
     public decimal    DailyLossLimit { get; set; }
@@ -137,20 +125,6 @@ public class EngineSnapshot
     // Stream health — lets dashboard show that data is flowing
     public decimal    LastPrice      { get; set; }
     public DateTime   LastUpdate     { get; set; }
-
-    // Per-setup last price, ticker, and point value (each setup may trade a different instrument)
-    public decimal    LastPriceA     { get; set; }
-    public decimal    LastPriceB     { get; set; }
-    public decimal    LastPriceC     { get; set; }
-    public decimal    LastPriceD     { get; set; }
-    public string     TickerA        { get; set; } = "";
-    public string     TickerB        { get; set; } = "";
-    public string     TickerC        { get; set; } = "";
-    public string     TickerD        { get; set; } = "";
-    public decimal    PointValueA    { get; set; }
-    public decimal    PointValueB    { get; set; }
-    public decimal    PointValueC    { get; set; }
-    public decimal    PointValueD    { get; set; }
 
     // Indicators
     public decimal    Vwap           { get; set; }
@@ -165,88 +139,15 @@ public class EngineSnapshot
     public bool       OrbBearClose   { get; set; }
     public decimal    OrbAtrRatio    { get; set; }  // frozen at ORB formation (primary group)
 
-    // Per-setup ORB state (each ticker group has its own ORB)
-    public decimal    OrbHighA       { get; set; }
-    public decimal    OrbLowA        { get; set; }
-    public decimal    OrbMidA        { get; set; }
-    public decimal    OrbRangeA      { get; set; }
-    public bool       OrbBullCloseA  { get; set; }
-    public bool       OrbBearCloseA  { get; set; }
-    public decimal    OrbAtrRatioA   { get; set; }
-    public bool       OrbFormedA     { get; set; }
-
-    public decimal    OrbHighB       { get; set; }
-    public decimal    OrbLowB        { get; set; }
-    public decimal    OrbMidB        { get; set; }
-    public decimal    OrbRangeB      { get; set; }
-    public bool       OrbBullCloseB  { get; set; }
-    public bool       OrbBearCloseB  { get; set; }
-    public decimal    OrbAtrRatioB   { get; set; }
-    public bool       OrbFormedB     { get; set; }
-
-    public decimal    OrbHighC       { get; set; }
-    public decimal    OrbLowC        { get; set; }
-    public decimal    OrbMidC        { get; set; }
-    public decimal    OrbRangeC      { get; set; }
-    public bool       OrbBullCloseC  { get; set; }
-    public bool       OrbBearCloseC  { get; set; }
-    public decimal    OrbAtrRatioC   { get; set; }
-    public bool       OrbFormedC     { get; set; }
-
-    public decimal    OrbHighD       { get; set; }
-    public decimal    OrbLowD        { get; set; }
-    public decimal    OrbMidD        { get; set; }
-    public decimal    OrbRangeD      { get; set; }
-    public bool       OrbBullCloseD  { get; set; }
-    public bool       OrbBearCloseD  { get; set; }
-    public decimal    OrbAtrRatioD   { get; set; }
-    public bool       OrbFormedD     { get; set; }
-
     // Session state
     public bool       OrbFormed      { get; set; }
     public bool       PastCutoff     { get; set; }
-    public bool       PastCutoffA    { get; set; }
-    public bool       PastCutoffB    { get; set; }
     public bool       SessionEnded   { get; set; }
     public string     ActiveSessionId { get; set; } = "";
 
     // Active session ORB window (dynamic — changes per session)
     public string  OrbWindowStart  { get; set; } = "";
     public string  OrbWindowEnd    { get; set; } = "";
-
-    // Setup enabled flags (from StrategyConfig.EnableA / EnableB)
-    public bool SetupAEnabled { get; set; } = true;
-    public bool SetupBEnabled { get; set; } = true;
-
-    // Setup state machine values (from OrbStrategyEngine._stA / _stB)
-    // A: 0=Idle  ±1=Armed  ±2=Active
-    // B: 0=Idle  ±1=Armed  ±2=Retest  ±3=Active
-    public int  SetupAState { get; set; }
-    public int  SetupBState { get; set; }
-
-    // Sticky exit chart markers (true on exit bar only)
-    public bool StickyTgtA { get; set; }
-    public bool StickyStpA { get; set; }
-    public bool StickyTgtB { get; set; }
-    public bool StickyStpB { get; set; }
-
-    // ── Setup C/D ─────────────────────────────────────────
-    public ActiveTradeView? SetupC   { get; set; }
-    public ActiveTradeView? SetupD   { get; set; }
-    public int  TradeCountC   { get; set; }
-    public int  TradeCountD   { get; set; }
-    public int  MaxTradesC    { get; set; }
-    public int  MaxTradesD    { get; set; }
-    public int  SetupCState   { get; set; }
-    public int  SetupDState   { get; set; }
-    public bool SetupCEnabled { get; set; }
-    public bool SetupDEnabled { get; set; }
-    public bool PastCutoffC   { get; set; }
-    public bool PastCutoffD   { get; set; }
-    public bool StickyTgtC    { get; set; }
-    public bool StickyStpC    { get; set; }
-    public bool StickyTgtD    { get; set; }
-    public bool StickyStpD    { get; set; }
 
     // ── FalseBreakout module context ──────────────────────
     public bool    FBOrbBreakoutActive      { get; set; }
@@ -258,26 +159,6 @@ public class EngineSnapshot
     public bool    FBOrbActivated           { get; set; }
     public bool    FBSessionActivated       { get; set; }
     public bool    IsCompoundFakeout        { get; set; }
-
-    // Per-setup daily stats C/D
-    public int     TodayWinsC    { get; set; }
-    public int     TodayLossesC  { get; set; }
-    public decimal TodayWinPnlC  { get; set; }
-    public decimal TodayLossPnlC { get; set; }
-    public int     TodayWinsD    { get; set; }
-    public int     TodayLossesD  { get; set; }
-    public decimal TodayWinPnlD  { get; set; }
-    public decimal TodayLossPnlD { get; set; }
-
-    // ── Per-setup daily stats A/B ─────────────────────────
-    public int     TodayWinsA    { get; set; }
-    public int     TodayLossesA  { get; set; }
-    public decimal TodayWinPnlA  { get; set; }
-    public decimal TodayLossPnlA { get; set; }
-    public int     TodayWinsB    { get; set; }
-    public int     TodayLossesB  { get; set; }
-    public decimal TodayWinPnlB  { get; set; }
-    public decimal TodayLossPnlB { get; set; }
 
     // ── Module outputs ───────────────────────────────────────
     // Session

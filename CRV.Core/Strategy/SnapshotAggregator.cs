@@ -176,12 +176,6 @@ public static class SnapshotAggregator
 
             RecentAlerts = inputs.RecentAlerts,
             GroupSnapshots = inputs.GroupSnapshots,
-
-            // Default enabled to false; strategies will override
-            SetupAEnabled = false,
-            SetupBEnabled = false,
-            SetupCEnabled = false,
-            SetupDEnabled = false,
         };
 
         // Map each strategy to per-setup fields by SetupId
@@ -196,118 +190,11 @@ public static class SnapshotAggregator
             var ss = strategy.GetSnapshot();
             var trade = strategy.GetActiveTrade(setupLastPrice);
 
-            // Resolve per-setup ORB for both switch block and Setups[] population
+            // Resolve per-setup ORB for Setups[] population
             OrbState perSetupOrb = default;
             bool hasPerSetupOrb = inputs.PerSetupOrb?.TryGetValue(strategy.SetupId, out perSetupOrb) ?? false;
 
-            switch (strategy.SetupId)
-            {
-                case SetupId.A:
-                    snap.SetupA        = trade;
-                    snap.TradeCountA   = ss.TradeCount;
-                    snap.MaxTradesA    = ss.MaxTrades;
-                    snap.SetupAState   = ss.State;
-                    snap.SetupAEnabled = ss.Enabled;
-                    snap.PastCutoffA   = ss.PastCutoff;
-                    snap.StickyTgtA    = ss.StickyTgt;
-                    snap.StickyStpA    = ss.StickyStp;
-                    snap.ExpectancyA   = CalcExpectancy(ss.Wins, ss.Losses, ss.WinPnl, ss.LossPnl);
-                    snap.TodayWinsA    = ss.Wins;
-                    snap.TodayLossesA  = ss.Losses;
-                    snap.TodayWinPnlA  = ss.WinPnl;
-                    snap.TodayLossPnlA = ss.LossPnl;
-                    snap.LastPriceA    = setupLastPrice;
-                    snap.TickerA       = strategy.Ticker?.TrimStart('/') ?? "";
-                    snap.PointValueA   = strategy.PointValue;
-                    if (inputs.PerSetupOrb.TryGetValue(SetupId.A, out var orbA))
-                    {
-                        snap.OrbHighA = orbA.High; snap.OrbLowA = orbA.Low; snap.OrbMidA = orbA.Mid;
-                        snap.OrbRangeA = orbA.Range; snap.OrbBullCloseA = orbA.BullClose;
-                        snap.OrbBearCloseA = orbA.BearClose; snap.OrbAtrRatioA = orbA.AtrRatio;
-                        snap.OrbFormedA = orbA.IsSet;
-                    }
-                    break;
-
-                case SetupId.B:
-                    snap.SetupB        = trade;
-                    snap.TradeCountB   = ss.TradeCount;
-                    snap.MaxTradesB    = ss.MaxTrades;
-                    snap.SetupBState   = ss.State;
-                    snap.SetupBEnabled = ss.Enabled;
-                    snap.PastCutoffB   = ss.PastCutoff;
-                    snap.StickyTgtB    = ss.StickyTgt;
-                    snap.StickyStpB    = ss.StickyStp;
-                    snap.ExpectancyB   = CalcExpectancy(ss.Wins, ss.Losses, ss.WinPnl, ss.LossPnl);
-                    snap.TodayWinsB    = ss.Wins;
-                    snap.TodayLossesB  = ss.Losses;
-                    snap.TodayWinPnlB  = ss.WinPnl;
-                    snap.TodayLossPnlB = ss.LossPnl;
-                    snap.LastPriceB    = setupLastPrice;
-                    snap.TickerB       = strategy.Ticker?.TrimStart('/') ?? "";
-                    snap.PointValueB   = strategy.PointValue;
-                    if (inputs.PerSetupOrb.TryGetValue(SetupId.B, out var orbB))
-                    {
-                        snap.OrbHighB = orbB.High; snap.OrbLowB = orbB.Low; snap.OrbMidB = orbB.Mid;
-                        snap.OrbRangeB = orbB.Range; snap.OrbBullCloseB = orbB.BullClose;
-                        snap.OrbBearCloseB = orbB.BearClose; snap.OrbAtrRatioB = orbB.AtrRatio;
-                        snap.OrbFormedB = orbB.IsSet;
-                    }
-                    break;
-
-                case SetupId.C:
-                    snap.SetupC        = trade;
-                    snap.TradeCountC   = ss.TradeCount;
-                    snap.MaxTradesC    = ss.MaxTrades;
-                    snap.SetupCState   = ss.State;
-                    snap.SetupCEnabled = ss.Enabled;
-                    snap.PastCutoffC   = ss.PastCutoff;
-                    snap.StickyTgtC    = ss.StickyTgt;
-                    snap.StickyStpC    = ss.StickyStp;
-                    snap.ExpectancyC   = CalcExpectancy(ss.Wins, ss.Losses, ss.WinPnl, ss.LossPnl);
-                    snap.TodayWinsC    = ss.Wins;
-                    snap.TodayLossesC  = ss.Losses;
-                    snap.TodayWinPnlC  = ss.WinPnl;
-                    snap.TodayLossPnlC = ss.LossPnl;
-                    snap.LastPriceC    = setupLastPrice;
-                    snap.TickerC       = strategy.Ticker?.TrimStart('/') ?? "";
-                    snap.PointValueC   = strategy.PointValue;
-                    if (inputs.PerSetupOrb.TryGetValue(SetupId.C, out var orbC))
-                    {
-                        snap.OrbHighC = orbC.High; snap.OrbLowC = orbC.Low; snap.OrbMidC = orbC.Mid;
-                        snap.OrbRangeC = orbC.Range; snap.OrbBullCloseC = orbC.BullClose;
-                        snap.OrbBearCloseC = orbC.BearClose; snap.OrbAtrRatioC = orbC.AtrRatio;
-                        snap.OrbFormedC = orbC.IsSet;
-                    }
-                    break;
-
-                case SetupId.D:
-                    snap.SetupD        = trade;
-                    snap.TradeCountD   = ss.TradeCount;
-                    snap.MaxTradesD    = ss.MaxTrades;
-                    snap.SetupDState   = ss.State;
-                    snap.SetupDEnabled = ss.Enabled;
-                    snap.PastCutoffD   = ss.PastCutoff;
-                    snap.StickyTgtD    = ss.StickyTgt;
-                    snap.StickyStpD    = ss.StickyStp;
-                    snap.ExpectancyD   = CalcExpectancy(ss.Wins, ss.Losses, ss.WinPnl, ss.LossPnl);
-                    snap.TodayWinsD    = ss.Wins;
-                    snap.TodayLossesD  = ss.Losses;
-                    snap.TodayWinPnlD  = ss.WinPnl;
-                    snap.TodayLossPnlD = ss.LossPnl;
-                    snap.LastPriceD    = setupLastPrice;
-                    snap.TickerD       = strategy.Ticker?.TrimStart('/') ?? "";
-                    snap.PointValueD   = strategy.PointValue;
-                    if (inputs.PerSetupOrb.TryGetValue(SetupId.D, out var orbD))
-                    {
-                        snap.OrbHighD = orbD.High; snap.OrbLowD = orbD.Low; snap.OrbMidD = orbD.Mid;
-                        snap.OrbRangeD = orbD.Range; snap.OrbBullCloseD = orbD.BullClose;
-                        snap.OrbBearCloseD = orbD.BearClose; snap.OrbAtrRatioD = orbD.AtrRatio;
-                        snap.OrbFormedD = orbD.IsSet;
-                    }
-                    break;
-            }
-
-            // Populate dynamic Setups[] array (coexists with flat fields during transition)
+            // Populate dynamic Setups[] array
             snap.Setups.Add(new SetupSnapshot
             {
                 Id           = strategy.SetupId.ToString(),
