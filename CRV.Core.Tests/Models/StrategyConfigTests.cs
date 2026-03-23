@@ -199,7 +199,58 @@ public class StrategyConfigTests
 
     // ── Setup F validation ───────────────────────────────────
 
+    // ── BasketJson tests ────────────────────────────────────
 
+    [Fact]
+    public void ToSetupConfigs_WithBasketJson_ReturnsBasketEntries()
+    {
+        var basket = new List<BasketEntry>
+        {
+            new() { Id = "b-mnq-1", Label = "B — MNQ",
+                    StrategyType = CRV.Core.Strategy.StrategyType.Retest,
+                    Ticker = "/MNQM26", PointValue = 2, TickSize = 0.25m,
+                    Config = new() { MaxTrades = 3, CutoffHour = 14 } },
+            new() { Id = "b-mgc-1", Label = "B — MGC",
+                    StrategyType = CRV.Core.Strategy.StrategyType.Retest,
+                    Ticker = "/MGCJ26", PointValue = 10, TickSize = 0.10m,
+                    Config = new() { MaxTrades = 5, CutoffHour = 13 } },
+        };
+        var cfg = new StrategyConfig
+        {
+            BasketJson = System.Text.Json.JsonSerializer.Serialize(basket)
+        };
+        var setups = cfg.ToSetupConfigs();
 
+        Assert.Equal(2, setups.Count);
+        Assert.Equal("b-mnq-1", setups[0].Id);
+        Assert.Equal("/MNQM26", setups[0].Ticker);
+        Assert.Equal(3, setups[0].MaxTrades);
+        Assert.Equal("b-mgc-1", setups[1].Id);
+        Assert.Equal("/MGCJ26", setups[1].Ticker);
+        Assert.Equal(5, setups[1].MaxTrades);
+    }
 
+    [Fact]
+    public void ToSetupConfigs_WithoutBasketJson_ReturnsLegacyABCD()
+    {
+        var cfg = ValidConfig();
+        var setups = cfg.ToSetupConfigs();
+
+        Assert.Equal(4, setups.Count);
+        Assert.Equal("A", setups[0].Id);
+        Assert.Equal("B", setups[1].Id);
+        Assert.Equal("C", setups[2].Id);
+        Assert.Equal("D", setups[3].Id);
+    }
+
+    [Fact]
+    public void ToSetupConfigs_WithInvalidBasketJson_FallsBackToLegacy()
+    {
+        var cfg = ValidConfig();
+        cfg.BasketJson = "invalid json {{{";
+        var setups = cfg.ToSetupConfigs();
+
+        Assert.Equal(4, setups.Count);
+        Assert.Equal("A", setups[0].Id);
+    }
 }

@@ -367,12 +367,62 @@ public class StrategyConfig
     /// Produce per-setup configs for all 4 setups (A, B, C, D).
     /// Results are identical to the engine's BuildSetupConfigA/B/C/D helpers.
     /// </summary>
-    public List<StrategySetupConfig> ToSetupConfigs() => new()
+    public List<StrategySetupConfig> ToSetupConfigs()
     {
-        BuildSetupConfigA(),
-        BuildSetupConfigB(),
-        BuildSetupConfigC(),
-        BuildSetupConfigD(),
+        if (!string.IsNullOrEmpty(BasketJson))
+        {
+            try
+            {
+                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson);
+                if (basket?.Count > 0)
+                    return basket.Select(b => ToSetupConfig(b)).ToList();
+            }
+            catch { /* fall through to legacy */ }
+        }
+        // Legacy fallback: fixed A/B/C/D
+        return new()
+        {
+            BuildSetupConfigA(),
+            BuildSetupConfigB(),
+            BuildSetupConfigC(),
+            BuildSetupConfigD(),
+        };
+    }
+
+    private static StrategySetupConfig ToSetupConfig(BasketEntry b) => new()
+    {
+        Id = b.Id,
+        Name = b.Label,
+        SetupId = SetupId.F, // generic for basket entries
+        StrategyType = b.StrategyType,
+        Enabled = true,
+        Ticker = b.Ticker,
+        PointValue = b.PointValue,
+        TickSize = b.TickSize,
+        Contracts = b.Config.Contracts,
+        HiVolMult = b.Config.HiVolMult,
+        MaxContracts = b.Config.MaxContracts,
+        StopPct = b.Config.StopPct,
+        TargetPct = b.Config.TargetPct,
+        PartialPct = b.Config.PartialPct,
+        NearPct = b.Config.NearPct,
+        MinRr = b.Config.MinRr,
+        Mode = b.Config.Mode,
+        PullbackPct = b.Config.PullbackPct,
+        RetestPct = b.Config.RetestPct,
+        EntryTickOffset = b.Config.EntryTickOffset,
+        OrderType = b.Config.OrderType,
+        UseVwap = b.Config.UseVwap,
+        UseOrbClose = b.Config.UseOrbClose,
+        CutoffHour = b.Config.CutoffHour,
+        CutoffMinute = b.Config.CutoffMinute,
+        CloseAtRthClose = b.Config.CloseAtRthClose,
+        MaxTrades = b.Config.MaxTrades,
+        MaxAdverseMinutes = b.Config.MaxAdverseMinutes,
+        UsePartial = b.Config.UsePartial,
+        UseBe = b.Config.UseBe,
+        PartialCts = b.Config.PartialCts,
+        AllowRearmAfterBe = b.Config.AllowRearmAfterBe,
     };
 
     internal StrategySetupConfig BuildSetupConfigA() => new()
