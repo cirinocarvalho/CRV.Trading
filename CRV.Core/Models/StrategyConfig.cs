@@ -7,6 +7,12 @@ public class StrategyConfig
     public string  Name            { get; set; } = "Default";
     public DateTime UpdatedAt      { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// JSON-serialized List&lt;BasketEntry&gt; defining the active setup basket.
+    /// When null/empty, falls back to the legacy per-setup columns (A/B/C/D).
+    /// </summary>
+    public string? BasketJson { get; set; }
+
     // ── Instrument ──────────────────────────────────────────
     public string  Ticker          { get; set; } = "/NQH2026";
     public string  Exchange        { get; set; } = "CME";

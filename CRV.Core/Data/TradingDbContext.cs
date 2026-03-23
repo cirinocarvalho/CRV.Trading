@@ -26,7 +26,11 @@ public class TradingDbContext : DbContext
             e.HasIndex(t => t.Ticker);
             e.HasIndex(t => t.ExitReason);
         });
-        b.Entity<StrategyConfig>(e => e.HasKey(c => c.Id));
+        b.Entity<StrategyConfig>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.BasketJson).HasColumnType("TEXT");
+        });
         b.Entity<BacktestRunRow>(e => e.HasKey(r => r.Id));
         b.Entity<OrderRecord>(e =>
         {
