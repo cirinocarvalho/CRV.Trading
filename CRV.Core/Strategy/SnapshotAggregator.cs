@@ -196,6 +196,10 @@ public static class SnapshotAggregator
             var ss = strategy.GetSnapshot();
             var trade = strategy.GetActiveTrade(setupLastPrice);
 
+            // Resolve per-setup ORB for both switch block and Setups[] population
+            OrbState perSetupOrb = default;
+            bool hasPerSetupOrb = inputs.PerSetupOrb?.TryGetValue(strategy.SetupId, out perSetupOrb) ?? false;
+
             switch (strategy.SetupId)
             {
                 case SetupId.A:
@@ -302,6 +306,38 @@ public static class SnapshotAggregator
                     }
                     break;
             }
+
+            // Populate dynamic Setups[] array (coexists with flat fields during transition)
+            snap.Setups.Add(new SetupSnapshot
+            {
+                Id           = strategy.SetupId.ToString(),
+                Label        = $"{strategy.SetupId} — {strategy.Name}",
+                StrategyType = strategy.StrategyType.ToString(),
+                Ticker       = strategy.Ticker?.TrimStart('/') ?? "",
+                PointValue   = strategy.PointValue,
+                LastPrice    = setupLastPrice,
+                Enabled      = ss.Enabled,
+                State        = ss.State,
+                PastCutoff   = ss.PastCutoff,
+                Trade        = trade,
+                TradeCount   = ss.TradeCount,
+                MaxTrades    = ss.MaxTrades,
+                StickyTgt    = ss.StickyTgt,
+                StickyStp    = ss.StickyStp,
+                Wins         = ss.Wins,
+                Losses       = ss.Losses,
+                WinPnl       = ss.WinPnl,
+                LossPnl      = ss.LossPnl,
+                Expectancy   = CalcExpectancy(ss.Wins, ss.Losses, ss.WinPnl, ss.LossPnl),
+                OrbHigh      = hasPerSetupOrb ? perSetupOrb.High : 0,
+                OrbLow       = hasPerSetupOrb ? perSetupOrb.Low : 0,
+                OrbMid       = hasPerSetupOrb ? perSetupOrb.Mid : 0,
+                OrbRange     = hasPerSetupOrb ? perSetupOrb.Range : 0,
+                OrbBullClose = hasPerSetupOrb && perSetupOrb.BullClose,
+                OrbBearClose = hasPerSetupOrb && perSetupOrb.BearClose,
+                OrbAtrRatio  = hasPerSetupOrb ? perSetupOrb.AtrRatio : 0,
+                OrbFormed    = hasPerSetupOrb && perSetupOrb.IsSet,
+            });
         }
 
         // Overall expectancy from risk manager totals

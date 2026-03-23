@@ -563,4 +563,41 @@ public class SnapshotAggregatorTests
         Assert.False(snap.IsLive);
         Assert.Equal(18000m, snap.LastPrice);
     }
+
+    // ── Setups[] array population ────────────────────────────────
+
+    [Fact]
+    public void Build_PopulatesSetupsList()
+    {
+        var ssA = new SetupStateSnapshot
+        {
+            SetupId = SetupId.A, State = 1, TradeCount = 2, MaxTrades = 5,
+            Enabled = true, Wins = 1, Losses = 0, WinPnl = 50m, LossPnl = 0m
+        };
+        var ssB = new SetupStateSnapshot
+        {
+            SetupId = SetupId.B, State = -1, TradeCount = 1, MaxTrades = 3,
+            Enabled = true, PastCutoff = true
+        };
+        var inputs = DefaultInputs(
+            MakeStub(SetupId.A, ssA),
+            MakeStub(SetupId.B, ssB)
+        );
+        var snap = SnapshotAggregator.Build(inputs);
+
+        Assert.NotNull(snap.Setups);
+        Assert.Equal(2, snap.Setups.Count);
+
+        var a = snap.Setups[0];
+        Assert.Equal("A", a.Id);
+        Assert.Equal(1, a.State);
+        Assert.Equal(2, a.TradeCount);
+        Assert.Equal(5, a.MaxTrades);
+        Assert.True(a.Enabled);
+
+        var b = snap.Setups[1];
+        Assert.Equal("B", b.Id);
+        Assert.Equal(-1, b.State);
+        Assert.True(b.PastCutoff);
+    }
 }
