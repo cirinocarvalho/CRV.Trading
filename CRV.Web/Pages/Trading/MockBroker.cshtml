@@ -55,13 +55,16 @@ else
 {
     <!-- Metric cards -->
     <div class="row g-2 mb-3">
-        @foreach (var card in new[] {
-            (Title: "All Trades", Icon: "bi-bar-chart-fill",             M: Model.Total),
-            (Title: "Setup A",    Icon: "bi-triangle-fill",              M: Model.SetupA),
-            (Title: "Setup B",    Icon: "bi-arrow-up-right-circle-fill", M: Model.SetupB),
-            (Title: "Setup C",    Icon: "bi-arrow-return-left",          M: Model.SetupC),
-            (Title: "Setup D",    Icon: "bi-arrow-return-right",         M: Model.SetupD),
-        })
+        @{
+            var setupCards = Model.PerSetup
+                .Where(kv => kv.Value.TotalTrades > 0)
+                .Select(kv => (Title: kv.Key, Icon: "bi-circle-fill", M: kv.Value))
+                .ToList();
+            var allCards = new[] { (Title: "All Trades", Icon: "bi-bar-chart-fill", M: Model.Total) }
+                .Concat(setupCards)
+                .ToList();
+        }
+        @foreach (var card in allCards)
         {
             var m = card.M;
             <div class="col-12 col-md-4">

@@ -16,11 +16,7 @@ public class MockBrokerModel : PageModel
     public IReadOnlyList<DateOnly>    AvailableDates { get; private set; } = [];
     public DateOnly                   SelectedDate   { get; private set; }
     public MetricSummary              Total          { get; private set; } = new();
-    public MetricSummary              SetupA         { get; private set; } = new();
-    public MetricSummary              SetupB         { get; private set; } = new();
-    public MetricSummary              SetupC         { get; private set; } = new();
-    public MetricSummary              SetupD         { get; private set; } = new();
-    public MetricSummary              SetupF         { get; private set; } = new();
+    public Dictionary<string, MetricSummary> PerSetup { get; private set; } = new();
 
     public MockBrokerModel(TradingDbContext db, StrategyConfigService cfgSvc)
     {
@@ -64,11 +60,10 @@ public class MockBrokerModel : PageModel
             .ToList();
 
         Total  = CalcMetrics(Trades);
-        SetupA = CalcMetrics(Trades.Where(t => t.Setup == SetupId.A).ToList());
-        SetupB = CalcMetrics(Trades.Where(t => t.Setup == SetupId.B).ToList());
-        SetupC = CalcMetrics(Trades.Where(t => t.Setup == SetupId.C).ToList());
-        SetupD = CalcMetrics(Trades.Where(t => t.Setup == SetupId.D).ToList());
-        SetupF = CalcMetrics(Trades.Where(t => t.Setup == SetupId.F).ToList());
+        PerSetup = Trades
+            .GroupBy(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
+            .Where(g => g.Any())
+            .ToDictionary(g => g.Key, g => CalcMetrics(g.ToList()));
     }
 
     public static MetricSummary CalcMetrics(IReadOnlyList<TradeRecord> trades)
