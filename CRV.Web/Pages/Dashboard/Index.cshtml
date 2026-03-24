@@ -83,16 +83,9 @@
     </div>
 </div>
 
-<!-- ── Row 2: Setup A + B ──────────────────────────────────── -->
-<div class="row g-3 mb-3">
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("a", "bi-triangle-fill",              "A — Pullback [XACUZZY]",        Model.Config.MaxTradesA, null))
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("b", "bi-arrow-up-right-circle-fill", "B — Breakout [BONGA]",        Model.Config.MaxTradesB, null))
-</div>
-
-<!-- ── Row 3: Setup C + D (False Breakout) ────────────────── -->
-<div class="row g-3 mb-3">
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("c", "bi-arrow-return-left",  "C — ORB Fakeout [NABO]",     Model.Config.MaxTradesC, "setupC-card"))
-    @await Html.PartialAsync("_SetupCard", new SetupCardModel("d", "bi-arrow-return-right", "D — Session Fakeout [CHAYALA]", Model.Config.MaxTradesD, "setupD-card"))
+<!-- ── Setup Cards (dynamically rendered from setups[]) ──── -->
+<div id="setup-cards-container" class="row g-3 mb-3">
+    <!-- Setup cards rendered dynamically from setups[] -->
 </div>
 
 <!-- ── Ticker Group Selector ──────────────────────────────── -->
@@ -304,25 +297,7 @@
 const maxDailyLoss = @Model.Config.MaxDailyLoss.ToString(System.Globalization.CultureInfo.InvariantCulture);
 let _lastAlertCount = 0;  // track how many alerts we've already rendered
 
-// Seed ON/OFF badges from server-rendered config before first SignalR snapshot
-(function () {
-    const aOn = @(Model.Config.EnableA ? "true" : "false");
-    const bOn = @(Model.Config.EnableB ? "true" : "false");
-    const cOn = @(Model.Config.EnableC ? "true" : "false");
-    const dOn = @(Model.Config.EnableD ? "true" : "false");
-    var flags = { a: aOn, b: bOn, c: cOn, d: dOn };
-    ["a","b","c","d"].forEach(id => {
-        const el = document.getElementById("enabled-" + id);
-        if (!el) return;
-        const on = flags[id];
-        el.textContent = on ? "ON" : "OFF";
-        el.className   = "badge " + (on ? "bg-success" : "bg-secondary");
-        if (!on) {
-            const card = el.closest(".card");
-            if (card) card.style.opacity = "0.45";
-        }
-    });
-}());
+// Seed ON/OFF badges — deferred until cards are created dynamically
 
 document.addEventListener("crv:update", e => updateDashboard(e.detail));
 document.addEventListener("crv:alert",  e => {
@@ -423,7 +398,7 @@ document.addEventListener("crv:status", e => {
 
 // ET clock + stream health age
 let _lastUpdateMs = 0;
-const _setupLastPriceMs = { a: 0, b: 0, c: 0, d: 0 };
+const _setupLastPriceMs = {};
 
 function _updateDotAge(dotEl, ageEl, lastMs) {
     if (lastMs <= 0) {
@@ -450,7 +425,7 @@ setInterval(() => {
     // Global stream dot
     _updateDotAge(document.getElementById("stream-dot"), document.getElementById("stream-age"), _lastUpdateMs);
     // Per-setup price dots
-    for (const id of ["a", "b", "c", "d"]) {
+    for (const id of Object.keys(_setupLastPriceMs)) {
         _updateDotAge(
             document.getElementById(id + "-price-dot"),
             document.getElementById(id + "-price-age"),
@@ -860,10 +835,70 @@ function _applyGroupContext(g) {
         setText("stat-orb-atr-ratio", "vs ORB —");
 }
 
+// ── Dynamic setup card creation ───────────────────────────────
+var _cardsCreated = false;
+
+function createSetupCard(setup) {
+    var id = setup.id.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    var typeLabels = { Pullback: "\u25B2", Retest: "\u27F3", OrbFakeout: "\u2194", SessionFakeout: "\u21A9" };
+    var typeChar = typeLabels[setup.strategyType] || "\u25CF";
+
+    var col = document.createElement("div");
+    col.className = "col-12 col-lg-6";
+    col.id = "card-" + id;
+    col.innerHTML = `
+        <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <span class="text-warning">${typeChar}</span>
+                <span class="fw-bold text-warning">${setup.label}</span>
+                <span class="badge" id="enabled-${id}">ON</span>
+                <span class="badge" id="status-${id}">IDLE</span>
+                <span class="text-muted small" id="count-${id}">[0/${setup.maxTrades ?? 0}]</span>
+                <button id="btn-exit-${id}" class="btn btn-danger btn-sm d-none py-0 px-2 ms-auto"
+                        onclick="forceExit('${setup.id}')" title="Force exit Setup ${setup.id} at market">
+                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 trade-table" id="table-${id}" style="font-size:.95rem">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width:40%">Last Price</td>
+                            <td class="d-flex align-items-center gap-1">
+                                <span id="${id}-price" class="font-monospace fw-bold">\u2014</span>
+                                <span class="stream-dot" id="${id}-price-dot"></span>
+                                <span id="${id}-price-age" class="text-muted small"></span>
+                                <span id="${id}-ticker" class="text-muted small ms-1"></span>
+                            </td>
+                        </tr>
+                        <tr><td class="text-muted">Direction</td><td id="${id}-dir">\u2014</td></tr>
+                        <tr><td class="text-muted">Entry</td><td id="${id}-entry" class="font-monospace">\u2014</td></tr>
+                        <tr><td class="text-muted">Stop</td><td id="${id}-stop" class="font-monospace">\u2014</td></tr>
+                        <tr><td class="text-muted">Partial (50%)</td><td id="${id}-partial" class="font-monospace">\u2014</td></tr>
+                        <tr><td class="text-muted">Target</td><td id="${id}-target" class="font-monospace">\u2014</td></tr>
+                        <tr><td class="text-muted">Contracts</td><td id="${id}-cts" class="font-monospace">\u2014</td></tr>
+                        <tr title="E = (Win% \u00D7 AvgWin) \u2212 (Loss% \u00D7 AvgLoss)"><td class="text-muted">Expectancy</td><td id="${id}-expectancy" class="font-monospace">\u2014</td></tr>
+                        <tr><td class="text-muted fw-bold">Unrealized P&amp;L</td><td id="${id}-unreal" class="font-monospace fw-bold">\u2014</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    return col;
+}
+
 // ── Main update ───────────────────────────────────────────────
 function updateDashboard(d) {
     if (!d) return;
     _clearPlaceholder();   // remove "Waiting for engine..." on first live snapshot
+
+    // ── Auto-create setup cards on first snapshot ─────────────
+    if (!_cardsCreated && d.setups && d.setups.length > 0) {
+        var container = document.getElementById("setup-cards-container");
+        container.innerHTML = "";
+        d.setups.forEach(s => container.appendChild(createSetupCard(s)));
+        _cardsCreated = true;
+    }
 
     // ── Stream health ─────────────────────────────────────────
     if (d.lastPrice > 0) setText("stream-price", d.lastPrice.toFixed(2));
@@ -921,7 +956,7 @@ function updateDashboard(d) {
             exp ? pnlCls(exp) : "stat-value font-monospace");
     if (d.setups) {
         d.setups.forEach(s => {
-            var eid = s.id.toLowerCase() + "-expectancy";
+            var eid = s.id.toLowerCase().replace(/[^a-z0-9]/g, '-') + "-expectancy";
             setText(eid, s.expectancy ? fmtDol(s.expectancy) : "—",
                     s.expectancy ? pnlCls(s.expectancy) + " font-monospace" : "font-monospace");
         });
@@ -991,9 +1026,12 @@ function updateDashboard(d) {
     }
 
     // ── Setup panels ─────────────────────────────────────────
-    ["A","B","C","D"].forEach(id => {
-        updateSetup(id.toLowerCase(), findSetup(d, id), d.sessionEnded);
-    });
+    if (d.setups) {
+        d.setups.forEach(s => {
+            var id = s.id.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            updateSetup(id, s, d.sessionEnded);
+        });
+    }
 
     // ── ORB window (dynamic per session) ─────────────────────
     if (d.orbWindowStart && d.orbWindowEnd) {
@@ -1088,7 +1126,8 @@ function updateDashboard(d) {
     // ── Per-setup trade counts [N/Max] ─────────────────────────
     if (d.setups) {
         d.setups.forEach(s => {
-            var el = document.getElementById("count-" + s.id.toLowerCase());
+            var sid = s.id.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            var el = document.getElementById("count-" + sid);
             if (el) {
                 el.textContent = "[" + s.tradeCount + "/" + (s.maxTrades ?? 0) + "]";
             }
@@ -1180,6 +1219,7 @@ function updateSetup(id, setup, sessionEnded) {
     // ── Per-setup last price (always shown, even when idle) ───
     if (lastPrice > 0) {
         setText(id + "-price", lastPrice.toFixed(2), "font-monospace fw-bold text-light");
+        if (!_setupLastPriceMs[id]) _setupLastPriceMs[id] = 0;
         _setupLastPriceMs[id] = Date.now();  // track when we last got a valid price
     } else {
         setText(id + "-price", "—", "font-monospace fw-bold");
