@@ -7,6 +7,21 @@ using CRV.Core.Models;
 // Resets on new trading day; TradeClosed events update it
 // ─────────────────────────────────────────────────────────────
 
+public class PerSetupStats
+{
+    public int     Wins    { get; set; }
+    public int     Losses  { get; set; }
+    public decimal WinPnl  { get; set; }
+    public decimal LossPnl { get; set; }
+
+    public int     Trades   => Wins + Losses;
+    public decimal WinRate  => Trades > 0 ? (decimal)Wins / Trades * 100 : 0;
+    public decimal AvgWin   => Wins   > 0 ? WinPnl  / Wins   : 0;
+    public decimal AvgLoss  => Losses > 0 ? LossPnl / Losses : 0;
+    public decimal Expectancy => Trades > 0
+        ? (WinRate / 100m) * AvgWin - ((100m - WinRate) / 100m) * AvgLoss : 0;
+}
+
 public class DailyStats
 {
     public decimal TodayPnL        { get; set; }
@@ -14,10 +29,6 @@ public class DailyStats
     public int     TodayTrades     { get; set; }
     public int     TodayWins       { get; set; }
     public int     TodayLosses     { get; set; }
-    public int     TodayWinsA      { get; set; }
-    public int     TodayLossesA    { get; set; }
-    public int     TodayWinsB      { get; set; }
-    public int     TodayLossesB    { get; set; }
     public decimal TodayMaxDD      { get; set; }
     public decimal TodayPeak       { get; set; }
     public bool    DDBreached      { get; set; }
@@ -26,10 +37,9 @@ public class DailyStats
     // Running P&L sums for Expectancy calculation
     public decimal TodayWinPnl     { get; set; }
     public decimal TodayLossPnl    { get; set; }
-    public decimal TodayWinPnlA    { get; set; }
-    public decimal TodayLossPnlA   { get; set; }
-    public decimal TodayWinPnlB    { get; set; }
-    public decimal TodayLossPnlB   { get; set; }
+
+    // Per-setup stats keyed by string Id (e.g. "A", "B", "b-mnq-1")
+    public Dictionary<string, PerSetupStats> PerSetup { get; set; } = new();
 
     // Computed helpers
     public decimal WinRate    => TodayTrades > 0 ? (decimal)TodayWins / TodayTrades * 100 : 0;
@@ -38,17 +48,28 @@ public class DailyStats
     public decimal Expectancy => TodayTrades > 0
         ? (WinRate / 100m) * AvgWin - ((100m - WinRate) / 100m) * AvgLoss : 0;
 
-    public decimal AvgWinA     => TodayWinsA   > 0 ? TodayWinPnlA  / TodayWinsA   : 0;
-    public decimal AvgLossA    => TodayLossesA > 0 ? TodayLossPnlA / TodayLossesA : 0;
-    public decimal WinRateA    => (TodayWinsA + TodayLossesA) > 0 ? (decimal)TodayWinsA / (TodayWinsA + TodayLossesA) * 100 : 0;
-    public decimal ExpectancyA => (TodayWinsA + TodayLossesA) > 0
-        ? (WinRateA / 100m) * AvgWinA - ((100m - WinRateA) / 100m) * AvgLossA : 0;
+    // Legacy accessors for backward compatibility
+    public int     TodayWinsA      => GetSetup("A").Wins;
+    public int     TodayLossesA    => GetSetup("A").Losses;
+    public decimal TodayWinPnlA    => GetSetup("A").WinPnl;
+    public decimal TodayLossPnlA   => GetSetup("A").LossPnl;
+    public decimal WinRateA        => GetSetup("A").WinRate;
+    public decimal AvgWinA         => GetSetup("A").AvgWin;
+    public decimal AvgLossA        => GetSetup("A").AvgLoss;
+    public decimal ExpectancyA     => GetSetup("A").Expectancy;
 
-    public decimal AvgWinB     => TodayWinsB   > 0 ? TodayWinPnlB  / TodayWinsB   : 0;
-    public decimal AvgLossB    => TodayLossesB > 0 ? TodayLossPnlB / TodayLossesB : 0;
-    public decimal WinRateB    => (TodayWinsB + TodayLossesB) > 0 ? (decimal)TodayWinsB / (TodayWinsB + TodayLossesB) * 100 : 0;
-    public decimal ExpectancyB => (TodayWinsB + TodayLossesB) > 0
-        ? (WinRateB / 100m) * AvgWinB - ((100m - WinRateB) / 100m) * AvgLossB : 0;
+    public int     TodayWinsB      => GetSetup("B").Wins;
+    public int     TodayLossesB    => GetSetup("B").Losses;
+    public decimal TodayWinPnlB    => GetSetup("B").WinPnl;
+    public decimal TodayLossPnlB   => GetSetup("B").LossPnl;
+    public decimal WinRateB        => GetSetup("B").WinRate;
+    public decimal AvgWinB         => GetSetup("B").AvgWin;
+    public decimal AvgLossB        => GetSetup("B").AvgLoss;
+    public decimal ExpectancyB     => GetSetup("B").Expectancy;
+
+    private static readonly PerSetupStats _empty = new();
+    public PerSetupStats GetSetup(string id) =>
+        PerSetup.TryGetValue(id, out var s) ? s : _empty;
 }
 
 public class DailyStatsService
@@ -71,19 +92,27 @@ public class DailyStatsService
             _stats.TodayNetPnL += r.NetPnl;
             _stats.TodayTrades++;
 
+            // Resolve setup key: prefer SetupLabel (basket ID), fall back to enum name
+            var setupKey = !string.IsNullOrEmpty(r.SetupLabel) ? r.SetupLabel : r.Setup.ToString();
+            if (!_stats.PerSetup.TryGetValue(setupKey, out var ps))
+            {
+                ps = new PerSetupStats();
+                _stats.PerSetup[setupKey] = ps;
+            }
+
             if (r.NetPnl >= 0)
             {
                 _stats.TodayWins++;
                 _stats.TodayWinPnl += r.NetPnl;
-                if (r.Setup == SetupId.A) { _stats.TodayWinsA++;   _stats.TodayWinPnlA  += r.NetPnl; }
-                else                      { _stats.TodayWinsB++;   _stats.TodayWinPnlB  += r.NetPnl; }
+                ps.Wins++;
+                ps.WinPnl += r.NetPnl;
             }
             else
             {
                 _stats.TodayLosses++;
                 _stats.TodayLossPnl += r.NetPnl;
-                if (r.Setup == SetupId.A) { _stats.TodayLossesA++; _stats.TodayLossPnlA += r.NetPnl; }
-                else                      { _stats.TodayLossesB++; _stats.TodayLossPnlB += r.NetPnl; }
+                ps.Losses++;
+                ps.LossPnl += r.NetPnl;
             }
 
             _stats.TodayPeak = Math.Max(_stats.TodayPeak, _stats.TodayNetPnL);
