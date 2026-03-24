@@ -93,7 +93,7 @@ public class SessionFakeoutStrategyTests
     // ─── Helper: enter LONG ──────────────────────────────────────────
     // After arming LONG (fakeout bear), entry fires via tick at market price
     // when price >= SessionRangeLow (5170).
-    // Entry at tick price=5171, range=40, stopPct=0.10 => stop=5171-4=5167
+    // Entry at tick price=5171, levels anchored to srLow=5170: stop=5166, target=5210, partial=5190
     private static SessionFakeoutStrategy EnterLong(SessionFakeoutStrategy s)
     {
         ArmLong(s);
@@ -107,7 +107,7 @@ public class SessionFakeoutStrategyTests
     // ─── Helper: enter SHORT ─────────────────────────────────────────
     // After arming SHORT (fakeout bull), entry fires via tick at market price
     // when price <= SessionRangeHigh (5210).
-    // Entry at tick price=5209, range=40, stopPct=0.10 => stop=5209+4=5213
+    // Entry at tick price=5209, levels anchored to srHigh=5210: stop=5214, target=5170, partial=5190
     private static SessionFakeoutStrategy EnterShort(SessionFakeoutStrategy s)
     {
         ArmShort(s);
@@ -181,9 +181,9 @@ public class SessionFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         // Hit stop to close and increment counter
-        // Entry at tick=5171, range=40, stop = 5171 - 40*0.10 = 5167
+        // Entry at tick=5171, levels anchored to srLow=5170, stop = 5170 - 40*0.10 = 5166
         var orb = MakeOrb();
-        var stopBar = MakeBar(5169m, 5170m, 5163m, 5164m);
+        var stopBar = MakeBar(5166m, 5167m, 5163m, 5164m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
         Assert.False(s.IsActive);
@@ -241,16 +241,16 @@ public class SessionFakeoutStrategyTests
     public void Entry_UsesSessionRange_ForStopTargetPartial()
     {
         // SessionRange = 5210 - 5170 = 40
-        // Long entry via tick at 5171, stopPct=0.10 => stopDist=4, targetPct=100 => targetDist=40
-        // stop=5167, target=5211, partial=5191
+        // Long entry via tick at 5171, levels anchored to srLow=5170
+        // stop=5166, target=5210, partial=5190
         var s = new SessionFakeoutStrategy(DefaultConfig());
         EnterLong(s);
 
         var entry = s.PendingEntry!;
         Assert.Equal(5171m, entry.Entry);
-        Assert.Equal(5167m, entry.Stop);       // 5171 - 40*0.10 = 5167
-        Assert.Equal(5211m, entry.Target);      // 5171 + 40*1.00 = 5211
-        Assert.Equal(5191m, entry.Partial);     // 5171 + 40*0.50 = 5191
+        Assert.Equal(5166m, entry.Stop);       // 5170 - 40*0.10 = 5166
+        Assert.Equal(5210m, entry.Target);      // 5170 + 40*1.00 = 5210
+        Assert.Equal(5190m, entry.Partial);     // 5170 + 40*0.50 = 5190
     }
 
     [Fact]
@@ -300,7 +300,7 @@ public class SessionFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // Long entry at 5171, target=5211. Bar hits target.
+        // Long entry at 5171, target=5210. Bar hits target.
         var exitBar = MakeBar(5205m, 5215m, 5204m, 5212m);
         s.OnBar(exitBar, orb, MakeIndicators(), EmptyModules());
 
@@ -318,8 +318,8 @@ public class SessionFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // Long entry at 5171, stop=5167. Bar hits stop.
-        var stopBar = MakeBar(5169m, 5170m, 5163m, 5164m);
+        // Long entry at 5171, stop=5166. Bar hits stop.
+        var stopBar = MakeBar(5166m, 5167m, 5163m, 5164m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingExit);
@@ -375,8 +375,8 @@ public class SessionFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // Long entry at 5171, target=5211
-        s.OnTick(5211m, utc, orb, MakeIndicators(), EmptyModules());
+        // Long entry at 5171, target=5210
+        s.OnTick(5210m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingExit);
         Assert.Equal(ExitReason.Target, s.PendingExit!.Reason);
@@ -393,8 +393,8 @@ public class SessionFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // Long entry at 5171, stop=5167
-        s.OnTick(5167m, utc, orb, MakeIndicators(), EmptyModules());
+        // Long entry at 5171, stop=5166
+        s.OnTick(5166m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingExit);
         Assert.Equal(ExitReason.Stop, s.PendingExit!.Reason);
@@ -418,7 +418,7 @@ public class SessionFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // entry=5171, partial=5191, target=5211, stop=5167
+        // entry=5171, partial=5190, target=5210, stop=5166
         // Bar hits partial but not target, stays above entry (no BE hit)
         var partBar = MakeBar(5189m, 5195m, 5188m, 5192m);
         s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
@@ -441,8 +441,8 @@ public class SessionFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // entry=5171, partial=5191 => tick at partial
-        s.OnTick(5191m, utc, orb, MakeIndicators(), EmptyModules());
+        // entry=5171, partial=5190 => tick at partial
+        s.OnTick(5190m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingPartial);
         Assert.NotNull(s.PendingBE);
@@ -532,9 +532,9 @@ public class SessionFakeoutStrategyTests
         var view = s.GetActiveTrade(5175m);
         Assert.NotNull(view);
         Assert.Equal(5170.50m, view!.Entry);
-        // Stop, target, partial should shift by +0.50
-        Assert.Equal(5166.50m, view.CurrentStop);
-        Assert.Equal(5210.50m, view.Target);
+        // Stop, target, partial should shift by -0.50 (fill lower than entry)
+        Assert.Equal(5165.50m, view.CurrentStop);
+        Assert.Equal(5209.50m, view.Target);
     }
 
     [Fact]
@@ -545,8 +545,8 @@ public class SessionFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        // Hit stop: entry=5171, stop=5167
-        var stopBar = MakeBar(5169m, 5170m, 5163m, 5164m);
+        // Hit stop: entry=5171, stop=5166
+        var stopBar = MakeBar(5166m, 5167m, 5163m, 5164m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
         Assert.False(s.IsActive);
@@ -572,7 +572,7 @@ public class SessionFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        // Hit partial (5191) first
+        // Hit partial (5190) first
         var partBar = MakeBar(5189m, 5195m, 5188m, 5192m);
         s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
@@ -632,9 +632,9 @@ public class SessionFakeoutStrategyTests
         s.OnTick(5171m, DateTime.UtcNow, orb, MakeIndicators(), modules);
 
         Assert.True(s.IsActive);
-        // With ORB range=20: stop = 5171 - 20*0.10 = 5169, target = 5171 + 20 = 5191
+        // With ORB range=20, anchor=srLow=5170: stop = 5170 - 20*0.10 = 5168, target = 5170 + 20 = 5190
         Assert.Equal(5171m, s.PendingEntry!.Entry);
-        Assert.Equal(5169m, s.PendingEntry.Stop);
-        Assert.Equal(5191m, s.PendingEntry.Target);
+        Assert.Equal(5168m, s.PendingEntry.Stop);
+        Assert.Equal(5190m, s.PendingEntry.Target);
     }
 }

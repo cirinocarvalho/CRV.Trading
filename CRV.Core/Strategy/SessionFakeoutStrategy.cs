@@ -427,9 +427,14 @@ public class SessionFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
+        // Anchor stop/target to session range level
+        decimal anchor = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(anchor, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
 
+        decimal risk   = Math.Abs(ep - sl);
+        decimal reward = Math.Abs(tp - ep);
+        decimal rr     = risk > 0 ? reward / risk : 0;
         if (rr < _cfg.MinRr) return;
 
         _entry     = ep; _stop = sl; _target = tp; _partial = pp;
@@ -467,9 +472,14 @@ public class SessionFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
+        // Anchor stop/target to session range level
+        decimal anchor = isLong ? srLow : srHigh;
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(anchor, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
 
+        decimal risk   = Math.Abs(ep - sl);
+        decimal reward = Math.Abs(tp - ep);
+        decimal rr     = risk > 0 ? reward / risk : 0;
         if (rr < _cfg.MinRr) return;
 
         _entry     = ep; _stop = sl; _target = tp; _partial = pp;

@@ -541,10 +541,16 @@ public class RetestStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        // Setup B uses CalcLevelsB (entry-anchored stop)
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
+        // Anchor stop/target to the ORB reference level, not the tick entry price.
+        // This preserves R:R regardless of how far the entry is from the ORB level.
+        decimal anchor = isLong ? orb.High : orb.Low;
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevelsB(anchor, isLong,
             _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
+        // Compute actual R:R from the real entry price (not the anchor)
+        decimal risk   = Math.Abs(ep - sl);
+        decimal reward = Math.Abs(tp - ep);
+        decimal rr     = risk > 0 ? reward / risk : 0;
         if (rr < _cfg.MinRr) return;
 
         _entry     = ep; _stop = sl; _target = tp; _partial = pp;
