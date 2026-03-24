@@ -75,17 +75,19 @@ public class LiveEngineOrchestrator : BackgroundService
             var tz = TimeZoneInfo.FindSystemTimeZoneById(cfg.Timezone);
             var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
 
-            // Use active session's ORB window (from last snapshot or config)
+            // Use active session's ORB window
             var orbStart = cfg.OrbStart;
             var orbEnd = cfg.OrbEnd;
-            if (cfg.Sessions != null)
             {
-                var sessionMgr = new SessionManager(cfg.Sessions ?? SessionConfig.CreateDefaults(cfg));
+                var sessions = cfg.Sessions ?? SessionConfig.CreateDefaults(cfg);
+                var sessionMgr = new SessionManager(sessions);
                 var activeSession = sessionMgr.GetActiveSession(TimeOnly.FromDateTime(nowLocal));
                 if (activeSession != null)
                 {
                     orbStart = activeSession.OrbStart;
                     orbEnd = activeSession.OrbEnd;
+                    _log.LogInformation("ForceORB using session {Session} ORB window {Start}–{End}",
+                        activeSession.SessionId, orbStart, orbEnd);
                 }
             }
 
