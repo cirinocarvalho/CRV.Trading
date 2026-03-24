@@ -147,6 +147,9 @@ public interface ISetupStrategy
     /// </summary>
     void Disarm();
 
+    /// <summary>Reset the pastCutoff flag (after warmup processed bars past cutoff time).</summary>
+    void ResetCutoff();
+
     /// <summary>Snapshot for dashboard display.</summary>
     SetupStateSnapshot GetSnapshot();
 

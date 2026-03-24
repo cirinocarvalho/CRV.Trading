@@ -242,7 +242,10 @@ public class ComposableEngine
     public void ResetWarmupCounters()
     {
         foreach (var strategy in _strategies.Values)
+        {
             strategy.ResetTradeCounters();
+            strategy.ResetCutoff();
+        }
         Risk.ResetDay();
     }
 

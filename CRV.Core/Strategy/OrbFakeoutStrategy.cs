@@ -133,6 +133,8 @@ public class OrbFakeoutStrategy : ISetupStrategy
         if (!IsActive) { _state = 0; _armEntry = 0; _pastCutoff = true; }
     }
 
+    public void ResetCutoff() { _pastCutoff = false; }
+
     public void ResetSession()
     {
         _state     = 0; _armEntry  = 0;

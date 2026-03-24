@@ -79,6 +79,7 @@ public class TickerGroupTests
         }
         public void ResetTradeCounters() { }
         public void Disarm() { }
+        public void ResetCutoff() { }
         public (int Hour, int Minute) GetCutoffForSession(string s) => (CutoffHour, CutoffMinute);
         public bool IsEnabledForSession(string s) => true;
         public void ResetSession()
