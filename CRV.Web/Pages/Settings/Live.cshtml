@@ -129,6 +129,10 @@
 
 <input type="hidden" name="Config.BasketJson" id="basket-json" value="@(Model.Config.BasketJson ?? "")" />
 
+<style>
+    .basket-chevron { transition: transform 0.2s; display: inline-block; }
+    [aria-expanded="true"] .basket-chevron { transform: rotate(90deg); }
+</style>
 <!-- ── Setup Basket ────────────────────────────────────────── -->
 <div class="card crv-card mb-3">
     <div class="card-header d-flex align-items-center">
@@ -820,8 +824,12 @@ function renderBasket() {
 
         var cfg = entry.Config || {};
 
+        var collapseId = 'basket-collapse-' + entry.Id;
         return '<div class="basket-entry border rounded p-2 mb-2" data-id="' + entry.Id + '">' +
-            '<div class="d-flex gap-2 align-items-center mb-2">' +
+            '<div class="d-flex gap-2 align-items-center">' +
+                '<button type="button" class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" style="width:20px">' +
+                    '<i class="bi bi-chevron-right basket-chevron"></i>' +
+                '</button>' +
                 '<span class="badge bg-warning text-dark">#' + (i+1) + '</span>' +
                 '<select class="form-select form-select-sm" style="width:160px" onchange="updateBasketField(\'' + entry.Id + '\',\'StrategyType\',parseInt(this.value))">' + stratOptions + '</select>' +
                 '<select class="form-select form-select-sm" style="width:220px" onchange="updateBasketInstrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
@@ -830,6 +838,7 @@ function renderBasket() {
                     '<i class="bi bi-trash"></i>' +
                 '</button>' +
             '</div>' +
+            '<div class="collapse mt-2" id="' + collapseId + '">' +
             '<div class="row g-2">' +
                 _bField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
                 _bField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
@@ -867,6 +876,7 @@ function renderBasket() {
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
             '</div>' +
+            '</div>' +  // close collapse
         '</div>';
     }).join('');
 
