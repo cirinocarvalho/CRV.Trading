@@ -746,6 +746,22 @@ function removeBasketEntry(id) {
     renderBasket();
 }
 
+// Helpers for basket config field rendering
+function _bField(id, field, type, val, w, label, parse, step) {
+    var onChange = parse === 'float'
+        ? "updateBasketConfig('" + id + "','" + field + "',parseFloat(this.value))"
+        : "updateBasketConfig('" + id + "','" + field + "',parseInt(this.value))";
+    var stepAttr = step ? ' step="' + step + '"' : '';
+    return '<div class="col-auto"><label class="form-label small mb-0">' + label + '</label>' +
+        '<input type="' + type + '"' + stepAttr + ' class="form-control form-control-sm" style="width:' + w + 'px" value="' + val + '" onchange="' + onChange + '"></div>';
+}
+function _bCheck(id, field, checked, label) {
+    var chk = checked ? ' checked' : '';
+    return '<div class="col-auto d-flex align-items-end pb-1"><div class="form-check form-check-inline mb-0">' +
+        '<input type="checkbox" class="form-check-input"' + chk + ' onchange="updateBasketConfig(\'' + id + '\',\'' + field + '\',this.checked)">' +
+        '<label class="form-check-label small">' + label + '</label></div></div>';
+}
+
 function renderBasket() {
     var container = document.getElementById('basket-entries');
     var empty = document.getElementById('basket-empty');
@@ -791,33 +807,36 @@ function renderBasket() {
                 '</button>' +
             '</div>' +
             '<div class="row g-2">' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Contracts</label>' +
-                    '<input type="number" class="form-control form-control-sm" style="width:70px" value="' + (cfg.Contracts || 2) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Contracts\',parseInt(this.value))">' +
-                '</div>' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Max Trades</label>' +
-                    '<input type="number" class="form-control form-control-sm" style="width:70px" value="' + (cfg.MaxTrades || 5) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'MaxTrades\',parseInt(this.value))">' +
-                '</div>' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Stop %</label>' +
-                    '<input type="number" step="0.01" class="form-control form-control-sm" style="width:80px" value="' + (cfg.StopPct || 0.35) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'StopPct\',parseFloat(this.value))">' +
-                '</div>' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Target %</label>' +
-                    '<input type="number" step="0.01" class="form-control form-control-sm" style="width:80px" value="' + (cfg.TargetPct || 0.65) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'TargetPct\',parseFloat(this.value))">' +
-                '</div>' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Cutoff</label>' +
+                _bField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
+                _bField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
+                _bField(entry.Id, 'StopPct', 'number', cfg.StopPct || 0.35, 75, 'Stop %', 'float', '0.01') +
+                _bField(entry.Id, 'TargetPct', 'number', cfg.TargetPct || 65, 75, 'Target %', 'int') +
+                _bField(entry.Id, 'PartialPct', 'number', cfg.PartialPct || 50, 75, 'Partial %', 'int') +
+                _bField(entry.Id, 'NearPct', 'number', cfg.NearPct || 0.15, 75, 'Near %', 'float', '0.01') +
+                _bField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.5, 65, 'Min R:R', 'float', '0.1') +
+                '<div class="col-auto"><label class="form-label small mb-0">Cutoff</label>' +
                     '<input type="time" class="form-control form-control-sm" style="width:110px" value="' + String(cfg.CutoffHour||14).padStart(2,'0') + ':' + String(cfg.CutoffMinute||30).padStart(2,'0') + '" onchange="var p=this.value.split(\':\'); updateBasketConfig(\'' + entry.Id + '\',\'CutoffHour\',parseInt(p[0])); updateBasketConfig(\'' + entry.Id + '\',\'CutoffMinute\',parseInt(p[1]));">' +
                 '</div>' +
-                '<div class="col-auto">' +
-                    '<label class="form-label small mb-0">Mode</label>' +
+            '</div>' +
+            '<div class="row g-2 mt-1">' +
+                '<div class="col-auto"><label class="form-label small mb-0">Mode</label>' +
                     '<select class="form-select form-select-sm" style="width:120px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Mode\',this.value)">' +
                         '<option ' + ((cfg.Mode||'Aggressive')==='Aggressive'?'selected':'') + '>Aggressive</option>' +
                         '<option ' + ((cfg.Mode||'')==='Conservative'?'selected':'') + '>Conservative</option>' +
-                    '</select>' +
-                '</div>' +
+                    '</select></div>' +
+                '<div class="col-auto"><label class="form-label small mb-0">Order</label>' +
+                    '<select class="form-select form-select-sm" style="width:100px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'OrderType\',this.value)">' +
+                        '<option ' + ((cfg.OrderType||'Market')==='Market'?'selected':'') + '>Market</option>' +
+                        '<option ' + ((cfg.OrderType||'')==='Limit'?'selected':'') + '>Limit</option>' +
+                    '</select></div>' +
+                _bField(entry.Id, 'EntryTickOffset', 'number', cfg.EntryTickOffset || 0, 70, 'Tick Offset', 'int') +
+                _bField(entry.Id, 'MaxAdverseMinutes', 'number', cfg.MaxAdverseMinutes || 0, 70, 'Max Adv Min', 'int') +
+                _bField(entry.Id, 'PartialCts', 'number', cfg.PartialCts || 0, 70, 'Partial Cts', 'int') +
+                _bCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
+                _bCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
+                _bCheck(entry.Id, 'UseVwap', cfg.UseVwap !== false, 'VWAP') +
+                _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
+                _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
             '</div>' +
         '</div>';
     }).join('');

@@ -152,15 +152,13 @@
         else
         {
             var r = Model.Result;
-            @{
-                var setupCards = r.PerSetup
-                    .Where(kv => kv.Value.TotalTrades > 0)
-                    .Select(kv => (Title: kv.Key, Icon: "bi-circle-fill", M: kv.Value))
-                    .ToList();
-                var allCards = new[] { (Title: "Total", Icon: "bi-bar-chart-fill", M: r.Total) }
-                    .Concat(setupCards)
-                    .ToList();
-            }
+            var setupCards = r.PerSetup
+                .Where(kv => kv.Value.TotalTrades > 0)
+                .Select(kv => (Title: kv.Key, Icon: "bi-circle-fill", M: kv.Value))
+                .ToList();
+            var allCards = new[] { (Title: "Total", Icon: "bi-bar-chart-fill", M: r.Total) }
+                .Concat(setupCards)
+                .ToList();
             <div class="row g-2">
                 @foreach (var card in allCards)
                 {
