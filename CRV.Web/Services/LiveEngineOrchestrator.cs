@@ -102,91 +102,109 @@ public class LiveEngineOrchestrator : BackgroundService
             var toUtc = TimeZoneInfo.ConvertTimeToUtc(
                 DateTime.SpecifyKind(toLocal, DateTimeKind.Unspecified), tz);
 
-            // Fetch bars from broker
+            // Collect all distinct tickers from basket (or fallback to global)
+            var setupConfigs = cfg.ToSetupConfigs();
+            var allTickers = setupConfigs
+                .Select(s => s.Ticker)
+                .Where(t => !string.IsNullOrEmpty(t))
+                .Select(t => FuturesSymbol.ForBroker(t, cfg.Broker))
+                .Where(t => !string.IsNullOrEmpty(t))
+                .Distinct()
+                .ToList();
+            if (allTickers.Count == 0) allTickers.Add(FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker));
+
             var lf = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
             var hf = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-            var ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);
-            IAsyncEnumerable<Bar> bars;
-
-            if (cfg.Broker == "Schwab")
-            {
-                var auth = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
-                var token = await auth.GetAccessTokenAsync();
-                var loader = new SchwabHistoricalLoader(token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
-            }
-            else if (cfg.Broker == "TradeStation")
-            {
-                var auth = scope.ServiceProvider.GetRequiredService<TradeStationAuthService>();
-                var token = await auth.GetAccessTokenAsync();
-                var loader = new TradeStationHistoricalLoader(token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
-            }
-            else
-            {
-                return (false, $"ForceORB not supported for broker {cfg.Broker} — use Schwab or TradeStation");
-            }
-
-            // Feed ALL bars as warmup — builds ATR, VWAP, and all indicators.
-            // Also scan bars inside the ORB window for high/low to force-set the ORB.
-            var orbEndTime = TimeOnly.FromTimeSpan(orbEnd.ToTimeSpan());
-            decimal orbHigh = 0, orbLow = decimal.MaxValue;
-            decimal lastClose = 0;
-            int barCount = 0, orbBarCount = 0;
-            await foreach (var bar in bars)
-            {
-                await eng.WarmupBarAsync(bar, cfg.Ticker);
-                barCount++;
-
-                // Track ORB window bars
-                var barLocal = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
-                var barTime = TimeOnly.FromDateTime(barLocal);
-                if (barTime >= orbStart && barTime < orbEnd)
-                {
-                    if (bar.High > orbHigh) orbHigh = bar.High;
-                    if (bar.Low < orbLow) orbLow = bar.Low;
-                    lastClose = bar.Close;
-                    orbBarCount++;
-                }
-            }
-
-            if (orbBarCount == 0 || orbHigh == 0 || orbLow == decimal.MaxValue)
-                return (false, $"No bars in ORB window ({orbStart}–{orbEnd}). Fed {barCount} warmup bars for ATR/VWAP.");
-
-            decimal range = orbHigh - orbLow;
-            decimal closeRelPct = range > 0 ? (lastClose - orbLow) / range : 0.5m;
             var tradingDate = cfg.TradingDate(nowLocal);
-
-            // Force-set the ORB on the engine
-            var cache = new OrbStateCache
-            {
-                TradingDate = tradingDate,
-                Symbol = cfg.Ticker?.TrimStart('/') ?? "",
-                SessionId = eng.ActiveSessionId,
-                OrbHigh = orbHigh,
-                OrbLow = orbLow,
-                CloseRelPct = closeRelPct,
-                OrbAtrRatio = 0 // recalculated from ATR on next snapshot
-            };
-            // If still inside the ORB window, seed as floor (forming) so no arming occurs.
-            // If ORB window has closed, restore as formed.
             var nowTime = TimeOnly.FromDateTime(nowLocal);
-            if (nowTime >= orbStart && nowTime < orbEnd)
-            {
-                eng.SeedOrbFloor(cache);
-                _log.LogInformation("ForceORB (seeded floor — ORB window still open): H={H:F2} L={L:F2} R={R:F2}",
-                    orbHigh, orbLow, range);
-            }
-            else
-            {
-                eng.RestoreOrb(cache);
-                _log.LogInformation("ForceORB: H={H:F2} L={L:F2} R={R:F2} from {OrbBars} ORB bars + {Total} warmup bars",
-                    orbHigh, orbLow, range, orbBarCount, barCount);
-            }
-            OrbStateCacheService.Save(cache);
-            await eng.PublishCurrentStateAsync();
+            var results = new List<string>();
 
-            return (true, $"ORB: H={orbHigh:F2} L={orbLow:F2} R={range:F2} | {barCount} bars warmed up (ATR/VWAP/indicators)");
+            foreach (var ticker in allTickers)
+            {
+                // Fetch bars from broker for this ticker
+                IAsyncEnumerable<Bar> bars;
+                if (cfg.Broker == "Schwab")
+                {
+                    var auth = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
+                    var token = await auth.GetAccessTokenAsync();
+                    var loader = new SchwabHistoricalLoader(token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
+                    bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+                }
+                else if (cfg.Broker == "TradeStation")
+                {
+                    var auth = scope.ServiceProvider.GetRequiredService<TradeStationAuthService>();
+                    var token = await auth.GetAccessTokenAsync();
+                    var loader = new TradeStationHistoricalLoader(token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
+                    bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+                }
+                else
+                {
+                    return (false, $"ForceORB not supported for broker {cfg.Broker} — use Schwab or TradeStation");
+                }
+
+                // Resolve the raw ticker for engine routing (strip broker prefix)
+                var rawTicker = setupConfigs
+                    .Select(s => s.Ticker)
+                    .FirstOrDefault(t => FuturesSymbol.ForBroker(t, cfg.Broker) == ticker) ?? cfg.Ticker;
+
+                // Feed ALL bars as warmup — builds ATR, VWAP, and all indicators.
+                decimal orbHigh = 0, orbLow = decimal.MaxValue;
+                decimal lastClose = 0;
+                int barCount = 0, orbBarCount = 0;
+                await foreach (var bar in bars)
+                {
+                    await eng.WarmupBarAsync(bar, rawTicker);
+                    barCount++;
+
+                    var barLocal = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
+                    var barTime = TimeOnly.FromDateTime(barLocal);
+                    if (barTime >= orbStart && barTime < orbEnd)
+                    {
+                        if (bar.High > orbHigh) orbHigh = bar.High;
+                        if (bar.Low < orbLow) orbLow = bar.Low;
+                        lastClose = bar.Close;
+                        orbBarCount++;
+                    }
+                }
+
+                if (orbBarCount == 0 || orbHigh == 0 || orbLow == decimal.MaxValue)
+                {
+                    results.Add($"{ticker}: no ORB bars ({barCount} warmup)");
+                    continue;
+                }
+
+                decimal range = orbHigh - orbLow;
+                decimal closeRelPct = range > 0 ? (lastClose - orbLow) / range : 0.5m;
+
+                var cache = new OrbStateCache
+                {
+                    TradingDate = tradingDate,
+                    Symbol = rawTicker?.TrimStart('/') ?? "",
+                    SessionId = eng.ActiveSessionId,
+                    OrbHigh = orbHigh,
+                    OrbLow = orbLow,
+                    CloseRelPct = closeRelPct,
+                    OrbAtrRatio = 0
+                };
+
+                if (nowTime >= orbStart && nowTime < orbEnd)
+                {
+                    eng.SeedOrbFloor(cache);
+                    _log.LogInformation("ForceORB {Ticker} (floor — ORB open): H={H:F2} L={L:F2} R={R:F2}",
+                        ticker, orbHigh, orbLow, range);
+                }
+                else
+                {
+                    eng.RestoreOrb(cache);
+                    _log.LogInformation("ForceORB {Ticker}: H={H:F2} L={L:F2} R={R:F2} ({OrbBars} ORB + {Total} warmup)",
+                        ticker, orbHigh, orbLow, range, orbBarCount, barCount);
+                }
+                OrbStateCacheService.Save(cache);
+                results.Add($"{ticker}: H={orbHigh:F2} L={orbLow:F2} R={range:F2} ({barCount} bars)");
+            }
+
+            await eng.PublishCurrentStateAsync();
+            return (true, string.Join(" | ", results));
         }
         catch (Exception ex)
         {
