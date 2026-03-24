@@ -84,6 +84,7 @@ public class FalseBreakoutIntegrationTests
         // ORB: High=21000, Low=20000, Range=1000
         var cfg = CfgC();
         var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
@@ -98,6 +99,10 @@ public class FalseBreakoutIntegrationTests
         // close 20500 is inside [20000, 21000] ✓
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 10),
             21100m, 21100m, 20400m, 20500m, 500, IsConfirmed: true));
+        Assert.Empty(sink.Entries); // armed but not yet entered
+
+        // Tick at OrbHigh triggers SHORT entry
+        await eng.ProcessPriceTickAsync(21000m, Utc(2026, 3, 10, 14, 11));
 
         // Detector activates → engine arms SHORT → entry fires at OrbHigh
         Assert.Single(sink.Entries);
@@ -113,21 +118,23 @@ public class FalseBreakoutIntegrationTests
     {
         var cfg = CfgC();
         var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
-        // Breakout above + rejection → entry SHORT at 21000
+        // Breakout above + rejection → arms SHORT
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 5),
             20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
         // Rejection bar: H=21050 stays below stop (21100) so no same-bar exit
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 10),
             21000m, 21050m, 20400m, 20500m, 500, IsConfirmed: true));
+        // Tick at OrbHigh triggers SHORT entry
+        await eng.ProcessPriceTickAsync(21000m, Utc(2026, 3, 10, 14, 11));
         Assert.Single(sink.Entries);
 
         // Stop = 21100, Target = 21000 - 1.0 * 1000 = 20000
-        // Bar that hits target: Low ≤ 20000
-        await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 15),
-            20500m, 20600m, 19900m, 20000m, 500, IsConfirmed: true));
+        // Tick at target triggers exit
+        await eng.ProcessPriceTickAsync(20000m, Utc(2026, 3, 10, 14, 15));
 
         Assert.Single(sink.Exits);
         Assert.Equal(SetupId.C, sink.Exits[0].Setup);
@@ -139,21 +146,23 @@ public class FalseBreakoutIntegrationTests
     {
         var cfg = CfgC();
         var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
-        // Breakout above + rejection → entry SHORT at 21000
+        // Breakout above + rejection → arms SHORT
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 5),
             20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
         // Rejection bar: H=21050 stays below stop (21100) so no same-bar exit
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 10),
             21000m, 21050m, 20400m, 20500m, 500, IsConfirmed: true));
+        // Tick at OrbHigh triggers SHORT entry
+        await eng.ProcessPriceTickAsync(21000m, Utc(2026, 3, 10, 14, 11));
         Assert.Single(sink.Entries);
 
         // Stop = 21000 + 0.10 * 1000 = 21100
-        // Bar that hits stop: High ≥ 21100
-        await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 15),
-            20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
+        // Tick at stop triggers exit
+        await eng.ProcessPriceTickAsync(21100m, Utc(2026, 3, 10, 14, 15));
 
         Assert.Single(sink.Exits);
         Assert.Equal(SetupId.C, sink.Exits[0].Setup);
@@ -166,6 +175,7 @@ public class FalseBreakoutIntegrationTests
         // Test false breakout BELOW ORB → arms LONG
         var cfg = CfgC();
         var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
@@ -178,6 +188,10 @@ public class FalseBreakoutIntegrationTests
         // body = |20500-19900| = 600, range = 20600-19900 = 700, body% = 0.86 ✓
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 10),
             19900m, 20600m, 19900m, 20500m, 500, IsConfirmed: true));
+        Assert.Empty(sink.Entries); // armed but not yet entered
+
+        // Tick at OrbLow triggers LONG entry
+        await eng.ProcessPriceTickAsync(20000m, Utc(2026, 3, 10, 14, 11));
 
         Assert.Single(sink.Entries);
         var entry = sink.Entries[0];
@@ -192,18 +206,20 @@ public class FalseBreakoutIntegrationTests
         var cfg = CfgC();
         cfg.MaxTradesC = 1;
         var eng = BuildEngine(cfg, out var sink, out _);
+        eng.EnableTickMode();
         var day = new DateTime(2026, 3, 10);
         await FeedOrbBars(eng, 21000m, 20000m, day);
 
-        // Trade 1: breakout + rejection + entry + stop hit
+        // Trade 1: breakout + rejection + tick entry + stop hit
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 5),
             20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 10),
             21100m, 21100m, 20400m, 20500m, 500, IsConfirmed: true));
+        // Tick at OrbHigh triggers SHORT entry
+        await eng.ProcessPriceTickAsync(21000m, Utc(2026, 3, 10, 14, 11));
         Assert.Single(sink.Entries);
         // Stop hit
-        await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 15),
-            20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
+        await eng.ProcessPriceTickAsync(21100m, Utc(2026, 3, 10, 14, 12));
         Assert.Single(sink.Exits);
 
         // Trade 2 attempt: another breakout + rejection
@@ -211,6 +227,8 @@ public class FalseBreakoutIntegrationTests
             20800m, 21200m, 20700m, 21100m, 500, IsConfirmed: true));
         await eng.ProcessBarAsync(new Bar(Utc(2026, 3, 10, 14, 25),
             21100m, 21100m, 20400m, 20500m, 500, IsConfirmed: true));
+        // Tick at OrbHigh — should NOT enter because MaxTradesC = 1 already used
+        await eng.ProcessPriceTickAsync(21000m, Utc(2026, 3, 10, 14, 26));
 
         // Should not arm again — MaxTradesC = 1 already used
         Assert.Single(sink.Entries); // still just 1

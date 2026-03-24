@@ -90,28 +90,28 @@ public class OrbFakeoutStrategyTests
     }
 
     // ─── Helper: enter LONG ─────────────────────────────────────────────────
-    // After arming LONG (fakeout bear), entry fires when bar.Close >= orbLow (5180)
-    // Entry at orbLow=5180, stop=5178 → bar.Low must be > 5178 to avoid same-bar stop hit
+    // After arming LONG (fakeout bear), entry fires via tick at market price
+    // Tick entry at 5181 (>= orbLow 5180), stop=5179, target=5201, partial=5191
     private static OrbFakeoutStrategy EnterLong(OrbFakeoutStrategy s)
     {
         ArmLong(s);
         s.ClearPendingSignals();
         var orb = MakeOrb();
-        var entryBar = MakeBar(5179m, 5185m, 5179m, 5182m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick entry: price crosses above orbLow
+        s.OnTick(5181m, DateTime.UtcNow, orb, MakeIndicators(), EmptyModules());
         return s;
     }
 
     // ─── Helper: enter SHORT ────────────────────────────────────────────────
-    // After arming SHORT (fakeout bull), entry fires when bar.Close <= orbHigh (5200)
-    // Entry at orbHigh=5200, stop=5202 → bar.High must be < 5202 to avoid same-bar stop hit
+    // After arming SHORT (fakeout bull), entry fires via tick at market price
+    // Tick entry at 5199 (<= orbHigh 5200), stop=5201, target=5179, partial=5189
     private static OrbFakeoutStrategy EnterShort(OrbFakeoutStrategy s)
     {
         ArmShort(s);
         s.ClearPendingSignals();
         var orb = MakeOrb();
-        var entryBar = MakeBar(5201m, 5201m, 5198m, 5199m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick entry: price crosses below orbHigh
+        s.OnTick(5199m, DateTime.UtcNow, orb, MakeIndicators(), EmptyModules());
         return s;
     }
 
@@ -180,8 +180,8 @@ public class OrbFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         // Hit stop to close and increment counter
-        var orb = MakeOrb(); // entry at orbLow=5180, stop = 5180 - 20*0.10 = 5178
-        var stopBar = MakeBar(5179m, 5180m, 5175m, 5176m);
+        var orb = MakeOrb(); // entry at 5181, stop = 5181 - 20*0.10 = 5179
+        var stopBar = MakeBar(5178m, 5180m, 5175m, 5176m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
         Assert.False(s.IsActive);
@@ -241,15 +241,15 @@ public class OrbFakeoutStrategyTests
     public void Entry_UsesCalcLevels_ForStopTargetPartial()
     {
         // orbRange=20, stopPct=0.10 → stopDist=2, targetPct=100 → targetDist=20
-        // Long entry at orbLow=5180: stop=5178, target=5200, partial=5190
+        // Long entry at 5181: stop=5179, target=5201, partial=5191
         var s = new OrbFakeoutStrategy(DefaultConfig());
         EnterLong(s);
 
         var entry = s.PendingEntry!;
-        Assert.Equal(5180m, entry.Entry);
-        Assert.Equal(5178m, entry.Stop);      // 5180 - 20*0.10 = 5178
-        Assert.Equal(5200m, entry.Target);     // 5180 + 20*1.00 = 5200
-        Assert.Equal(5190m, entry.Partial);    // 5180 + 20*0.50 = 5190
+        Assert.Equal(5181m, entry.Entry);
+        Assert.Equal(5179m, entry.Stop);      // 5181 - 20*0.10 = 5179
+        Assert.Equal(5201m, entry.Target);     // 5181 + 20*1.00 = 5201
+        Assert.Equal(5191m, entry.Partial);    // 5181 + 20*0.50 = 5191
     }
 
     [Fact]
@@ -262,8 +262,7 @@ public class OrbFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        var entryBar = MakeBar(5179m, 5185m, 5178m, 5182m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        s.OnTick(5181m, DateTime.UtcNow, orb, MakeIndicators(), EmptyModules());
 
         Assert.False(s.IsActive);
         Assert.Null(s.PendingEntry);
@@ -279,13 +278,11 @@ public class OrbFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        // entry would be orbLow=5180, but offset +2 ticks for long → 5180.50
-        // stop = 5180.50 - 2 = 5178.50 → bar.Low must be > 5178.50
-        var entryBar = MakeBar(5179m, 5185m, 5179m, 5182m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick entry at 5181, offset +2 ticks for long => 5181 + 0.50 = 5181.50
+        s.OnTick(5181m, DateTime.UtcNow, orb, MakeIndicators(), EmptyModules());
 
         Assert.True(s.IsActive);
-        Assert.Equal(5180.50m, s.PendingEntry!.Entry);
+        Assert.Equal(5181.50m, s.PendingEntry!.Entry);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -301,7 +298,7 @@ public class OrbFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // Long entry at 5180, target=5200. Bar hits target.
+        // Long entry at 5181, target=5201. Bar hits target.
         var exitBar = MakeBar(5195m, 5205m, 5194m, 5202m);
         s.OnBar(exitBar, orb, MakeIndicators(), EmptyModules());
 
@@ -319,7 +316,7 @@ public class OrbFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // Long entry at 5180, stop=5178. Bar hits stop.
+        // Long entry at 5181, stop=5179. Bar hits stop.
         var stopBar = MakeBar(5179m, 5180m, 5175m, 5176m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
 
@@ -376,8 +373,8 @@ public class OrbFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // Long entry at 5180, target=5200
-        s.OnTick(5200m, utc, orb, MakeIndicators(), EmptyModules());
+        // Long entry at 5181, target=5201
+        s.OnTick(5201m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingExit);
         Assert.Equal(ExitReason.Target, s.PendingExit!.Reason);
@@ -394,8 +391,8 @@ public class OrbFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // Long entry at 5180, stop=5178
-        s.OnTick(5178m, utc, orb, MakeIndicators(), EmptyModules());
+        // Long entry at 5181, stop=5179
+        s.OnTick(5179m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingExit);
         Assert.Equal(ExitReason.Stop, s.PendingExit!.Reason);
@@ -419,9 +416,9 @@ public class OrbFakeoutStrategyTests
         Assert.True(s.IsActive);
 
         var orb = MakeOrb();
-        // entry=5180, partial=5190, target=5200, stop=5178
+        // entry=5181, partial=5191, target=5201, stop=5179
         // Bar hits partial but not target, stays above entry (no BE hit)
-        var partBar = MakeBar(5188m, 5195m, 5187m, 5192m);
+        var partBar = MakeBar(5189m, 5195m, 5188m, 5192m);
         s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingPartial);
@@ -442,8 +439,8 @@ public class OrbFakeoutStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        // entry=5180, partial=5190 → tick at partial
-        s.OnTick(5190m, utc, orb, MakeIndicators(), EmptyModules());
+        // entry=5181, partial=5191 → tick at partial
+        s.OnTick(5191m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingPartial);
         Assert.NotNull(s.PendingBE);
@@ -510,7 +507,7 @@ public class OrbFakeoutStrategyTests
         Assert.NotNull(view);
         Assert.Equal(SetupId.C, view!.Setup);
         Assert.Equal(Direction.Long, view.Direction);
-        Assert.Equal(5180m, view.Entry);
+        Assert.Equal(5181m, view.Entry);
     }
 
     [Fact]
@@ -527,15 +524,15 @@ public class OrbFakeoutStrategyTests
         var s = new OrbFakeoutStrategy(DefaultConfig());
         EnterLong(s);
 
-        // Original entry at 5180; simulate broker fill at 5180.50
-        s.ApplyFill(5180.50m);
+        // Original entry at 5181; simulate broker fill at 5181.50
+        s.ApplyFill(5181.50m);
 
         var view = s.GetActiveTrade(5185m);
         Assert.NotNull(view);
-        Assert.Equal(5180.50m, view!.Entry);
+        Assert.Equal(5181.50m, view!.Entry);
         // Stop, target, partial should shift by +0.50
-        Assert.Equal(5178.50m, view.CurrentStop);
-        Assert.Equal(5200.50m, view.Target);
+        Assert.Equal(5179.50m, view.CurrentStop);
+        Assert.Equal(5201.50m, view.Target);
     }
 
     [Fact]
@@ -549,8 +546,8 @@ public class OrbFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        // Hit stop
-        var stopBar = MakeBar(5179m, 5180m, 5175m, 5176m);
+        // Hit stop at 5179
+        var stopBar = MakeBar(5178m, 5180m, 5175m, 5176m);
         s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
         Assert.False(s.IsActive);
@@ -576,13 +573,13 @@ public class OrbFakeoutStrategyTests
         s.ClearPendingSignals();
 
         var orb = MakeOrb();
-        // Hit partial (5190) first, then BE stop (5180)
-        var partBar = MakeBar(5188m, 5195m, 5187m, 5192m);
+        // Hit partial (5191) first, then BE stop (5181)
+        var partBar = MakeBar(5189m, 5195m, 5188m, 5192m);
         s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
 
-        // Now bar hits BE stop at entry=5180
-        var beBar = MakeBar(5182m, 5183m, 5178m, 5179m);
+        // Now bar hits BE stop at entry=5181
+        var beBar = MakeBar(5182m, 5183m, 5179m, 5180m);
         s.OnBar(beBar, orb, MakeIndicators(), EmptyModules());
         s.ClearPendingSignals();
         Assert.False(s.IsActive);

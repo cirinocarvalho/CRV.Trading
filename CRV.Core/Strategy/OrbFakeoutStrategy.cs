@@ -194,17 +194,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
             }
         }
 
-        // Bar-level entry
-        if (isReady && (_state == 1 || _state == -1))
-        {
-            bool isLong = _state == 1;
-            // Long: price crosses above ORB low (after false break below)
-            // Short: price crosses below ORB high (after false break above)
-            if (isLong && bar.Close >= orb.Low)
-                TryEntry(orb.Low, true, orb, bar.Time);
-            else if (!isLong && bar.Close <= orb.High)
-                TryEntry(orb.High, false, orb, bar.Time);
-        }
+        // Bar-level entry: arm on bar, entry happens via OnTick at actual market price.
+        // No bar-level entry — prevents retroactive pricing at ORB level
+        // when bar.Close may be far from that level.
     }
 
     private void ProcessBarExit(Bar bar, OrbState orb, IndicatorState ind)
@@ -274,10 +266,11 @@ public class OrbFakeoutStrategy : ISetupStrategy
             bool isLong = _state == 1;
             // Long: price crosses above ORB low (after false break below)
             // Short: price crosses below ORB high (after false break above)
+            // Entry at actual tick price, not the ORB level
             if (isLong && price >= orb.Low)
-                TryEntryFromTick(orb.Low, true, orb, utc);
+                TryEntryFromTick(price, true, orb, utc);
             else if (!isLong && price <= orb.High)
-                TryEntryFromTick(orb.High, false, orb, utc);
+                TryEntryFromTick(price, false, orb, utc);
             return; // don't check exit on same tick as entry attempt
         }
 
