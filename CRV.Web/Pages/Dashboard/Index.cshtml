@@ -1169,7 +1169,7 @@ async function forceExit(setup) {
     if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
     try {
         const tok = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? "";
-        const r   = await fetch("?handler=ForceExit" + setup, {
+        const r   = await fetch("?handler=ForceExit&setupId=" + encodeURIComponent(setup), {
             method: "POST",
             headers: { "RequestVerificationToken": tok, "Content-Type": "application/json" }
         });
