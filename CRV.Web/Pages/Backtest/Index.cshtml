@@ -47,13 +47,14 @@
     </div>
 
     <div class="metrics-grid">
-        @foreach (var (label, metrics) in new[] {
-            ("Total", Model.Result.Total),
-            ("Setup A [XACUZZY]", Model.Result.SetupA),
-            ("Setup B [BONGA]", Model.Result.SetupB),
-            ("Setup C [ORB FAKEOUT]", Model.Result.SetupC),
-            ("Setup D [SESSION FAKEOUT]", Model.Result.SetupD) }
-            .Where(x => x.Item1 == "Total" || x.Item2.TotalTrades > 0))
+        @{
+            var perSetupEntries = Model.Result.PerSetup
+                .Where(kv => kv.Value.TotalTrades > 0)
+                .Select(kv => (kv.Key, kv.Value))
+                .ToList();
+        }
+        @foreach (var (label, metrics) in new[] { ("Total", Model.Result.Total) }
+            .Concat(perSetupEntries))
         {
             <div class="metrics-card @(label == "Total" ? "metrics-total" : "")">
                 <div class="metrics-title">@label</div>

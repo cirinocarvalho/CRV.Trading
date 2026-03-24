@@ -51,6 +51,8 @@ public class TradeRecord
     public string     SessionId      { get; set; } = "";
     public string     Source         { get; set; } = "live"; // "live" | "backtest"
     public SetupId    Setup          { get; set; }
+    /// <summary>String ID for basket entries (e.g. "b-mnq-1"). Falls back to Setup.ToString() for legacy.</summary>
+    public string     SetupLabel     { get; set; } = "";
     public Direction  Direction      { get; set; }
     public string     Ticker         { get; set; } = "";
     public int        Contracts      { get; set; }

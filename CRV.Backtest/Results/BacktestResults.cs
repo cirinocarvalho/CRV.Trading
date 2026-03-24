@@ -9,11 +9,17 @@ public class BacktestResult
     public BacktestConfig      BtConfig    { get; set; } = new();
     public List<TradeRecord>   Trades      { get; set; } = new();
     public PerformanceMetrics  Total       { get; set; } = new();
-    public PerformanceMetrics  SetupA      { get; set; } = new();
-    public PerformanceMetrics  SetupB      { get; set; } = new();
-    public PerformanceMetrics  SetupC      { get; set; } = new();
-    public PerformanceMetrics  SetupD      { get; set; } = new();
-    public PerformanceMetrics  SetupF      { get; set; } = new();
+
+    /// <summary>Per-setup metrics keyed by string Id (e.g. "A", "B", "b-mnq-1").</summary>
+    public Dictionary<string, PerformanceMetrics> PerSetup { get; set; } = new();
+
+    // Legacy accessors for backward compatibility with existing pages/tests
+    public PerformanceMetrics  SetupA      => PerSetup.GetValueOrDefault("A", new());
+    public PerformanceMetrics  SetupB      => PerSetup.GetValueOrDefault("B", new());
+    public PerformanceMetrics  SetupC      => PerSetup.GetValueOrDefault("C", new());
+    public PerformanceMetrics  SetupD      => PerSetup.GetValueOrDefault("D", new());
+    public PerformanceMetrics  SetupF      => PerSetup.GetValueOrDefault("F", new());
+
     public List<EquityPoint>   EquityCurve { get; set; } = new();
     public DateTime            GeneratedAt { get; set; } = DateTime.UtcNow;
 }
@@ -54,17 +60,18 @@ public static class BacktestResultCalculator
 {
     public static BacktestResult Calculate(List<TradeRecord> trades, StrategyConfig cfg, BacktestConfig btCfg)
     {
+        // Group by SetupLabel (string Id), falling back to Setup enum name for legacy trades
+        var perSetup = trades
+            .GroupBy(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
+            .ToDictionary(g => g.Key, g => Calc(g.ToList(), cfg));
+
         return new BacktestResult
         {
             Config      = cfg,
             BtConfig    = btCfg,
             Trades      = trades,
             Total       = Calc(trades, cfg),
-            SetupA      = Calc(trades.Where(t => t.Setup == SetupId.A).ToList(), cfg),
-            SetupB      = Calc(trades.Where(t => t.Setup == SetupId.B).ToList(), cfg),
-            SetupC      = Calc(trades.Where(t => t.Setup == SetupId.C).ToList(), cfg),
-            SetupD      = Calc(trades.Where(t => t.Setup == SetupId.D).ToList(), cfg),
-            SetupF      = Calc(trades.Where(t => t.Setup == SetupId.F).ToList(), cfg),
+            PerSetup    = perSetup,
             EquityCurve = BuildCurve(trades)
         };
     }

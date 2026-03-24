@@ -612,6 +612,7 @@ public class ComposableEngine
         return new TradeRecord
         {
             Setup = strategy.SetupId,
+            SetupLabel = strategy.Id,
             Direction = preTrade.Direction,
             Ticker = strategy.Ticker?.TrimStart('/') ?? "",
             Contracts = cts,
