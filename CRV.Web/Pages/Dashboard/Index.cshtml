@@ -892,12 +892,16 @@ function updateDashboard(d) {
     if (!d) return;
     _clearPlaceholder();   // remove "Waiting for engine..." on first live snapshot
 
-    // ── Auto-create setup cards on first snapshot ─────────────
-    if (!_cardsCreated && d.setups && d.setups.length > 0) {
+    // ── Auto-create setup cards (recreate when count changes or on first snapshot) ──
+    if (d.setups && d.setups.length > 0) {
         var container = document.getElementById("setup-cards-container");
-        container.innerHTML = "";
-        d.setups.forEach(s => container.appendChild(createSetupCard(s)));
-        _cardsCreated = true;
+        var setupIds = d.setups.map(s => s.id).join(',');
+        if (!_cardsCreated || container.dataset.setupIds !== setupIds) {
+            container.innerHTML = "";
+            d.setups.forEach(s => container.appendChild(createSetupCard(s)));
+            container.dataset.setupIds = setupIds;
+            _cardsCreated = true;
+        }
     }
 
     // ── Stream health ─────────────────────────────────────────
