@@ -44,7 +44,7 @@ public class RetestStrategy : ISetupStrategy
     private bool _bullLeftZone = false;  // SmartAggressive: price has left the bull zone after a trade
     private bool _bearLeftZone = false;  // SmartAggressive: price has left the bear zone after a trade
     private bool _pastCutoff = false;
-    private bool _armBarConsumed = false;  // Conservative: prevents retest detection on the arm bar itself
+    private bool _retestLeftZone = false;  // Conservative: price must leave the ORB level zone before retest can fire
 
     // ── Counters ──────────────────────────────────────────────────
     private int     _tradeCount  = 0;
@@ -151,7 +151,7 @@ public class RetestStrategy : ISetupStrategy
         _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
-        _pastCutoff = false; _armBarConsumed = false;
+        _pastCutoff = false; _retestLeftZone = false;
         _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -190,7 +190,7 @@ public class RetestStrategy : ISetupStrategy
         if ((_state > 0 && _state < 3 && bar.Close < orbLow) ||
             (_state < 0 && _state > -3 && bar.Close > orbHigh))
         {
-            _state = 0; _armEntry = 0; _armBarConsumed = false;
+            _state = 0; _armEntry = 0; _retestLeftZone = false;
         }
 
         bool isReady = _tradeCount < _cfg.MaxTrades;
@@ -229,11 +229,11 @@ public class RetestStrategy : ISetupStrategy
 
             if (bar.Close >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
             {
-                _state = 1; _armEntry = bar.Open; _armBarConsumed = false;
+                _state = 1; _armEntry = bar.Open; _retestLeftZone = false;
             }
             else if (bar.Close <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
             {
-                _state = -1; _armEntry = bar.Open; _armBarConsumed = false;
+                _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
             }
         }
 
@@ -278,19 +278,20 @@ public class RetestStrategy : ISetupStrategy
         else
         {
             // Conservative — retest-zone state transitions
+            // Price must LEAVE the ORB level zone first, then RETURN for a valid retest.
+            // This prevents the arm bar (which is already near the level) from instantly
+            // satisfying the retest condition.
             decimal retestW = orbRange * _cfg.RetestPct;
 
-            // Skip the arm bar — retest detection only starts on the NEXT bar.
-            // Without this guard, the arm bar itself satisfies the retest zone check
-            // (since nearDist and retestW overlap), causing 0→1→2 in one bar.
-            if ((_state == 1 || _state == -1) && !_armBarConsumed)
+            // Step 1: detect when price leaves the zone after arming
+            if (_state == 1 && !_retestLeftZone && bar.Low < orbHigh - retestW)
+                _retestLeftZone = true;
+            if (_state == -1 && !_retestLeftZone && bar.High > orbLow + retestW)
+                _retestLeftZone = true;
+
+            // Step 2: retest fires only after price has left AND returned to the zone
+            if (_retestLeftZone)
             {
-                _armBarConsumed = true;
-                // Don't evaluate retest on the arm bar — fall through to de-arm check only
-            }
-            else
-            {
-                // Armed → retest when price returns near the ORB level
                 if (_state == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW)
                     _state = 2;
                 if (_state == -1 && bar.High >= orbLow - retestW && bar.Low <= orbLow + retestW)
