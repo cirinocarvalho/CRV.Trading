@@ -56,6 +56,7 @@ public class StrategySetupConfig
 
     // Derived
     public bool IsAggressive => Mode == "Aggressive";
+    public bool IsSmartAggressive => Mode == "SmartAggressive";
 
     /// <summary>Get the cutoff for a specific session, falling back to the global cutoff.</summary>
     public (int Hour, int Minute) GetCutoffForSession(string sessionName)

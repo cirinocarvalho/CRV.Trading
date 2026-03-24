@@ -7,7 +7,8 @@ namespace CRV.Core.Strategy;
 /// <summary>
 /// Setup B — ORB Retest strategy extracted from OrbStrategyEngine.
 /// Implements ISetupStrategy; produces pending signals consumed by the engine.
-/// State machine: 0=idle, ±1=armed (breakout detected), ±2=retest zone,
+/// State machine: 0=idle, ±1=armed (breakout detected), ±2=retest zone (Conservative)
+///                or confirmed-arm-enter-next-bar (SmartAggressive),
 ///                ±3=active trade (LONG=3, SHORT=-3).
 /// </summary>
 public class RetestStrategy : ISetupStrategy
@@ -40,6 +41,8 @@ public class RetestStrategy : ISetupStrategy
     // ── Re-arm guard (prevents re-entering same side until price leaves ORB zone) ──
     private bool _bullTraded = false;
     private bool _bearTraded = false;
+    private bool _bullLeftZone = false;  // SmartAggressive: price has left the bull zone after a trade
+    private bool _bearLeftZone = false;  // SmartAggressive: price has left the bear zone after a trade
     private bool _pastCutoff = false;
 
     // ── Counters ──────────────────────────────────────────────────
@@ -124,6 +127,7 @@ public class RetestStrategy : ISetupStrategy
         _partHit   = false; _pnl   = 0; _entryTime = DateTime.MinValue;
         _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
+        _bullLeftZone = false; _bearLeftZone = false;
         _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
@@ -145,6 +149,7 @@ public class RetestStrategy : ISetupStrategy
         _partHit   = false; _pnl   = 0; _entryTime = DateTime.MinValue;
         _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
+        _bullLeftZone = false; _bearLeftZone = false;
         _pastCutoff = false;
         _tradeCount = 0;
         _lastAtrRatio = 0;
@@ -195,8 +200,26 @@ public class RetestStrategy : ISetupStrategy
             decimal nearDist = orbRange * _cfg.NearPct;
 
             // Clear directional lock once price leaves the arm zone
-            if (_bullTraded && bar.Close < orbHigh - nearDist) _bullTraded = false;
-            if (_bearTraded && bar.Close > orbLow  + nearDist) _bearTraded = false;
+            if (_cfg.IsSmartAggressive)
+            {
+                // SmartAggressive re-arm: price must LEAVE the zone first, then RETURN.
+                // Step 1: track when price leaves the zone
+                if (_bullTraded && !_bullLeftZone && bar.Close < orbHigh - nearDist)
+                    _bullLeftZone = true;
+                if (_bearTraded && !_bearLeftZone && bar.Close > orbLow + nearDist)
+                    _bearLeftZone = true;
+
+                // Step 2: clear lock only when price has left AND returned to the zone
+                if (_bullTraded && _bullLeftZone && bar.Close >= orbHigh - nearDist)
+                    { _bullTraded = false; _bullLeftZone = false; }
+                if (_bearTraded && _bearLeftZone && bar.Close <= orbLow + nearDist)
+                    { _bearTraded = false; _bearLeftZone = false; }
+            }
+            else
+            {
+                if (_bullTraded && bar.Close < orbHigh - nearDist) _bullTraded = false;
+                if (_bearTraded && bar.Close > orbLow  + nearDist) _bearTraded = false;
+            }
 
             bool aboveVwap  = !_cfg.UseVwap || bar.Close > ind.Vwap;
             bool belowVwap  = !_cfg.UseVwap || bar.Close < ind.Vwap;
@@ -226,6 +249,30 @@ public class RetestStrategy : ISetupStrategy
                 decimal ep = _armEntry > 0 ? _armEntry : orbLow;
                 TryEntry(ep, false, orb, bar.Time);
             }
+        }
+        else if (_cfg.IsSmartAggressive)
+        {
+            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 at Open.
+            // State ±2 = "confirmed arm, enter next bar". After exit, _bullTraded/_bearTraded
+            // block re-arm until price leaves the zone AND retests the level.
+
+            // Transition: armed (±1) → confirmed (±2) on the NEXT bar
+            if (isReady && _state == 2)
+            {
+                TryEntry(bar.Open, true, orb, bar.Time);
+            }
+            else if (isReady && _state == -2)
+            {
+                TryEntry(bar.Open, false, orb, bar.Time);
+            }
+
+            // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
+            if (_state == 1)  _state = 2;
+            if (_state == -1) _state = -2;
+
+            // De-arm if price crosses OrbMid (setup invalidated)
+            if (_state == 2  && bar.Close < orbMid) _state = 0;
+            if (_state == -2 && bar.Close > orbMid) _state = 0;
         }
         else
         {
@@ -321,6 +368,13 @@ public class RetestStrategy : ISetupStrategy
             if (_cfg.IsAggressive)
             {
                 TryEntry(_armEntry, isLong, orb, utc);
+            }
+            else if (_cfg.IsSmartAggressive)
+            {
+                // SmartAggressive tick entry: state ±2 means confirmed (next bar).
+                // Enter at current price on tick.
+                if (_state == 2 || _state == -2)
+                    TryEntry(price, isLong, orb, utc);
             }
             else
             {

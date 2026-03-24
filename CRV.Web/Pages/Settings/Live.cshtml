@@ -886,6 +886,7 @@ function renderBasket() {
                 '<div class="col-auto"><label class="form-label small mb-0">Mode</label>' +
                     '<select class="form-select form-select-sm" style="width:120px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Mode\',this.value)">' +
                         '<option ' + ((cfg.Mode||'Aggressive')==='Aggressive'?'selected':'') + '>Aggressive</option>' +
+                        '<option ' + ((cfg.Mode||'')==='SmartAggressive'?'selected':'') + ' value="SmartAggressive">Smart Aggressive</option>' +
                         '<option ' + ((cfg.Mode||'')==='Conservative'?'selected':'') + '>Conservative</option>' +
                     '</select></div>' +
                 '<div class="col-auto"><label class="form-label small mb-0">Order</label>' +
