@@ -245,22 +245,13 @@ public class RetestStrategy : ISetupStrategy
         // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
         {
+            // Aggressive: always defer to tick entry (both live and backtest).
+            // In live: next L1 tick. In backtest: next 1-min bar Open.
+            // This gives the first realistic price after signal confirmation.
             if (isReady && _state == 1)
-            {
-                decimal ep = _armEntry > 0 ? _armEntry : orbHigh;
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(ep, true, orb, bar.Time);
-            }
+                { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
             else if (isReady && _state == -1)
-            {
-                decimal ep = _armEntry > 0 ? _armEntry : orbLow;
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(ep, false, orb, bar.Time);
-            }
+                { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
         }
         else if (_cfg.IsSmartAggressive)
         {
