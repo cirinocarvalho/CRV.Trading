@@ -280,6 +280,40 @@
                 <option value="UTC"                 selected="@(Model.Config.Timezone=="UTC"                 ? "selected" : null)">UTC</option>
             </select>
         </div>
+        <!-- False Breakout Module (Global) -->
+        <h6 class="mt-3"><i class="bi bi-arrow-repeat me-1"></i>False Breakout Filters</h6>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">Max Time Out (ORB) min</label>
+                <input name="Config.FBMaxTimeOutsideMinutesOrb" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTimeOutsideMinutesOrb" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Max Time Out (SR) min</label>
+                <input name="Config.FBMaxTimeOutsideMinutesSR" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTimeOutsideMinutesSR" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Max Pen % (ORB)</label>
+                <input name="Config.FBMaxPenetrationPctOrb" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMaxPenetrationPctOrb" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Max Pen % (SR)</label>
+                <input name="Config.FBMaxPenetrationPctSR" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMaxPenetrationPctSR" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Min Rejection Body %</label>
+                <input name="Config.FBMinRejectionBodyPct" type="number" min="0" step="0.01"
+                       value="@Model.Config.FBMinRejectionBodyPct" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Max Trend Day Score</label>
+                <input name="Config.FBMaxTrendDayScore" type="number" min="0" step="1"
+                       value="@Model.Config.FBMaxTrendDayScore" class="form-control form-control-sm" />
+            </div>
+        </div>
     </div>
 </div>
 
@@ -323,48 +357,6 @@
 
 </div>
 
-<!-- ════════════════════════════════════════════════════════════ -->
-<!-- ── False Breakout Module (Global) ─────────────────────── -->
-<!-- ════════════════════════════════════════════════════════════ -->
-<div class="row g-3 mb-3">
-<div class="col-12">
-    <div class="settings-section">
-        <h6><i class="bi bi-arrow-repeat me-1"></i>False Breakout Module (Global)</h6>
-        <div class="row g-2">
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Max Time Outside (ORB) min</label>
-                <input name="Config.FBMaxTimeOutsideMinutesOrb" type="number" min="0" step="1"
-                       value="@Model.Config.FBMaxTimeOutsideMinutesOrb" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Max Time Outside (SR) min</label>
-                <input name="Config.FBMaxTimeOutsideMinutesSR" type="number" min="0" step="1"
-                       value="@Model.Config.FBMaxTimeOutsideMinutesSR" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Max Penetration % (ORB)</label>
-                <input name="Config.FBMaxPenetrationPctOrb" type="number" min="0" step="0.01"
-                       value="@Model.Config.FBMaxPenetrationPctOrb" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Max Penetration % (SR)</label>
-                <input name="Config.FBMaxPenetrationPctSR" type="number" min="0" step="0.01"
-                       value="@Model.Config.FBMaxPenetrationPctSR" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Min Rejection Body %</label>
-                <input name="Config.FBMinRejectionBodyPct" type="number" min="0" step="0.01"
-                       value="@Model.Config.FBMinRejectionBodyPct" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6 col-md-2">
-                <label class="form-label small">Max Trend Day Score</label>
-                <input name="Config.FBMaxTrendDayScore" type="number" min="0" step="1"
-                       value="@Model.Config.FBMaxTrendDayScore" class="form-control form-control-sm" />
-            </div>
-        </div>
-    </div>
-</div>
-</div>
 
 <!-- ════════════════════════════════════════════════════════════ -->
 <!-- ── Session Tabs (Asia | London | NY) ───────────────────── -->
