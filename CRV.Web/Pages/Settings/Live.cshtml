@@ -814,6 +814,8 @@ function renderBasket() {
                 _bField(entry.Id, 'PartialPct', 'number', cfg.PartialPct || 50, 75, 'Partial %', 'int') +
                 _bField(entry.Id, 'NearPct', 'number', cfg.NearPct || 0.15, 75, 'Near %', 'float', '0.01') +
                 _bField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.5, 65, 'Min R:R', 'float', '0.1') +
+                (entry.StrategyType === 0 ? _bField(entry.Id, 'PullbackPct', 'number', cfg.PullbackPct || 0.50, 85, 'Pullback %', 'float', '0.01') : '') +
+                (entry.StrategyType === 1 ? _bField(entry.Id, 'RetestPct', 'number', cfg.RetestPct || 0.05, 85, 'Retest %', 'float', '0.01') : '') +
                 '<div class="col-auto"><label class="form-label small mb-0">Cutoff</label>' +
                     '<input type="time" class="form-control form-control-sm" style="width:110px" value="' + String(cfg.CutoffHour||14).padStart(2,'0') + ':' + String(cfg.CutoffMinute||30).padStart(2,'0') + '" onchange="var p=this.value.split(\':\'); updateBasketConfig(\'' + entry.Id + '\',\'CutoffHour\',parseInt(p[0])); updateBasketConfig(\'' + entry.Id + '\',\'CutoffMinute\',parseInt(p[1]));">' +
                 '</div>' +
@@ -846,7 +848,12 @@ function renderBasket() {
 
 function updateBasketField(id, field, value) {
     var entry = _basket.find(function(b) { return b.Id === id; });
-    if (entry) { entry[field] = value; syncBasketJson(); }
+    if (entry) {
+        entry[field] = value;
+        // Re-render when strategy type changes (shows/hides PullbackPct/RetestPct)
+        if (field === 'StrategyType') { renderBasket(); return; }
+        syncBasketJson();
+    }
 }
 
 function updateBasketConfig(id, field, value) {
