@@ -38,6 +38,10 @@ public class RetestStrategy : ISetupStrategy
     private bool _stickyTgt = false;
     private bool _stickyStop = false;
 
+    // ── Tick confirmation gate ──────────────────────────────────────
+    private bool    _awaitingTickConfirm = false;
+    private decimal _theoreticalEntry    = 0;
+
     // ── Re-arm guard (prevents re-entering same side until price leaves ORB zone) ──
     private bool _bullTraded = false;
     private bool _bearTraded = false;
@@ -152,6 +156,7 @@ public class RetestStrategy : ISetupStrategy
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
         _pastCutoff = false; _retestLeftZone = false;
+        _awaitingTickConfirm = false; _theoreticalEntry = 0;
         _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -237,11 +242,19 @@ public class RetestStrategy : ISetupStrategy
             }
         }
 
-        // Aggressive mode: arm on bar, entry happens via OnTick (next tick after arm)
+        // Aggressive mode: arm and compute entry on same bar, but defer to tick confirmation
         if (_cfg.IsAggressive)
         {
-            // No bar-level entry — tick path handles it at the actual market price.
-            // Just keep the armed state; OnTick will fire TryEntry(price, ...).
+            if (isReady && _state == 1)
+            {
+                _theoreticalEntry = orbHigh;
+                _awaitingTickConfirm = true;
+            }
+            else if (isReady && _state == -1)
+            {
+                _theoreticalEntry = orbLow;
+                _awaitingTickConfirm = true;
+            }
         }
         else if (_cfg.IsSmartAggressive)
         {
@@ -250,13 +263,16 @@ public class RetestStrategy : ISetupStrategy
             // block re-arm until price leaves the zone AND retests the level.
 
             // Transition: armed (±1) → confirmed (±2) on the NEXT bar
+            // Stage for tick confirmation at bar.Open
             if (isReady && _state == 2)
             {
-                TryEntry(bar.Open, true, orb, bar.Time);
+                _theoreticalEntry = bar.Open;
+                _awaitingTickConfirm = true;
             }
             else if (isReady && _state == -2)
             {
-                TryEntry(bar.Open, false, orb, bar.Time);
+                _theoreticalEntry = bar.Open;
+                _awaitingTickConfirm = true;
             }
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
@@ -291,10 +307,17 @@ public class RetestStrategy : ISetupStrategy
             }
 
             // Entry from retest state when price breaks back through
+            // Stage for tick confirmation at ORB level
             if (isReady && _state == 2 && bar.Close > orbHigh)
-                TryEntry(orbHigh, true, orb, bar.Time);
+            {
+                _theoreticalEntry = orbHigh;
+                _awaitingTickConfirm = true;
+            }
             else if (isReady && _state == -2 && bar.Close < orbLow)
-                TryEntry(orbLow, false, orb, bar.Time);
+            {
+                _theoreticalEntry = orbLow;
+                _awaitingTickConfirm = true;
+            }
 
             // De-arm if price crosses OrbMid (retest failed)
             if (_state == 2  && bar.Close < orbMid) _state = 0;
@@ -366,35 +389,42 @@ public class RetestStrategy : ISetupStrategy
         decimal orbRange = orb.Range;
         decimal tickTol  = _cfg.TickSize * 2;
 
-        // Entry: armed or retest state
-        if (!IsActive && IsArmed)
+        // Tick confirmation gate: bar staged a theoretical entry, confirm at tick price
+        if (!IsActive && _awaitingTickConfirm)
         {
             bool isLong = _state > 0;
-            if (_cfg.IsAggressive)
+            TryTickConfirmedEntry(price, _theoreticalEntry, isLong, orb, utc);
+            if (IsActive)
             {
-                // Aggressive tick entry: arm on 15-min bar, enter on the very next tick
-                // at the current market price. No waiting for the next bar.
-                TryEntry(price, isLong, orb, utc);
+                _awaitingTickConfirm = false;
+                return; // don't check exit on same tick as entry
             }
-            else if (_cfg.IsSmartAggressive)
+            // If slippage rejected, keep waiting for a better tick
+            return;
+        }
+
+        // Conservative tick entry: bar armed (state ±1/±2), enter when price retests
+        if (!IsActive && IsArmed && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
+        {
+            decimal retestDist = orbRange * _cfg.RetestPct;
+            decimal orbHigh    = orb.High;
+            decimal orbLow     = orb.Low;
+            bool isLong = _state > 0;
+            if (isLong && price <= orbHigh + retestDist + tickTol)
             {
-                // SmartAggressive tick entry: state ±2 means confirmed (next bar).
-                // Enter at current price on tick.
-                if (_state == 2 || _state == -2)
-                    TryEntry(price, isLong, orb, utc);
+                _theoreticalEntry = orbHigh;
+                _awaitingTickConfirm = true;
+                TryTickConfirmedEntry(price, _theoreticalEntry, true, orb, utc);
+                if (IsActive) { _awaitingTickConfirm = false; return; }
             }
-            else
+            else if (!isLong && price >= orbLow - retestDist - tickTol)
             {
-                // Conservative: enter when price retests the ORB breakout level
-                decimal retestDist = orbRange * _cfg.RetestPct;
-                decimal orbHigh    = orb.High;
-                decimal orbLow     = orb.Low;
-                if (isLong  && price <= orbHigh + retestDist + tickTol)
-                    TryEntry(orbHigh, true, orb, utc);
-                else if (!isLong && price >= orbLow - retestDist - tickTol)
-                    TryEntry(orbLow, false, orb, utc);
+                _theoreticalEntry = orbLow;
+                _awaitingTickConfirm = true;
+                TryTickConfirmedEntry(price, _theoreticalEntry, false, orb, utc);
+                if (IsActive) { _awaitingTickConfirm = false; return; }
             }
-            return; // don't check exit on same tick as entry attempt
+            return;
         }
 
         // Exit: active position
@@ -530,9 +560,13 @@ public class RetestStrategy : ISetupStrategy
 
     // ── Private helpers ───────────────────────────────────────────
 
+    /// <summary>
+    /// Compute entry levels and either enter immediately (bar path when tick mode disabled)
+    /// or stage for tick confirmation (when tick mode is active).
+    /// </summary>
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {
-        if (IsActive) return; // already in trade
+        if (IsActive) return;
 
         // Apply entry tick offset
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
@@ -541,16 +575,9 @@ public class RetestStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        // Anchor stop/target to the ORB reference level, not the tick entry price.
-        // This preserves R:R regardless of how far the entry is from the ORB level.
-        decimal anchor = isLong ? orb.High : orb.Low;
-        var (sl, tp, pp, _) = LevelCalculator.CalcLevelsB(anchor, isLong,
+        var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
             _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
-        // Compute actual R:R from the real entry price (not the anchor)
-        decimal risk   = Math.Abs(ep - sl);
-        decimal reward = Math.Abs(tp - ep);
-        decimal rr     = risk > 0 ? reward / risk : 0;
         if (rr < _cfg.MinRr) return;
 
         _entry     = ep; _stop = sl; _target = tp; _partial = pp;
@@ -565,6 +592,24 @@ public class RetestStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, _contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker);
+    }
+
+    /// <summary>
+    /// Tick confirmation gate: only enters if the tick price is within MaxEntrySlippage
+    /// of the theoretical entry. Recalculates all levels from the tick price.
+    /// </summary>
+    private void TryTickConfirmedEntry(decimal tickPrice, decimal theoreticalEntry, bool isLong, OrbState orb, DateTime utc)
+    {
+        if (IsActive) return;
+
+        // Slippage gate: reject if tick is too far from theoretical entry
+        decimal maxSlip = _cfg.MaxEntrySlippage > 0
+            ? orb.Range * _cfg.MaxEntrySlippage
+            : decimal.MaxValue;  // 0 = no limit
+        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+
+        // Enter at tick price with levels calculated from tick price
+        TryEntry(tickPrice, isLong, orb, utc);
     }
 
     private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)

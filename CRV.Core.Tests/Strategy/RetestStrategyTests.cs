@@ -103,14 +103,18 @@ public class RetestStrategyTests
     }
 
     // ─── Helper: enter long from retest ──────────────────────────────
-    // After retest (state=2), bar.Close > orbHigh → entry at orbHigh=5200
+    // After retest (state=2), bar.Close > orbHigh stages tick confirmation.
+    // Tick at orbHigh confirms entry at 5200.
     private static RetestStrategy EnterLong(RetestStrategy s)
     {
         RetestLong(s);
         var orb = MakeOrb();
-        // Bar closes above orbHigh, triggering entry at orbHigh=5200
+        // Bar closes above orbHigh, staging tick confirmation (theoreticalEntry=orbHigh=5200)
         var entryBar = MakeBar(5199m, 5206m, 5199m, 5205m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick at orbHigh confirms entry at 5200
+        s.OnTick(5200m, new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc),
+                 orb, MakeIndicators(), EmptyModules());
         return s;
     }
 
@@ -279,12 +283,13 @@ public class RetestStrategyTests
 
         var orb = MakeOrb();
         // retestDist = 20*0.05=1, tickTol=0.5 → fires when price <= 5200 + 1 + 0.5 = 5201.5
+        // Tick confirmation enters at tick price (5201), not orbHigh
         var utc = new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc);
         s.OnTick(5201m, utc, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.Equal(5200m, s.PendingEntry.Entry); // enters at orbHigh
+        Assert.Equal(5201m, s.PendingEntry.Entry); // enters at tick price
         Assert.True(s.IsActive);
     }
 
@@ -480,10 +485,12 @@ public class RetestStrategyTests
         s.OnBar(retestBar, orb, MakeIndicators(), EmptyModules());
         Assert.Equal(-2, s.GetSnapshot().State);
 
-        // Step 3: entry — bar.Close < orbLow → entry at orbLow=5180
-        // entry=5180, StopPct=0.50 → stop=5180+10=5190, target=5180-20=5160
+        // Step 3: entry bar stages tick confirmation (theoreticalEntry=orbLow=5180)
         var entryBar = MakeBar(5181m, 5181m, 5175m, 5176m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick at orbLow confirms entry at 5180
+        s.OnTick(5180m, new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc),
+                 orb, MakeIndicators(), EmptyModules());
         Assert.True(s.IsActive);
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Short, s.PendingEntry!.Direction);
@@ -515,9 +522,12 @@ public class RetestStrategyTests
         s.OnBar(retestBar, orb, MakeIndicators(), EmptyModules());
         Assert.Equal(2, s.GetSnapshot().State); // retest long
 
-        // Entry → active
+        // Entry bar stages tick confirmation
         var entryBar = MakeBar(5199m, 5206m, 5199m, 5205m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        // Tick confirms entry → active
+        s.OnTick(5200m, new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc),
+                 orb, MakeIndicators(), EmptyModules());
         Assert.Equal(3, s.GetSnapshot().State); // active long
     }
 
@@ -617,8 +627,12 @@ public class RetestStrategyTests
         var retestBar = MakeBar(5202m, 5202m, 5199m, 5200m);
         s.OnBar(retestBar, orb, MakeIndicators(), EmptyModules());
 
-        // Step 3: entry
+        // Step 3: entry bar stages tick confirmation
         var entryBar = MakeBar(5199m, 5206m, 5199m, 5205m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+
+        // Step 4: tick at orbHigh confirms entry at 5200
+        s.OnTick(5200m, new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc),
+                 orb, MakeIndicators(), EmptyModules());
     }
 }

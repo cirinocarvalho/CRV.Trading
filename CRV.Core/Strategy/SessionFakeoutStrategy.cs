@@ -39,6 +39,10 @@ public class SessionFakeoutStrategy : ISetupStrategy
     private bool _stickyTgt = false;
     private bool _stickyStop = false;
 
+    // ── Tick confirmation gate ────────────────────────────────────
+    private bool    _awaitingTickConfirm = false;
+    private decimal _theoreticalEntry    = 0;
+
     // ── Re-arm guard (prevents re-entering same side after stop) ──
     private bool _bullTraded = false;
     private bool _bearTraded = false;
@@ -147,6 +151,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
         _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
         _pastCutoff = false;
+        _awaitingTickConfirm = false; _theoreticalEntry = 0;
         _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -198,9 +203,14 @@ public class SessionFakeoutStrategy : ISetupStrategy
             }
         }
 
-        // Bar-level entry: arm on bar, entry happens via OnTick at actual market price.
-        // No bar-level entry — prevents retroactive pricing at session range level
-        // when bar.Close may be far from that level.
+        // Bar-level entry: stage for tick confirmation at the session range boundary level.
+        // Actual entry happens via OnTick at market price (slippage-gated).
+        if (IsArmed)
+        {
+            bool isLong = _state == 1;
+            _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
+            _awaitingTickConfirm = true;
+        }
     }
 
     private void ProcessBarExit(Bar bar, OrbState orb, IndicatorState ind)
@@ -263,6 +273,14 @@ public class SessionFakeoutStrategy : ISetupStrategy
     {
         if (!_cfg.Enabled) return;
         if (!orb.IsSet || orb.Range <= 0) return;
+
+        // Tick confirmation gate: bar-level staged entry awaiting tick price
+        if (!IsActive && _awaitingTickConfirm)
+        {
+            bool isLong = _state == 1;
+            TryTickConfirmedEntry(price, _theoreticalEntry, isLong, orb, utc, modules);
+            if (IsActive) { _awaitingTickConfirm = false; return; }
+        }
 
         // Entry: armed but not active — enter on tick at market price
         if (!IsActive && IsArmed)
@@ -427,9 +445,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        // Anchor stop/target to session range level
-        decimal anchor = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
-        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(anchor, isLong,
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
 
         decimal risk   = Math.Abs(ep - sl);
@@ -472,9 +488,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
-        // Anchor stop/target to session range level
-        decimal anchor = isLong ? srLow : srHigh;
-        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(anchor, isLong,
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
 
         decimal risk   = Math.Abs(ep - sl);
@@ -494,6 +508,24 @@ public class SessionFakeoutStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, _contracts, utc,
             _cfg.OrderType, Ticker: _cfg.Ticker);
+    }
+
+    /// <summary>
+    /// Tick confirmation gate: only enters if the tick price is within MaxEntrySlippage
+    /// of the theoretical entry. Recalculates all levels from the tick price.
+    /// </summary>
+    private void TryTickConfirmedEntry(decimal tickPrice, decimal theoreticalEntry, bool isLong, OrbState orb, DateTime utc, ModuleState modules)
+    {
+        if (IsActive) return;
+
+        // Slippage gate: reject if tick is too far from theoretical entry
+        decimal maxSlip = _cfg.MaxEntrySlippage > 0
+            ? orb.Range * _cfg.MaxEntrySlippage
+            : decimal.MaxValue;  // 0 = no limit
+        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+
+        // Enter at tick price with levels calculated from tick price
+        TryEntry(tickPrice, isLong, orb, utc, modules);
     }
 
     private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)
