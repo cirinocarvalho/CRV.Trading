@@ -915,11 +915,13 @@ function updateBasketInstrument(id, base) {
     entry.Ticker = front;
     entry.PointValue = info ? info.pointValue : 20;
     entry.TickSize = info ? info.tickSize : 0.25;
-    if (!entry.Label) {
-        var stratNames = ['Pullback','Retest','OrbFakeout','SessionFakeout'];
-        entry.Label = (stratNames[entry.StrategyType] || 'Setup') + ' [' + base + ']';
-    }
-    syncBasketJson();
+    var stratNames = ['Pullback','Retest','OrbFakeout','SessionFakeout'];
+    var stratKey = (stratNames[entry.StrategyType] || 'setup').toLowerCase().replace(/[^a-z]/g,'');
+    // Auto-generate clean Id and Label
+    var count = _basket.filter(function(b) { return b.Ticker === front && b.StrategyType === entry.StrategyType; }).length;
+    entry.Id = stratKey + '-' + base.toLowerCase() + (count > 1 ? '-' + count : '');
+    entry.Label = (stratNames[entry.StrategyType] || 'Setup') + ' [' + base + ']';
+    renderBasket();
 }
 
 function syncBasketJson() {

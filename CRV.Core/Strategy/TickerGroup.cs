@@ -227,7 +227,8 @@ public class TickerGroup
             // allowing Setup D to re-arm after BE exits from the same session boundary signal.
             foreach (var strategy in _strategies)
             {
-                // Session filter — skip if this setup isn't enabled for the current session
+                // Session filter — skip if this setup isn't enabled for the current session.
+                // Don't Disarm() — just skip evaluation so dashboard shows IDLE, not CUTOFF.
                 if (!IsEnabledForCurrentSession(strategy))
                 {
                     if (strategy.IsActive)
@@ -235,7 +236,6 @@ public class TickerGroup
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
                     }
-                    strategy.Disarm();
                     continue;
                 }
 
@@ -316,7 +316,6 @@ public class TickerGroup
                 if (!IsEnabledForCurrentSession(strategy))
                 {
                     if (strategy.IsActive) strategy.ForceExit(price, utc, ExitReason.SessionEnd);
-                    strategy.Disarm();
                     continue;
                 }
 
