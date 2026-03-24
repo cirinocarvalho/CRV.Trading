@@ -205,20 +205,12 @@ public class SessionFakeoutStrategy : ISetupStrategy
 
         // Bar-level entry: stage for tick confirmation at the session range boundary level.
         // Actual entry happens via OnTick at market price (slippage-gated).
+        // Always defer to tick entry (both live and backtest) for realistic pricing.
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            if (_cfg.UseTickConfirmation)
-            {
-                _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
-                _awaitingTickConfirm = true;
-            }
-            else
-            {
-                var srLow  = modules.SessionRangeLow;
-                var srHigh = modules.SessionRangeHigh;
-                TryEntry(isLong ? srLow : srHigh, isLong, orb, bar.Time, modules);
-            }
+            _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
+            _awaitingTickConfirm = true;
         }
     }
 

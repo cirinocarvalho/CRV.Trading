@@ -87,9 +87,6 @@ public class BacktestEngine
         {
             if (setupCfg.Enabled)
             {
-                // Backtest uses bar-level entry (no tick confirmation gate)
-                // to match historical pricing at exact ORB/session levels
-                setupCfg.UseTickConfirmation = false;
                 engine.AddSetup(setupCfg);
                 setupTickers.Add(setupCfg.Ticker);
             }
@@ -243,13 +240,12 @@ public class BacktestEngine
                 prices.UpdatePrice(ticker, c);
                 await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
             }
-            // 2. Process the completed TF bar to update indicators and arm state
+            // 2. Process the completed TF bar to update indicators and arm state.
+            //    Strategies armed by the bar will enter on the NEXT bucket's first
+            //    1-min tick Open — matching live behavior (first available price).
+            //    No post-bar tick: entries defer to next real price, same as live.
             prices.UpdatePrice(ticker, bkt.Close);
             await engine.ProcessBarAsync(tfBar, ticker, ct);
-
-            // 3. Fire a post-bar tick at bar.Close so strategies armed by the bar
-            //    can enter immediately at the confirmed close price.
-            await engine.ProcessPriceTickAsync(bkt.Close, tfBar.Time.AddSeconds(1), ticker);
         }
     }
 

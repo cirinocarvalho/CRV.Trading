@@ -255,21 +255,12 @@ public class RetestStrategy : ISetupStrategy
         }
         else if (_cfg.IsSmartAggressive)
         {
-            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 at Open.
+            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 via tick.
+            // Always uses tick entry (same as Aggressive) for realistic pricing.
             if (isReady && _state == 2)
-            {
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(bar.Open, true, orb, bar.Time);
-            }
+                { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
             else if (isReady && _state == -2)
-            {
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(bar.Open, false, orb, bar.Time);
-            }
+                { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             if (_state == 1)  _state = 2;
@@ -305,21 +296,11 @@ public class RetestStrategy : ISetupStrategy
                     _state = -2;
             }
 
-            // Entry from retest state when price breaks back through
+            // Entry from retest state: always defer to tick for realistic pricing
             if (isReady && _state == 2 && bar.Close > orbHigh)
-            {
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(orbHigh, true, orb, bar.Time);
-            }
+                { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
             else if (isReady && _state == -2 && bar.Close < orbLow)
-            {
-                if (_cfg.UseTickConfirmation)
-                    { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
-                else
-                    TryEntry(orbLow, false, orb, bar.Time);
-            }
+                { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
 
             // De-arm if price crosses OrbMid (retest failed)
             if (_state == 2  && bar.Close < orbMid) _state = 0;

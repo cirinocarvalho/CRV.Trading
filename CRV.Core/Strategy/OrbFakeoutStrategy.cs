@@ -199,20 +199,13 @@ public class OrbFakeoutStrategy : ISetupStrategy
             }
         }
 
-        // Bar-level entry: stage for tick confirmation at the ORB boundary level.
-        // Actual entry happens via OnTick at market price (slippage-gated).
+        // Always defer to tick entry (both live and backtest) for realistic pricing.
+        // In live: next L1 tick. In backtest: next 1-min bar Open.
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            if (_cfg.UseTickConfirmation)
-            {
-                _theoreticalEntry = isLong ? orb.Low : orb.High;
-                _awaitingTickConfirm = true;
-            }
-            else
-            {
-                TryEntry(isLong ? orb.Low : orb.High, isLong, orb, bar.Time);
-            }
+            _theoreticalEntry = isLong ? orb.Low : orb.High;
+            _awaitingTickConfirm = true;
         }
     }
 
