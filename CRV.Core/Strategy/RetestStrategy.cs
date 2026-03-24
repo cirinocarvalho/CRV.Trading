@@ -242,37 +242,40 @@ public class RetestStrategy : ISetupStrategy
             }
         }
 
-        // Aggressive mode: arm and compute entry on same bar, but defer to tick confirmation
+        // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
         {
             if (isReady && _state == 1)
             {
-                _theoreticalEntry = orbHigh;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(orbHigh, true, orb, bar.Time);
             }
             else if (isReady && _state == -1)
             {
-                _theoreticalEntry = orbLow;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(orbLow, false, orb, bar.Time);
             }
         }
         else if (_cfg.IsSmartAggressive)
         {
             // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 at Open.
-            // State ±2 = "confirmed arm, enter next bar". After exit, _bullTraded/_bearTraded
-            // block re-arm until price leaves the zone AND retests the level.
-
-            // Transition: armed (±1) → confirmed (±2) on the NEXT bar
-            // Stage for tick confirmation at bar.Open
             if (isReady && _state == 2)
             {
-                _theoreticalEntry = bar.Open;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(bar.Open, true, orb, bar.Time);
             }
             else if (isReady && _state == -2)
             {
-                _theoreticalEntry = bar.Open;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(bar.Open, false, orb, bar.Time);
             }
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
@@ -307,16 +310,19 @@ public class RetestStrategy : ISetupStrategy
             }
 
             // Entry from retest state when price breaks back through
-            // Stage for tick confirmation at ORB level
             if (isReady && _state == 2 && bar.Close > orbHigh)
             {
-                _theoreticalEntry = orbHigh;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(orbHigh, true, orb, bar.Time);
             }
             else if (isReady && _state == -2 && bar.Close < orbLow)
             {
-                _theoreticalEntry = orbLow;
-                _awaitingTickConfirm = true;
+                if (_cfg.UseTickConfirmation)
+                    { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
+                else
+                    TryEntry(orbLow, false, orb, bar.Time);
             }
 
             // De-arm if price crosses OrbMid (retest failed)

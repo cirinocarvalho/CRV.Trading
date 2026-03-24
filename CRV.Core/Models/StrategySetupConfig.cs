@@ -35,6 +35,7 @@ public class StrategySetupConfig
     public decimal RetestPct { get; set; } = 0.05m;      // B only
     public int EntryTickOffset { get; set; }
     public decimal MaxEntrySlippage { get; set; } = 0;  // max % of ORB range; 0 = no limit (use NearPct as natural bound)
+    public bool UseTickConfirmation { get; set; } = true;  // false = bar-level entry (backtest)
     public string OrderType { get; set; } = "Market";
 
     // Filters

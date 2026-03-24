@@ -204,8 +204,15 @@ public class OrbFakeoutStrategy : ISetupStrategy
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            _theoreticalEntry = isLong ? orb.Low : orb.High;
-            _awaitingTickConfirm = true;
+            if (_cfg.UseTickConfirmation)
+            {
+                _theoreticalEntry = isLong ? orb.Low : orb.High;
+                _awaitingTickConfirm = true;
+            }
+            else
+            {
+                TryEntry(isLong ? orb.Low : orb.High, isLong, orb, bar.Time);
+            }
         }
     }
 

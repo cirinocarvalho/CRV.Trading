@@ -87,6 +87,9 @@ public class BacktestEngine
         {
             if (setupCfg.Enabled)
             {
+                // Backtest uses bar-level entry (no tick confirmation gate)
+                // to match historical pricing at exact ORB/session levels
+                setupCfg.UseTickConfirmation = false;
                 engine.AddSetup(setupCfg);
                 setupTickers.Add(setupCfg.Ticker);
             }

@@ -208,8 +208,17 @@ public class SessionFakeoutStrategy : ISetupStrategy
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
-            _awaitingTickConfirm = true;
+            if (_cfg.UseTickConfirmation)
+            {
+                _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
+                _awaitingTickConfirm = true;
+            }
+            else
+            {
+                var srLow  = modules.SessionRangeLow;
+                var srHigh = modules.SessionRangeHigh;
+                TryEntry(isLong ? srLow : srHigh, isLong, orb, bar.Time, modules);
+            }
         }
     }
 
