@@ -766,6 +766,37 @@ function _bCheck(id, field, checked, label) {
         '<label class="form-check-label small">' + label + '</label></div></div>';
 }
 
+function _calcRR(cfg) {
+    var stop = cfg.StopPct || 0.35;
+    var target = (cfg.TargetPct || 65) / 100;
+    var rr = stop > 0 ? (target / stop).toFixed(1) : '—';
+    return 'R:R ' + rr;
+}
+
+function _updateRRLabel(id) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    var label = document.getElementById('rr-label-' + id);
+    if (!label) return;
+    var cfg = entry.Config || {};
+    var rr = _calcRR(cfg);
+    var minRr = cfg.MinRr || 1.5;
+    var stop = cfg.StopPct || 0.35;
+    var target = (cfg.TargetPct || 65) / 100;
+    var rrVal = stop > 0 ? target / stop : 0;
+    label.textContent = rr;
+    label.className = 'badge ' + (rrVal >= minRr ? 'bg-success' : 'bg-danger');
+}
+
+function _bSelect(id, field, val, w, label, options) {
+    var opts = options.map(function(o) {
+        var sel = (o.value == val) ? ' selected' : '';
+        return '<option value="' + o.value + '"' + sel + '>' + o.text + '</option>';
+    }).join('');
+    return '<div class="col-auto"><label class="form-label small mb-0">' + label + '</label>' +
+        '<select class="form-select form-select-sm" style="width:' + w + 'px" onchange="updateBasketConfig(\'' + id + '\',\'' + field + '\',parseInt(this.value))">' + opts + '</select></div>';
+}
+
 function _bSessionSlot(entry, sessionId) {
     var slots = entry.Sessions || [];
     var slot = slots.find(function(s) { return s.SessionId === sessionId; });
@@ -843,10 +874,13 @@ function renderBasket() {
                 _bField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
                 _bField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
                 _bField(entry.Id, 'StopPct', 'number', cfg.StopPct || 0.35, 75, 'Stop %', 'float', '0.01') +
-                _bField(entry.Id, 'TargetPct', 'number', cfg.TargetPct || 65, 75, 'Target %', 'int') +
-                _bField(entry.Id, 'PartialPct', 'number', cfg.PartialPct || 50, 75, 'Partial %', 'int') +
+                _bSelect(entry.Id, 'TargetPct', cfg.TargetPct || 65, 90, 'Target %',
+                    [25,50,65,75,100,125,150,200,250,300,350,400,450,500].map(function(v) { return {value:v, text:v+'%'}; })) +
+                _bSelect(entry.Id, 'PartialPct', cfg.PartialPct || 50, 80, 'Partial %',
+                    [{value:25,text:'25%'},{value:50,text:'50%'},{value:75,text:'75%'}]) +
                 _bField(entry.Id, 'NearPct', 'number', cfg.NearPct || 0.15, 75, 'Near %', 'float', '0.01') +
                 _bField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.5, 65, 'Min R:R', 'float', '0.1') +
+                '<div class="col-auto d-flex align-items-end pb-1"><span class="badge bg-secondary" id="rr-label-' + entry.Id + '">' + _calcRR(cfg) + '</span></div>' +
                 (entry.StrategyType === 0 ? _bField(entry.Id, 'PullbackPct', 'number', cfg.PullbackPct || 0.50, 85, 'Pullback %', 'float', '0.01') : '') +
                 (entry.StrategyType === 1 ? _bField(entry.Id, 'RetestPct', 'number', cfg.RetestPct || 0.05, 85, 'Retest %', 'float', '0.01') : '') +
             '</div>' +
@@ -916,6 +950,9 @@ function updateBasketConfig(id, field, value) {
         if (!entry.Config) entry.Config = {};
         entry.Config[field] = value;
         syncBasketJson();
+        // Update R:R label when stop, target, or minRr changes
+        if (field === 'StopPct' || field === 'TargetPct' || field === 'MinRr')
+            _updateRRLabel(id);
     }
 }
 
