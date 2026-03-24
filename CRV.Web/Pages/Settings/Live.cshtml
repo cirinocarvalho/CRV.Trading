@@ -895,6 +895,7 @@ function renderBasket() {
                         '<option ' + ((cfg.OrderType||'')==='Limit'?'selected':'') + '>Limit</option>' +
                     '</select></div>' +
                 _bField(entry.Id, 'EntryTickOffset', 'number', cfg.EntryTickOffset || 0, 70, 'Tick Offset', 'int') +
+                _bField(entry.Id, 'MaxEntrySlippage', 'number', cfg.MaxEntrySlippage || 0, 80, 'Max Slip %', 'float', '0.01') +
                 _bField(entry.Id, 'MaxAdverseMinutes', 'number', cfg.MaxAdverseMinutes || 0, 70, 'Max Adv Min', 'int') +
                 _bField(entry.Id, 'PartialCts', 'number', cfg.PartialCts || 0, 70, 'Partial Cts', 'int') +
                 _bCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
