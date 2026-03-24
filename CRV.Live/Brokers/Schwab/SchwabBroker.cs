@@ -444,11 +444,12 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         }
     }
 
-    private readonly Dictionary<SetupId, SetupState> _states = new()
+    private readonly Dictionary<string, SetupState> _states = new();
+    private SetupState GetOrCreateState(string id)
     {
-        [SetupId.A] = new(), [SetupId.B] = new(),
-        [SetupId.C] = new(), [SetupId.D] = new(), [SetupId.F] = new()
-    };
+        if (!_states.TryGetValue(id, out var s)) { s = new SetupState(); _states[id] = s; }
+        return s;
+    }
 
     private string BaseUrl =>
         $"{_auth.ApiBaseUrl}/trader/v1/accounts/{_cfg.AccountId}/orders";
@@ -465,7 +466,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
 
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         state.Direction = sig.Direction;
         state.Ticker = ticker;
         // Futures instructions: BUY / SELL (not BUY_TO_OPEN / SELL_TO_CLOSE — those are options-only)
@@ -546,7 +547,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
             sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         if (state.TargetOrderId != null)
         {
             await CancelOrderAsync(state.TargetOrderId);
@@ -582,7 +583,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] MOVE_BE {S} → {P} ({Q}ct)",
             sig.Setup, sig.NewStop, sig.ContractsRemaining);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         if (state.StopOrderId != null)
         {
             var closeInstr = sig.Direction == Direction.Long ? "SELL" : "BUY";
@@ -614,7 +615,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[SCHWAB] EXIT {S} {R} @ {P} {Q}ct",
             sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
 
         // Cancel any open bracket / partial legs
         foreach (var id in new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId }
@@ -653,12 +654,12 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogDebug("[SCHWAB] Market close placed, ID={Id}", orderId);
     }
 
-    public async Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    public async Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts)
     {
         _log.LogInformation("[SCHWAB] LEVELS_ADJUSTED {S} → Stop={St} Target={T} Qty={Q}",
-            setup, newStop, newTarget, contracts);
+            setupId, newStop, newTarget, contracts);
 
-        var state      = _states[setup];
+        var state      = GetOrCreateState(setupId);
         var direction  = state.Direction ?? Direction.Long;
         var closeInstr = direction == Direction.Long ? "SELL" : "BUY";
         var sym        = state.Ticker ?? _cfg.Ticker;
@@ -681,10 +682,10 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                 }
             };
             var ok = await ReplaceOrderAsync(state.StopOrderId, stopBody);
-            if (ok) _log.LogDebug("[SCHWAB] Setup {S} stop modified → {P}", setup, newStop);
+            if (ok) _log.LogDebug("[SCHWAB] Setup {S} stop modified → {P}", setupId, newStop);
         }
         else
-            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: StopOrderId not set", setup);
+            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: StopOrderId not set", setupId);
 
         // Modify target
         if (state.TargetOrderId != null)
@@ -704,10 +705,10 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                 }
             };
             var ok = await ReplaceOrderAsync(state.TargetOrderId, targetBody);
-            if (ok) _log.LogDebug("[SCHWAB] Setup {S} target modified → {P}", setup, newTarget);
+            if (ok) _log.LogDebug("[SCHWAB] Setup {S} target modified → {P}", setupId, newTarget);
         }
         else
-            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: TargetOrderId not set", setup);
+            _log.LogWarning("[SCHWAB] OnLevelsAdjusted {S}: TargetOrderId not set", setupId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────

@@ -721,7 +721,7 @@ public class OrbStrategyEngine
         {
             var view = strategy.GetActiveTrade(_prices.GetLastPrice(_cfg.Ticker));
             if (view != null)
-                await _executor.OnLevelsAdjustedAsync(setup, view.CurrentStop, view.Target,
+                await _executor.OnLevelsAdjustedAsync(setup.ToString(), view.CurrentStop, view.Target,
                     view.RemainingContracts);
         }
 

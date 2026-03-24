@@ -45,7 +45,7 @@ public interface IOrderExecutor
     /// Called after fill price adjustment or partial fill changes stop/target levels or quantity.
     /// Broker should cancel + replace the existing bracket legs with updated price/qty.
     /// </summary>
-    Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts) => Task.CompletedTask;
+    Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts) => Task.CompletedTask;
 }
 
 public interface IStrategyEventSink

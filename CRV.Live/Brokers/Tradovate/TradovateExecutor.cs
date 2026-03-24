@@ -46,11 +46,12 @@ public class TradovateExecutor : IOrderExecutor
         }
     }
 
-    private readonly Dictionary<SetupId, SetupState> _states = new()
+    private readonly Dictionary<string, SetupState> _states = new();
+    private SetupState GetOrCreateState(string id)
     {
-        [SetupId.A] = new(), [SetupId.B] = new(),
-        [SetupId.C] = new(), [SetupId.D] = new(), [SetupId.F] = new()
-    };
+        if (!_states.TryGetValue(id, out var s)) { s = new SetupState(); _states[id] = s; }
+        return s;
+    }
 
     // Account cache — resolved once from GET /account/list
     private record AccountRef(string Name, long Id);
@@ -126,7 +127,7 @@ public class TradovateExecutor : IOrderExecutor
         }
 
         // Store direction AFTER confirmed placement
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         state.Direction     = sig.Direction;
         state.Ticker        = rawTicker;
         state.EntryOrderId  = entryId;
@@ -164,7 +165,7 @@ public class TradovateExecutor : IOrderExecutor
         _log.LogInformation("[TV] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
             sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
 
-        var state      = _states[sig.Setup];
+        var state      = GetOrCreateState(sig.Setup.ToString());
         var account    = await GetAccountAsync();
         var symbol     = FuturesSymbol.ToTradovate(state.Ticker ?? _cfg.Ticker);
         var exitAction = sig.Direction == Direction.Long ? "Sell" : "Buy";
@@ -201,7 +202,7 @@ public class TradovateExecutor : IOrderExecutor
         _log.LogInformation("[TV] MOVE_BE {S} → {P} ({Q}ct)",
             sig.Setup, sig.NewStop, sig.ContractsRemaining);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         if (state.StopOrderId != null)
         {
             var ok = await ModifyOrderAsync(state.StopOrderId.Value, sig.ContractsRemaining, stopPrice: sig.NewStop);
@@ -216,7 +217,7 @@ public class TradovateExecutor : IOrderExecutor
         _log.LogInformation("[TV] EXIT {S} {R} @ {P} {Q}ct",
             sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
 
-        var state      = _states[sig.Setup];
+        var state      = GetOrCreateState(sig.Setup.ToString());
         var storedDir  = state.Direction;
         var exitTicker = state.Ticker ?? (!string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker);
         var legIds     = new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId };
@@ -268,27 +269,27 @@ public class TradovateExecutor : IOrderExecutor
         _log.LogDebug("[TV] Market close placed, ID={Id}", orderId);
     }
 
-    public async Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    public async Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts)
     {
-        _log.LogInformation("[TV] LEVELS_ADJUSTED {S} → Stop={St} Target={T} Qty={Q}", setup, newStop, newTarget, contracts);
+        _log.LogInformation("[TV] LEVELS_ADJUSTED {S} → Stop={St} Target={T} Qty={Q}", setupId, newStop, newTarget, contracts);
 
-        var state = _states[setup];
+        var state = GetOrCreateState(setupId);
 
         if (state.StopOrderId != null)
         {
             var ok = await ModifyOrderAsync(state.StopOrderId.Value, contracts, stopPrice: newStop);
-            if (ok) _log.LogDebug("[TV] Setup {S} stop modified → {P}", setup, newStop);
+            if (ok) _log.LogDebug("[TV] Setup {S} stop modified → {P}", setupId, newStop);
         }
         else
-            _log.LogWarning("[TV] OnLevelsAdjusted {S}: StopOrderId not set", setup);
+            _log.LogWarning("[TV] OnLevelsAdjusted {S}: StopOrderId not set", setupId);
 
         if (state.TargetOrderId != null)
         {
             var ok = await ModifyOrderAsync(state.TargetOrderId.Value, contracts, limitPrice: newTarget);
-            if (ok) _log.LogDebug("[TV] Setup {S} target modified → {P}", setup, newTarget);
+            if (ok) _log.LogDebug("[TV] Setup {S} target modified → {P}", setupId, newTarget);
         }
         else
-            _log.LogWarning("[TV] OnLevelsAdjusted {S}: TargetOrderId not set", setup);
+            _log.LogWarning("[TV] OnLevelsAdjusted {S}: TargetOrderId not set", setupId);
     }
 
     // ── Private helpers ───────────────────────────────────────────

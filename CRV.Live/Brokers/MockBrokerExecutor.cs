@@ -203,11 +203,11 @@ public class MockBrokerExecutor : IOrderExecutor
         return Task.CompletedTask;
     }
 
-    public Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    public Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts)
     {
         _log.LogInformation("[MOCK] LEVELS_ADJUSTED Setup={S} Stop={St} Tgt={T} Qty={Q}",
-            setup, newStop, newTarget, contracts);
-        var setupSymbol = setup.ToString();
+            setupId, newStop, newTarget, contracts);
+        var setupSymbol = setupId;
         lock (_lock)
         {
             foreach (var o in _orders.Where(o =>

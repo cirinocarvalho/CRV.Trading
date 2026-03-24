@@ -357,11 +357,12 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         }
     }
 
-    private readonly Dictionary<SetupId, SetupState> _states = new()
+    private readonly Dictionary<string, SetupState> _states = new();
+    private SetupState GetOrCreateState(string id)
     {
-        [SetupId.A] = new(), [SetupId.B] = new(),
-        [SetupId.C] = new(), [SetupId.D] = new(), [SetupId.F] = new()
-    };
+        if (!_states.TryGetValue(id, out var s)) { s = new SetupState(); _states[id] = s; }
+        return s;
+    }
 
     private string OrdersUrl => $"{_auth.ApiBaseUrl}/v3/orderexecution/orders";
 
@@ -377,7 +378,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
             sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
 
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         state.Direction = sig.Direction;
         state.Ticker = ticker;
         var tradeAction = sig.Direction == Direction.Long ? "BUY"  : "SELLSHORT";
@@ -465,7 +466,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
             sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         if (state.TargetOrderId != null)
         {
             await CancelOrderAsync(state.TargetOrderId);
@@ -498,7 +499,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] MOVE_BE {S} → {P} ({Q}ct)",
             sig.Setup, sig.NewStop, sig.ContractsRemaining);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
         if (state.StopOrderId != null)
         {
             var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
@@ -526,7 +527,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogInformation("[TS] EXIT {S} {R} @ {P} {Q}ct",
             sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
 
-        var state = _states[sig.Setup];
+        var state = GetOrCreateState(sig.Setup.ToString());
 
         // Cancel any open bracket / partial legs
         foreach (var id in new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId }
@@ -561,11 +562,11 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         _log.LogDebug("[TS] Market close placed, ID={Id}", orderId);
     }
 
-    public async Task OnLevelsAdjustedAsync(SetupId setup, decimal newStop, decimal newTarget, int contracts)
+    public async Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts)
     {
-        _log.LogInformation("[TS] LEVELS_ADJUSTED {S} Stop={St} Tgt={T} Qty={Q}", setup, newStop, newTarget, contracts);
+        _log.LogInformation("[TS] LEVELS_ADJUSTED {S} Stop={St} Tgt={T} Qty={Q}", setupId, newStop, newTarget, contracts);
 
-        var state       = _states[setup];
+        var state       = GetOrCreateState(setupId);
         var direction   = state.Direction ?? Direction.Long;
         var closeAction = direction == Direction.Long ? "SELL" : "BUYTOCOVER";
         var sym = state.Ticker ?? _cfg.Ticker;
@@ -585,10 +586,10 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 TimeInForce = new { Duration = "DAY" }
             };
             var ok = await ReplaceOrderAsync(state.StopOrderId, stopBody);
-            if (ok) _log.LogDebug("[TS] Setup {S} stop modified → {P}", setup, newStop);
+            if (ok) _log.LogDebug("[TS] Setup {S} stop modified → {P}", setupId, newStop);
         }
         else
-            _log.LogWarning("[TS] OnLevelsAdjusted {S}: StopOrderId not set", setup);
+            _log.LogWarning("[TS] OnLevelsAdjusted {S}: StopOrderId not set", setupId);
 
         // Modify target
         if (state.TargetOrderId != null)
@@ -604,10 +605,10 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 TimeInForce = new { Duration = "DAY" }
             };
             var ok = await ReplaceOrderAsync(state.TargetOrderId, tgtBody);
-            if (ok) _log.LogDebug("[TS] Setup {S} target modified → {P}", setup, newTarget);
+            if (ok) _log.LogDebug("[TS] Setup {S} target modified → {P}", setupId, newTarget);
         }
         else
-            _log.LogWarning("[TS] OnLevelsAdjusted {S}: TargetOrderId not set", setup);
+            _log.LogWarning("[TS] OnLevelsAdjusted {S}: TargetOrderId not set", setupId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────
