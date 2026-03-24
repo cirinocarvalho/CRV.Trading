@@ -198,7 +198,7 @@ public static class SnapshotAggregator
             snap.Setups.Add(new SetupSnapshot
             {
                 Id           = strategy.Id,
-                Label        = $"{strategy.Id} — {strategy.Name}",
+                Label        = strategy.Name,
                 StrategyType = strategy.StrategyType.ToString(),
                 Ticker       = strategy.Ticker?.TrimStart('/') ?? "",
                 PointValue   = strategy.PointValue,
