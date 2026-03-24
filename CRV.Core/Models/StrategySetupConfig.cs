@@ -34,7 +34,7 @@ public class StrategySetupConfig
     public decimal PullbackPct { get; set; } = 0.50m;    // A only
     public decimal RetestPct { get; set; } = 0.05m;      // B only
     public int EntryTickOffset { get; set; }
-    public decimal MaxEntrySlippage { get; set; } = 0.10m;  // max % of ORB range; 0 = no limit
+    public decimal MaxEntrySlippage { get; set; } = 0;  // max % of ORB range; 0 = no limit (use NearPct as natural bound)
     public string OrderType { get; set; } = "Market";
 
     // Filters
