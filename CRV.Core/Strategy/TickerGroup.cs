@@ -609,6 +609,14 @@ public class TickerGroup
         var sessionName = SessionTypeName(_sessionEngine.CurrentSession);
         var (h, m) = strategy.GetCutoffForSession(sessionName);
         var cutoff = new TimeOnly(h, m);
+
+        // Overnight session handling (e.g. Asia 19:00→02:00, cutoff 01:30):
+        // If cutoff is in the early morning (< 12:00) and current time is in the evening (>= 18:00),
+        // we haven't crossed midnight yet — NOT past cutoff.
+        // If cutoff is in the early morning and current time is also early morning, normal compare.
+        if (cutoff.Hour < 12 && localTime.Hour >= 18)
+            return false; // before midnight, cutoff is after midnight → not past yet
+
         return localTime >= cutoff;
     }
 
