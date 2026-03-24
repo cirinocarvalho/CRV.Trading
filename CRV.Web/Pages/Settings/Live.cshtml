@@ -805,13 +805,16 @@ function renderBasket() {
         }).join('');
 
         var instrData = window.CRV_INSTRUMENTS || { mini: [], micro: [] };
-        var instruments = [].concat(instrData.micro, instrData.mini);
-        var instrOptions = '<option value="">— Select —</option>' +
-            instruments.map(function(instr) {
+        function _instrOpts(list, entry) {
+            return list.map(function(instr) {
                 var front = window.CRV_activeContract ? window.CRV_activeContract(instr.code) : instr.code;
                 var selected = entry.Ticker === front || (entry.Ticker && entry.Ticker.indexOf(instr.code) >= 0) ? 'selected' : '';
                 return '<option value="' + instr.code + '" ' + selected + '>' + instr.code + ' — ' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
             }).join('');
+        }
+        var instrOptions = '<option value="">— Select —</option>' +
+            '<optgroup label="Micro">' + _instrOpts(instrData.micro, entry) + '</optgroup>' +
+            '<optgroup label="Mini">' + _instrOpts(instrData.mini, entry) + '</optgroup>';
 
         var cfg = entry.Config || {};
 
