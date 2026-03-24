@@ -186,13 +186,15 @@ public class MockBrokerExecutor : IOrderExecutor
                 canceledIds.Add(o.OrderId);
             }
             var exitSymbol = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
-            var entryAction = _orders.FirstOrDefault(o =>
-                (o.Symbol == exitSymbol || o.Symbol == sig.Setup.ToString()) && o.Status == "FILLED" && o.FillPrice.HasValue)?.Action;
+            var matchingEntry = _orders.FirstOrDefault(o =>
+                (o.Symbol == exitSymbol || o.Symbol == sig.Setup.ToString()) && o.Status == "FILLED" && o.FillPrice.HasValue);
+            var entryAction = matchingEntry?.Action;
             exitOrder = new MockOrder
             {
                 Symbol    = exitSymbol,
                 Action    = entryAction == "BUY" ? "SELL" : "BUY",
                 Quantity  = sig.Contracts,
+                SetupId   = matchingEntry?.SetupId,
                 Status    = "FILLED",
                 FillPrice = sig.ExitPrice,
                 PlacedAt  = DateTime.UtcNow,
