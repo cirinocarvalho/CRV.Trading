@@ -99,6 +99,9 @@ public class LiveModel : PageModel
         // Preserve AccountId from the current in-memory config (not editable in the form)
         Config.AccountId = _cfgSvc.Current.AccountId;
 
+        // Preserve BasketJson before the flat override from session sync
+        var basketJson = Config.BasketJson;
+
         // Normalize empty ExecBroker to null
         if (string.IsNullOrWhiteSpace(Config.ExecBroker)) Config.ExecBroker = null;
 
@@ -129,6 +132,7 @@ public class LiveModel : PageModel
                         // ToLegacyConfig clones Config and overwrites per-setup fields,
                         // preserving global fields (Broker, Ticker, PointValue, etc.)
                         Config = flat;
+                        Config.BasketJson = basketJson;
                     }
 
                     Config.Sessions = sessions;

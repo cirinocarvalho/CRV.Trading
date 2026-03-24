@@ -127,6 +127,27 @@
     </div>
 }
 
+<input type="hidden" name="Config.BasketJson" id="basket-json" value="@(Model.Config.BasketJson ?? "")" />
+
+<!-- ── Setup Basket ────────────────────────────────────────── -->
+<div class="card crv-card mb-3">
+    <div class="card-header d-flex align-items-center">
+        <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Setup Basket</h6>
+        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="addBasketEntry()">
+            <i class="bi bi-plus-lg me-1"></i>Add Setup
+        </button>
+    </div>
+    <div class="card-body p-2">
+        <div id="basket-entries">
+            <!-- Entries rendered by JS -->
+        </div>
+        <div id="basket-empty" class="text-muted small text-center py-2">
+            No basket entries — using legacy A/B/C/D setups.
+            Click "Add Setup" to create a custom basket.
+        </div>
+    </div>
+</div>
+
 <!-- ════════════════════════════════════════════════════════════ -->
 <!-- ── Row 1: Global Settings (3 columns) ─────────────────── -->
 <!-- ════════════════════════════════════════════════════════════ -->
@@ -694,5 +715,146 @@ function instrOnChange() {
         }
     });
 })();
+
+// ── Setup Basket editor ─────────────────────────────────────
+var _basket = [];
+
+(function() {
+    var raw = document.getElementById('basket-json').value;
+    if (raw) {
+        try { _basket = JSON.parse(raw); } catch(e) { _basket = []; }
+    }
+    renderBasket();
+})();
+
+function addBasketEntry() {
+    var id = 'setup-' + Date.now();
+    _basket.push({
+        Id: id,
+        Label: '',
+        StrategyType: 1,
+        Ticker: '',
+        PointValue: 20,
+        TickSize: 0.25,
+        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, StopPct: 0.35, TargetPct: 0.65, PartialPct: 0.50, MinRr: 1.5, Mode: 'Aggressive', UsePartial: true, UseBe: true, PartialCts: 1 }
+    });
+    renderBasket();
+}
+
+function removeBasketEntry(id) {
+    _basket = _basket.filter(function(b) { return b.Id !== id; });
+    renderBasket();
+}
+
+function renderBasket() {
+    var container = document.getElementById('basket-entries');
+    var empty = document.getElementById('basket-empty');
+
+    if (_basket.length === 0) {
+        container.innerHTML = '';
+        empty.style.display = '';
+        document.getElementById('basket-json').value = '';
+        return;
+    }
+    empty.style.display = 'none';
+
+    container.innerHTML = _basket.map(function(entry, i) {
+        var stratTypes = [
+            { val: 0, label: 'Pullback' },
+            { val: 1, label: 'Retest' },
+            { val: 2, label: 'OrbFakeout' },
+            { val: 3, label: 'SessionFakeout' }
+        ];
+        var stratOptions = stratTypes.map(function(t) {
+            return '<option value="' + t.val + '" ' + (entry.StrategyType === t.val ? 'selected' : '') + '>' + t.label + '</option>';
+        }).join('');
+
+        var instruments = window.CRV_instruments || [];
+        var instrOptions = '<option value="">— Select —</option>' +
+            instruments.map(function(instr) {
+                var front = window.CRV_activeContract ? window.CRV_activeContract(instr.base) : instr.base;
+                var selected = entry.Ticker === front || (entry.Ticker && entry.Ticker.indexOf(instr.base) >= 0) ? 'selected' : '';
+                return '<option value="' + instr.base + '" ' + selected + '>' + instr.base + ' — ' + instr.name + ' ($' + instr.pointValue + '/pt)</option>';
+            }).join('');
+
+        var cfg = entry.Config || {};
+
+        return '<div class="basket-entry border rounded p-2 mb-2" data-id="' + entry.Id + '">' +
+            '<div class="d-flex gap-2 align-items-center mb-2">' +
+                '<span class="badge bg-warning text-dark">#' + (i+1) + '</span>' +
+                '<select class="form-select form-select-sm" style="width:160px" onchange="updateBasketField(\'' + entry.Id + '\',\'StrategyType\',parseInt(this.value))">' + stratOptions + '</select>' +
+                '<select class="form-select form-select-sm" style="width:220px" onchange="updateBasketInstrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
+                '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateBasketField(\'' + entry.Id + '\',\'Label\',this.value)">' +
+                '<button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="removeBasketEntry(\'' + entry.Id + '\')">' +
+                    '<i class="bi bi-trash"></i>' +
+                '</button>' +
+            '</div>' +
+            '<div class="row g-2">' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Contracts</label>' +
+                    '<input type="number" class="form-control form-control-sm" style="width:70px" value="' + (cfg.Contracts || 2) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Contracts\',parseInt(this.value))">' +
+                '</div>' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Max Trades</label>' +
+                    '<input type="number" class="form-control form-control-sm" style="width:70px" value="' + (cfg.MaxTrades || 5) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'MaxTrades\',parseInt(this.value))">' +
+                '</div>' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Stop %</label>' +
+                    '<input type="number" step="0.01" class="form-control form-control-sm" style="width:80px" value="' + (cfg.StopPct || 0.35) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'StopPct\',parseFloat(this.value))">' +
+                '</div>' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Target %</label>' +
+                    '<input type="number" step="0.01" class="form-control form-control-sm" style="width:80px" value="' + (cfg.TargetPct || 0.65) + '" onchange="updateBasketConfig(\'' + entry.Id + '\',\'TargetPct\',parseFloat(this.value))">' +
+                '</div>' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Cutoff</label>' +
+                    '<input type="time" class="form-control form-control-sm" style="width:110px" value="' + String(cfg.CutoffHour||14).padStart(2,'0') + ':' + String(cfg.CutoffMinute||30).padStart(2,'0') + '" onchange="var p=this.value.split(\':\'); updateBasketConfig(\'' + entry.Id + '\',\'CutoffHour\',parseInt(p[0])); updateBasketConfig(\'' + entry.Id + '\',\'CutoffMinute\',parseInt(p[1]));">' +
+                '</div>' +
+                '<div class="col-auto">' +
+                    '<label class="form-label small mb-0">Mode</label>' +
+                    '<select class="form-select form-select-sm" style="width:120px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Mode\',this.value)">' +
+                        '<option ' + ((cfg.Mode||'Aggressive')==='Aggressive'?'selected':'') + '>Aggressive</option>' +
+                        '<option ' + ((cfg.Mode||'')==='Conservative'?'selected':'') + '>Conservative</option>' +
+                    '</select>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+
+    syncBasketJson();
+}
+
+function updateBasketField(id, field, value) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (entry) { entry[field] = value; syncBasketJson(); }
+}
+
+function updateBasketConfig(id, field, value) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (entry) {
+        if (!entry.Config) entry.Config = {};
+        entry.Config[field] = value;
+        syncBasketJson();
+    }
+}
+
+function updateBasketInstrument(id, base) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    var info = window.CRV_findInstrument ? window.CRV_findInstrument(base) : null;
+    var front = window.CRV_activeContract ? window.CRV_activeContract(base) : '/' + base;
+    entry.Ticker = front;
+    entry.PointValue = info ? info.pointValue : 20;
+    entry.TickSize = info ? info.tickSize : 0.25;
+    if (!entry.Label) {
+        var stratNames = ['Pullback','Retest','OrbFakeout','SessionFakeout'];
+        entry.Label = (stratNames[entry.StrategyType] || 'Setup') + ' [' + base + ']';
+    }
+    syncBasketJson();
+}
+
+function syncBasketJson() {
+    document.getElementById('basket-json').value = JSON.stringify(_basket);
+}
 </script>
 }
