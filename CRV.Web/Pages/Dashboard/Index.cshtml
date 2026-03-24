@@ -635,7 +635,10 @@ async function _lwcLoadGroup(groupKey) {
             /* placeholder already removed */
         }
         _lwcDataReady = true;  // allow live updates now
-        _lwcChart.timeScale().fitContent();
+        // Show last 8 hours instead of fitting all bars (prevents thin bars on multi-session)
+        var now = Math.floor(Date.now() / 1000);
+        var hoursBack = 8 * 3600;
+        _lwcChart.timeScale().setVisibleRange({ from: now - hoursBack, to: now + 600 });
         _lwcChart.priceScale('right').applyOptions({ autoScale: true });
     } catch(e) {
         console.error("[LWC] Failed to load bars for", groupKey, e);
