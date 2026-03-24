@@ -153,6 +153,7 @@ public class RetestStrategy : ISetupStrategy
     {
         _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
+        _pastCutoff = false;
     }
 
     // ── OnBar ──────────────────────────────────────────────────────
