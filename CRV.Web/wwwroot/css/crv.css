@@ -66,7 +66,8 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
 .trade-table .td-time { font-size: .75rem; white-space: nowrap; }
 
 /* Settings form */
-.settings-section { background: #111318; border: 1px solid var(--crv-border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; height: 100%; }
+.settings-section { background: #111318; border: 1px solid var(--crv-border); border-radius: 8px; padding: 1.25rem; }
+.row > [class*="col"] > .settings-section { height: 100%; }
 .settings-section h6 { color: var(--crv-yellow); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .75rem; }
 
 .form-control, .form-select {
