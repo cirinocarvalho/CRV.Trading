@@ -243,6 +243,12 @@ public class ComposableEngine
     {
         foreach (var strategy in _strategies.Values)
         {
+            // Force-exit any trades that were "entered" during warmup — those entries
+            // were discarded (no broker order placed), so the strategy should not think
+            // it has an active position. Preserve armed state for immediate readiness.
+            if (strategy.IsActive)
+                strategy.ForceExit(0, DateTime.UtcNow, ExitReason.SessionEnd);
+
             strategy.ResetTradeCounters();
             strategy.ResetCutoff();
         }
