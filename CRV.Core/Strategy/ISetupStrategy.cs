@@ -77,6 +77,12 @@ public interface ISetupStrategy
     int CutoffHour { get; }
     int CutoffMinute { get; }
 
+    /// <summary>Get cutoff for a specific session (basket entries have per-session cutoffs).</summary>
+    (int Hour, int Minute) GetCutoffForSession(string sessionName);
+
+    /// <summary>Check if this setup is enabled for a specific session.</summary>
+    bool IsEnabledForSession(string sessionName);
+
     /// <summary>The ticker symbol this setup trades (may differ from global config for multi-instrument).</summary>
     string Ticker { get; }
 

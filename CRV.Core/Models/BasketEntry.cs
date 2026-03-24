@@ -26,6 +26,23 @@ public class BasketEntry
     /// <summary>Tick size for this instrument.</summary>
     public decimal TickSize { get; set; } = 0.25m;
 
+    /// <summary>Per-session enablement and cutoff times.</summary>
+    public List<SessionSlot> Sessions { get; set; } = new()
+    {
+        new() { SessionId = "Asia",   Enabled = false, CutoffHour = 1,  CutoffMinute = 30 },
+        new() { SessionId = "London", Enabled = false, CutoffHour = 8,  CutoffMinute = 0  },
+        new() { SessionId = "NY",     Enabled = true,  CutoffHour = 14, CutoffMinute = 30 },
+    };
+
     /// <summary>Full per-setup configuration.</summary>
     public StrategySetupConfig Config { get; set; } = new();
+}
+
+/// <summary>Per-session enablement and cutoff for a basket entry.</summary>
+public class SessionSlot
+{
+    public string SessionId   { get; set; } = "";   // "Asia", "London", "NY"
+    public bool   Enabled     { get; set; }
+    public int    CutoffHour  { get; set; } = 14;
+    public int    CutoffMinute { get; set; } = 30;
 }

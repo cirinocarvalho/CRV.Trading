@@ -39,6 +39,8 @@ public class SnapshotAggregatorTests
         public void ResetSession() { }
         public void ResetTradeCounters() { }
         public void Disarm() { }
+        public (int Hour, int Minute) GetCutoffForSession(string s) => (CutoffHour, CutoffMinute);
+        public bool IsEnabledForSession(string s) => true;
         public EntrySignal? PendingEntry => null;
         public ExitSignal? PendingExit => null;
         public PartialSignal? PendingPartial => null;

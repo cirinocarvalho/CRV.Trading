@@ -91,6 +91,8 @@ public class ComposableEngineTests
         }
         public void ResetTradeCounters() { }
         public void Disarm() { }
+        public (int Hour, int Minute) GetCutoffForSession(string s) => (CutoffHour, CutoffMinute);
+        public bool IsEnabledForSession(string s) => true;
         public void ResetSession()
         {
             ResetCallCount++;

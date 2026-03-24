@@ -79,6 +79,8 @@ public class SessionFakeoutStrategy : ISetupStrategy
     public bool         IsArmed      => _state == 1 || _state == -1;
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
+    public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
+    public bool IsEnabledForSession(string s) => _cfg.IsEnabledForSession(s);
 
     // ── Pending signals ───────────────────────────────────────────
     public EntrySignal?   PendingEntry   => _pendingEntry;

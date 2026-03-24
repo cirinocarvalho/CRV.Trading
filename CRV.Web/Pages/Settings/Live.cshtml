@@ -762,6 +762,25 @@ function _bCheck(id, field, checked, label) {
         '<label class="form-check-label small">' + label + '</label></div></div>';
 }
 
+function _bSessionSlot(entry, sessionId) {
+    var slots = entry.Sessions || [];
+    var slot = slots.find(function(s) { return s.SessionId === sessionId; });
+    var enabled = slot ? slot.Enabled : (sessionId === 'NY');
+    var h = slot ? slot.CutoffHour : (sessionId === 'Asia' ? 1 : sessionId === 'London' ? 8 : 14);
+    var m = slot ? slot.CutoffMinute : (sessionId === 'Asia' ? 30 : 0);
+    var chk = enabled ? ' checked' : '';
+    return '<div class="col-auto d-flex align-items-end gap-1 pb-1">' +
+        '<div class="form-check form-check-inline mb-0">' +
+            '<input type="checkbox" class="form-check-input"' + chk + ' onchange="updateSessionSlot(\'' + entry.Id + '\',\'' + sessionId + '\',\'Enabled\',this.checked)">' +
+            '<label class="form-check-label small">' + sessionId + '</label>' +
+        '</div>' +
+        '<input type="time" class="form-control form-control-sm" style="width:95px;' + (enabled ? '' : 'opacity:0.4') + '" value="' +
+            String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + '" ' +
+            (enabled ? '' : 'disabled') +
+            ' onchange="var p=this.value.split(\':\'); updateSessionSlot(\'' + entry.Id + '\',\'' + sessionId + '\',\'CutoffHour\',parseInt(p[0])); updateSessionSlot(\'' + entry.Id + '\',\'' + sessionId + '\',\'CutoffMinute\',parseInt(p[1]));">' +
+    '</div>';
+}
+
 function renderBasket() {
     var container = document.getElementById('basket-entries');
     var empty = document.getElementById('basket-empty');
@@ -816,9 +835,12 @@ function renderBasket() {
                 _bField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.5, 65, 'Min R:R', 'float', '0.1') +
                 (entry.StrategyType === 0 ? _bField(entry.Id, 'PullbackPct', 'number', cfg.PullbackPct || 0.50, 85, 'Pullback %', 'float', '0.01') : '') +
                 (entry.StrategyType === 1 ? _bField(entry.Id, 'RetestPct', 'number', cfg.RetestPct || 0.05, 85, 'Retest %', 'float', '0.01') : '') +
-                '<div class="col-auto"><label class="form-label small mb-0">Cutoff</label>' +
-                    '<input type="time" class="form-control form-control-sm" style="width:110px" value="' + String(cfg.CutoffHour||14).padStart(2,'0') + ':' + String(cfg.CutoffMinute||30).padStart(2,'0') + '" onchange="var p=this.value.split(\':\'); updateBasketConfig(\'' + entry.Id + '\',\'CutoffHour\',parseInt(p[0])); updateBasketConfig(\'' + entry.Id + '\',\'CutoffMinute\',parseInt(p[1]));">' +
-                '</div>' +
+            '</div>' +
+            '<div class="row g-2 mt-1">' +
+                '<div class="col-auto"><label class="form-label small mb-0">Sessions</label></div>' +
+                _bSessionSlot(entry, 'Asia') +
+                _bSessionSlot(entry, 'London') +
+                _bSessionSlot(entry, 'NY') +
             '</div>' +
             '<div class="row g-2 mt-1">' +
                 '<div class="col-auto"><label class="form-label small mb-0">Mode</label>' +
@@ -852,6 +874,23 @@ function updateBasketField(id, field, value) {
         entry[field] = value;
         // Re-render when strategy type changes (shows/hides PullbackPct/RetestPct)
         if (field === 'StrategyType') { renderBasket(); return; }
+        syncBasketJson();
+    }
+}
+
+function updateSessionSlot(entryId, sessionId, field, value) {
+    var entry = _basket.find(function(b) { return b.Id === entryId; });
+    if (!entry) return;
+    if (!entry.Sessions) entry.Sessions = [
+        { SessionId: 'Asia', Enabled: false, CutoffHour: 1, CutoffMinute: 30 },
+        { SessionId: 'London', Enabled: false, CutoffHour: 8, CutoffMinute: 0 },
+        { SessionId: 'NY', Enabled: true, CutoffHour: 14, CutoffMinute: 30 }
+    ];
+    var slot = entry.Sessions.find(function(s) { return s.SessionId === sessionId; });
+    if (slot) {
+        slot[field] = value;
+        // Re-render to update disabled state of time input
+        if (field === 'Enabled') { renderBasket(); return; }
         syncBasketJson();
     }
 }

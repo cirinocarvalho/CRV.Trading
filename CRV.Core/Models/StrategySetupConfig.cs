@@ -51,6 +51,27 @@ public class StrategySetupConfig
     public int PartialCts { get; set; }
     public bool AllowRearmAfterBe { get; set; } = true;
 
+    // Session-specific cutoffs (from basket). When empty, uses CutoffHour/CutoffMinute for all sessions.
+    public List<SessionSlot>? SessionSlots { get; set; }
+
     // Derived
     public bool IsAggressive => Mode == "Aggressive";
+
+    /// <summary>Get the cutoff for a specific session, falling back to the global cutoff.</summary>
+    public (int Hour, int Minute) GetCutoffForSession(string sessionName)
+    {
+        if (SessionSlots != null)
+        {
+            var slot = SessionSlots.Find(s => s.SessionId.Equals(sessionName, StringComparison.OrdinalIgnoreCase));
+            if (slot != null) return (slot.CutoffHour, slot.CutoffMinute);
+        }
+        return (CutoffHour, CutoffMinute);
+    }
+
+    /// <summary>Check if this setup is enabled for a specific session.</summary>
+    public bool IsEnabledForSession(string sessionName)
+    {
+        if (SessionSlots == null || SessionSlots.Count == 0) return true; // legacy: runs in all sessions
+        return SessionSlots.Any(s => s.Enabled && s.SessionId.Equals(sessionName, StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -227,6 +227,18 @@ public class TickerGroup
             // allowing Setup D to re-arm after BE exits from the same session boundary signal.
             foreach (var strategy in _strategies)
             {
+                // Session filter — skip if this setup isn't enabled for the current session
+                if (!IsEnabledForCurrentSession(strategy))
+                {
+                    if (strategy.IsActive)
+                    {
+                        var px = bar.Close > 0 ? bar.Close : _lastBarClose;
+                        strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                    }
+                    strategy.Disarm();
+                    continue;
+                }
+
                 // Per-setup cutoff — skip evaluation if past this setup's cutoff time
                 // (matches OrbStrategyEngine behavior: no new arms/entries past cutoff)
                 if (IsPastCutoff(strategy, localTime))
@@ -301,6 +313,13 @@ public class TickerGroup
 
             foreach (var strategy in _strategies)
             {
+                if (!IsEnabledForCurrentSession(strategy))
+                {
+                    if (strategy.IsActive) strategy.ForceExit(price, utc, ExitReason.SessionEnd);
+                    strategy.Disarm();
+                    continue;
+                }
+
                 if (IsPastCutoff(strategy, tickLocalTime))
                 {
                     if (strategy.IsActive)
@@ -585,12 +604,30 @@ public class TickerGroup
     /// direction opposite to <paramref name="isLong"/>. Used to prevent opposing
     /// positions on the same instrument.
     /// </summary>
-    /// <summary>Check if the current time is past this strategy's per-setup cutoff.</summary>
-    private static bool IsPastCutoff(ISetupStrategy strategy, TimeOnly localTime)
+    /// <summary>Check if the current time is past this strategy's cutoff for the active session.</summary>
+    private bool IsPastCutoff(ISetupStrategy strategy, TimeOnly localTime)
     {
-        var cutoff = new TimeOnly(strategy.CutoffHour, strategy.CutoffMinute);
+        var sessionName = SessionTypeName(_sessionEngine.CurrentSession);
+        var (h, m) = strategy.GetCutoffForSession(sessionName);
+        var cutoff = new TimeOnly(h, m);
         return localTime >= cutoff;
     }
+
+    /// <summary>Check if a strategy is enabled for the current session.</summary>
+    private bool IsEnabledForCurrentSession(ISetupStrategy strategy)
+    {
+        var sessionName = SessionTypeName(_sessionEngine.CurrentSession);
+        return strategy.IsEnabledForSession(sessionName);
+    }
+
+    private static string SessionTypeName(CRV.Core.Modules.SessionType st) => st switch
+    {
+        CRV.Core.Modules.SessionType.Asia => "Asia",
+        CRV.Core.Modules.SessionType.London => "London",
+        CRV.Core.Modules.SessionType.NYOpen or CRV.Core.Modules.SessionType.Midday
+            or CRV.Core.Modules.SessionType.PowerHour => "NY",
+        _ => "NY"
+    };
 
     private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
     {

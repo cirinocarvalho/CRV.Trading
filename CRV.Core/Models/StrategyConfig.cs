@@ -423,6 +423,7 @@ public class StrategyConfig
         UseBe = b.Config.UseBe,
         PartialCts = b.Config.PartialCts,
         AllowRearmAfterBe = b.Config.AllowRearmAfterBe,
+        SessionSlots = b.Sessions,
     };
 
     internal StrategySetupConfig BuildSetupConfigA() => new()
