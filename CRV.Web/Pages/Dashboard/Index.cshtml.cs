@@ -43,32 +43,19 @@ public class IndexModel : PageModel
 
     public void OnGet() { }
 
-    /// <summary>Force-exit the active Setup A trade immediately (called via fetch, returns JSON).</summary>
-    public async Task<IActionResult> OnPostForceExitA()
+    /// <summary>Force-exit the active trade for a setup (called via fetch, returns JSON).</summary>
+    public async Task<IActionResult> OnPostForceExit(string setupId)
     {
-        await _orchestrator.ForceExitSetup("A");
-        return new JsonResult(new { ok = true, setup = "A" });
+        if (string.IsNullOrEmpty(setupId))
+            return new JsonResult(new { ok = false, error = "setupId required" });
+        await _orchestrator.ForceExitSetup(setupId);
+        return new JsonResult(new { ok = true, setup = setupId });
     }
 
-    /// <summary>Force-exit the active Setup B trade immediately (called via fetch, returns JSON).</summary>
-    public async Task<IActionResult> OnPostForceExitB()
-    {
-        await _orchestrator.ForceExitSetup("B");
-        return new JsonResult(new { ok = true, setup = "B" });
-    }
-
-    /// <summary>Force-exit the active Setup C trade immediately (called via fetch, returns JSON).</summary>
-    public async Task<IActionResult> OnPostForceExitC()
-    {
-        await _orchestrator.ForceExitSetup("C");
-        return new JsonResult(new { ok = true, setup = "C" });
-    }
-
-    /// <summary>Force-exit the active Setup D trade immediately (called via fetch, returns JSON).</summary>
-    public async Task<IActionResult> OnPostForceExitD()
-    {
-        await _orchestrator.ForceExitSetup("D");
-        return new JsonResult(new { ok = true, setup = "D" });
-    }
+    // Legacy handlers for backward compatibility with hardcoded dashboard buttons
+    public Task<IActionResult> OnPostForceExitA() => OnPostForceExit("A");
+    public Task<IActionResult> OnPostForceExitB() => OnPostForceExit("B");
+    public Task<IActionResult> OnPostForceExitC() => OnPostForceExit("C");
+    public Task<IActionResult> OnPostForceExitD() => OnPostForceExit("D");
 
 }

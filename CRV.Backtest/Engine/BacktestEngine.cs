@@ -303,20 +303,21 @@ internal class BacktestExecutor : IOrderExecutor
 internal class BacktestSink : IStrategyEventSink
 {
     private readonly List<TradeRecord> _trades;
-    private readonly Dictionary<SetupId, EntrySignal> _open = new();
+    private readonly Dictionary<string, EntrySignal> _open = new();
 
     public BacktestSink(List<TradeRecord> trades) => _trades = trades;
 
-    public void RecordEntry(EntrySignal sig) => _open[sig.Setup] = sig;
+    public void RecordEntry(EntrySignal sig) => _open[sig.Setup.ToString()] = sig;
 
     public void RecordExit(ExitSignal sig)
     {
-        if (!_open.TryGetValue(sig.Setup, out var entry)) return;
-        _open.Remove(sig.Setup);
+        var key = sig.Setup.ToString();
+        if (!_open.TryGetValue(key, out var entry)) return;
+        _open.Remove(key);
         // Trade record built in OnExitAsync below
     }
 
-    public Task OnEntryAsync(EntrySignal s)  { _open[s.Setup] = s; return Task.CompletedTask; }
+    public Task OnEntryAsync(EntrySignal s)  { _open[s.Setup.ToString()] = s; return Task.CompletedTask; }
     public Task OnPartialAsync(PartialSignal s) => Task.CompletedTask;
     public Task OnBEMoveAsync(BESignal s)       => Task.CompletedTask;
 
