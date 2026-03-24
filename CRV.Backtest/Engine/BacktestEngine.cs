@@ -243,6 +243,11 @@ public class BacktestEngine
             // 2. Process the completed TF bar to update indicators and arm state
             prices.UpdatePrice(ticker, bkt.Close);
             await engine.ProcessBarAsync(tfBar, ticker, ct);
+
+            // 3. Fire a post-bar tick at bar.Close so strategies armed by the bar
+            //    can enter immediately at the confirmed close price, rather than
+            //    waiting for the next bucket's first tick (15-min delay).
+            await engine.ProcessPriceTickAsync(bkt.Close, tfBar.Time.AddSeconds(1), ticker);
         }
     }
 
