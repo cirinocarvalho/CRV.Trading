@@ -811,7 +811,7 @@ function renderBasket() {
                 // Match by exact ticker or by base code at start of ticker (avoid "NQ" matching "MNQM26")
                 var ticker = (entry.Ticker || '').replace(/^\//, '');
                 var selected = ticker === front || ticker.indexOf(instr.code) === 0 ? 'selected' : '';
-                return '<option value="' + instr.code + '" ' + selected + '>' + instr.code + ' — ' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
+                return '<option value="' + instr.code + '" ' + selected + '>' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
             }).join('');
         }
         var instrOptions = '<option value="">— Select —</option>' +
