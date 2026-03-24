@@ -247,17 +247,19 @@ public class RetestStrategy : ISetupStrategy
         {
             if (isReady && _state == 1)
             {
+                decimal ep = _armEntry > 0 ? _armEntry : orbHigh;
                 if (_cfg.UseTickConfirmation)
                     { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
                 else
-                    TryEntry(orbHigh, true, orb, bar.Time);
+                    TryEntry(ep, true, orb, bar.Time);
             }
             else if (isReady && _state == -1)
             {
+                decimal ep = _armEntry > 0 ? _armEntry : orbLow;
                 if (_cfg.UseTickConfirmation)
                     { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
                 else
-                    TryEntry(orbLow, false, orb, bar.Time);
+                    TryEntry(ep, false, orb, bar.Time);
             }
         }
         else if (_cfg.IsSmartAggressive)
@@ -301,7 +303,10 @@ public class RetestStrategy : ISetupStrategy
                 _retestLeftZone = true;
 
             // Step 2: retest fires only after price has left AND returned to the zone
-            if (_retestLeftZone)
+            // In backtest mode (UseTickConfirmation=false), skip the left-zone requirement
+            // to match the original behavior where the arm bar could instantly satisfy retest.
+            bool zoneOk = _retestLeftZone || !_cfg.UseTickConfirmation;
+            if (zoneOk)
             {
                 if (_state == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW)
                     _state = 2;
