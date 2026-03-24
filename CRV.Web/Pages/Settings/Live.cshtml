@@ -808,7 +808,9 @@ function renderBasket() {
         function _instrOpts(list, entry) {
             return list.map(function(instr) {
                 var front = window.CRV_activeContract ? window.CRV_activeContract(instr.code) : instr.code;
-                var selected = entry.Ticker === front || (entry.Ticker && entry.Ticker.indexOf(instr.code) >= 0) ? 'selected' : '';
+                // Match by exact ticker or by base code at start of ticker (avoid "NQ" matching "MNQM26")
+                var ticker = (entry.Ticker || '').replace(/^\//, '');
+                var selected = ticker === front || ticker.indexOf(instr.code) === 0 ? 'selected' : '';
                 return '<option value="' + instr.code + '" ' + selected + '>' + instr.code + ' — ' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
             }).join('');
         }
