@@ -295,7 +295,7 @@
 // ─────────────────────────────────────────────────────────────
 
 const maxDailyLoss = @Model.Config.MaxDailyLoss.ToString(System.Globalization.CultureInfo.InvariantCulture);
-let _lastAlertCount = 0;  // track how many alerts we've already rendered
+let _lastAlertTime = null;  // track latest alert timestamp to detect new ones
 
 // Seed ON/OFF badges — deferred until cards are created dynamically
 
@@ -1147,14 +1147,19 @@ function updateDashboard(d) {
 
     // ── Alerts from snapshot ─────────────────────────────────
     const alerts = d.recentAlerts;
-    if (alerts && alerts.length > _lastAlertCount) {
-        // Render only new alerts; snapshot order is oldest→newest so
-        // insertBefore(firstChild) naturally puts newest at top.
-        const newAlerts = alerts.slice(_lastAlertCount);
-        // Sort oldest-first so prepending yields newest-on-top
-        newAlerts.sort((a, b) => new Date(a.time) - new Date(b.time));
-        for (const al of newAlerts) addAlert(al);
-        _lastAlertCount = alerts.length;
+    if (alerts && alerts.length > 0) {
+        // Filter to only alerts newer than the last one we rendered
+        const newAlerts = _lastAlertTime
+            ? alerts.filter(a => new Date(a.time) > _lastAlertTime)
+            : alerts;  // first load: render all
+        if (newAlerts.length > 0) {
+            // Sort oldest-first so prepending yields newest-on-top
+            newAlerts.sort((a, b) => new Date(a.time) - new Date(b.time));
+            for (const al of newAlerts) addAlert(al);
+            // Track the latest alert time
+            _lastAlertTime = new Date(alerts.reduce((max, a) =>
+                new Date(a.time) > new Date(max.time) ? a : max).time);
+        }
     }
 }
 
