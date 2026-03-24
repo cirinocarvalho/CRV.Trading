@@ -204,8 +204,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            _theoreticalEntry = isLong ? orb.Low : orb.High;
-            _awaitingTickConfirm = true;
+            StageOrEnter(isLong ? orb.Low : orb.High, isLong, orb, bar.Time);
         }
     }
 
@@ -424,6 +423,14 @@ public class OrbFakeoutStrategy : ISetupStrategy
     }
 
     // ── Private helpers ───────────────────────────────────────────
+
+    private void StageOrEnter(decimal level, bool isLong, OrbState orb, DateTime time)
+    {
+        if (_cfg.OrderType == "Limit")
+            TryEntry(level, isLong, orb, time);
+        else
+            { _theoreticalEntry = level; _awaitingTickConfirm = true; }
+    }
 
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {

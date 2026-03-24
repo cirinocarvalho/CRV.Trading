@@ -186,6 +186,7 @@ public class TickEvalTests
         // Even with tick mode on, bar-level exit processing must still work (backtest path)
         var cfg = CfgA();
         cfg.ModeA = "Aggressive";
+        cfg.OrderTypeA = "Limit";
         var eng = BuildEngine(cfg, out var sink, out _);
         // NOTE: do NOT call EnableTickMode() — this is the backtest path
 

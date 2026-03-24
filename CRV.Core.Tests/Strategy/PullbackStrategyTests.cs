@@ -21,6 +21,7 @@ public class PullbackStrategyTests
         UsePartial = false, UseBe = false,
         UseVwap = false, UseOrbClose = false,
         CutoffHour = 14, CutoffMinute = 30,
+        OrderType = "Limit",
     };
 
     private static OrbState MakeOrb(decimal high = 5200m, decimal low = 5180m) => new(

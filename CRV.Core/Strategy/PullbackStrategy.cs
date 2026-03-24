@@ -34,6 +34,10 @@ public class PullbackStrategy : ISetupStrategy
     private bool _stickyTgt = false;
     private bool _stickyStop = false;
 
+    // ── Tick confirmation gate ────────────────────────────────────
+    private bool    _awaitingTickConfirm = false;
+    private decimal _theoreticalEntry    = 0;
+
     // ── Re-arm guard (prevents re-entering same side until price leaves ORB zone) ──
     private bool _bullTraded = false;
     private bool _bearTraded = false;
@@ -142,6 +146,7 @@ public class PullbackStrategy : ISetupStrategy
         _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
         _pastCutoff = false;
+        _awaitingTickConfirm = false; _theoreticalEntry = 0;
         _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -217,14 +222,14 @@ public class PullbackStrategy : ISetupStrategy
 
             if (_cfg.IsAggressive)
             {
-                TryEntry(_armEntry, isLong, orb, bar.Time);
+                StageOrEnter(_armEntry, isLong, orb, bar.Time);
             }
             else
             {
                 if (isLong  && bar.Low  <= longPb  + tickTol)
-                    TryEntry(longPb,  true,  orb, bar.Time);
+                    StageOrEnter(longPb,  true,  orb, bar.Time);
                 else if (!isLong && bar.High >= shortPb - tickTol)
-                    TryEntry(shortPb, false, orb, bar.Time);
+                    StageOrEnter(shortPb, false, orb, bar.Time);
             }
         }
     }
@@ -289,6 +294,15 @@ public class PullbackStrategy : ISetupStrategy
     {
         if (!_cfg.Enabled) return;
         if (!orb.IsSet || orb.Range <= 0) return;
+
+        // Tick confirmation gate: bar-level staged entry awaiting tick price
+        if (!IsActive && _awaitingTickConfirm)
+        {
+            bool isLong = _state > 0;
+            TryTickConfirmedEntry(price, _theoreticalEntry, isLong, orb, utc);
+            if (IsActive) { _awaitingTickConfirm = false; return; }
+            return;
+        }
 
         decimal orbRange = orb.Range;
         decimal tickTol  = _cfg.TickSize * 2;
@@ -447,6 +461,24 @@ public class PullbackStrategy : ISetupStrategy
     }
 
     // ── Private helpers ───────────────────────────────────────────
+
+    private void StageOrEnter(decimal level, bool isLong, OrbState orb, DateTime time)
+    {
+        if (_cfg.OrderType == "Limit")
+            TryEntry(level, isLong, orb, time);
+        else
+            { _theoreticalEntry = level; _awaitingTickConfirm = true; }
+    }
+
+    private void TryTickConfirmedEntry(decimal tickPrice, decimal theoreticalEntry, bool isLong, OrbState orb, DateTime utc)
+    {
+        if (IsActive) return;
+        decimal maxSlip = _cfg.MaxEntrySlippage > 0
+            ? orb.Range * _cfg.MaxEntrySlippage
+            : decimal.MaxValue;
+        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+        TryEntry(tickPrice, isLong, orb, utc);
+    }
 
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {

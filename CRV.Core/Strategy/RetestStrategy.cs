@@ -245,22 +245,18 @@ public class RetestStrategy : ISetupStrategy
         // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
         {
-            // Aggressive: always defer to tick entry (both live and backtest).
-            // In live: next L1 tick. In backtest: next 1-min bar Open.
-            // This gives the first realistic price after signal confirmation.
             if (isReady && _state == 1)
-                { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
+                StageOrEnter(orbHigh, true, orb, bar.Time);
             else if (isReady && _state == -1)
-                { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
+                StageOrEnter(orbLow, false, orb, bar.Time);
         }
         else if (_cfg.IsSmartAggressive)
         {
-            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 via tick.
-            // Always uses tick entry (same as Aggressive) for realistic pricing.
+            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1.
             if (isReady && _state == 2)
-                { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
+                StageOrEnter(bar.Open, true, orb, bar.Time);
             else if (isReady && _state == -2)
-                { _theoreticalEntry = bar.Open; _awaitingTickConfirm = true; }
+                StageOrEnter(bar.Open, false, orb, bar.Time);
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             if (_state == 1)  _state = 2;
@@ -285,9 +281,7 @@ public class RetestStrategy : ISetupStrategy
                 _retestLeftZone = true;
 
             // Step 2: retest fires only after price has left AND returned to the zone
-            // In backtest mode (UseTickConfirmation=false), skip the left-zone requirement
-            // to match the original behavior where the arm bar could instantly satisfy retest.
-            bool zoneOk = _retestLeftZone || !_cfg.UseTickConfirmation;
+            bool zoneOk = _retestLeftZone;
             if (zoneOk)
             {
                 if (_state == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW)
@@ -296,11 +290,11 @@ public class RetestStrategy : ISetupStrategy
                     _state = -2;
             }
 
-            // Entry from retest state: always defer to tick for realistic pricing
+            // Entry from retest state
             if (isReady && _state == 2 && bar.Close > orbHigh)
-                { _theoreticalEntry = orbHigh; _awaitingTickConfirm = true; }
+                StageOrEnter(orbHigh, true, orb, bar.Time);
             else if (isReady && _state == -2 && bar.Close < orbLow)
-                { _theoreticalEntry = orbLow; _awaitingTickConfirm = true; }
+                StageOrEnter(orbLow, false, orb, bar.Time);
 
             // De-arm if price crosses OrbMid (retest failed)
             if (_state == 2  && bar.Close < orbMid) _state = 0;
@@ -575,6 +569,17 @@ public class RetestStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, _contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker);
+    }
+
+    /// <summary>
+    /// Limit orders enter at the exact level on bar. Market orders defer to tick gate.
+    /// </summary>
+    private void StageOrEnter(decimal level, bool isLong, OrbState orb, DateTime time)
+    {
+        if (_cfg.OrderType == "Limit")
+            TryEntry(level, isLong, orb, time);
+        else
+            { _theoreticalEntry = level; _awaitingTickConfirm = true; }
     }
 
     /// <summary>

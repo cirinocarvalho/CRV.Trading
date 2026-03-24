@@ -209,8 +209,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
         if (IsArmed)
         {
             bool isLong = _state == 1;
-            _theoreticalEntry = isLong ? modules.SessionRangeLow : modules.SessionRangeHigh;
-            _awaitingTickConfirm = true;
+            StageOrEnter(isLong ? modules.SessionRangeLow : modules.SessionRangeHigh, isLong, orb, bar.Time, modules);
         }
     }
 
@@ -431,6 +430,14 @@ public class SessionFakeoutStrategy : ISetupStrategy
     }
 
     // ── Private helpers ───────────────────────────────────────────
+
+    private void StageOrEnter(decimal level, bool isLong, OrbState orb, DateTime time, ModuleState modules)
+    {
+        if (_cfg.OrderType == "Limit")
+            TryEntry(level, isLong, orb, time, modules);
+        else
+            { _theoreticalEntry = level; _awaitingTickConfirm = true; }
+    }
 
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time, ModuleState modules)
     {
