@@ -129,29 +129,6 @@
 
 <input type="hidden" name="Config.BasketJson" id="basket-json" value="@(Model.Config.BasketJson ?? "")" />
 
-<style>
-    .basket-chevron { transition: transform 0.2s; display: inline-block; }
-    [aria-expanded="true"] .basket-chevron { transform: rotate(90deg); }
-</style>
-<!-- ── Setup Basket ────────────────────────────────────────── -->
-<div class="card crv-card mb-3">
-    <div class="card-header d-flex align-items-center">
-        <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Setup Basket</h6>
-        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="addBasketEntry()">
-            <i class="bi bi-plus-lg me-1"></i>Add Setup
-        </button>
-    </div>
-    <div class="card-body p-2">
-        <div id="basket-entries">
-            <!-- Entries rendered by JS -->
-        </div>
-        <div id="basket-empty" class="text-muted small text-center py-2">
-            No basket entries — using legacy A/B/C/D setups.
-            Click "Add Setup" to create a custom basket.
-        </div>
-    </div>
-</div>
-
 <!-- ════════════════════════════════════════════════════════════ -->
 <!-- ── Row 1: Global Settings (3 columns) ─────────────────── -->
 <!-- ════════════════════════════════════════════════════════════ -->
@@ -529,6 +506,29 @@
             </div>
         </div>
     }
+</div>
+
+<style>
+    .basket-chevron { transition: transform 0.2s; display: inline-block; }
+    [aria-expanded="true"] .basket-chevron { transform: rotate(90deg); }
+</style>
+<!-- ── Setup Basket ────────────────────────────────────────── -->
+<div class="card crv-card mb-3 mt-4">
+    <div class="card-header d-flex align-items-center">
+        <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Setup Basket</h6>
+        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="addBasketEntry()">
+            <i class="bi bi-plus-lg me-1"></i>Add Setup
+        </button>
+    </div>
+    <div class="card-body p-2">
+        <div id="basket-entries">
+            <!-- Entries rendered by JS -->
+        </div>
+        <div id="basket-empty" class="text-muted small text-center py-2">
+            No basket entries — using legacy A/B/C/D setups.
+            Click "Add Setup" to create a custom basket.
+        </div>
+    </div>
 </div>
 
 <!-- ── Save button ────────────────────────────────────────── -->
