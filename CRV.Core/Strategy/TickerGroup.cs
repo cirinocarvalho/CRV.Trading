@@ -633,7 +633,7 @@ public class TickerGroup
         CRV.Core.Modules.SessionType.London => "London",
         CRV.Core.Modules.SessionType.NYOpen or CRV.Core.Modules.SessionType.Midday
             or CRV.Core.Modules.SessionType.PowerHour => "NY",
-        _ => "NY"
+        _ => ""  // PreMarket/gap between sessions — no session active, block all strategies
     };
 
     private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
