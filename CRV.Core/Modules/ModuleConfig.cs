@@ -3,7 +3,7 @@ namespace CRV.Core.Modules;
 public class ModuleConfig
 {
     // Session times (Eastern Time hours/minutes)
-    public TimeOnly AsiaStart    { get; set; } = new(18, 0);
+    public TimeOnly AsiaStart    { get; set; } = new(19, 0);
     public TimeOnly AsiaEnd      { get; set; } = new(2, 0);
     public TimeOnly LondonStart  { get; set; } = new(3, 0);
     public TimeOnly LondonEnd    { get; set; } = new(8, 30);

@@ -488,6 +488,13 @@ public class LiveEngineOrchestrator : BackgroundService
                             {
                                 var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
                                 if (cached == null) continue;
+                                // Skip placeholder/stale cache entries (never properly saved)
+                                if (cached.SavedAtUtc == DateTime.MinValue || cached.OrbHigh <= 0)
+                                {
+                                    _log.LogInformation("ORB cache skipped for {Ticker} session {Session} (placeholder/stale)",
+                                        ticker, sessionKey);
+                                    continue;
+                                }
                                 if (localTime >= flat.OrbEnd)
                                 {
                                     newEngine.RestoreOrb(cached);
@@ -614,6 +621,12 @@ public class LiveEngineOrchestrator : BackgroundService
                         {
                             var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
                             if (cached == null) continue;
+                            if (cached.SavedAtUtc == DateTime.MinValue || cached.OrbHigh <= 0)
+                            {
+                                _log.LogInformation("ORB cache skipped for {Ticker} session {Session} (placeholder/stale)",
+                                    ticker.TrimStart('/'), sessionKey);
+                                continue;
+                            }
                             if (initLocalTime >= flat.OrbEnd)
                             {
                                 newEngine.RestoreOrb(cached);
@@ -892,7 +905,7 @@ public class LiveEngineOrchestrator : BackgroundService
             engine.SetActiveSessionId(sessionIdStr);
 
             var cached = OrbStateCacheService.Load(canonicalTicker, today, sessionIdStr);
-            if (cached != null)
+            if (cached != null && cached.SavedAtUtc != DateTime.MinValue && cached.OrbHigh > 0)
             {
                 engine.RestoreOrb(cached);
                 _log.LogInformation("ORB restored from cache for {Ticker} session {Session}", canonicalTicker, sessionIdStr);

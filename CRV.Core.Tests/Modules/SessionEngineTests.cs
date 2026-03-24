@@ -43,8 +43,10 @@ public class SessionEngineTests
     public void AsiaSession_WrapsAroundMidnight()
     {
         var engine = CreateEngine();
-        // 18:00 is Asia start
-        Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(18, 0)));
+        // 18:30 is before Asia start (19:00) — should be PreMarket/gap
+        Assert.NotEqual(SessionType.Asia, engine.DetectSession(new TimeOnly(18, 30)));
+        // 19:00 is Asia start
+        Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(19, 0)));
         // 23:59 still Asia
         Assert.Equal(SessionType.Asia, engine.DetectSession(new TimeOnly(23, 59)));
         // 00:00 midnight is within Asia (AsiaEnd = 02:00, so 00:00 < 02:00 is true)
