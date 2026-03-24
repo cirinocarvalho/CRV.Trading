@@ -213,14 +213,23 @@ public class RetestStrategyTests
         cfg.Mode = "Aggressive";
         var s = new RetestStrategy(cfg);
         var orb = MakeOrb();
+        var ind = MakeIndicators();
+        var mod = EmptyModules();
 
-        // In aggressive mode: arm and enter on the same bar
-        // armEntry = bar.Open = 5199
+        // Aggressive: arm on bar close, enter on next tick at market price
         var bar = MakeBar(5199m, 5202m, 5198m, 5198m);
-        s.OnBar(bar, orb, MakeIndicators(), EmptyModules());
+        s.OnBar(bar, orb, ind, mod);
+
+        // After bar: armed but not entered yet (tick entry)
+        Assert.True(s.IsArmed);
+        Assert.False(s.IsActive);
+
+        // Next tick triggers entry at the actual tick price
+        s.OnTick(5199.50m, DateTime.UtcNow, orb, ind, mod);
 
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
+        Assert.Equal(5199.50m, s.PendingEntry.Entry);
         Assert.True(s.IsActive);
     }
 

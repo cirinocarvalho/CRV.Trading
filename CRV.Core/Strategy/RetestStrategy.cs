@@ -237,19 +237,11 @@ public class RetestStrategy : ISetupStrategy
             }
         }
 
-        // Aggressive mode: enter on arm bar directly
+        // Aggressive mode: arm on bar, entry happens via OnTick (next tick after arm)
         if (_cfg.IsAggressive)
         {
-            if (isReady && _state == 1)
-            {
-                decimal ep = _armEntry > 0 ? _armEntry : orbHigh;
-                TryEntry(ep, true, orb, bar.Time);
-            }
-            else if (isReady && _state == -1)
-            {
-                decimal ep = _armEntry > 0 ? _armEntry : orbLow;
-                TryEntry(ep, false, orb, bar.Time);
-            }
+            // No bar-level entry — tick path handles it at the actual market price.
+            // Just keep the armed state; OnTick will fire TryEntry(price, ...).
         }
         else if (_cfg.IsSmartAggressive)
         {
@@ -380,7 +372,9 @@ public class RetestStrategy : ISetupStrategy
             bool isLong = _state > 0;
             if (_cfg.IsAggressive)
             {
-                TryEntry(_armEntry, isLong, orb, utc);
+                // Aggressive tick entry: arm on 15-min bar, enter on the very next tick
+                // at the current market price. No waiting for the next bar.
+                TryEntry(price, isLong, orb, utc);
             }
             else if (_cfg.IsSmartAggressive)
             {
