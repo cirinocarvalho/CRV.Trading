@@ -456,8 +456,10 @@ public class LiveEngineOrchestrator : BackgroundService
                         newEngine.Reconfigure(flat, session.SessionId);
 
                         // Restore ORB from cache for each ticker group after Reconfigure()+Reset().
+                        // Skip for mock/replay — they replay from scratch, cached ORB would be stale.
                         // Past OrbEnd: restore fully (ORB won't change).
                         // Inside ORB window: restore as floor so warmup bars can only expand.
+                        if (execBroker != "Mock" && execBroker != "TradovateReplay")
                         try
                         {
                             var td = cfg.TradingDate(local);
@@ -583,23 +585,27 @@ public class LiveEngineOrchestrator : BackgroundService
                     newEngine.Reconfigure(flat, initSession.SessionId);
 
                     // Restore ORB from cache for each ticker group
-                    var td = cfg.TradingDate(initLocal);
-                    var sessionKey = initSession.SessionId.ToString();
-                    foreach (var ticker in distinctTickers)
+                    // Skip for mock/replay — they replay from scratch, cached ORB would be stale.
+                    if (execBroker != "Mock" && execBroker != "TradovateReplay")
                     {
-                        var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
-                        if (cached == null) continue;
-                        if (initLocalTime >= flat.OrbEnd)
+                        var td = cfg.TradingDate(initLocal);
+                        var sessionKey = initSession.SessionId.ToString();
+                        foreach (var ticker in distinctTickers)
                         {
-                            newEngine.RestoreOrb(cached);
-                            _log.LogInformation("ORB restored from cache for {Ticker} session {Session} (past OrbEnd)",
-                                ticker.TrimStart('/'), sessionKey);
-                        }
-                        else
-                        {
-                            newEngine.SeedOrbFloor(cached);
-                            _log.LogInformation("ORB seeded from cache for {Ticker} session {Session} (inside ORB window)",
-                                ticker.TrimStart('/'), sessionKey);
+                            var cached = OrbStateCacheService.Load(ticker.TrimStart('/'), td, sessionKey);
+                            if (cached == null) continue;
+                            if (initLocalTime >= flat.OrbEnd)
+                            {
+                                newEngine.RestoreOrb(cached);
+                                _log.LogInformation("ORB restored from cache for {Ticker} session {Session} (past OrbEnd)",
+                                    ticker.TrimStart('/'), sessionKey);
+                            }
+                            else
+                            {
+                                newEngine.SeedOrbFloor(cached);
+                                _log.LogInformation("ORB seeded from cache for {Ticker} session {Session} (inside ORB window)",
+                                    ticker.TrimStart('/'), sessionKey);
+                            }
                         }
                     }
 
