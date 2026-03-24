@@ -94,7 +94,10 @@ public class RetestStrategyTests
     {
         ArmLong(s);
         var orb = MakeOrb();
-        // Price returns to orbHigh area: bar spans 5199-5201
+        // Bar after arm: consumed (skips retest detection), stays in arm zone
+        var gapBar = MakeBar(5198m, 5201m, 5196m, 5198m);
+        s.OnBar(gapBar, orb, MakeIndicators(), EmptyModules());
+        // Now retest detection is active — price returns to orbHigh area
         var retestBar = MakeBar(5202m, 5202m, 5199m, 5200m);
         s.OnBar(retestBar, orb, MakeIndicators(), EmptyModules());
         return s;
@@ -433,13 +436,16 @@ public class RetestStrategyTests
         ArmLong(s);
         Assert.True(s.IsArmed);
 
-        var orb = MakeOrb();
-        // Close below orbLow=5180 → cancel arm (state > 0 && state < 3 && close < orbLow)
+        var orb = MakeOrb(); // orbLow=5180, orbHigh=5200, nearDist=3
+        // Cancel: close below orbLow cancels the long arm.
+        // Close=5178 is inside the short arm zone (<= 5183), so the strategy re-arms short.
+        // Verify: long arm is cancelled and state transitions to short arm (-1).
         var cancelBar = MakeBar(5185m, 5190m, 5175m, 5178m);
         s.OnBar(cancelBar, orb, MakeIndicators(), EmptyModules());
 
-        Assert.False(s.IsArmed);
-        Assert.Equal(0, s.GetSnapshot().State);
+        // Long arm cancelled → re-armed short (close near orbLow)
+        Assert.True(s.IsArmed);
+        Assert.Equal(-1, s.GetSnapshot().State);
     }
 
     [Fact]
@@ -452,6 +458,12 @@ public class RetestStrategyTests
         // Step 1: arm short (bar.Close <= 5183, bar.Low > 5181 → no retest)
         var armBar = MakeBar(5182m, 5185m, 5181.25m, 5182m);
         s.OnBar(armBar, orb, MakeIndicators(), EmptyModules());
+        Assert.Equal(-1, s.GetSnapshot().State);
+
+        // Step 1b: gap bar (consumes arm bar flag, stays armed)
+        // Must stay outside retest zone (orbLow ± retestW = 5179-5181), so bar.Low > 5181
+        var gapBar = MakeBar(5183m, 5184m, 5181.50m, 5183m);
+        s.OnBar(gapBar, orb, MakeIndicators(), EmptyModules());
         Assert.Equal(-1, s.GetSnapshot().State);
 
         // Step 2: retest zone — price returns near orbLow=5180
