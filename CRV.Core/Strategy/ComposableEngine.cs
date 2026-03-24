@@ -156,13 +156,14 @@ public class ComposableEngine
         foreach (var sig in signals)
         {
             var setup = sig.Strategy.SetupId;
+            var label = sig.Strategy.Id;
 
             // ── Partial ──
             if (sig.Partial is { } psig)
             {
                 await _executor.OnPartialSignalAsync(psig);
                 await _sink.OnPartialAsync(psig);
-                AddAlert("PARTIAL", setup, $"Partial @ {psig.PartialPrice:F2}", "yellow");
+                AddAlert("PARTIAL", setup, $"Partial @ {psig.PartialPrice:F2}", "yellow", label);
             }
 
             // ── Break-even ──
@@ -170,12 +171,15 @@ public class ComposableEngine
             {
                 await _executor.OnBESignalAsync(besig);
                 await _sink.OnBEMoveAsync(besig);
-                AddAlert("MOVE_BE", setup, $"Stop -> BE {besig.Entry:F2}", "yellow");
+                AddAlert("MOVE_BE", setup, $"Stop -> BE {besig.Entry:F2}", "yellow", label);
             }
 
             // ── Entry (risk check) ──
             if (sig.Entry is { } esig)
             {
+                // Enrich with basket label so brokers/orders can identify the setup
+                if (string.IsNullOrEmpty(esig.SetupLabel) && !string.IsNullOrEmpty(label))
+                    esig = esig with { SetupLabel = label };
                 if (Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
                 {
                     var fill = await _executor.OnEntrySignalAsync(esig);
@@ -185,7 +189,7 @@ public class ComposableEngine
                     bool isLong = esig.Direction == Direction.Long;
                     AddAlert("ENTRY", setup,
                         $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
-                        isLong ? "green" : "red");
+                        isLong ? "green" : "red", label);
                 }
             }
 
@@ -207,7 +211,7 @@ public class ComposableEngine
 
                 AddAlert("EXIT", setup,
                     $"{xsig.Reason} @ {xsig.ExitPrice:F2}",
-                    xsig.Reason == ExitReason.Target ? "green" : "red");
+                    xsig.Reason == ExitReason.Target ? "green" : "red", label);
             }
         }
     }
@@ -634,13 +638,14 @@ public class ComposableEngine
         };
     }
 
-    private void AddAlert(string type, SetupId setup, string message, string color)
+    private void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "")
     {
         _alertRing[_alertHead] = new AlertEvent
         {
             Time = DateTime.UtcNow,
             Type = type,
             Setup = setup,
+            SetupLabel = setupLabel,
             Message = message,
             Color = color,
         };

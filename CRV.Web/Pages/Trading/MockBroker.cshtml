@@ -162,8 +162,8 @@ else
                                 <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
                                 <td class="td-dim">@dur</td>
                                 <td>
-                                    <span class="badge @(t.Setup == SetupId.A ? "bg-info text-dark" : "bg-warning text-dark")">
-                                        @t.Setup
+                                    <span class="badge bg-warning text-dark">
+                                        @(!string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
                                     </span>
                                 </td>
                                 <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>

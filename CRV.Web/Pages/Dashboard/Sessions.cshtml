@@ -125,7 +125,7 @@
                                         <td class="td-time">@ToEt(t.EnteredAt)</td>
                                         <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
                                         <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
-                                        <td><span class="badge bg-warning text-dark">@t.Setup</span></td>
+                                        <td><span class="badge bg-warning text-dark">@(!string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())</span></td>
                                         <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
                                         <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@(t.EffectiveDirection == Direction.Long ? "▲" : "▼") @t.EffectiveDirection</td>
                                         <td class="text-end">@t.Entry.ToString("F2")</td>

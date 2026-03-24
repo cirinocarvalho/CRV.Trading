@@ -93,24 +93,25 @@ public class MockBrokerExecutor : IOrderExecutor
                 Symbol = symbol, Action = isLong ? "BUY" : "SELL",
                 Quantity = sig.Contracts, OcoGroupId = ocoId,
                 Direction = sig.Direction.ToString(),
-                SetupId = sig.Setup.ToString(),
+                SetupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString(),
                 // Limit: place as WORKING with LimitPrice; Market: fill immediately
                 LimitPrice = isLimit ? sig.Entry : null,
                 Status     = isLimit ? "WORKING" : "FILLED",
                 FillPrice  = isLimit ? null : sig.Entry,
                 FilledAt   = isLimit ? null : DateTime.UtcNow,
             };
+            var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
             var stop = new MockOrder
             {
                 Symbol = symbol, Action = isLong ? "SELL" : "BUY",
                 Quantity = sig.Contracts, StopPrice = sig.Stop, OcoGroupId = ocoId,
-                SetupId = sig.Setup.ToString()
+                SetupId = setupId
             };
             var target = new MockOrder
             {
                 Symbol = symbol, Action = isLong ? "SELL" : "BUY",
                 Quantity = sig.Contracts, LimitPrice = sig.Target, OcoGroupId = ocoId,
-                SetupId = sig.Setup.ToString()
+                SetupId = setupId
             };
             _orders.Add(entry);  newOrders.Add(entry);
             // For limit orders, stop/target remain WORKING but won't activate until entry fills

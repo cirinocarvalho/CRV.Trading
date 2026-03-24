@@ -115,7 +115,7 @@
                         <tr class="@(t.IsWin ? "win-row" : "loss-row")">
                             <td>@rowNum</td>
                             <td>@ToEt(t.EnteredAt)</td>
-                            <td><span class="setup-badge @t.Setup.ToString().ToLower()">@t.Setup</span></td>
+                            <td><span class="setup-badge">@(!string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())</span></td>
                             <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? Model.Result.Config.Ticker : t.Ticker.TrimStart('/'))</td>
                             <td class="@(t.EffectiveDirection == CRV.Core.Models.Direction.Long ? "long-cell" : "short-cell")">
                                 @t.EffectiveDirection</td>

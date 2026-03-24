@@ -230,7 +230,7 @@ public class EngineController : ControllerBase
         var rows = trades.Select(t => new
         {
             time     = TimeZoneInfo.ConvertTimeFromUtc(t.EnteredAt, est).ToString("HH:mm:ss"),
-            setup    = t.Setup.ToString(),
+            setup    = !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString(),
             ticker   = t.Ticker?.TrimStart('/') ?? "",
             dir      = t.Direction.ToString(),
             entry    = t.Entry,

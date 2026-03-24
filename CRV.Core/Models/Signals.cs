@@ -15,9 +15,10 @@ public record EntrySignal(
     decimal   Partial,
     int       Contracts,
     DateTime  Time,
-    string    OrderType = "Market",   // "Market" or "Limit"
-    string    SessionId = "NY",       // "Asia" | "London" | "NY"
-    string    Ticker    = "");        // Per-setup ticker override; empty = use global
+    string    OrderType  = "Market",   // "Market" or "Limit"
+    string    SessionId  = "NY",       // "Asia" | "London" | "NY"
+    string    Ticker     = "",         // Per-setup ticker override; empty = use global
+    string    SetupLabel = "");        // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
 
 public record ExitSignal(
     SetupId    Setup,
@@ -350,6 +351,7 @@ public class AlertEvent
     public DateTime Time    { get; set; }
     public string   Type    { get; set; } = "";
     public SetupId  Setup   { get; set; }
+    public string   SetupLabel { get; set; } = "";
     public string   Message { get; set; } = "";
     public string   Color   { get; set; } = "gray";
 }

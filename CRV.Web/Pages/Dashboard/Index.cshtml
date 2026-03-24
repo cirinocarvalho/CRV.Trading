@@ -1343,9 +1343,9 @@ function addAlert(a) {
         const d = new Date(a.time);
         timeStr = isNaN(d) ? a.time : d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false });
     }
-    // Format setup — enum 0=A, 1=B, 2=C, 3=D, 4=F, or string
+    // Prefer setupLabel (basket ID like "retest-mnq"), fall back to enum
     const setupMap = { 0: "A", 1: "B", 2: "C", 3: "D", 4: "F" };
-    const setup = typeof a.setup === "number" ? (setupMap[a.setup] ?? a.setup) : (a.setup ?? "");
+    const setup = a.setupLabel || (typeof a.setup === "number" ? (setupMap[a.setup] ?? a.setup) : (a.setup ?? ""));
     const div  = document.createElement("div");
     div.className = "alert-item " + cls;
     div.innerHTML = `<span class="text-muted">${timeStr}</span> <strong>[${setup}]</strong> ${a.message ?? ""}`;
