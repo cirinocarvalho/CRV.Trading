@@ -635,10 +635,14 @@ async function _lwcLoadGroup(groupKey) {
             /* placeholder already removed */
         }
         _lwcDataReady = true;  // allow live updates now
-        // Show last 8 hours instead of fitting all bars (prevents thin bars on multi-session)
-        var now = Math.floor(Date.now() / 1000);
-        var hoursBack = 8 * 3600;
-        _lwcChart.timeScale().setVisibleRange({ from: now - hoursBack, to: now + 600 });
+        // Show last 8 hours from the latest bar (prevents thin bars on multi-session)
+        if (bars.length > 0) {
+            var lastBarTime = bars[bars.length - 1].time;
+            var hoursBack = 8 * 3600;
+            _lwcChart.timeScale().setVisibleRange({ from: lastBarTime - hoursBack, to: lastBarTime + 900 });
+        } else {
+            _lwcChart.timeScale().fitContent();
+        }
         _lwcChart.priceScale('right').applyOptions({ autoScale: true });
     } catch(e) {
         console.error("[LWC] Failed to load bars for", groupKey, e);

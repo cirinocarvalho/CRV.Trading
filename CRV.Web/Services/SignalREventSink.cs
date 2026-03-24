@@ -88,7 +88,7 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
         await _hub.Clients.All.SendAsync("Trade", new
         {
             time     = TimeZoneInfo.ConvertTimeFromUtc(sig.Time, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).ToString("HH:mm:ss"),
-            setup    = sig.Setup.ToString(),
+            setup    = !string.IsNullOrEmpty(trade.SetupLabel) ? trade.SetupLabel : sig.Setup.ToString(),
             ticker   = trade.Ticker?.TrimStart('/') ?? "",
             dir      = trade.Direction.ToString(),
             entry    = trade.Entry,
