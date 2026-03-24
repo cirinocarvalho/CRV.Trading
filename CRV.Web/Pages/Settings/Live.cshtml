@@ -769,12 +769,13 @@ function renderBasket() {
             return '<option value="' + t.val + '" ' + (entry.StrategyType === t.val ? 'selected' : '') + '>' + t.label + '</option>';
         }).join('');
 
-        var instruments = window.CRV_instruments || [];
+        var instrData = window.CRV_INSTRUMENTS || { mini: [], micro: [] };
+        var instruments = [].concat(instrData.micro, instrData.mini);
         var instrOptions = '<option value="">— Select —</option>' +
             instruments.map(function(instr) {
-                var front = window.CRV_activeContract ? window.CRV_activeContract(instr.base) : instr.base;
-                var selected = entry.Ticker === front || (entry.Ticker && entry.Ticker.indexOf(instr.base) >= 0) ? 'selected' : '';
-                return '<option value="' + instr.base + '" ' + selected + '>' + instr.base + ' — ' + instr.name + ' ($' + instr.pointValue + '/pt)</option>';
+                var front = window.CRV_activeContract ? window.CRV_activeContract(instr.code) : instr.code;
+                var selected = entry.Ticker === front || (entry.Ticker && entry.Ticker.indexOf(instr.code) >= 0) ? 'selected' : '';
+                return '<option value="' + instr.code + '" ' + selected + '>' + instr.code + ' — ' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
             }).join('');
 
         var cfg = entry.Config || {};
