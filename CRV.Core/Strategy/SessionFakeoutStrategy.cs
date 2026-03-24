@@ -198,19 +198,9 @@ public class SessionFakeoutStrategy : ISetupStrategy
             }
         }
 
-        // Bar-level entry
-        if (isReady && (_state == 1 || _state == -1))
-        {
-            bool isLong = _state == 1;
-            var srLow  = modules.SessionRangeLow;
-            var srHigh = modules.SessionRangeHigh;
-            // Long: price crosses above session range low (after false break below)
-            // Short: price crosses below session range high (after false break above)
-            if (isLong && bar.Close >= srLow)
-                TryEntry(srLow, true, orb, bar.Time, modules);
-            else if (!isLong && bar.Close <= srHigh)
-                TryEntry(srHigh, false, orb, bar.Time, modules);
-        }
+        // Bar-level entry: arm on bar, entry happens via OnTick at actual market price.
+        // No bar-level entry — prevents retroactive pricing at session range level
+        // when bar.Close may be far from that level.
     }
 
     private void ProcessBarExit(Bar bar, OrbState orb, IndicatorState ind)
@@ -274,7 +264,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
         if (!_cfg.Enabled) return;
         if (!orb.IsSet || orb.Range <= 0) return;
 
-        // Entry: armed but not active
+        // Entry: armed but not active — enter on tick at market price
         if (!IsActive && IsArmed)
         {
             bool isLong = _state == 1;
@@ -282,10 +272,11 @@ public class SessionFakeoutStrategy : ISetupStrategy
             var srHigh = modules.SessionRangeHigh;
             // Long: price crosses above session range low (after false break below)
             // Short: price crosses below session range high (after false break above)
+            // Entry at actual tick price, not the session range level
             if (isLong && price >= srLow)
-                TryEntryFromTick(srLow, true, orb, utc, modules);
+                TryEntryFromTick(price, true, orb, utc, modules);
             else if (!isLong && price <= srHigh)
-                TryEntryFromTick(srHigh, false, orb, utc, modules);
+                TryEntryFromTick(price, false, orb, utc, modules);
             return; // don't check exit on same tick as entry attempt
         }
 
