@@ -243,13 +243,19 @@ public class ComposableEngine
     {
         foreach (var strategy in _strategies.Values)
         {
-            // Force-exit any trades that were "entered" during warmup — those entries
-            // were discarded (no broker order placed), so the strategy should not think
-            // it has an active position. Preserve armed state for immediate readiness.
+            // Silently clear any active trades from warmup — those entries were
+            // discarded (no broker order placed), so the strategy must not think
+            // it has a real position. Disarm() resets _state to 0 (idle) without
+            // producing exit signals or recording phantom trades.
             if (strategy.IsActive)
-                strategy.ForceExit(0, DateTime.UtcNow, ExitReason.SessionEnd);
-
-            strategy.ResetTradeCounters();
+            {
+                strategy.ClearPendingSignals();
+                strategy.ResetSession();  // full reset: clears entry/stop/target/state
+            }
+            else
+            {
+                strategy.ResetTradeCounters();
+            }
             strategy.ResetCutoff();
         }
         Risk.ResetDay();
