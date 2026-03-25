@@ -420,15 +420,93 @@ public class LiveEngineOrchestrator : BackgroundService
             _log.LogInformation("Engine starting — Feed: {Feed}, Executor: {Exec}, Account: {Acct}",
                 cfg.Broker, execBroker, execAccountId);
 
+            // ── WSS order management (event stream + handler) ─────
+            IBrokerEventStream? eventStream = null;
+            IGroupOrderExecutor? groupExecutor = null;
+            BrokerEventHandler? brokerHandler = null;
+
+            if (execBroker == "Mock")
+            {
+                var mockStream = scope.ServiceProvider.GetRequiredService<MockEventStream>();
+                var mockGroupExec = new MockGroupOrderExecutor(mockStream,
+                    scope.ServiceProvider.GetRequiredService<ILogger<MockGroupOrderExecutor>>());
+                eventStream = mockStream;
+                groupExecutor = mockGroupExec;
+            }
+            else if (execBroker is "Tradovate" or "TradovateReplay")
+            {
+                var tvAuth = execBroker == "TradovateReplay"
+                    ? CreateReplayAuthService(scope)
+                    : scope.ServiceProvider.GetRequiredService<TradovateAuthService>();
+                var tvStream = new TradovateEventStream(tvAuth,
+                    scope.ServiceProvider.GetRequiredService<ILogger<TradovateEventStream>>());
+                eventStream = tvStream;
+                // TradovateExecutor already implements IGroupOrderExecutor
+                if (executor is IGroupOrderExecutor tvGroupExec)
+                    groupExecutor = tvGroupExec;
+            }
+
+            if (groupExecutor != null)
+            {
+                brokerHandler = new BrokerEventHandler(groupExecutor,
+                    scope.ServiceProvider.GetRequiredService<ILogger<BrokerEventHandler>>());
+
+                // Wire trade completion for persistence via the event sink
+                brokerHandler.OnTradeCompleted += (group, trade) =>
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await wrappedSink.OnExitAsync(
+                                new ExitSignal(trade.Setup, trade.ExitReason, trade.Exit,
+                                    trade.Contracts, trade.ExitedAt),
+                                trade);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[BEH] Failed to persist trade for group {G}", group.GroupOrderId);
+                        }
+                    });
+                };
+
+                // Subscribe to event stream
+                eventStream!.OnOrderUpdate += evt =>
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try { await brokerHandler.HandleEventAsync(evt); }
+                        catch (Exception ex) { _log.LogWarning(ex, "[BEH] Event handling failed"); }
+                    });
+                };
+
+                eventStream.OnDisconnected += () =>
+                    _log.LogWarning("[WSS] Broker event stream disconnected");
+            }
+
             // ── Run ─────────────────────────────────────────────────
             var engineConfig = cfg.ToEngineConfig();
-            var newEngine = new ComposableEngine(executor, wrappedSink, prices, engineConfig);
+            var newEngine = new ComposableEngine(executor, wrappedSink, prices, engineConfig, brokerHandler);
             foreach (var setupCfg in cfg.ToSetupConfigs())
             {
                 if (setupCfg.Enabled)
                     newEngine.AddSetup(setupCfg);
             }
             lock (_lifecycleLock) { _engine = newEngine; }
+
+            // Connect event stream (after engine is created)
+            if (eventStream != null)
+            {
+                try
+                {
+                    await eventStream.ConnectAsync(ct);
+                    _log.LogInformation("[WSS] Broker event stream connected ({Type})", eventStream.GetType().Name);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[WSS] Event stream failed to connect — order events will not be received");
+                }
+            }
 
             // Seed module historical levels from daily bars (per ticker)
             foreach (var ticker in distinctTickers)
@@ -577,6 +655,13 @@ public class LiveEngineOrchestrator : BackgroundService
             {
                 mux.OnPriceTick += (price, time, _) =>
                     mockExec.EvaluateFills(price, time);
+            }
+
+            // Also evaluate fills on the MockGroupOrderExecutor (WSS path)
+            if (groupExecutor is MockGroupOrderExecutor mockGrpExec)
+            {
+                mux.OnPriceTick += (price, time, _) =>
+                    mockGrpExec.EvaluateFills(price, time);
             }
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");
@@ -728,6 +813,14 @@ public class LiveEngineOrchestrator : BackgroundService
             lock (_lifecycleLock) { _engine = null; }
             tickCh.Writer.TryComplete();
             try { await tickTask; } catch { /* already cancelled */ }
+
+            // Disconnect WSS event stream
+            if (eventStream != null)
+            {
+                try { await eventStream.DisconnectAsync(); }
+                catch (Exception ex) { _log.LogWarning(ex, "[WSS] Event stream disconnect error"); }
+            }
+
             await mux.DisposeAsync();
             var dropped = Interlocked.Read(ref _ticksDropped);
             if (dropped > 0)

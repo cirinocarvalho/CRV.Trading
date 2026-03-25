@@ -113,6 +113,7 @@ builder.Services.AddSingleton(sp => new TradovateAuthService(
 // LiveEngineOrchestrator at engine start (not via DI) because they
 // require a runtime StrategyConfig that is not a DI service.
 builder.Services.AddSingleton<MockBrokerExecutor>();
+builder.Services.AddSingleton<MockEventStream>();
 
 // ── Live engine ───────────────────────────────────────────────
 builder.Services.AddSingleton<LiveEngineOrchestrator>();
