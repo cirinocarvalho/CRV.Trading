@@ -732,7 +732,7 @@ function addBasketEntry() {
         Ticker: '',
         PointValue: 20,
         TickSize: 0.25,
-        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, StopPct: 0.35, TargetPct: 0.65, PartialPct: 0.50, MinRr: 1.5, Mode: 'Aggressive', UsePartial: true, UseBe: true, PartialCts: 1 }
+        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxAdverseMinutes: 0 }
     });
     renderBasket();
 }

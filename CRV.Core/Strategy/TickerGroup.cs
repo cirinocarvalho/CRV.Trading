@@ -221,6 +221,15 @@ public class TickerGroup
             // Per-setup cutoff: compute local time once for all strategies
             var localTime = TimeOnly.FromDateTime(local);
 
+            // Time-based ORB guard: even if orb.IsSet, don't dispatch to strategies
+            // until the bar's time is genuinely past the ORB window end. This prevents
+            // premature entries if the ORB was set by a bar ordering race at the feed level.
+            var barLocalTime = TimeOnly.FromDateTime(local);
+            if (orbState.IsSet && barLocalTime < _cfg.OrbEnd)
+            {
+                orbState = orbState with { IsSet = false };
+            }
+
             // Dispatch to each strategy, tracking whether fakeout signals get consumed.
             // OrbTracker: clear activation when Setup C newly arms (one-shot, allows new fakeout detection).
             // SessionRangeTracker: do NOT clear — session fakeout persists for the whole session,
@@ -310,6 +319,12 @@ public class TickerGroup
             // Per-setup cutoff for tick path
             var tickLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _tz);
             var tickLocalTime = TimeOnly.FromDateTime(tickLocal);
+
+            // Time-based ORB guard (same as bar path)
+            if (orbState.IsSet && tickLocalTime < _cfg.OrbEnd)
+            {
+                orbState = orbState with { IsSet = false };
+            }
 
             foreach (var strategy in _strategies)
             {
@@ -534,7 +549,7 @@ public class TickerGroup
     /// <summary>Seed ORB floor from cache when restarting inside ORB window.</summary>
     public void SeedOrbFloor(decimal orbHigh, decimal orbLow, DateTime tradingDate)
     {
-        _orb.SeedFloor(orbHigh, orbLow);
+        _orb.SeedFloor(orbHigh, orbLow, tradingDate);
         _lastDate = tradingDate;
     }
 
