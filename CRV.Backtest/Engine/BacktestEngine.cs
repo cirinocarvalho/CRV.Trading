@@ -331,7 +331,10 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         var entryAction = isLong ? "BUY" : "SELL";
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
-        var partialCts = sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2;
+        var usePartial = sig.UsePartial;
+        var partialCts = usePartial
+            ? (sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2)
+            : 0;
         var remainCts = sig.TotalContracts - partialCts;
 
         var group = new GroupOrder
@@ -343,25 +346,32 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
             PointValue = _cfg.PointValue,
+            UseBe = sig.UseBe,
             Status = GroupOrderStatus.Pending,
             Broker = "Backtest",
             SessionId = sig.SessionId,
         };
 
         var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
-        var tg1Leg   = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
         var tg2Leg   = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Tg2Price };
         var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
-        group.Legs.AddRange(new[] { entryLeg, tg1Leg, tg2Leg, stopLeg });
+        group.Legs.AddRange(new[] { entryLeg, tg2Leg, stopLeg });
 
         // Register in internal order book
         var legs = new Dictionary<string, LegState>
         {
             [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.TotalContracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
-            [tg1Leg.OrderId]   = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price },
             [tg2Leg.OrderId]   = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Tg2Price },
             [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
+
+        // Only add tg1 leg when UsePartial is enabled
+        if (usePartial)
+        {
+            var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
+            group.Legs.Add(tg1Leg);
+            legs[tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price };
+        }
         _ordersByGroup[groupId] = legs;
 
         // Apply slippage to entry fill price

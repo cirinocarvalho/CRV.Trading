@@ -205,7 +205,10 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         bool isLimit = sig.OrderType == "Limit";
 
         var groupId = Guid.NewGuid().ToString("N")[..8];
-        var partialCts = sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2;
+        var usePartial = sig.UsePartial;
+        var partialCts = usePartial
+            ? (sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2)
+            : 0;
         var remainCts = sig.TotalContracts - partialCts;
 
         // 1. Place Entry + Stop via placeOSO
@@ -225,17 +228,21 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             return null;
         }
 
-        // 2. Place Tg1 (partial limit)
-        var tg1Body = new
+        // 2. Place Tg1 (partial limit) — only when UsePartial is enabled
+        long? tg1Id = null;
+        if (usePartial)
         {
-            accountSpec = account.Name, accountId = account.Id,
-            action = exitAction, symbol,
-            orderQty = partialCts, orderType = "Limit", price = sig.Tg1Price,
-            isAutomated = true
-        };
-        var tg1Id = await PlaceSingleAsync(tg1Body);
+            var tg1Body = new
+            {
+                accountSpec = account.Name, accountId = account.Id,
+                action = exitAction, symbol,
+                orderQty = partialCts, orderType = "Limit", price = sig.Tg1Price,
+                isAutomated = true
+            };
+            tg1Id = await PlaceSingleAsync(tg1Body);
+        }
 
-        // 3. Place Tg2 (remaining limit)
+        // 3. Place Tg2 (remaining limit — or full contracts when no partial)
         var tg2Body = new
         {
             accountSpec = account.Name, accountId = account.Id,
@@ -264,6 +271,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             Direction = sig.Direction,
             TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
+            UseBe = sig.UseBe,
             Status = GroupOrderStatus.Pending,
             Broker = "Tradovate",
         };

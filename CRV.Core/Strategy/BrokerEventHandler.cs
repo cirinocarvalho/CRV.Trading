@@ -288,14 +288,19 @@ public class BrokerEventHandler
             group.AccruedPartialPnl = partialPnl;
         }
 
-        // Move stop to BE with reduced qty
+        // Move stop to BE (if enabled) with reduced qty
         var stopLeg = group.GetLeg(LegType.Stop);
         if (stopLeg != null && group.EntryPrice.HasValue)
         {
             var remaining = group.TotalContracts - group.PartialContracts;
-            await _executor.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, remaining);
-            _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
-                group.GroupOrderId, group.EntryPrice, remaining);
+            var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
+            await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
+            if (group.UseBe)
+                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
+                    group.GroupOrderId, group.EntryPrice, remaining);
+            else
+                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop stays @ {P}, qty→{Q}",
+                    group.GroupOrderId, stopLeg.Price, remaining);
         }
     }
 

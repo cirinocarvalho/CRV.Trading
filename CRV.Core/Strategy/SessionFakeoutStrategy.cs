@@ -250,7 +250,8 @@ public class SessionFakeoutStrategy : ISetupStrategy
             _cfg.SetupId,
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
-            _cfg.OrderType, Ticker: _cfg.Ticker);
+            _cfg.OrderType, Ticker: _cfg.Ticker,
+            UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe);
 
         _tradeCount++;
         if (isLong) _bullTraded = true; else _bearTraded = true;

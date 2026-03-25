@@ -19,7 +19,9 @@ public record EntrySignal(
     string    SessionId  = "NY",       // "Asia" | "London" | "NY"
     string    Ticker     = "",         // Per-setup ticker override; empty = use global
     string    SetupLabel = "",         // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
-    int       PartialContracts = 0);   // Contracts for tg1 partial exit (0 = TotalContracts/2)
+    int       PartialContracts = 0,    // Contracts for tg1 partial exit (0 = TotalContracts/2)
+    bool      UsePartial = true,       // false = no tg1 leg, tg2 gets full contracts
+    bool      UseBe      = true);      // false = stop stays at initial level after tg1 fill
 
 // ── Completed trade — persisted to SQLite ────────────────────
 public class TradeRecord

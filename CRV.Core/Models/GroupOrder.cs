@@ -32,6 +32,7 @@ public class GroupOrder
     public decimal AccruedPartialPnl { get; set; }
     public GroupOrderStatus Status { get; set; } = GroupOrderStatus.Pending;
     public string Broker { get; set; } = "";
+    public bool UseBe { get; set; } = true;
     public string? SessionId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
