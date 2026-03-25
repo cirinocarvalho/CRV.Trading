@@ -75,7 +75,7 @@ public class BacktestEngine
         var trades   = new List<TradeRecord>();
         var sink     = new BacktestSink(trades);
         var prices   = new InMemoryPriceProvider();
-        var executor = new BacktestExecutor(_btCfg, _cfg, sink);
+        var executor = new BacktestExecutor(_btCfg, _cfg);
         var engineConfig = _cfg.ToEngineConfig();
         var engine   = new ComposableEngine(executor, sink, prices, engineConfig);
 
@@ -272,26 +272,14 @@ internal class BacktestExecutor : IOrderExecutor
 {
     private readonly BacktestConfig _btCfg;
     private readonly StrategyConfig _cfg;
-    private readonly BacktestSink   _sink;
 
-    public BacktestExecutor(BacktestConfig btCfg, StrategyConfig cfg, BacktestSink sink)
-    { _btCfg = btCfg; _cfg = cfg; _sink = sink; }
+    public BacktestExecutor(BacktestConfig btCfg, StrategyConfig cfg)
+    { _btCfg = btCfg; _cfg = cfg; }
 
     public Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
-        var filled = sig with { Entry = ApplySlip(sig.Entry, sig.Direction == Direction.Long) };
-        _sink.RecordEntry(filled);
-        return Task.FromResult<decimal?>(null);
-    }
-    public Task OnPartialSignalAsync(PartialSignal sig) => Task.CompletedTask;
-    public Task OnBESignalAsync(BESignal sig)           => Task.CompletedTask;
-    public Task OnExitSignalAsync(ExitSignal sig)
-    {
-        var filled = sig with { ExitPrice = sig.Reason == ExitReason.Stop
-            ? ApplySlip(sig.ExitPrice, false)
-            : sig.ExitPrice };
-        _sink.RecordExit(filled);
-        return Task.CompletedTask;
+        var fillPrice = ApplySlip(sig.Entry, sig.Direction == Direction.Long);
+        return Task.FromResult<decimal?>(fillPrice);
     }
 
     private decimal ApplySlip(decimal price, bool isBuy)
@@ -306,30 +294,9 @@ internal class BacktestExecutor : IOrderExecutor
 internal class BacktestSink : IStrategyEventSink
 {
     private readonly List<TradeRecord> _trades;
-    private readonly Dictionary<string, EntrySignal> _open = new();
-
     public BacktestSink(List<TradeRecord> trades) => _trades = trades;
-
-    public void RecordEntry(EntrySignal sig) => _open[sig.Setup.ToString()] = sig;
-
-    public void RecordExit(ExitSignal sig)
-    {
-        var key = sig.Setup.ToString();
-        if (!_open.TryGetValue(key, out var entry)) return;
-        _open.Remove(key);
-        // Trade record built in OnExitAsync below
-    }
-
-    public Task OnEntryAsync(EntrySignal s)  { _open[s.Setup.ToString()] = s; return Task.CompletedTask; }
-    public Task OnPartialAsync(PartialSignal s) => Task.CompletedTask;
-    public Task OnBEMoveAsync(BESignal s)       => Task.CompletedTask;
-
-    public Task OnExitAsync(ExitSignal sig, TradeRecord completed)
-    {
-        _trades.Add(completed);
-        return Task.CompletedTask;
-    }
-
+    public Task OnEntryAsync(EntrySignal s) => Task.CompletedTask;
+    public Task OnExitAsync(TradeRecord t) { _trades.Add(t); return Task.CompletedTask; }
     public Task OnSnapshotAsync(EngineSnapshot snap) => Task.CompletedTask;
 }
 

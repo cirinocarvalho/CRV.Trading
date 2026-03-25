@@ -499,10 +499,7 @@ public class LiveEngineOrchestrator : BackgroundService
                         try
                         {
                             // Persist trade record via event sink
-                            await wrappedSink.OnExitAsync(
-                                new ExitSignal(trade.Setup, trade.ExitReason, trade.Exit,
-                                    trade.Contracts, trade.ExitedAt),
-                                trade);
+                            await wrappedSink.OnExitAsync(trade);
 
                             // Persist GroupOrder + OrderLegs to DB
                             using var dbScope = _sp.CreateScope();
@@ -1165,14 +1162,12 @@ internal class SourceOverrideSink : IStrategyEventSink
     }
 
     public Task OnEntryAsync(EntrySignal s)              => _inner.OnEntryAsync(s);
-    public Task OnPartialAsync(PartialSignal s)          => _inner.OnPartialAsync(s);
-    public Task OnBEMoveAsync(BESignal s)                => _inner.OnBEMoveAsync(s);
     public Task OnSnapshotAsync(EngineSnapshot snap)     => _inner.OnSnapshotAsync(snap);
 
-    public Task OnExitAsync(ExitSignal s, TradeRecord t)
+    public Task OnExitAsync(TradeRecord t)
     {
         t.Source = _source; // override before persistence
-        return _inner.OnExitAsync(s, t);
+        return _inner.OnExitAsync(t);
     }
 }
 
@@ -1192,11 +1187,9 @@ internal class ReplayFilterSink : IStrategyEventSink
     }
 
     public Task OnEntryAsync(EntrySignal s)          => _inner.OnEntryAsync(s);
-    public Task OnPartialAsync(PartialSignal s)      => _inner.OnPartialAsync(s);
-    public Task OnBEMoveAsync(BESignal s)            => _inner.OnBEMoveAsync(s);
     public Task OnSnapshotAsync(EngineSnapshot snap) => _inner.OnSnapshotAsync(snap);
 
-    public Task OnExitAsync(ExitSignal s, TradeRecord t)
+    public Task OnExitAsync(TradeRecord t)
     {
         _log.LogInformation("[REPLAY] Trade completed but NOT persisted: {Setup} {Dir} {Entry}→{Exit} PnL={Pnl:F2}",
             t.Setup, t.Direction, t.Entry, t.Exit, t.NetPnl);
@@ -1217,9 +1210,7 @@ internal class SnapshotCachingSink : IStrategyEventSink
     }
 
     public Task OnEntryAsync(EntrySignal s)              => _inner.OnEntryAsync(s);
-    public Task OnPartialAsync(PartialSignal s)          => _inner.OnPartialAsync(s);
-    public Task OnBEMoveAsync(BESignal s)                => _inner.OnBEMoveAsync(s);
-    public Task OnExitAsync(ExitSignal s, TradeRecord t) => _inner.OnExitAsync(s, t);
+    public Task OnExitAsync(TradeRecord t)               => _inner.OnExitAsync(t);
 
     public async Task OnSnapshotAsync(EngineSnapshot snap)
     {

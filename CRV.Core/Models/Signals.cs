@@ -33,31 +33,6 @@ public static class EntrySignalExtensions
         s.PartialContracts > 0 ? s.PartialContracts : s.Contracts / 2;
 }
 
-public record ExitSignal(
-    SetupId    Setup,
-    ExitReason Reason,
-    decimal    ExitPrice,
-    int        Contracts,
-    DateTime   Time,
-    string     Ticker = "");          // Per-setup ticker override; empty = use global
-
-public record PartialSignal(
-    SetupId   Setup,
-    Direction Direction,
-    decimal   PartialPrice,
-    int       ContractsExited,
-    int       ContractsRemaining,
-    decimal   Entry,
-    DateTime  Time);
-
-public record BESignal(
-    SetupId   Setup,
-    Direction Direction,
-    decimal   NewStop,
-    decimal   Entry,
-    int       ContractsRemaining,
-    DateTime  Time);
-
 // ── Completed trade — persisted to SQLite ────────────────────
 public class TradeRecord
 {

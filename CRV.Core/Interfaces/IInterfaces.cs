@@ -37,9 +37,6 @@ public interface IOrderExecutor
     /// When null, the engine keeps the theoretical entry price.
     /// </summary>
     Task<decimal?> OnEntrySignalAsync(EntrySignal signal);
-    Task OnPartialSignalAsync(PartialSignal signal);
-    Task OnBESignalAsync(BESignal signal);
-    Task OnExitSignalAsync(ExitSignal signal);
 
     /// <summary>
     /// Called after fill price adjustment or partial fill changes stop/target levels or quantity.
@@ -63,9 +60,7 @@ public interface IGroupOrderExecutor
 public interface IStrategyEventSink
 {
     Task OnEntryAsync(EntrySignal signal);
-    Task OnPartialAsync(PartialSignal signal);
-    Task OnBEMoveAsync(BESignal signal);
-    Task OnExitAsync(ExitSignal signal, TradeRecord completed);
+    Task OnExitAsync(TradeRecord completed);
     Task OnSnapshotAsync(EngineSnapshot snapshot);
 }
 
