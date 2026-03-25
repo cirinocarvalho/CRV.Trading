@@ -442,7 +442,12 @@ public class LiveEngineOrchestrator : BackgroundService
                     scope.ServiceProvider.GetRequiredService<ILogger<TradovateEventStream>>());
                 eventStream = tvStream;
                 // TradovateExecutor already implements IGroupOrderExecutor
-                if (executor is IGroupOrderExecutor tvGroupExec)
+                if (executor is TradovateExecutor tvExec)
+                {
+                    tvExec.EventStream = tvStream;
+                    groupExecutor = tvExec;
+                }
+                else if (executor is IGroupOrderExecutor tvGroupExec)
                     groupExecutor = tvGroupExec;
             }
 
@@ -484,6 +489,10 @@ public class LiveEngineOrchestrator : BackgroundService
                 {
                     // Record in risk manager so daily loss limit works
                     newEngine.Risk.RecordTrade(trade.NetPnl);
+
+                    // Clean up WSS order map for Tradovate
+                    if (eventStream is TradovateEventStream tvs)
+                        tvs.UnregisterGroup(group.GroupOrderId);
 
                     _ = Task.Run(async () =>
                     {

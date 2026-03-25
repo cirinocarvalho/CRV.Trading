@@ -197,6 +197,69 @@ public class OrdersModel : PageModel
             )).ToList();
     }
 
+    // ── AJAX: returns group orders (WSS-managed) as JSON ─────────
+
+    public async Task<IActionResult> OnGetGroupOrdersAsync(
+        string? from = null, string? to = null)
+    {
+        try
+        {
+            var fromDate = DateTime.TryParse(from, out var fd) ? fd : DateTime.Today;
+            var toDate   = DateTime.TryParse(to,   out var td) ? td : DateTime.Today;
+            var fromUtc  = DateTime.SpecifyKind(fromDate, DateTimeKind.Utc);
+            var toUtc    = DateTime.SpecifyKind(toDate.AddDays(1), DateTimeKind.Utc);
+
+            var groups = await _db.GroupOrders.AsNoTracking()
+                .Where(g => g.CreatedAt >= fromUtc && g.CreatedAt < toUtc)
+                .OrderByDescending(g => g.CreatedAt)
+                .ToListAsync();
+
+            var groupIds = groups.Select(g => g.GroupOrderId).ToList();
+            var legs = await _db.OrderLegs.AsNoTracking()
+                .Where(l => groupIds.Contains(l.GroupOrderId))
+                .ToListAsync();
+
+            var legsByGroup = legs.GroupBy(l => l.GroupOrderId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var result = groups.Select(g => new
+            {
+                g.GroupOrderId,
+                g.SetupId,
+                g.Ticker,
+                Direction = g.Direction.ToString(),
+                g.TotalContracts,
+                g.PartialContracts,
+                g.EntryPrice,
+                Status = g.Status.ToString(),
+                g.Broker,
+                CreatedAt = ToEtString(g.CreatedAt),
+                CompletedAt = g.CompletedAt.HasValue ? ToEtString(g.CompletedAt.Value) : null,
+                Legs = (legsByGroup.TryGetValue(g.GroupOrderId, out var gl)
+                    ? gl.Select(l => (object)new
+                    {
+                        l.OrderId,
+                        LegType = l.LegType.ToString(),
+                        l.OrderType,
+                        l.Action,
+                        l.Quantity,
+                        l.Price,
+                        Status = l.Status.ToString(),
+                        l.FillPrice,
+                        FillTime = l.FillTime.HasValue ? ToEtString(l.FillTime.Value) : null,
+                    }).ToList()
+                    : new List<object>())
+            }).ToList();
+
+            return new JsonResult(result);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "GetGroupOrders failed");
+            return new JsonResult(new { error = ex.Message }) { StatusCode = 500 };
+        }
+    }
+
     // ── Helper ────────────────────────────────────────────────────
 
     private StrategyConfig BuildCfg(string broker)

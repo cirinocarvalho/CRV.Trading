@@ -40,6 +40,10 @@ public class BrokerEventHandler
     /// <summary>Register a newly placed group order for event tracking.</summary>
     public void RegisterGroup(GroupOrder group, ISetupStrategy strategy)
     {
+        // Ensure PointValue is set for P&L calculations
+        if (group.PointValue == 0 && strategy.PointValue > 0)
+            group.PointValue = strategy.PointValue;
+
         lock (_lock)
             _active[group.SetupId] = (group, strategy);
     }

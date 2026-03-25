@@ -85,7 +85,23 @@
     </div>
 </div>
 
-<!-- ── Orders table ──────────────────────────────────────────── -->
+<!-- ── View tabs ─────────────────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-broker" type="button">
+            <i class="bi bi-list-ul me-1"></i>Broker Orders
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-groups" type="button" onclick="loadGroupOrders()">
+            <i class="bi bi-diagram-3 me-1"></i>Group Orders
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+<!-- ── Broker Orders table ──────────────────────────────────── -->
+<div class="tab-pane fade show active" id="tab-broker">
 <div class="settings-section">
     <div id="orders-error" class="alert alert-danger d-none small py-1 mb-2"></div>
 
@@ -113,6 +129,39 @@
     </div>
 
     <div class="small text-muted mt-1" id="orders-count"></div>
+</div>
+</div>
+
+<!-- ── Group Orders table ───────────────────────────────────── -->
+<div class="tab-pane fade" id="tab-groups">
+<div class="settings-section">
+    <div id="groups-error" class="alert alert-danger d-none small py-1 mb-2"></div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover trade-table font-monospace" id="groups-table">
+            <thead class="table-dark">
+                <tr>
+                    <th>Group</th>
+                    <th>Setup</th>
+                    <th>Ticker</th>
+                    <th>Dir</th>
+                    <th class="text-end">Cts</th>
+                    <th class="text-end">Entry</th>
+                    <th>Status</th>
+                    <th>Broker</th>
+                    <th>Created</th>
+                    <th>Completed</th>
+                </tr>
+            </thead>
+            <tbody id="groups-tbody">
+                <tr><td colspan="10" class="text-center text-muted small py-3">Click tab to load group orders.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="small text-muted mt-1" id="groups-count"></div>
+</div>
+</div>
 </div>
 
 <!-- Cancel confirmation modal -->
@@ -303,6 +352,89 @@ document.getElementById('auto-refresh').addEventListener('change', e => {
         if (_ordersTimer) { clearInterval(_ordersTimer); _ordersTimer = null; }
     }
 });
+
+// ── Group Orders ─────────────────────────────────────────────
+function loadGroupOrders() {
+    const from = document.getElementById('f-from').value;
+    const to   = document.getElementById('f-to').value;
+    const url  = `?handler=GroupOrders&from=${from}&to=${to}`;
+
+    document.getElementById('groups-tbody').innerHTML =
+        '<tr><td colspan="10" class="text-center text-muted small py-3">Loading…</td></tr>';
+    document.getElementById('groups-error').classList.add('d-none');
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => renderGroupOrders(data))
+        .catch(err => {
+            document.getElementById('groups-error').textContent = 'Load error: ' + err;
+            document.getElementById('groups-error').classList.remove('d-none');
+        });
+}
+
+function renderGroupOrders(data) {
+    const tbody = document.getElementById('groups-tbody');
+    if (data.error) {
+        document.getElementById('groups-error').textContent = data.error;
+        document.getElementById('groups-error').classList.remove('d-none');
+        return;
+    }
+
+    const groups = Array.isArray(data) ? data : [];
+    document.getElementById('groups-count').textContent = `${groups.length} group(s)`;
+
+    if (groups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted small py-3">No group orders found.</td></tr>';
+        return;
+    }
+
+    const statusCls = s => {
+        if (s === 'Active' || s === 'PartialFilled') return 'text-warning';
+        if (s === 'Completed') return 'text-success';
+        if (s === 'Canceled') return 'text-secondary';
+        return '';
+    };
+    const fmtP = v => v == null ? '—' : Number(v).toFixed(2);
+
+    let html = '';
+    for (const g of groups) {
+        const dirCls = g.direction === 'Long' ? 'pnl-pos' : 'pnl-neg';
+        html += `<tr style="cursor:pointer" onclick="this.nextElementSibling?.classList.toggle('d-none')">
+            <td class="small fw-bold">${g.groupOrderId}</td>
+            <td><span class="badge bg-warning text-dark">${g.setupId}</span></td>
+            <td>${g.ticker || '—'}</td>
+            <td class="${dirCls}">${g.direction === 'Long' ? '▲ LONG' : '▼ SHORT'}</td>
+            <td class="text-end">${g.totalContracts}</td>
+            <td class="text-end">${fmtP(g.entryPrice)}</td>
+            <td class="${statusCls(g.status)} small">${g.status}</td>
+            <td class="small">${g.broker}</td>
+            <td class="small text-muted">${g.createdAt || '—'}</td>
+            <td class="small text-muted">${g.completedAt || '—'}</td>
+        </tr>`;
+        // Expandable legs row
+        if (g.legs && g.legs.length > 0) {
+            html += `<tr class="d-none"><td colspan="10" class="px-4 py-1">
+                <table class="table table-sm table-borderless mb-0 font-monospace small">
+                    <thead><tr class="text-muted"><th>Leg</th><th>Order ID</th><th>Type</th><th>Action</th>
+                        <th class="text-end">Qty</th><th class="text-end">Price</th><th class="text-end">Fill</th>
+                        <th>Status</th><th>Fill Time</th></tr></thead>
+                    <tbody>${g.legs.map(l => `<tr>
+                        <td class="fw-bold">${l.legType}</td>
+                        <td class="small">${l.orderId}</td>
+                        <td>${l.orderType}</td>
+                        <td>${l.action}</td>
+                        <td class="text-end">${l.quantity}</td>
+                        <td class="text-end">${fmtP(l.price)}</td>
+                        <td class="text-end">${fmtP(l.fillPrice)}</td>
+                        <td class="${statusCls(l.status)}">${l.status}</td>
+                        <td class="small text-muted">${l.fillTime || '—'}</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </td></tr>`;
+        }
+    }
+    tbody.innerHTML = html;
+}
 
 // Populate status options for initial broker, then load
 onBrokerChanged();

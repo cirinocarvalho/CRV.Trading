@@ -550,7 +550,10 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
 
     public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
     {
-        _log.LogInformation("[MOCK-GRP] Market close {D} {Q}x {T}", direction, qty, ticker);
+        // In mock mode, market close is a no-op — BrokerEventHandler already manages
+        // the group state transition. In live brokers this actually places a market order.
+        // We log it for visibility in mock testing.
+        _log.LogInformation("[MOCK-GRP] Market close {D} {Q}x {T} (simulated — position flattened)", direction, qty, ticker);
         return Task.CompletedTask;
     }
 

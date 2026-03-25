@@ -57,6 +57,12 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     private record AccountRef(string Name, long Id);
     private AccountRef? _cachedAccount;
 
+    /// <summary>
+    /// Optional WSS event stream for order registration.
+    /// Set by the orchestrator after construction so WSS events can route to groups.
+    /// </summary>
+    public TradovateEventStream? EventStream { get; set; }
+
     public TradovateExecutor(
         TradovateAuthService auth,
         StrategyConfig cfg,
@@ -378,6 +384,15 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Id.Value.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = remainCts, Price = sig.Target });
         if (stopId.HasValue)
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = stopId.Value.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = sig.Contracts, Price = sig.Stop });
+
+        // Register all legs with WSS event stream for real-time routing
+        if (EventStream != null)
+        {
+            EventStream.RegisterOrder(entryId.Value, groupId, LegType.Entry);
+            if (tg1Id.HasValue) EventStream.RegisterOrder(tg1Id.Value, groupId, LegType.Tg1);
+            if (tg2Id.HasValue) EventStream.RegisterOrder(tg2Id.Value, groupId, LegType.Tg2);
+            if (stopId.HasValue) EventStream.RegisterOrder(stopId.Value, groupId, LegType.Stop);
+        }
 
         _log.LogInformation("[TV-GRP] Group {G} placed: entry={E} tg1={T1} tg2={T2} stop={S}",
             groupId, entryId, tg1Id, tg2Id, stopId);

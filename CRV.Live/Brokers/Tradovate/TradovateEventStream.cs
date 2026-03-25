@@ -161,6 +161,19 @@ public class TradovateEventStream : IBrokerEventStream
         {
             IsConnected = true;
             _log.LogInformation("[TV-WSS] Authenticated successfully");
+
+            // Get user ID and subscribe to order sync events
+            var userId = await GetUserIdAsync(ct);
+            if (userId > 0)
+            {
+                var syncMsg = $"user/syncrequest\n1\n\n{{\"users\":[{userId}]}}";
+                await SendAsync(syncMsg, ct);
+                _log.LogInformation("[TV-WSS] Subscribed to user/syncrequest for userId={UserId}", userId);
+            }
+            else
+            {
+                _log.LogWarning("[TV-WSS] Could not resolve user ID — order events may not be received");
+            }
         }
         else
         {
@@ -168,9 +181,36 @@ public class TradovateEventStream : IBrokerEventStream
         }
     }
 
+    /// <summary>Resolve the Tradovate user ID from REST API for subscription.</summary>
+    private async Task<long> GetUserIdAsync(CancellationToken ct)
+    {
+        try
+        {
+            var token = await _auth.GetAccessTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await http.GetStringAsync($"{_auth.ApiBaseUrl}/user/list", ct);
+            using var doc = JsonDocument.Parse(resp);
+
+            foreach (var user in doc.RootElement.EnumerateArray())
+            {
+                if (user.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
+                    return idProp.GetInt64();
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV-WSS] Failed to get user ID");
+        }
+        return 0;
+    }
+
     private async Task ReceiveLoop(CancellationToken ct)
     {
         var buffer = new byte[8192];
+        var msgBuffer = new MemoryStream();
 
         try
         {
@@ -187,7 +227,13 @@ public class TradovateEventStream : IBrokerEventStream
                     continue;
                 }
 
-                var msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                // Accumulate multi-frame messages
+                msgBuffer.Write(buffer, 0, result.Count);
+                if (!result.EndOfMessage)
+                    continue;
+
+                var msg = Encoding.UTF8.GetString(msgBuffer.GetBuffer(), 0, (int)msgBuffer.Length);
+                msgBuffer.SetLength(0);
 
                 // Tradovate heartbeat
                 if (msg.StartsWith("h"))

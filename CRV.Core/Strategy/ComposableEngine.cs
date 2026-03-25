@@ -528,15 +528,53 @@ public class ComposableEngine
 
         var snapshot = SnapshotAggregator.Build(inputs);
 
-        // Overlay WSS group order status onto trade views when BrokerEventHandler is active
+        // Overlay WSS group order data onto snapshots when BrokerEventHandler is active
         if (_brokerHandler != null)
         {
             foreach (var setup in snapshot.Setups)
             {
                 var group = _brokerHandler.GetGroupState(setup.Id);
-                if (group != null && setup.Trade != null)
+                if (group == null) continue;
+
+                var setupPrice = _strategies.TryGetValue(setup.Id, out var strat)
+                    ? _prices.GetLastPrice(strat.Ticker)
+                    : lastPrice;
+
+                // If strategy doesn't have trade state (WSS owns it), build ActiveTradeView from GroupOrder
+                if (setup.Trade == null && group.EntryPrice.HasValue)
+                {
+                    var stopLeg = group.GetLeg(LegType.Stop);
+                    var tg1Leg = group.GetLeg(LegType.Tg1);
+                    var tg2Leg = group.GetLeg(LegType.Tg2);
+                    var remaining = group.Status == GroupOrderStatus.PartialFilled
+                        ? group.TotalContracts - group.PartialContracts
+                        : group.TotalContracts;
+
+                    setup.Trade = new ActiveTradeView
+                    {
+                        Setup = strat?.SetupId ?? SetupId.A,
+                        Direction = group.Direction,
+                        Entry = group.EntryPrice.Value,
+                        InitialStop = stopLeg?.Price ?? 0m,
+                        CurrentStop = stopLeg?.Price ?? 0m,
+                        Target = tg2Leg?.Price ?? 0m,
+                        Partial = tg1Leg?.Price ?? 0m,
+                        Contracts = group.TotalContracts,
+                        RemainingContracts = remaining,
+                        PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+                        LastPrice = setupPrice,
+                        UnrealizedPnl = _brokerHandler.GetUnrealizedPnl(setup.Id, setupPrice),
+                        EnteredAt = group.CreatedAt,
+                        Ticker = group.Ticker.TrimStart('/'),
+                        PointValue = group.PointValue,
+                    };
+                }
+
+                if (setup.Trade != null)
                 {
                     setup.Trade.GroupStatus = group.Status.ToString();
+                    // Always use BrokerEventHandler's P&L (includes accrued partials)
+                    setup.Trade.UnrealizedPnl = _brokerHandler.GetUnrealizedPnl(setup.Id, setupPrice);
                 }
             }
         }
