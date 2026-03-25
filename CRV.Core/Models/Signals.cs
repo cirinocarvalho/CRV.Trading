@@ -18,7 +18,8 @@ public record EntrySignal(
     string    OrderType  = "Market",   // "Market" or "Limit"
     string    SessionId  = "NY",       // "Asia" | "London" | "NY"
     string    Ticker     = "",         // Per-setup ticker override; empty = use global
-    string    SetupLabel = "");        // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
+    string    SetupLabel = "",         // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
+    int       PartialContracts = 0);   // Contracts for tg1 partial exit (0 = Contracts/2)
 
 // ── Bridge extensions for WSS order management transition ───
 // Allow BrokerEventHandler to read EntrySignal using new field names
@@ -28,6 +29,8 @@ public static class EntrySignalExtensions
     public static decimal Tg1Price(this EntrySignal s) => s.Partial;
     public static decimal Tg2Price(this EntrySignal s) => s.Target;
     public static int TotalContracts(this EntrySignal s) => s.Contracts;
+    public static int EffectivePartialContracts(this EntrySignal s) =>
+        s.PartialContracts > 0 ? s.PartialContracts : s.Contracts / 2;
 }
 
 public record ExitSignal(

@@ -461,7 +461,7 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         var entryAction = isLong ? "BUY" : "SELL";
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
-        var partialCts = sig.Contracts / 2;
+        var partialCts = sig.EffectivePartialContracts();
         var remainCts = sig.Contracts - partialCts;
 
         var group = new GroupOrder

@@ -308,7 +308,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         bool isLimit = sig.OrderType == "Limit";
 
         var groupId = Guid.NewGuid().ToString("N")[..8];
-        var partialCts = sig.Contracts / 2;
+        var partialCts = sig.EffectivePartialContracts();
         var remainCts = sig.Contracts - partialCts;
 
         // 1. Place Entry + Stop via placeOSO

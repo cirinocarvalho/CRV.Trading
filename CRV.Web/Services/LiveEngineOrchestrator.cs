@@ -451,24 +451,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 brokerHandler = new BrokerEventHandler(groupExecutor,
                     scope.ServiceProvider.GetRequiredService<ILogger<BrokerEventHandler>>());
 
-                // Wire trade completion for persistence via the event sink
-                brokerHandler.OnTradeCompleted += (group, trade) =>
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await wrappedSink.OnExitAsync(
-                                new ExitSignal(trade.Setup, trade.ExitReason, trade.Exit,
-                                    trade.Contracts, trade.ExitedAt),
-                                trade);
-                        }
-                        catch (Exception ex)
-                        {
-                            _log.LogWarning(ex, "[BEH] Failed to persist trade for group {G}", group.GroupOrderId);
-                        }
-                    });
-                };
+                // Trade completion wired after engine creation (needs Risk reference)
 
                 // Subscribe to event stream
                 eventStream!.OnOrderUpdate += evt =>
@@ -493,6 +476,40 @@ public class LiveEngineOrchestrator : BackgroundService
                     newEngine.AddSetup(setupCfg);
             }
             lock (_lifecycleLock) { _engine = newEngine; }
+
+            // Wire trade completion: record P&L in RiskManager + persist via sink
+            if (brokerHandler != null)
+            {
+                brokerHandler.OnTradeCompleted += (group, trade) =>
+                {
+                    // Record in risk manager so daily loss limit works
+                    newEngine.Risk.RecordTrade(trade.NetPnl);
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            // Persist trade record via event sink
+                            await wrappedSink.OnExitAsync(
+                                new ExitSignal(trade.Setup, trade.ExitReason, trade.Exit,
+                                    trade.Contracts, trade.ExitedAt),
+                                trade);
+
+                            // Persist GroupOrder + OrderLegs to DB
+                            using var dbScope = _sp.CreateScope();
+                            var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                            db.GroupOrders.Add(group);
+                            foreach (var leg in group.Legs)
+                                db.OrderLegs.Add(leg);
+                            await db.SaveChangesAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[BEH] Failed to persist trade/group for {G}", group.GroupOrderId);
+                        }
+                    });
+                };
+            }
 
             // Connect event stream (after engine is created)
             if (eventStream != null)

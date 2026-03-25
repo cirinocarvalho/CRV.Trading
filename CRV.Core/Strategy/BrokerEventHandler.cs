@@ -21,6 +21,11 @@ public class BrokerEventHandler
     private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _active = new();
     private readonly object _lock = new();
 
+    // Per-group async lock to serialize concurrent WSS events for the same group
+    // (e.g. tg1 fill + stop fill racing)
+    private readonly Dictionary<string, SemaphoreSlim> _groupLocks = new();
+    private readonly object _groupLocksLock = new();
+
     /// <summary>Raised when a group completes (target, stop, or manual exit).</summary>
     public event Action<GroupOrder, TradeRecord>? OnTradeCompleted;
 
@@ -62,8 +67,42 @@ public class BrokerEventHandler
 
     // ── Event handling ──────────────────────────────────────────
 
+    private SemaphoreSlim GetGroupLock(string groupOrderId)
+    {
+        lock (_groupLocksLock)
+        {
+            if (!_groupLocks.TryGetValue(groupOrderId, out var sem))
+            {
+                sem = new SemaphoreSlim(1, 1);
+                _groupLocks[groupOrderId] = sem;
+            }
+            return sem;
+        }
+    }
+
+    private void RemoveGroupLock(string groupOrderId)
+    {
+        lock (_groupLocksLock)
+            _groupLocks.Remove(groupOrderId);
+    }
+
     /// <summary>Handle an order event from the broker event stream.</summary>
     public async Task HandleEventAsync(OrderEvent evt)
+    {
+        // Serialize events for the same group to prevent race conditions
+        var groupLock = GetGroupLock(evt.GroupOrderId);
+        await groupLock.WaitAsync();
+        try
+        {
+            await HandleEventCoreAsync(evt);
+        }
+        finally
+        {
+            groupLock.Release();
+        }
+    }
+
+    private async Task HandleEventCoreAsync(OrderEvent evt)
     {
         GroupOrder? group;
         ISetupStrategy? strategy;
@@ -158,6 +197,7 @@ public class BrokerEventHandler
 
         lock (_lock)
             _active.Remove(setupId);
+        RemoveGroupLock(group.GroupOrderId);
     }
 
     /// <summary>Force-close all active groups (session boundary).</summary>
@@ -285,6 +325,7 @@ public class BrokerEventHandler
 
         lock (_lock)
             _active.Remove(group.SetupId);
+        RemoveGroupLock(group.GroupOrderId);
     }
 
     private Task CompleteGroup(GroupOrder group, ISetupStrategy strategy,
@@ -343,6 +384,7 @@ public class BrokerEventHandler
 
         lock (_lock)
             _active.Remove(group.SetupId);
+        RemoveGroupLock(group.GroupOrderId);
 
         return Task.CompletedTask;
     }
