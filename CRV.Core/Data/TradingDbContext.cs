@@ -11,6 +11,8 @@ public class TradingDbContext : DbContext
     public DbSet<StrategyConfig> Configs { get; set; } = null!;
     public DbSet<BacktestRunRow> BacktestRuns { get; set; } = null!;
     public DbSet<OrderRecord>   Orders  { get; set; } = null!;
+    public DbSet<GroupOrder>    GroupOrders { get; set; } = null!;
+    public DbSet<OrderLeg>      OrderLegs   { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -38,6 +40,27 @@ public class TradingDbContext : DbContext
             e.HasIndex(o => o.Broker);
             e.HasIndex(o => o.PlacedAt);
             e.HasIndex(o => o.OrderId);
+        });
+
+        // ── Group Orders (WSS order management) ──────────────────
+        b.Entity<GroupOrder>(e =>
+        {
+            e.HasKey(g => g.Id);
+            e.HasIndex(g => g.GroupOrderId).IsUnique();
+            e.HasIndex(g => g.SetupId);
+            e.HasIndex(g => g.CreatedAt);
+            e.Property(g => g.Direction).HasConversion<string>();
+            e.Property(g => g.Status).HasConversion<string>();
+            e.Ignore(g => g.Legs);  // Navigation populated via OrderLegs join
+        });
+
+        b.Entity<OrderLeg>(e =>
+        {
+            e.HasKey(l => l.Id);
+            e.HasIndex(l => l.GroupOrderId);
+            e.HasIndex(l => l.OrderId).IsUnique();
+            e.Property(l => l.LegType).HasConversion<string>();
+            e.Property(l => l.Status).HasConversion<string>();
         });
     }
 }
