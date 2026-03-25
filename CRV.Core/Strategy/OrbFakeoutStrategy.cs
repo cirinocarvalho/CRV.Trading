@@ -78,6 +78,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
     public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 2 || _state == -2;
     public bool         IsArmed      => _state == 1 || _state == -1;
+    private bool        _inTrade;
+    public bool         InTrade      => _inTrade;
+    public void SetInTrade(bool active) => _inTrade = active;
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -101,7 +104,11 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _stickyStop = false;
     }
 
-    public void Reconfigure(StrategySetupConfig config) => _cfg = config;
+    public void Reconfigure(StrategySetupConfig config)
+    {
+        _cfg = config;
+        if (!IsActive) { _awaitingTickConfirm = false; _theoreticalEntry = 0; }
+    }
 
     /// <summary>
     /// Revert an entry back to armed state. Used by the engine during cooldown
@@ -116,6 +123,13 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _initStop = 0; _contracts = 0; _partHit = false; _pnl = 0;
         _entryTime = DateTime.MinValue;
         ClearPendingSignals();
+    }
+
+    public void RevertEntryToTickGate(decimal entryLevel)
+    {
+        RevertEntry();
+        _theoreticalEntry = entryLevel;
+        _awaitingTickConfirm = true;
     }
 
     public void Reset()
@@ -134,7 +148,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
 
     public void Disarm()
     {
-        if (!IsActive) { _state = 0; _armEntry = 0; _pastCutoff = true; }
+        if (!IsActive) { _state = 0; _armEntry = 0; _pastCutoff = true; _awaitingTickConfirm = false; _theoreticalEntry = 0; }
     }
 
     public void ResetCutoff() { _pastCutoff = false; }
@@ -201,7 +215,8 @@ public class OrbFakeoutStrategy : ISetupStrategy
 
         // Always defer to tick entry (both live and backtest) for realistic pricing.
         // In live: next L1 tick. In backtest: next 1-min bar Open.
-        if (IsArmed)
+        // Skip if tick gate is active (Market order already staged, waiting for tick)
+        if (IsArmed && !_awaitingTickConfirm)
         {
             bool isLong = _state == 1;
             StageOrEnter(isLong ? orb.Low : orb.High, isLong, orb, bar.Time);
@@ -511,14 +526,20 @@ public class OrbFakeoutStrategy : ISetupStrategy
     {
         if (IsActive) return;
 
-        // Slippage gate: reject if tick is too far from theoretical entry
-        decimal maxSlip = _cfg.MaxEntrySlippage > 0
-            ? orb.Range * _cfg.MaxEntrySlippage
-            : decimal.MaxValue;  // 0 = no limit
-        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
-
-        // Enter at tick price with levels calculated from tick price
-        TryEntry(tickPrice, isLong, orb, utc);
+        if (_cfg.OrderType == "Limit")
+        {
+            bool canFill = isLong ? tickPrice <= theoreticalEntry : tickPrice >= theoreticalEntry;
+            if (!canFill) return;
+            TryEntry(theoreticalEntry, isLong, orb, utc);
+        }
+        else
+        {
+            decimal maxSlip = _cfg.MaxEntrySlippage > 0
+                ? orb.Range * _cfg.MaxEntrySlippage
+                : decimal.MaxValue;
+            if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+            TryEntry(tickPrice, isLong, orb, utc);
+        }
     }
 
     private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)

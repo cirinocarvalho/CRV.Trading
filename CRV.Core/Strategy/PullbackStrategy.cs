@@ -76,6 +76,9 @@ public class PullbackStrategy : ISetupStrategy
     public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 2 || _state == -2;
     public bool         IsArmed      => _state == 1 || _state == -1;
+    private bool        _inTrade;
+    public bool         InTrade      => _inTrade;
+    public void SetInTrade(bool active) => _inTrade = active;
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -99,7 +102,11 @@ public class PullbackStrategy : ISetupStrategy
         _stickyStop = false;
     }
 
-    public void Reconfigure(StrategySetupConfig config) => _cfg = config;
+    public void Reconfigure(StrategySetupConfig config)
+    {
+        _cfg = config;
+        if (!IsActive) { _awaitingTickConfirm = false; _theoreticalEntry = 0; }
+    }
 
     /// <summary>
     /// Revert an entry back to armed state. Used by the engine during cooldown
@@ -114,6 +121,13 @@ public class PullbackStrategy : ISetupStrategy
         _initStop = 0; _contracts = 0; _partHit = false; _pnl = 0;
         _entryTime = DateTime.MinValue;
         ClearPendingSignals();
+    }
+
+    public void RevertEntryToTickGate(decimal entryLevel)
+    {
+        RevertEntry();
+        _theoreticalEntry = entryLevel;
+        _awaitingTickConfirm = true;
     }
 
     public void Reset()
@@ -184,6 +198,7 @@ public class PullbackStrategy : ISetupStrategy
         if ((_state == 1 && bar.Close < orbLow) || (_state == -1 && bar.Close > orbHigh))
         {
             _state = 0; _armEntry = 0;
+            _awaitingTickConfirm = false; _theoreticalEntry = 0;
         }
 
         bool isReady = _tradeCount < _cfg.MaxTrades;
@@ -213,7 +228,8 @@ public class PullbackStrategy : ISetupStrategy
         }
 
         // Bar-level entry (conservative or aggressive)
-        if (isReady && (_state == 1 || _state == -1))
+        // Skip if tick gate is active (Limit order already placed, waiting for fill)
+        if (isReady && (_state == 1 || _state == -1) && !_awaitingTickConfirm)
         {
             bool isLong = _state == 1;
             decimal pbPts   = orbRange * _cfg.PullbackPct;
@@ -473,11 +489,23 @@ public class PullbackStrategy : ISetupStrategy
     private void TryTickConfirmedEntry(decimal tickPrice, decimal theoreticalEntry, bool isLong, OrbState orb, DateTime utc)
     {
         if (IsActive) return;
-        decimal maxSlip = _cfg.MaxEntrySlippage > 0
-            ? orb.Range * _cfg.MaxEntrySlippage
-            : decimal.MaxValue;
-        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
-        TryEntry(tickPrice, isLong, orb, utc);
+
+        if (_cfg.OrderType == "Limit")
+        {
+            // Limit fill: enter at the limit level when tick price reaches it or better
+            bool canFill = isLong ? tickPrice <= theoreticalEntry : tickPrice >= theoreticalEntry;
+            if (!canFill) return;
+            TryEntry(theoreticalEntry, isLong, orb, utc);
+        }
+        else
+        {
+            // Market: enter at tick price with slippage gate
+            decimal maxSlip = _cfg.MaxEntrySlippage > 0
+                ? orb.Range * _cfg.MaxEntrySlippage
+                : decimal.MaxValue;
+            if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+            TryEntry(tickPrice, isLong, orb, utc);
+        }
     }
 
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)

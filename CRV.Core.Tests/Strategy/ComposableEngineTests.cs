@@ -23,7 +23,7 @@ public class ComposableEngineTests
         public Task<decimal?> OnEntrySignalAsync(EntrySignal signal)
         {
             Entries.Add(signal);
-            return Task.FromResult<decimal?>(null);
+            return Task.FromResult<decimal?>(BlockEntries ? null : signal.Entry);
         }
         public Task OnExitSignalAsync(ExitSignal signal) { Exits.Add(signal); return Task.CompletedTask; }
         public Task OnPartialSignalAsync(PartialSignal signal) { Partials.Add(signal); return Task.CompletedTask; }
@@ -63,6 +63,8 @@ public class ComposableEngineTests
         public decimal PointValue { get; set; } = 20m;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
+        public bool InTrade { get; set; }
+        public void SetInTrade(bool active) => InTrade = active;
         public int CutoffHour { get; set; } = 23;
         public int CutoffMinute { get; set; } = 59;
 
@@ -108,6 +110,7 @@ public class ComposableEngineTests
             ForceExitCalled = false;
         }
         public void ApplyFill(decimal actualFillPrice) { }
+        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals()
         {
             PendingEntry = null;

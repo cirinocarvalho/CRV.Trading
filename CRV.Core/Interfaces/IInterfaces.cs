@@ -48,6 +48,18 @@ public interface IOrderExecutor
     Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts) => Task.CompletedTask;
 }
 
+/// <summary>
+/// New order executor that returns GroupOrder and supports modify/cancel.
+/// Replaces IOrderExecutor once strategy simplification is complete.
+/// </summary>
+public interface IGroupOrderExecutor
+{
+    Task<GroupOrder?> OnEntrySignalAsync(EntrySignal signal);
+    Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty);
+    Task CancelOrderAsync(string orderId);
+    Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty);
+}
+
 public interface IStrategyEventSink
 {
     Task OnEntryAsync(EntrySignal signal);

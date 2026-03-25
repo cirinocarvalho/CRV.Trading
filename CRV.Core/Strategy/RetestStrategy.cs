@@ -83,6 +83,9 @@ public class RetestStrategy : ISetupStrategy
     public decimal      PointValue   => _cfg.PointValue;
     public bool         IsActive     => _state == 3 || _state == -3;
     public bool         IsArmed      => _state == 1 || _state == -1 || _state == 2 || _state == -2;
+    private bool        _inTrade;
+    public bool         InTrade      => _inTrade;
+    public void SetInTrade(bool active) => _inTrade = active;
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -106,7 +109,13 @@ public class RetestStrategy : ISetupStrategy
         _stickyStop = false;
     }
 
-    public void Reconfigure(StrategySetupConfig config) => _cfg = config;
+    public void Reconfigure(StrategySetupConfig config)
+    {
+        _cfg = config;
+        // Clear tick confirmation gate to prevent stale state after hot config changes
+        // (e.g., switching from Market to Limit while awaiting tick confirmation)
+        if (!IsActive) { _awaitingTickConfirm = false; _theoreticalEntry = 0; }
+    }
 
     /// <summary>
     /// Revert an entry back to armed state. Used by the engine during cooldown
@@ -122,6 +131,13 @@ public class RetestStrategy : ISetupStrategy
         _initStop = 0; _contracts = 0; _partHit = false; _pnl = 0;
         _entryTime = DateTime.MinValue;
         ClearPendingSignals();
+    }
+
+    public void RevertEntryToTickGate(decimal entryLevel)
+    {
+        RevertEntry();
+        _theoreticalEntry = entryLevel;
+        _awaitingTickConfirm = true;
     }
 
     public void Reset()
@@ -196,6 +212,7 @@ public class RetestStrategy : ISetupStrategy
             (_state < 0 && _state > -3 && bar.Close > orbHigh))
         {
             _state = 0; _armEntry = 0; _retestLeftZone = false;
+            _awaitingTickConfirm = false; _theoreticalEntry = 0;
         }
 
         bool isReady = _tradeCount < _cfg.MaxTrades;
@@ -241,6 +258,9 @@ public class RetestStrategy : ISetupStrategy
                 _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
             }
         }
+
+        // Skip bar-level entry if tick gate is active (Limit order already placed, waiting for fill)
+        if (_awaitingTickConfirm) return;
 
         // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
@@ -590,14 +610,22 @@ public class RetestStrategy : ISetupStrategy
     {
         if (IsActive) return;
 
-        // Slippage gate: reject if tick is too far from theoretical entry
-        decimal maxSlip = _cfg.MaxEntrySlippage > 0
-            ? orb.Range * _cfg.MaxEntrySlippage
-            : decimal.MaxValue;  // 0 = no limit
-        if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
-
-        // Enter at tick price with levels calculated from tick price
-        TryEntry(tickPrice, isLong, orb, utc);
+        if (_cfg.OrderType == "Limit")
+        {
+            // Limit fill: enter at the limit level when tick price reaches it or better
+            bool canFill = isLong ? tickPrice <= theoreticalEntry : tickPrice >= theoreticalEntry;
+            if (!canFill) return;
+            TryEntry(theoreticalEntry, isLong, orb, utc);
+        }
+        else
+        {
+            // Market: enter at tick price with slippage gate
+            decimal maxSlip = _cfg.MaxEntrySlippage > 0
+                ? orb.Range * _cfg.MaxEntrySlippage
+                : decimal.MaxValue;
+            if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
+            TryEntry(tickPrice, isLong, orb, utc);
+        }
     }
 
     private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)

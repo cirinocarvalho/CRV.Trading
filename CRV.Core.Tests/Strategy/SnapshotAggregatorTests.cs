@@ -19,6 +19,8 @@ public class SnapshotAggregatorTests
         public decimal PointValue { get; init; } = 20m;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
+        public bool InTrade { get; set; }
+        public void SetInTrade(bool active) => InTrade = active;
         public int CutoffHour { get; set; } = 23;
         public int CutoffMinute { get; set; } = 59;
 
@@ -48,6 +50,7 @@ public class SnapshotAggregatorTests
         public BESignal? PendingBE => null;
         public ActiveTradeView? PreExitTrade => null;
         public void ApplyFill(decimal actualFillPrice) { }
+        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals() { }
         public void RevertEntry() { }
         public void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd) { }

@@ -74,6 +74,13 @@ public interface ISetupStrategy
     string Name { get; }
     bool IsActive { get; }
     bool IsArmed { get; }
+
+    /// <summary>Whether this setup has a broker-managed trade active (set by BrokerEventHandler).</summary>
+    bool InTrade { get; }
+
+    /// <summary>Called by BrokerEventHandler to signal trade entry/exit.</summary>
+    void SetInTrade(bool active);
+
     int CutoffHour { get; }
     int CutoffMinute { get; }
 
@@ -137,6 +144,13 @@ public interface ISetupStrategy
 
     /// <summary>Revert an uncommitted entry (undo pending entry, keep armed state).</summary>
     void RevertEntry();
+
+    /// <summary>
+    /// Revert entry and activate tick confirmation gate. Used when broker returns null
+    /// for a Limit order — strategy reverts to armed and waits for a tick at the entry level.
+    /// The bar path won't re-send because _awaitingTickConfirm blocks further bar entries.
+    /// </summary>
+    void RevertEntryToTickGate(decimal entryLevel);
 
     /// <summary>Request force exit of active trade.</summary>
     void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd);

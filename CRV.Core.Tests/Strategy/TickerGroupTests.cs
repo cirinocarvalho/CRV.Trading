@@ -37,6 +37,8 @@ public class TickerGroupTests
         public decimal PointValue { get; set; } = 20m;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
+        public bool InTrade { get; set; }
+        public void SetInTrade(bool active) => InTrade = active;
         public int CutoffHour { get; set; } = 23;
         public int CutoffMinute { get; set; } = 59;
 
@@ -97,6 +99,7 @@ public class TickerGroupTests
         public Direction TradeDirection { get; set; } = Direction.Long;
 
         public void ApplyFill(decimal actualFillPrice) { }
+        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals()
         {
             PendingEntry = null;

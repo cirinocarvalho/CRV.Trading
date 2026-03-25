@@ -20,6 +20,16 @@ public record EntrySignal(
     string    Ticker     = "",         // Per-setup ticker override; empty = use global
     string    SetupLabel = "");        // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
 
+// ── Bridge extensions for WSS order management transition ───
+// Allow BrokerEventHandler to read EntrySignal using new field names
+// while strategies still construct using old names (Target, Partial, Contracts).
+public static class EntrySignalExtensions
+{
+    public static decimal Tg1Price(this EntrySignal s) => s.Partial;
+    public static decimal Tg2Price(this EntrySignal s) => s.Target;
+    public static int TotalContracts(this EntrySignal s) => s.Contracts;
+}
+
 public record ExitSignal(
     SetupId    Setup,
     ExitReason Reason,
