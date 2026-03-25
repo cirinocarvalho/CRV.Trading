@@ -10,11 +10,7 @@ namespace CRV.Core.Strategy;
 /// </summary>
 public record StrategySignals(
     ISetupStrategy Strategy,
-    EntrySignal? Entry,
-    ExitSignal? Exit,
-    PartialSignal? Partial,
-    BESignal? BE,
-    ActiveTradeView? PreExitTrade = null);
+    EntrySignal? Entry);
 
 /// <summary>
 /// Per-instrument group that owns shared indicators, modules, and a list of
@@ -28,6 +24,9 @@ public class TickerGroup
     private readonly List<ISetupStrategy> _strategies = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _enteredThisBar;
+
+    // ── BrokerEventHandler (optional — null in backtest) ──────────
+    private readonly BrokerEventHandler? _brokerHandler;
 
     // ── Indicators (shared across all strategies in this group) ──
     private readonly AtrIndicator _atr;
@@ -59,10 +58,11 @@ public class TickerGroup
     /// <summary>Read-only view of registered strategies.</summary>
     public IReadOnlyList<ISetupStrategy> Strategies => _strategies;
 
-    public TickerGroup(string tickerKey, StrategyConfig cfg)
+    public TickerGroup(string tickerKey, StrategyConfig cfg, BrokerEventHandler? brokerHandler = null)
     {
         _tickerKey = tickerKey;
         _cfg = cfg;
+        _brokerHandler = brokerHandler;
 
         _atr = new AtrIndicator(14);
         _vwap = new VwapIndicator();
@@ -244,6 +244,8 @@ public class TickerGroup
                     {
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                        if (_brokerHandler != null)
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
                     }
                     continue;
                 }
@@ -257,6 +259,8 @@ public class TickerGroup
                     {
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                        if (_brokerHandler != null)
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
                     }
                     // Disarm stale armed/waiting states so dashboard shows IDLE
                     strategy.Disarm();
@@ -330,14 +334,23 @@ public class TickerGroup
             {
                 if (!IsEnabledForCurrentSession(strategy))
                 {
-                    if (strategy.IsActive) strategy.ForceExit(price, utc, ExitReason.SessionEnd);
+                    if (strategy.IsActive)
+                    {
+                        strategy.ForceExit(price, utc, ExitReason.SessionEnd);
+                        if (_brokerHandler != null)
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                    }
                     continue;
                 }
 
                 if (IsPastCutoff(strategy, tickLocalTime))
                 {
                     if (strategy.IsActive)
+                    {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
+                        if (_brokerHandler != null)
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                    }
                     strategy.Disarm();
                     continue;
                 }
@@ -367,14 +380,14 @@ public class TickerGroup
 
     /// <summary>
     /// Collect pending signals from all strategies, then clear them.
-    /// Returns one <see cref="StrategySignals"/> per strategy (even if all null).
+    /// Returns one <see cref="StrategySignals"/> per strategy (even if null).
     /// </summary>
     public List<StrategySignals> CollectAndClearSignals()
     {
         var result = new List<StrategySignals>(_strategies.Count);
         foreach (var s in _strategies)
         {
-            result.Add(new StrategySignals(s, s.PendingEntry, s.PendingExit, s.PendingPartial, s.PendingBE, s.PreExitTrade));
+            result.Add(new StrategySignals(s, s.PendingEntry));
             s.ClearPendingSignals();
         }
         return result;
@@ -618,6 +631,20 @@ public class TickerGroup
     /// direction opposite to <paramref name="isLong"/>. Used to prevent opposing
     /// positions on the same instrument.
     /// </summary>
+    private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
+    {
+        if (_brokerHandler == null) return false;
+        foreach (var s in _strategies)
+        {
+            if (s == entering || !s.InTrade) continue;
+            var group = _brokerHandler.GetGroupState(s.Id);
+            if (group == null) group = _brokerHandler.GetGroupState(s.SetupId.ToString());
+            if (group != null && (group.Direction == Direction.Long) != isLong)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Check if the current time is past this strategy's cutoff for the active session.</summary>
     private bool IsPastCutoff(ISetupStrategy strategy, TimeOnly localTime)
     {
@@ -650,20 +677,6 @@ public class TickerGroup
             or CRV.Core.Modules.SessionType.PowerHour => "NY",
         _ => ""  // PreMarket/gap between sessions — no session active, block all strategies
     };
-
-    private bool HasOpposingPosition(ISetupStrategy entering, bool isLong)
-    {
-        foreach (var s in _strategies)
-        {
-            if (s == entering) continue;
-            if (!s.IsActive) continue;
-            // price doesn't matter for direction check — pass 0
-            var trade = s.GetActiveTrade(0);
-            if (trade != null && (trade.Direction == Direction.Long) != isLong)
-                return true;
-        }
-        return false;
-    }
 
     // ── Signal-strength helpers (ported from OrbStrategyEngine) ───
 

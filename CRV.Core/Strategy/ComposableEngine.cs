@@ -74,7 +74,7 @@ public class ComposableEngine
         {
             // Create a StrategyConfig for TickerGroup construction
             var stratCfg = BuildStrategyConfigFromEngine(_config);
-            group = new TickerGroup(groupKey, stratCfg);
+            group = new TickerGroup(groupKey, stratCfg, _brokerHandler);
             _groups[groupKey] = group;
         }
 
@@ -156,85 +156,35 @@ public class ComposableEngine
     // ── Signal routing ──────────────────────────────────────────────
 
     /// <summary>
-    /// Route signals from strategies to broker executor and event sink.
+    /// Route entry signals from strategies to broker executor and event sink.
     /// Public for testing; normally called internally after bar/tick processing.
     /// </summary>
     public async Task RouteSignalsAsync(List<StrategySignals> signals)
     {
         foreach (var sig in signals)
         {
+            if (sig.Entry is not { } esig) continue;
+
             var setup = sig.Strategy.SetupId;
             var label = sig.Strategy.Id;
 
-            // ── Partial ──
-            if (sig.Partial is { } psig)
-            {
-                await _executor.OnPartialSignalAsync(psig);
-                await _sink.OnPartialAsync(psig);
-                AddAlert("PARTIAL", setup, $"Partial @ {psig.PartialPrice:F2}", "yellow", label);
-            }
+            if (string.IsNullOrEmpty(esig.SetupLabel) && !string.IsNullOrEmpty(label))
+                esig = esig with { SetupLabel = label };
 
-            // ── Break-even ──
-            if (sig.BE is { } besig)
-            {
-                await _executor.OnBESignalAsync(besig);
-                await _sink.OnBEMoveAsync(besig);
-                AddAlert("MOVE_BE", setup, $"Stop -> BE {besig.Entry:F2}", "yellow", label);
-            }
+            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
+                continue;
 
-            // ── Entry (risk check) ──
-            if (sig.Entry is { } esig)
-            {
-                // Enrich with basket label so brokers/orders can identify the setup
-                if (string.IsNullOrEmpty(esig.SetupLabel) && !string.IsNullOrEmpty(label))
-                    esig = esig with { SetupLabel = label };
-                if (Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
-                {
-                    var fill = await _executor.OnEntrySignalAsync(esig);
-                    if (!fill.HasValue)
-                    {
-                        // Broker returned null — Limit order placed but not yet filled.
-                        // Revert strategy to armed + tick gate: the tick path will enter
-                        // when price actually reaches the level. No duplicate orders because
-                        // _awaitingTickConfirm prevents the bar path from re-sending.
-                        sig.Strategy.RevertEntryToTickGate(esig.Entry);
-                        AddAlert("LIMIT_PLACED", setup,
-                            $"Limit {(esig.Direction == Direction.Long ? "BUY" : "SELL")} @ {esig.Entry:F2} — waiting for fill",
-                            "yellow", label);
-                    }
-                    else
-                    {
-                        if (fill.Value != esig.Entry)
-                            sig.Strategy.ApplyFill(fill.Value);
-                        await _sink.OnEntryAsync(esig);
-                        bool isLong = esig.Direction == Direction.Long;
-                        AddAlert("ENTRY", setup,
-                            $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
-                            isLong ? "green" : "red", label);
-                    }
-                }
-            }
+            if (_brokerHandler != null)
+                await _brokerHandler.PlaceEntryAsync(esig, sig.Strategy);
+            else
+                await _executor.OnEntrySignalAsync(esig);
 
-            // ── Exit ──
-            if (sig.Exit is { } xsig)
-            {
-                // Use PreExitTrade (captured before state reset) or fall back to GetActiveTrade
-                var preTrade = sig.PreExitTrade ?? sig.Strategy.GetActiveTrade(xsig.ExitPrice);
-                var trade = BuildTradeRecord(sig.Strategy, xsig, preTrade);
+            await _sink.OnEntryAsync(esig);
 
-                if (trade != null)
-                {
-                    Risk.RecordTrade(trade.NetPnl);
-                    Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss);
-                }
-
-                await _executor.OnExitSignalAsync(xsig);
-                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = setup, Exit = xsig.ExitPrice });
-
-                AddAlert("EXIT", setup,
-                    $"{xsig.Reason} @ {xsig.ExitPrice:F2}",
-                    xsig.Reason == ExitReason.Target ? "green" : "red", label);
-            }
+            bool isLong = esig.Direction == Direction.Long;
+            AddAlert("ENTRY", setup,
+                $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
+                isLong ? "green" : "red", label);
         }
     }
 
@@ -304,7 +254,7 @@ public class ComposableEngine
             group.Reset();
         }
 
-        foreach (var (id, strategy) in _strategies)
+        foreach (var (_, strategy) in _strategies)
             strategy.ResetSession();
 
         _idle = false;
@@ -344,78 +294,24 @@ public class ComposableEngine
     public async Task ForceExitSetupAsync(string setupId)
     {
         if (!_strategies.TryGetValue(setupId, out var strategy)) return;
-        if (!_setupToGroupKey.TryGetValue(setupId, out var groupKey)) return;
 
-        // Use the setup's own ticker so multi-instrument setups get the right price
-        var ticker = strategy.Ticker;
-        var px = _prices.GetLastPrice(ticker);
-        if (px <= 0) return;
-
-        // WSS path: delegate to BrokerEventHandler if active
         if (_brokerHandler != null && _brokerHandler.HasActiveGroup(setupId))
-        {
             await _brokerHandler.ExitGroupAsync(setupId);
-            AddAlert("EXIT", strategy.SetupId, $"Force exit @ {px:F2}", "orange");
-            await PublishSnapshotInternal();
-            return;
-        }
 
-        if (strategy.IsActive)
-        {
-            var preTrade = strategy.GetActiveTrade(px);
-            strategy.ForceExit(px, DateTime.UtcNow, ExitReason.Manual);
+        strategy.ForceExit(_prices.GetLastPrice(strategy.Ticker), DateTime.UtcNow, ExitReason.Manual);
 
-            // Collect and route the exit signal
-            if (strategy.PendingExit is { } xsig)
-            {
-                var trade = BuildTradeRecord(strategy, xsig, preTrade);
-                if (trade != null) Risk.RecordTrade(trade.NetPnl);
-                await _executor.OnExitSignalAsync(xsig);
-                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = strategy.SetupId, Exit = xsig.ExitPrice });
-            }
-            strategy.ClearPendingSignals();
-        }
-
-        AddAlert("EXIT", strategy.SetupId, $"Force exit @ {px:F2}", "orange");
+        AddAlert("EXIT", strategy.SetupId, $"Force exit", "orange");
         await PublishSnapshotInternal();
     }
 
     /// <summary>Force-exit all active trades.</summary>
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
-        var ts = utcTime ?? DateTime.UtcNow;
-
-        // WSS path: force-close all broker-managed trades
         if (_brokerHandler != null)
             await _brokerHandler.ExitAllAsync();
 
-        foreach (var (id, strategy) in _strategies)
-        {
-            // Clear armed strategies — they must not fire entries after session end
-            if (strategy.IsArmed && !strategy.IsActive)
-            {
-                strategy.ResetSession();
-                continue;
-            }
-
-            if (!strategy.IsActive) continue;
-
-            // Use per-setup ticker so multi-instrument setups get the right price
-            var px = _prices.GetLastPrice(strategy.Ticker);
-            if (px <= 0) continue;
-
-            var preTrade = strategy.GetActiveTrade(px);
-            strategy.ForceExit(px, ts);
-
-            if (strategy.PendingExit is { } xsig)
-            {
-                var trade = BuildTradeRecord(strategy, xsig, preTrade);
-                if (trade != null) Risk.RecordTrade(trade.NetPnl);
-                await _executor.OnExitSignalAsync(xsig);
-                await _sink.OnExitAsync(xsig, trade ?? new TradeRecord { Setup = strategy.SetupId, Exit = xsig.ExitPrice });
-            }
-            strategy.ClearPendingSignals();
-        }
+        foreach (var (_, strategy) in _strategies)
+            strategy.ResetSession();
     }
 
     // ── State ───────────────────────────────────────────────────────
@@ -483,6 +379,7 @@ public class ComposableEngine
             Strategies = allStrategies,
             Risk = Risk,
             Prices = _prices,
+            BrokerHandler = _brokerHandler,
             Orb = orbState,
             Indicators = indState,
             OrbAtrRatio = orbState.AtrRatio,
@@ -601,10 +498,26 @@ public class ComposableEngine
     /// <summary>Get active trade view for a specific setup, or null.</summary>
     public ActiveTradeView? GetActiveTrade(string setupId)
     {
-        if (!_strategies.TryGetValue(setupId, out var strategy)) return null;
-        // Use the setup's own ticker for correct last price on multi-instrument setups
-        var px = _prices.GetLastPrice(strategy.Ticker);
-        return strategy.GetActiveTrade(px);
+        if (_brokerHandler == null) return null;
+        var group = _brokerHandler.GetGroupState(setupId);
+        if (group?.EntryPrice == null) return null;
+
+        var stopLeg = group.GetLeg(LegType.Stop);
+        var tg1Leg = group.GetLeg(LegType.Tg1);
+        var tg2Leg = group.GetLeg(LegType.Tg2);
+
+        return new ActiveTradeView
+        {
+            Direction = group.Direction,
+            Contracts = group.TotalContracts,
+            Entry = group.EntryPrice.Value,
+            CurrentStop = stopLeg?.Price ?? 0m,
+            InitialStop = stopLeg?.Price ?? 0m,
+            Target = tg2Leg?.Price ?? 0m,
+            Partial = tg1Leg?.Price ?? 0m,
+            PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+            EnteredAt = group.CreatedAt,
+        };
     }
 
     /// <summary>
@@ -686,59 +599,6 @@ public class ComposableEngine
     {
         var snap = GetSnapshot();
         await _sink.OnSnapshotAsync(snap);
-    }
-
-    private TradeRecord? BuildTradeRecord(ISetupStrategy strategy, ExitSignal xsig, ActiveTradeView? preTrade)
-    {
-        if (preTrade == null) return null;
-
-        bool isLong = preTrade.Direction == Direction.Long;
-        int cts = preTrade.Contracts;
-        int remCts = xsig.Contracts;
-
-        // Use per-setup PointValue so NQ (20) and ES (50) calculate PnL correctly
-        decimal pointValue = strategy.PointValue;
-
-        decimal pnl = (isLong ? xsig.ExitPrice - preTrade.Entry : preTrade.Entry - xsig.ExitPrice)
-                      * pointValue * remCts;
-
-        if (preTrade.PartialFilled)
-        {
-            int partCts = cts - remCts;
-            decimal partPnl = (isLong ? preTrade.Partial - preTrade.Entry : preTrade.Entry - preTrade.Partial)
-                              * pointValue * partCts;
-            pnl += partPnl;
-        }
-
-        decimal comm = cts * 2 * _config.CommissionPerSide;
-        decimal net = pnl - comm;
-        decimal initStop = preTrade.InitialStop != 0 ? preTrade.InitialStop : preTrade.CurrentStop;
-        decimal risk = Math.Abs(preTrade.Entry - initStop) * pointValue * cts;
-        decimal rMult = risk > 0 ? pnl / risk : 0;
-
-        return new TradeRecord
-        {
-            Setup = strategy.SetupId,
-            SetupLabel = strategy.Id,
-            Direction = preTrade.Direction,
-            Ticker = strategy.Ticker?.TrimStart('/') ?? "",
-            Contracts = cts,
-            Entry = preTrade.Entry,
-            InitialStop = initStop,
-            Target = preTrade.Target,
-            Partial = preTrade.Partial,
-            Exit = xsig.ExitPrice,
-            ExitReason = xsig.Reason,
-            PartialFilled = preTrade.PartialFilled,
-            PartialPrice = preTrade.Partial,
-            GrossPnl = pnl,
-            Commission = comm,
-            NetPnl = net,
-            RMultiple = rMult,
-            EnteredAt = preTrade.EnteredAt,
-            ExitedAt = xsig.Time,
-            SessionId = string.IsNullOrEmpty(_activeSessionId) ? "NY" : _activeSessionId,
-        };
     }
 
     private void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "")

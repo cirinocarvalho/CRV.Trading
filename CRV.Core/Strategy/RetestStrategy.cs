@@ -6,10 +6,9 @@ namespace CRV.Core.Strategy;
 
 /// <summary>
 /// Setup B — ORB Retest strategy extracted from OrbStrategyEngine.
-/// Implements ISetupStrategy; produces pending signals consumed by the engine.
+/// Pure signal generator: emits EntrySignal only. Trade lifecycle managed by BrokerEventHandler.
 /// State machine: 0=idle, ±1=armed (breakout detected), ±2=retest zone (Conservative)
-///                or confirmed-arm-enter-next-bar (SmartAggressive),
-///                ±3=active trade (LONG=3, SHORT=-3).
+///                or confirmed-arm-enter-next-bar (SmartAggressive).
 /// </summary>
 public class RetestStrategy : ISetupStrategy
 {
@@ -18,29 +17,9 @@ public class RetestStrategy : ISetupStrategy
 
     // ── State machine ─────────────────────────────────────────────
     // 0=idle, 1=armed LONG, -1=armed SHORT,
-    // 2=retest LONG, -2=retest SHORT,
-    // 3=active LONG, -3=active SHORT
+    // 2=retest LONG, -2=retest SHORT
     private int     _state       = 0;
     private decimal _armEntry    = 0;   // bar.Open at time of arming
-
-    // ── Active trade ──────────────────────────────────────────────
-    private decimal  _entry      = 0;
-    private decimal  _stop       = 0;
-    private decimal  _target     = 0;
-    private decimal  _partial    = 0;
-    private decimal  _initStop   = 0;
-    private int      _contracts  = 0;
-    private bool     _partHit    = false;
-    private decimal  _pnl        = 0;
-    private DateTime _entryTime  = DateTime.MinValue;
-
-    // ── Sticky exit indicators ─────────────────────────────────────
-    private bool _stickyTgt = false;
-    private bool _stickyStop = false;
-
-    // ── Tick confirmation gate ──────────────────────────────────────
-    private bool    _awaitingTickConfirm = false;
-    private decimal _theoreticalEntry    = 0;
 
     // ── Re-arm guard (prevents re-entering same side until price leaves ORB zone) ──
     private bool _bullTraded = false;
@@ -63,11 +42,7 @@ public class RetestStrategy : ISetupStrategy
     private decimal _lastAtrRatio = 0;
 
     // ── Pending signals ───────────────────────────────────────────
-    private EntrySignal?   _pendingEntry   = null;
-    private ExitSignal?    _pendingExit    = null;
-    private PartialSignal? _pendingPartial = null;
-    private BESignal?      _pendingBe      = null;
-    private ActiveTradeView? _preExitTrade = null;
+    private EntrySignal? _pendingEntry = null;
 
     public RetestStrategy(StrategySetupConfig cfg)
     {
@@ -81,7 +56,7 @@ public class RetestStrategy : ISetupStrategy
     public string       Name         => _cfg.Name;
     public string       Ticker       => _cfg.Ticker;
     public decimal      PointValue   => _cfg.PointValue;
-    public bool         IsActive     => _state == 3 || _state == -3;
+    public bool         IsActive     => _inTrade;
     public bool         IsArmed      => _state == 1 || _state == -1 || _state == 2 || _state == -2;
     private bool        _inTrade;
     public bool         InTrade      => _inTrade;
@@ -92,61 +67,31 @@ public class RetestStrategy : ISetupStrategy
     public bool IsEnabledForSession(string s) => _cfg.IsEnabledForSession(s);
 
     // ── Pending signals ───────────────────────────────────────────
-    public EntrySignal?   PendingEntry   => _pendingEntry;
-    public ExitSignal?    PendingExit    => _pendingExit;
-    public PartialSignal? PendingPartial => _pendingPartial;
-    public BESignal?      PendingBE      => _pendingBe;
-    public ActiveTradeView? PreExitTrade => _preExitTrade;
+    public EntrySignal? PendingEntry => _pendingEntry;
 
     public void ClearPendingSignals()
     {
-        _pendingEntry   = null;
-        _pendingExit    = null;
-        _pendingPartial = null;
-        _pendingBe      = null;
-        _preExitTrade   = null;
-        _stickyTgt  = false;
-        _stickyStop = false;
+        _pendingEntry = null;
     }
 
     public void Reconfigure(StrategySetupConfig config)
     {
         _cfg = config;
-        // Clear tick confirmation gate to prevent stale state after hot config changes
-        // (e.g., switching from Market to Limit while awaiting tick confirmation)
-        if (!IsActive) { _awaitingTickConfirm = false; _theoreticalEntry = 0; }
     }
 
     /// <summary>
-    /// Revert an entry back to armed state. Used by the engine during cooldown
-    /// when OnBar triggers arm+entry on the same bar but entry must be blocked.
+    /// Revert an entry back to armed state. Used by the engine when
+    /// opposing position guard or cross-setup coordination blocks an entry.
     /// </summary>
     public void RevertEntry()
     {
-        if (!IsActive) return;
-        // Revert to retest state (±2), not armed (±1), since entry comes from retest
-        int retestState = _state > 0 ? 2 : -2;
-        _state    = retestState;
-        _entry    = 0; _stop = 0; _target = 0; _partial = 0;
-        _initStop = 0; _contracts = 0; _partHit = false; _pnl = 0;
-        _entryTime = DateTime.MinValue;
-        ClearPendingSignals();
-    }
-
-    public void RevertEntryToTickGate(decimal entryLevel)
-    {
-        RevertEntry();
-        _theoreticalEntry = entryLevel;
-        _awaitingTickConfirm = true;
+        _pendingEntry = null;
+        // TryEntry resets _state=0, entry is simply dropped.
     }
 
     public void Reset()
     {
         _state     = 0; _armEntry  = 0;
-        _entry     = 0; _stop      = 0; _target    = 0; _partial   = 0;
-        _initStop  = 0; _contracts = 0;
-        _partHit   = false; _pnl   = 0; _entryTime = DateTime.MinValue;
-        _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
         _tradeCount = 0;
@@ -157,7 +102,7 @@ public class RetestStrategy : ISetupStrategy
 
     public void Disarm()
     {
-        if (!IsActive) { _state = 0; _armEntry = 0; _pastCutoff = true; }
+        if (!_inTrade) { _state = 0; _armEntry = 0; _pastCutoff = true; }
     }
 
     public void ResetCutoff() { _pastCutoff = false; }
@@ -165,14 +110,9 @@ public class RetestStrategy : ISetupStrategy
     public void ResetSession()
     {
         _state     = 0; _armEntry  = 0;
-        _entry     = 0; _stop      = 0; _target    = 0; _partial   = 0;
-        _initStop  = 0; _contracts = 0;
-        _partHit   = false; _pnl   = 0; _entryTime = DateTime.MinValue;
-        _stickyTgt = false; _stickyStop = false;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
         _pastCutoff = false; _retestLeftZone = false;
-        _awaitingTickConfirm = false; _theoreticalEntry = 0;
         _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -194,12 +134,11 @@ public class RetestStrategy : ISetupStrategy
         _lastAtrRatio = orb.AtrRatio;
 
         ProcessArm(bar, orb, indicators);
-        ProcessBarExit(bar, orb, indicators);
     }
 
     private void ProcessArm(Bar bar, OrbState orb, IndicatorState ind)
     {
-        if (IsActive) return;
+        if (_inTrade) return;
 
         decimal orbHigh  = orb.High;
         decimal orbLow   = orb.Low;
@@ -207,12 +146,10 @@ public class RetestStrategy : ISetupStrategy
         decimal orbRange = orb.Range;
 
         // Cancel arm if price leaves valid zone
-        // For retest: armed (±1) or retest (±2) states are cancelled
-        if ((_state > 0 && _state < 3 && bar.Close < orbLow) ||
-            (_state < 0 && _state > -3 && bar.Close > orbHigh))
+        if ((_state > 0 && bar.Close < orbLow) ||
+            (_state < 0 && bar.Close > orbHigh))
         {
             _state = 0; _armEntry = 0; _retestLeftZone = false;
-            _awaitingTickConfirm = false; _theoreticalEntry = 0;
         }
 
         bool isReady = _tradeCount < _cfg.MaxTrades;
@@ -225,14 +162,11 @@ public class RetestStrategy : ISetupStrategy
             // Clear directional lock once price leaves the arm zone
             if (_cfg.IsSmartAggressive)
             {
-                // SmartAggressive re-arm: price must LEAVE the zone first, then RETURN.
-                // Step 1: track when price leaves the zone
                 if (_bullTraded && !_bullLeftZone && bar.Close < orbHigh - nearDist)
                     _bullLeftZone = true;
                 if (_bearTraded && !_bearLeftZone && bar.Close > orbLow + nearDist)
                     _bearLeftZone = true;
 
-                // Step 2: clear lock only when price has left AND returned to the zone
                 if (_bullTraded && _bullLeftZone && bar.Close >= orbHigh - nearDist)
                     { _bullTraded = false; _bullLeftZone = false; }
                 if (_bearTraded && _bearLeftZone && bar.Close <= orbLow + nearDist)
@@ -259,24 +193,21 @@ public class RetestStrategy : ISetupStrategy
             }
         }
 
-        // Skip bar-level entry if tick gate is active (Limit order already placed, waiting for fill)
-        if (_awaitingTickConfirm) return;
-
         // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
         {
             if (isReady && _state == 1)
-                StageOrEnter(orbHigh, true, orb, bar.Time);
+                TryEntry(orbHigh, true, orb, bar.Time);
             else if (isReady && _state == -1)
-                StageOrEnter(orbLow, false, orb, bar.Time);
+                TryEntry(orbLow, false, orb, bar.Time);
         }
         else if (_cfg.IsSmartAggressive)
         {
             // SmartAggressive: arm on bar N (state ±1), enter on bar N+1.
             if (isReady && _state == 2)
-                StageOrEnter(bar.Open, true, orb, bar.Time);
+                TryEntry(bar.Open, true, orb, bar.Time);
             else if (isReady && _state == -2)
-                StageOrEnter(bar.Open, false, orb, bar.Time);
+                TryEntry(bar.Open, false, orb, bar.Time);
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             if (_state == 1)  _state = 2;
@@ -289,9 +220,6 @@ public class RetestStrategy : ISetupStrategy
         else
         {
             // Conservative — retest-zone state transitions
-            // Price must LEAVE the ORB level zone first, then RETURN for a valid retest.
-            // This prevents the arm bar (which is already near the level) from instantly
-            // satisfying the retest condition.
             decimal retestW = orbRange * _cfg.RetestPct;
 
             // Step 1: detect when price leaves the zone after arming
@@ -312,68 +240,13 @@ public class RetestStrategy : ISetupStrategy
 
             // Entry from retest state
             if (isReady && _state == 2 && bar.Close > orbHigh)
-                StageOrEnter(orbHigh, true, orb, bar.Time);
+                TryEntry(orbHigh, true, orb, bar.Time);
             else if (isReady && _state == -2 && bar.Close < orbLow)
-                StageOrEnter(orbLow, false, orb, bar.Time);
+                TryEntry(orbLow, false, orb, bar.Time);
 
             // De-arm if price crosses OrbMid (retest failed)
             if (_state == 2  && bar.Close < orbMid) _state = 0;
             if (_state == -2 && bar.Close > orbMid) _state = 0;
-        }
-    }
-
-    private void ProcessBarExit(Bar bar, OrbState orb, IndicatorState ind)
-    {
-        if (!IsActive) return;
-
-        bool isLong   = _state == 3;
-        bool prevPart = _partHit;
-
-        var result = ExitProcessor.ProcessBar(
-            true, isLong, _entry, _stop, _target, _partial,
-            _contracts, _pnl, _partHit,
-            _cfg.UsePartial, _cfg.UseBe, _cfg.PointValue,
-            bar.High, bar.Low, _cfg.PartialCts);
-
-        _pnl     = result.NewPnl;
-        _stop    = result.NewStop;
-        _partHit = result.PartialHit;
-
-        bool partJustHit = _partHit && !prevPart;
-        bool closingNow  = result.HitTarget || result.HitStop;
-
-        // Fire partial/BE signals (only when trade stays open)
-        if (partJustHit && !closingNow)
-        {
-            int half      = CalcPartialCts(_contracts, _cfg.PartialCts);
-            int remaining = _contracts - half;
-            if (half > 0)
-            {
-                _pendingPartial = new PartialSignal(
-                    _cfg.SetupId,
-                    isLong ? Direction.Long : Direction.Short,
-                    _partial, half, remaining, _entry, bar.Time);
-
-                if (_cfg.UseBe)
-                {
-                    _pendingBe = new BESignal(
-                        _cfg.SetupId,
-                        isLong ? Direction.Long : Direction.Short,
-                        _entry, _entry, remaining, bar.Time);
-                }
-            }
-        }
-
-        if (closingNow)
-        {
-            decimal exitPx = result.HitTarget ? _target : _stop;
-            var reason     = result.HitTarget ? ExitReason.Target : ExitReason.Stop;
-            bool isBE      = _cfg.AllowRearmAfterBe && !result.HitTarget && exitPx == _entry;
-            if (!isBE) { if (isLong) _bullTraded = true; else _bearTraded = true; }
-            if (result.HitTarget) _stickyTgt  = true;
-            else                  _stickyStop = true;
-
-            BookExit(reason, exitPx, bar.Time, isLong);
         }
     }
 
@@ -386,121 +259,25 @@ public class RetestStrategy : ISetupStrategy
         decimal orbRange = orb.Range;
         decimal tickTol  = _cfg.TickSize * 2;
 
-        // Tick confirmation gate: bar staged a theoretical entry, confirm at tick price
-        if (!IsActive && _awaitingTickConfirm)
-        {
-            bool isLong = _state > 0;
-            TryTickConfirmedEntry(price, _theoreticalEntry, isLong, orb, utc);
-            if (IsActive)
-            {
-                _awaitingTickConfirm = false;
-                return; // don't check exit on same tick as entry
-            }
-            // If slippage rejected, keep waiting for a better tick
-            return;
-        }
-
-        // Conservative tick entry: bar armed (state ±1/±2), enter when price retests
-        if (!IsActive && IsArmed && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
+        // Conservative tick entry: armed (state ±1/±2), enter when price retests
+        if (!_inTrade && IsArmed && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
         {
             decimal retestDist = orbRange * _cfg.RetestPct;
             decimal orbHigh    = orb.High;
             decimal orbLow     = orb.Low;
             bool isLong = _state > 0;
             if (isLong && price <= orbHigh + retestDist + tickTol)
-            {
-                _theoreticalEntry = orbHigh;
-                _awaitingTickConfirm = true;
-                TryTickConfirmedEntry(price, _theoreticalEntry, true, orb, utc);
-                if (IsActive) { _awaitingTickConfirm = false; return; }
-            }
+                TryEntry(orbHigh, true, orb, utc);
             else if (!isLong && price >= orbLow - retestDist - tickTol)
-            {
-                _theoreticalEntry = orbLow;
-                _awaitingTickConfirm = true;
-                TryTickConfirmedEntry(price, _theoreticalEntry, false, orb, utc);
-                if (IsActive) { _awaitingTickConfirm = false; return; }
-            }
-            return;
+                TryEntry(orbLow, false, orb, utc);
         }
-
-        // Exit: active position
-        if (!IsActive) return;
-        bool long_ = _state == 3;
-        bool hitStop   = long_ ? price <= _stop   : price >= _stop;
-        bool hitTarget = long_ ? price >= _target  : price <= _target;
-        bool hitPart   = _cfg.UsePartial && !_partHit &&
-                         (long_ ? price >= _partial : price <= _partial);
-
-        if (!hitStop && !hitTarget && !hitPart) return;
-
-        // Partial fill check (price-based)
-        bool partJustHit = false;
-        if (hitPart && !hitTarget)
-        {
-            int half      = CalcPartialCts(_contracts, _cfg.PartialCts);
-            int remaining = _contracts - half;
-            if (half > 0)
-            {
-                partJustHit = true;
-                _partHit    = true;
-                _pnl += (long_ ? _partial - _entry : _entry - _partial) * _cfg.PointValue * half;
-
-                _pendingPartial = new PartialSignal(
-                    _cfg.SetupId,
-                    long_ ? Direction.Long : Direction.Short,
-                    _partial, half, remaining, _entry, utc);
-
-                if (_cfg.UseBe)
-                {
-                    _stop   = _entry; // move stop to breakeven
-                    _pendingBe = new BESignal(
-                        _cfg.SetupId,
-                        long_ ? Direction.Long : Direction.Short,
-                        _entry, _entry, remaining, utc);
-                }
-            }
-            if (!hitTarget && !hitStop) return; // partial only, trade still open
-        }
-
-        ExitReason reason = hitTarget ? ExitReason.Target : ExitReason.Stop;
-        decimal    exitPx = hitTarget ? _target : _stop;
-
-        int remCts = (_partHit && _cfg.UsePartial)
-            ? _contracts - CalcPartialCts(_contracts, _cfg.PartialCts) : _contracts;
-        _pnl += (long_ ? exitPx - _entry : _entry - exitPx) * _cfg.PointValue * remCts;
-
-        bool isBE = _cfg.AllowRearmAfterBe && reason == ExitReason.Stop && exitPx == _entry;
-        if (!isBE) { if (long_) _bullTraded = true; else _bearTraded = true; }
-        if (hitTarget) _stickyTgt  = true;
-        else           _stickyStop = true;
-
-        BookExit(reason, exitPx, utc, long_);
     }
 
     // ── ForceExit ─────────────────────────────────────────────────
     public void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd)
     {
-        if (!IsActive) return;
-        bool isLong = _state == 3;
-        _pnl += ExitProcessor.ForcedExit(isLong, _entry, currentPrice,
-            _contracts, _partHit, _cfg.UsePartial, _cfg.PointValue, _cfg.PartialCts);
-        BookExit(reason, currentPrice, utcTime, isLong);
-    }
-
-    // ── ApplyFill ─────────────────────────────────────────────────
-    public void ApplyFill(decimal actualFillPrice)
-    {
-        if (!IsActive) return;
-        decimal slippage = actualFillPrice - _entry;
-        _entry   = actualFillPrice;
-        _stop   += slippage;
-        _target += slippage;
-        _partial += slippage;
-        _initStop += slippage;
-        // Re-emit updated entry signal with corrected levels
-        _pendingEntry = _pendingEntry is null ? null :
-            _pendingEntry with { Entry = _entry, Stop = _stop, Target = _target, Partial = _partial };
+        _pendingEntry = null;
+        _state = 0;
     }
 
     // ── GetSnapshot ───────────────────────────────────────────────
@@ -515,8 +292,8 @@ public class RetestStrategy : ISetupStrategy
         PastCutoff  = _pastCutoff,
         TradeCount  = _tradeCount,
         MaxTrades   = _cfg.MaxTrades,
-        StickyTgt   = _stickyTgt,
-        StickyStp   = _stickyStop,
+        StickyTgt   = false,
+        StickyStp   = false,
         Enabled     = _cfg.Enabled,
         Wins        = _wins,
         Losses      = _losses,
@@ -526,44 +303,11 @@ public class RetestStrategy : ISetupStrategy
             ? (_winPnl + _lossPnl) / (_wins + _losses) : 0m,
     };
 
-    // ── GetActiveTrade ────────────────────────────────────────────
-    public ActiveTradeView? GetActiveTrade(decimal lastPrice)
-    {
-        if (!IsActive) return null;
-        bool isLong      = _state == 3;
-        int  half        = CalcPartialCts(_contracts, _cfg.PartialCts);
-        int  remaining   = (_cfg.UsePartial && _partHit && half > 0) ? _contracts - half : _contracts;
-        decimal unrealized = (isLong ? lastPrice - _entry : _entry - lastPrice) * _cfg.PointValue * remaining;
-
-        return new ActiveTradeView
-        {
-            Setup              = _cfg.SetupId,
-            Direction          = isLong ? Direction.Long : Direction.Short,
-            Entry              = _entry,
-            InitialStop        = _initStop,
-            CurrentStop        = _stop,
-            Target             = _target,
-            Partial            = _partial,
-            Contracts          = _contracts,
-            RemainingContracts = remaining,
-            PartialFilled      = _partHit,
-            LastPrice          = lastPrice,
-            UnrealizedPnl      = unrealized + _pnl,
-            EnteredAt          = _entryTime,
-            Ticker             = _cfg.Ticker,
-            PointValue         = _cfg.PointValue,
-        };
-    }
-
     // ── Private helpers ───────────────────────────────────────────
 
-    /// <summary>
-    /// Compute entry levels and either enter immediately (bar path when tick mode disabled)
-    /// or stage for tick confirmation (when tick mode is active).
-    /// </summary>
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {
-        if (IsActive) return;
+        if (_inTrade) return;
 
         // Apply entry tick offset
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
@@ -577,76 +321,17 @@ public class RetestStrategy : ISetupStrategy
 
         if (rr < _cfg.MinRr) return;
 
-        _entry     = ep; _stop = sl; _target = tp; _partial = pp;
-        _initStop  = sl; _pnl  = 0;
-        _contracts = CalcContracts();
-        _partHit   = false;
-        _state     = isLong ? 3 : -3;
-        _entryTime = time;
+        int contracts = CalcContracts();
 
         _pendingEntry = new EntrySignal(
             _cfg.SetupId,
             isLong ? Direction.Long : Direction.Short,
-            ep, sl, tp, pp, _contracts, time,
+            ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker);
-    }
 
-    /// <summary>
-    /// Limit orders enter at the exact level on bar. Market orders defer to tick gate.
-    /// </summary>
-    private void StageOrEnter(decimal level, bool isLong, OrbState orb, DateTime time)
-    {
-        if (_cfg.OrderType == "Limit")
-            TryEntry(level, isLong, orb, time);
-        else
-            { _theoreticalEntry = level; _awaitingTickConfirm = true; }
-    }
-
-    /// <summary>
-    /// Tick confirmation gate: only enters if the tick price is within MaxEntrySlippage
-    /// of the theoretical entry. Recalculates all levels from the tick price.
-    /// </summary>
-    private void TryTickConfirmedEntry(decimal tickPrice, decimal theoreticalEntry, bool isLong, OrbState orb, DateTime utc)
-    {
-        if (IsActive) return;
-
-        if (_cfg.OrderType == "Limit")
-        {
-            // Limit fill: enter at the limit level when tick price reaches it or better
-            bool canFill = isLong ? tickPrice <= theoreticalEntry : tickPrice >= theoreticalEntry;
-            if (!canFill) return;
-            TryEntry(theoreticalEntry, isLong, orb, utc);
-        }
-        else
-        {
-            // Market: enter at tick price with slippage gate
-            decimal maxSlip = _cfg.MaxEntrySlippage > 0
-                ? orb.Range * _cfg.MaxEntrySlippage
-                : decimal.MaxValue;
-            if (Math.Abs(tickPrice - theoreticalEntry) > maxSlip) return;
-            TryEntry(tickPrice, isLong, orb, utc);
-        }
-    }
-
-    private void BookExit(ExitReason reason, decimal exitPx, DateTime time, bool isLong)
-    {
-        // Capture trade snapshot BEFORE resetting state — RouteSignalsAsync needs it
-        _preExitTrade = GetActiveTrade(exitPx);
-
-        int remCts = (_partHit && _cfg.UsePartial)
-            ? _contracts - CalcPartialCts(_contracts, _cfg.PartialCts) : _contracts;
-
-        _pendingExit = new ExitSignal(_cfg.SetupId, reason, exitPx, remCts, time, _cfg.Ticker);
-
-        if (reason != ExitReason.AdverseTime)
-            _tradeCount++;
-
-        if (_pnl > 0) { _wins++;   _winPnl  += _pnl; }
-        else          { _losses++; _lossPnl += _pnl; }
-
-        _state    = 0;
-        _entry    = 0; _stop = 0; _target = 0; _partial = 0; _initStop = 0;
-        _contracts = 0; _partHit = false; _pnl = 0;
+        _tradeCount++;
+        if (isLong) _bullTraded = true; else _bearTraded = true;
+        _state = 0;
     }
 
     private int CalcContracts()
