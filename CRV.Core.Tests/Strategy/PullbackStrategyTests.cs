@@ -6,6 +6,12 @@ using Xunit;
 
 namespace CRV.Core.Tests.Strategy;
 
+/// <summary>
+/// Tests for PullbackStrategy — a pure signal generator.
+/// After phase2 simplification, the strategy only produces EntrySignal.
+/// Trade lifecycle (exit, partial, BE) is managed by BrokerEventHandler.
+/// IsActive is controlled externally via SetInTrade().
+/// </summary>
 public class PullbackStrategyTests
 {
     private static StrategySetupConfig DefaultConfig() => new()
@@ -139,7 +145,8 @@ public class PullbackStrategyTests
 
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.True(s.IsActive);
+        // IsActive is set externally by SetInTrade(), not by entry signal generation
+        Assert.False(s.IsArmed); // state returns to 0 after entry
     }
 
     [Fact]
@@ -151,60 +158,13 @@ public class PullbackStrategyTests
         var orb = MakeOrb(); // high=5200, low=5180, range=20
 
         // In aggressive mode: arming and entry happen on the SAME bar.
-        // Entry uses _armEntry = bar.Open. With open=5199, stop = 5199 - 2 = 5197.
-        // Bar Low must be >= stop (5197) to avoid immediate same-bar stop hit.
-        // nearDist = 3 → arm when bar.High >= 5197. Use high=5199, low=5198.
         var bar = MakeBar(5199m, 5199m, 5198m, 5198m);
         s.OnBar(bar, orb, MakeIndicators(), EmptyModules());
 
         // Entry should have fired on the arm bar itself (no pullback needed in aggressive mode)
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.True(s.IsActive);
-        Assert.False(s.IsArmed); // transitioned to active, no longer in armed state
-    }
-
-    [Fact]
-    public void Exits_OnTarget()
-    {
-        var s = new PullbackStrategy(DefaultConfig());
-        var orb = MakeOrb(); // range=20
-        // Enter long: ep = 5190, stopPct=0.10 → stopDist=2, stop=5188
-        //   targetPct=100 → targetDist=20, target=5210
-        ArmLong(s);
-        var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
-        s.ClearPendingSignals();
-        Assert.True(s.IsActive);
-
-        // Bar that hits the target (longPb=5190, target = 5190 + 20 = 5210)
-        var exitBar = MakeBar(5200m, 5215m, 5198m, 5212m);
-        s.OnBar(exitBar, orb, MakeIndicators(), EmptyModules());
-
-        Assert.NotNull(s.PendingExit);
-        Assert.Equal(ExitReason.Target, s.PendingExit!.Reason);
-        Assert.False(s.IsActive);
-    }
-
-    [Fact]
-    public void Exits_OnStop()
-    {
-        var s = new PullbackStrategy(DefaultConfig());
-        var orb = MakeOrb(); // range=20
-        // ep = 5190, stop = 5190 - 20*0.10 = 5188
-        ArmLong(s);
-        var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
-        s.ClearPendingSignals();
-        Assert.True(s.IsActive);
-
-        // Bar where Low <= stop (5188)
-        var stopBar = MakeBar(5190m, 5191m, 5185m, 5186m);
-        s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
-
-        Assert.NotNull(s.PendingExit);
-        Assert.Equal(ExitReason.Stop, s.PendingExit!.Reason);
-        Assert.False(s.IsActive);
+        Assert.False(s.IsArmed); // state returns to 0 after entry
     }
 
     [Fact]
@@ -221,29 +181,6 @@ public class PullbackStrategyTests
 
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.True(s.IsActive);
-    }
-
-    [Fact]
-    public void OnTick_Exits_OnTarget()
-    {
-        var s = new PullbackStrategy(DefaultConfig());
-        var orb = MakeOrb(); // range=20
-        // Enter first via bar
-        ArmLong(s);
-        var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
-        s.ClearPendingSignals();
-        Assert.True(s.IsActive);
-
-        // Tick at or above target
-        // ep=5190, target = 5190 + 20 = 5210
-        var utc = new DateTime(2026, 3, 10, 14, 35, 0, DateTimeKind.Utc);
-        s.OnTick(5210m, utc, orb, MakeIndicators(), EmptyModules());
-
-        Assert.NotNull(s.PendingExit);
-        Assert.Equal(ExitReason.Target, s.PendingExit!.Reason);
-        Assert.False(s.IsActive);
     }
 
     [Fact]
@@ -254,24 +191,18 @@ public class PullbackStrategyTests
         var s = new PullbackStrategy(cfg);
         var orb = MakeOrb();
 
-        // Complete a trade to exhaust the trade count
+        // Generate an entry to exhaust the trade count (_tradeCount incremented in TryEntry)
         ArmLong(s);
         var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        Assert.NotNull(s.PendingEntry);
         s.ClearPendingSignals();
 
-        // Hit stop to close trade and increment counter
-        var stopBar = MakeBar(5190m, 5191m, 5185m, 5186m);
-        s.OnBar(stopBar, orb, MakeIndicators(), EmptyModules());
-        s.ClearPendingSignals();
-        Assert.False(s.IsActive);
-
-        // Now try to arm again — should not arm because MaxTrades=1 already reached
+        // Now try to arm again — should not arm because MaxTrades=1 already used
         var armBar = MakeBar(5198m, 5199m, 5196m, 5197m);
         s.OnBar(armBar, orb, MakeIndicators(), EmptyModules());
 
         Assert.False(s.IsArmed);
-        Assert.False(s.IsActive);
     }
 
     [Fact]
@@ -287,25 +218,20 @@ public class PullbackStrategyTests
         Assert.False(s.IsArmed);
         Assert.False(s.IsActive);
         Assert.Null(s.PendingEntry);
-        Assert.Null(s.PendingExit);
     }
 
     [Fact]
-    public void ForceExit_ProducesExitSignal()
+    public void ForceExit_ClearsState()
     {
         var s = new PullbackStrategy(DefaultConfig());
         var orb = MakeOrb();
         ArmLong(s);
-        var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
-        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
-        s.ClearPendingSignals();
-        Assert.True(s.IsActive);
+        Assert.True(s.IsArmed);
 
         s.ForceExit(5195m, new DateTime(2026, 3, 10, 16, 0, 0, DateTimeKind.Utc));
 
-        Assert.NotNull(s.PendingExit);
-        Assert.Equal(ExitReason.SessionEnd, s.PendingExit!.Reason);
-        Assert.False(s.IsActive);
+        Assert.False(s.IsArmed); // state cleared
+        Assert.Null(s.PendingEntry);
     }
 
     [Fact]
@@ -327,29 +253,28 @@ public class PullbackStrategyTests
     }
 
     [Fact]
-    public void Partial_And_BE_ProduceSignals()
+    public void DoesNotReenter_WhenInTrade()
     {
-        var cfg = DefaultConfig();
-        cfg.UsePartial = true;
-        cfg.UseBe = true;
-        cfg.Contracts = 4;     // so partial is meaningful (2 out of 4)
-        var s = new PullbackStrategy(cfg);
-        var orb = MakeOrb(); // range=20
+        var s = new PullbackStrategy(DefaultConfig());
+        var orb = MakeOrb();
+
+        // Generate entry
         ArmLong(s);
         var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
         s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+        Assert.NotNull(s.PendingEntry);
         s.ClearPendingSignals();
+
+        // Simulate broker confirming fill
+        s.SetInTrade(true);
         Assert.True(s.IsActive);
 
-        // partial = ep + targetDist * (partialPct/100) = 5190 + 20*(50/100) = 5190 + 10 = 5200
-        // Bar touches partial but doesn't reach target (5210) and stays above entry (BE=5190)
-        // Low must be > 5190 to avoid immediately hitting the BE stop on the same bar
-        var partBar = MakeBar(5192m, 5205m, 5192m, 5202m);
-        s.OnBar(partBar, orb, MakeIndicators(), EmptyModules());
+        // Try to arm again — should not arm because _inTrade blocks ProcessArm
+        var armBar = MakeBar(5198m, 5199m, 5196m, 5197m);
+        s.OnBar(armBar, orb, MakeIndicators(), EmptyModules());
 
-        Assert.NotNull(s.PendingPartial);
-        Assert.NotNull(s.PendingBE);
-        Assert.True(s.IsActive); // trade still open
+        Assert.False(s.IsArmed);
+        Assert.Null(s.PendingEntry);
     }
 
     [Fact]
