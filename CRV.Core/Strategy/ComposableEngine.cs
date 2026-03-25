@@ -27,6 +27,9 @@ public class ComposableEngine
     private bool _tickModeEnabled;
     private string _activeSessionId = "";
 
+    // ── WSS order management (optional — null when using legacy path) ──
+    private readonly BrokerEventHandler? _brokerHandler;
+
     // ── Alert ring buffer ──────────────────────────────────────────
     private const int AlertCapacity = 100;
     private readonly AlertEvent[] _alertRing = new AlertEvent[AlertCapacity];
@@ -39,16 +42,21 @@ public class ComposableEngine
     /// <summary>Current active session id (e.g. "NY", "London").</summary>
     public string ActiveSessionId => _activeSessionId;
 
+    /// <summary>BrokerEventHandler for WSS order management (null when using legacy path).</summary>
+    public BrokerEventHandler? BrokerHandler => _brokerHandler;
+
     public ComposableEngine(
         IOrderExecutor executor,
         IStrategyEventSink sink,
         ILastPriceProvider prices,
-        EngineConfig config)
+        EngineConfig config,
+        BrokerEventHandler? brokerHandler = null)
     {
         _executor = executor;
         _sink = sink;
         _prices = prices;
         _config = config;
+        _brokerHandler = brokerHandler;
     }
 
     // ── Setup management ────────────────────────────────────────────
@@ -183,13 +191,27 @@ public class ComposableEngine
                 if (Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
                 {
                     var fill = await _executor.OnEntrySignalAsync(esig);
-                    if (fill.HasValue && fill.Value != esig.Entry)
-                        sig.Strategy.ApplyFill(fill.Value);
-                    await _sink.OnEntryAsync(esig);
-                    bool isLong = esig.Direction == Direction.Long;
-                    AddAlert("ENTRY", setup,
-                        $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
-                        isLong ? "green" : "red", label);
+                    if (!fill.HasValue)
+                    {
+                        // Broker returned null — Limit order placed but not yet filled.
+                        // Revert strategy to armed + tick gate: the tick path will enter
+                        // when price actually reaches the level. No duplicate orders because
+                        // _awaitingTickConfirm prevents the bar path from re-sending.
+                        sig.Strategy.RevertEntryToTickGate(esig.Entry);
+                        AddAlert("LIMIT_PLACED", setup,
+                            $"Limit {(esig.Direction == Direction.Long ? "BUY" : "SELL")} @ {esig.Entry:F2} — waiting for fill",
+                            "yellow", label);
+                    }
+                    else
+                    {
+                        if (fill.Value != esig.Entry)
+                            sig.Strategy.ApplyFill(fill.Value);
+                        await _sink.OnEntryAsync(esig);
+                        bool isLong = esig.Direction == Direction.Long;
+                        AddAlert("ENTRY", setup,
+                            $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
+                            isLong ? "green" : "red", label);
+                    }
                 }
             }
 
@@ -329,6 +351,15 @@ public class ComposableEngine
         var px = _prices.GetLastPrice(ticker);
         if (px <= 0) return;
 
+        // WSS path: delegate to BrokerEventHandler if active
+        if (_brokerHandler != null && _brokerHandler.HasActiveGroup(setupId))
+        {
+            await _brokerHandler.ExitGroupAsync(setupId);
+            AddAlert("EXIT", strategy.SetupId, $"Force exit @ {px:F2}", "orange");
+            await PublishSnapshotInternal();
+            return;
+        }
+
         if (strategy.IsActive)
         {
             var preTrade = strategy.GetActiveTrade(px);
@@ -353,6 +384,10 @@ public class ComposableEngine
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         var ts = utcTime ?? DateTime.UtcNow;
+
+        // WSS path: force-close all broker-managed trades
+        if (_brokerHandler != null)
+            await _brokerHandler.ExitAllAsync();
 
         foreach (var (id, strategy) in _strategies)
         {
