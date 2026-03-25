@@ -1276,7 +1276,12 @@ function updateSetup(id, setup, sessionEnded) {
     // Direction enum: 0 = Long, 1 = Short
     const isLong = trade.direction === 0;
     if (statusEl) {
-        statusEl.textContent = "● " + (isLong ? "LONG" : "SHORT") + " ACTIVE";
+        let statusText = "● " + (isLong ? "LONG" : "SHORT") + " ACTIVE";
+        if (trade.groupStatus) {
+            const gs = trade.groupStatus.toUpperCase();
+            statusText += " [" + gs + "]";
+        }
+        statusEl.textContent = statusText;
         statusEl.className   = "badge " + (isLong ? "setup-long" : "setup-short");
     }
 

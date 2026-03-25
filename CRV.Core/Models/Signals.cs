@@ -237,6 +237,9 @@ public class ActiveTradeView
     public DateTime   EnteredAt          { get; set; }
     public string     Ticker             { get; set; } = "";
     public decimal    PointValue         { get; set; }
+
+    /// <summary>WSS group order status (null when using legacy path).</summary>
+    public string?    GroupStatus        { get; set; }
 }
 
 /// <summary>

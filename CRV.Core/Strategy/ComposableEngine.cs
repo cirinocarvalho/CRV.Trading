@@ -526,7 +526,22 @@ public class ComposableEngine
             RecentAlerts = GetRecentAlerts(),
         };
 
-        return SnapshotAggregator.Build(inputs);
+        var snapshot = SnapshotAggregator.Build(inputs);
+
+        // Overlay WSS group order status onto trade views when BrokerEventHandler is active
+        if (_brokerHandler != null)
+        {
+            foreach (var setup in snapshot.Setups)
+            {
+                var group = _brokerHandler.GetGroupState(setup.Id);
+                if (group != null && setup.Trade != null)
+                {
+                    setup.Trade.GroupStatus = group.Status.ToString();
+                }
+            }
+        }
+
+        return snapshot;
     }
 
     /// <summary>Get bar history for a specific ticker group (for dashboard chart).</summary>
