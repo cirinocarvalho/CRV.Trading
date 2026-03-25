@@ -84,7 +84,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[TV] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
-            sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
+            sig.Direction, sig.TotalContracts, sig.Setup, sig.Entry, sig.Stop, sig.Tg2Price);
 
         var rawTicker   = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
         var symbol      = FuturesSymbol.ToTradovate(rawTicker);
@@ -102,7 +102,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             accountId   = account.Id,
             action      = entryAction,
             symbol      = symbol,
-            orderQty    = sig.Contracts,
+            orderQty    = sig.TotalContracts,
             orderType   = isLimit ? "Limit" : "Market",
             price       = isLimit ? (decimal?)sig.Entry : null,
             isAutomated = true,
@@ -110,15 +110,15 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             {
                 action    = exitAction,
                 orderType = "Limit",
-                price     = sig.Target,
-                orderQty  = sig.Contracts
+                price     = sig.Tg2Price,
+                orderQty  = sig.TotalContracts
             },
             bracket2    = new
             {
                 action    = exitAction,
                 orderType = "Stop",
                 stopPrice = sig.Stop,
-                orderQty  = sig.Contracts
+                orderQty  = sig.TotalContracts
             }
         };
 
@@ -156,7 +156,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         {
             _log.LogInformation("[TV] Bracket leg IDs missing (target={T}, stop={S}) — polling order list to discover",
                 state.TargetOrderId, state.StopOrderId);
-            var (foundTarget, foundStop) = await FindBracketLegsAsync(entryId.Value, sig.Target, sig.Stop);
+            var (foundTarget, foundStop) = await FindBracketLegsAsync(entryId.Value, sig.Tg2Price, sig.Stop);
             state.TargetOrderId ??= foundTarget;
             state.StopOrderId   ??= foundStop;
             _log.LogInformation("[TV] Setup {S} bracket legs resolved — target={T} stop={St}",
@@ -205,18 +205,18 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         bool isLimit = sig.OrderType == "Limit";
 
         var groupId = Guid.NewGuid().ToString("N")[..8];
-        var partialCts = sig.EffectivePartialContracts();
-        var remainCts = sig.Contracts - partialCts;
+        var partialCts = sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2;
+        var remainCts = sig.TotalContracts - partialCts;
 
         // 1. Place Entry + Stop via placeOSO
         var osoBody = new
         {
             accountSpec = account.Name, accountId = account.Id,
-            action = entryAction, symbol, orderQty = sig.Contracts,
+            action = entryAction, symbol, orderQty = sig.TotalContracts,
             orderType = isLimit ? "Limit" : "Market",
             price = isLimit ? (decimal?)sig.Entry : null,
             isAutomated = true,
-            bracket1 = new { action = exitAction, orderType = "Stop", stopPrice = sig.Stop, orderQty = sig.Contracts }
+            bracket1 = new { action = exitAction, orderType = "Stop", stopPrice = sig.Stop, orderQty = sig.TotalContracts }
         };
         var (entryId, _, stopId) = await PlaceOsoAsync(osoBody);
         if (entryId is null)
@@ -230,7 +230,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         {
             accountSpec = account.Name, accountId = account.Id,
             action = exitAction, symbol,
-            orderQty = partialCts, orderType = "Limit", price = sig.Partial,
+            orderQty = partialCts, orderType = "Limit", price = sig.Tg1Price,
             isAutomated = true
         };
         var tg1Id = await PlaceSingleAsync(tg1Body);
@@ -240,7 +240,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         {
             accountSpec = account.Name, accountId = account.Id,
             action = exitAction, symbol,
-            orderQty = remainCts, orderType = "Limit", price = sig.Target,
+            orderQty = remainCts, orderType = "Limit", price = sig.Tg2Price,
             isAutomated = true
         };
         var tg2Id = await PlaceSingleAsync(tg2Body);
@@ -262,19 +262,19 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             SetupId = setupId,
             Ticker = rawTicker,
             Direction = sig.Direction,
-            TotalContracts = sig.Contracts,
+            TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
             Status = GroupOrderStatus.Pending,
             Broker = "Tradovate",
         };
 
-        group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = entryId.Value.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = sig.Contracts, Price = sig.Entry });
+        group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = entryId.Value.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = sig.TotalContracts, Price = sig.Entry });
         if (tg1Id.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg1Id.Value.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = partialCts, Price = sig.Partial });
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg1Id.Value.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = partialCts, Price = sig.Tg1Price });
         if (tg2Id.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Id.Value.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = remainCts, Price = sig.Target });
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Id.Value.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = remainCts, Price = sig.Tg2Price });
         if (stopId.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = stopId.Value.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = sig.Contracts, Price = sig.Stop });
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = stopId.Value.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = sig.TotalContracts, Price = sig.Stop });
 
         // Register all legs with WSS event stream for real-time routing
         if (EventStream != null)

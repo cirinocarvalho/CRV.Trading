@@ -188,8 +188,8 @@ public class OrbFakeoutStrategyTests
         var entry = s.PendingEntry!;
         Assert.Equal(5180m, entry.Entry);
         Assert.Equal(5178m, entry.Stop);      // 5180 - 20*0.10 = 5178
-        Assert.Equal(5200m, entry.Target);     // 5180 + 20*1.00 = 5200
-        Assert.Equal(5190m, entry.Partial);    // 5180 + 20*0.50 = 5190
+        Assert.Equal(5200m, entry.Tg2Price);     // 5180 + 20*1.00 = 5200
+        Assert.Equal(5190m, entry.Tg1Price);    // 5180 + 20*0.50 = 5190
     }
 
     [Fact]

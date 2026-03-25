@@ -463,7 +463,7 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
     public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[SCHWAB] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
-            sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
+            sig.Direction, sig.TotalContracts, sig.Setup, sig.Entry, sig.Stop, sig.Tg2Price);
 
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
         var state = GetOrCreateState(sig.Setup.ToString());
@@ -481,10 +481,10 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
             duration          = "DAY",
             orderType         = isLimit ? "LIMIT" : "MARKET",
             price             = isLimit ? (decimal?)sig.Entry : null,
-            quantity          = sig.Contracts,
+            quantity          = sig.TotalContracts,
             orderLegCollection = new[]
             {
-                new { instruction = entryInstr, quantity = sig.Contracts,
+                new { instruction = entryInstr, quantity = sig.TotalContracts,
                       instrument  = new { symbol = ticker, assetType = "FUTURE" } }
             },
             childOrderStrategies = new[]
@@ -500,11 +500,11 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                             orderType          = "LIMIT",
                             session            = "NORMAL",
                             duration           = "DAY",
-                            price              = sig.Target,
-                            quantity           = sig.Contracts,
+                            price              = sig.Tg2Price,
+                            quantity           = sig.TotalContracts,
                             orderLegCollection = new[]
                             {
-                                new { instruction = closeInstr, quantity = sig.Contracts,
+                                new { instruction = closeInstr, quantity = sig.TotalContracts,
                                       instrument  = new { symbol = ticker, assetType = "FUTURE" } }
                             }
                         },
@@ -515,10 +515,10 @@ public class SchwabExecutor : CRV.Core.Interfaces.IOrderExecutor
                             session            = "NORMAL",
                             duration           = "DAY",
                             stopPrice          = sig.Stop,
-                            quantity           = sig.Contracts,
+                            quantity           = sig.TotalContracts,
                             orderLegCollection = new[]
                             {
-                                new { instruction = closeInstr, quantity = sig.Contracts,
+                                new { instruction = closeInstr, quantity = sig.TotalContracts,
                                       instrument  = new { symbol = ticker, assetType = "FUTURE" } }
                             }
                         }

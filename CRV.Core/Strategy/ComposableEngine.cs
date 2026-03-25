@@ -183,7 +183,7 @@ public class ComposableEngine
 
             bool isLong = esig.Direction == Direction.Long;
             AddAlert("ENTRY", setup,
-                $"{(isLong ? "LONG" : "SHORT")} {esig.Contracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Target:F2}",
+                $"{(isLong ? "LONG" : "SHORT")} {esig.TotalContracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Tg2Price:F2}",
                 isLong ? "green" : "red", label);
         }
     }

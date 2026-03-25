@@ -78,7 +78,7 @@ public class MockBrokerExecutor : IOrderExecutor
     public Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[MOCK] ENTRY {OT} {D} {Q}x Setup={S} @ {E} Stop={St} Tgt={T}",
-            sig.OrderType, sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
+            sig.OrderType, sig.Direction, sig.TotalContracts, sig.Setup, sig.Entry, sig.Stop, sig.Tg2Price);
 
         var ocoId  = Guid.NewGuid().ToString("N")[..8];
         bool isLong = sig.Direction == Direction.Long;
@@ -91,7 +91,7 @@ public class MockBrokerExecutor : IOrderExecutor
             var entry = new MockOrder
             {
                 Symbol = symbol, Action = isLong ? "BUY" : "SELL",
-                Quantity = sig.Contracts, OcoGroupId = ocoId,
+                Quantity = sig.TotalContracts, OcoGroupId = ocoId,
                 Direction = sig.Direction.ToString(),
                 SetupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString(),
                 // Limit: place as WORKING — EvaluateFills will fill when price reaches level.
@@ -105,13 +105,13 @@ public class MockBrokerExecutor : IOrderExecutor
             var stop = new MockOrder
             {
                 Symbol = symbol, Action = isLong ? "SELL" : "BUY",
-                Quantity = sig.Contracts, StopPrice = sig.Stop, OcoGroupId = ocoId,
+                Quantity = sig.TotalContracts, StopPrice = sig.Stop, OcoGroupId = ocoId,
                 SetupId = setupId
             };
             var target = new MockOrder
             {
                 Symbol = symbol, Action = isLong ? "SELL" : "BUY",
-                Quantity = sig.Contracts, LimitPrice = sig.Target, OcoGroupId = ocoId,
+                Quantity = sig.TotalContracts, LimitPrice = sig.Tg2Price, OcoGroupId = ocoId,
                 SetupId = setupId
             };
             _orders.Add(entry);  newOrders.Add(entry);
@@ -378,8 +378,8 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         var entryAction = isLong ? "BUY" : "SELL";
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
-        var partialCts = sig.EffectivePartialContracts();
-        var remainCts = sig.Contracts - partialCts;
+        var partialCts = sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2;
+        var remainCts = sig.TotalContracts - partialCts;
 
         var group = new GroupOrder
         {
@@ -387,25 +387,25 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
             SetupId = setupId,
             Ticker = ticker,
             Direction = sig.Direction,
-            TotalContracts = sig.Contracts,
+            TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
             Status = GroupOrderStatus.Pending,
             Broker = "Mock",
         };
 
-        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.Contracts, Price = sig.Entry };
-        var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Partial };
-        var tg2Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Target };
-        var stopLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.Contracts, Price = sig.Stop };
+        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
+        var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
+        var tg2Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Tg2Price };
+        var stopLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
         group.Legs.AddRange(new[] { entryLeg, tg1Leg, tg2Leg, stopLeg });
 
         // Register in internal order book
         var legs = new Dictionary<string, MockLegState>
         {
-            [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.Contracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
-            [tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Partial },
-            [tg2Leg.OrderId] = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Target },
-            [stopLeg.OrderId] = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.Contracts, StopPrice = sig.Stop },
+            [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.TotalContracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
+            [tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price },
+            [tg2Leg.OrderId] = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Tg2Price },
+            [stopLeg.OrderId] = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
 
         lock (_lock)
@@ -416,10 +416,10 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         {
             legs[entryLeg.OrderId].Status = "FILLED";
             _stream.PushEvent(new OrderEvent(groupId, entryLeg.OrderId, LegType.Entry,
-                OrderLegStatus.Filled, sig.Entry, sig.Contracts, null, null, DateTime.UtcNow));
+                OrderLegStatus.Filled, sig.Entry, sig.TotalContracts, null, null, DateTime.UtcNow));
         }
 
-        _log.LogInformation("[MOCK-GRP] Group {G} placed: {D} {Q}x @ {E}", groupId, sig.Direction, sig.Contracts, sig.Entry);
+        _log.LogInformation("[MOCK-GRP] Group {G} placed: {D} {Q}x @ {E}", groupId, sig.Direction, sig.TotalContracts, sig.Entry);
         return Task.FromResult<GroupOrder?>(group);
     }
 

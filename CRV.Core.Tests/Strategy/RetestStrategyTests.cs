@@ -197,7 +197,7 @@ public class RetestStrategyTests
 
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(5190m, s.PendingEntry!.Stop);
-        Assert.Equal(5220m, s.PendingEntry.Target);
+        Assert.Equal(5220m, s.PendingEntry.Tg2Price);
     }
 
     [Fact]
@@ -359,7 +359,7 @@ public class RetestStrategyTests
         Assert.Equal(Direction.Short, s.PendingEntry!.Direction);
         Assert.Equal(5180m, s.PendingEntry.Entry);
         Assert.Equal(5190m, s.PendingEntry.Stop);
-        Assert.Equal(5160m, s.PendingEntry.Target);
+        Assert.Equal(5160m, s.PendingEntry.Tg2Price);
     }
 
     [Fact]

@@ -375,7 +375,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
     public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[TS] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
-            sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
+            sig.Direction, sig.TotalContracts, sig.Setup, sig.Entry, sig.Stop, sig.Tg2Price);
 
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
         var state = GetOrCreateState(sig.Setup.ToString());
@@ -389,7 +389,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         {
             AccountID   = _cfg.AccountId,
             Symbol      = ticker,
-            Quantity    = sig.Contracts.ToString(),
+            Quantity    = sig.TotalContracts.ToString(),
             OrderType   = isLimit ? "Limit" : "Market",
             LimitPrice  = isLimit ? sig.Entry.ToString("F2") : null,
             TradeAction = tradeAction,
@@ -405,9 +405,9 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         {
                             AccountID   = _cfg.AccountId,
                             Symbol      = ticker,
-                            Quantity    = sig.Contracts.ToString(),
+                            Quantity    = sig.TotalContracts.ToString(),
                             OrderType   = "Limit",
-                            LimitPrice  = sig.Target.ToString("F2"),
+                            LimitPrice  = sig.Tg2Price.ToString("F2"),
                             TradeAction = closeAction,
                             TimeInForce = new { Duration = "DAY" }
                         },
@@ -415,7 +415,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         {
                             AccountID   = _cfg.AccountId,
                             Symbol      = ticker,
-                            Quantity    = sig.Contracts.ToString(),
+                            Quantity    = sig.TotalContracts.ToString(),
                             OrderType   = "StopMarket",
                             StopPrice   = sig.Stop.ToString("F2"),
                             TradeAction = closeAction,
@@ -448,7 +448,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 _log.LogInformation("[TS] Bracket leg IDs missing (target={T}, stop={S}) — polling account orders to discover",
                     state.TargetOrderId, state.StopOrderId);
                 var (foundTarget, foundStop) = await FindBracketLegsAsync(
-                    state.EntryOrderId, sig.Target, sig.Stop, sig.Direction);
+                    state.EntryOrderId, sig.Tg2Price, sig.Stop, sig.Direction);
                 state.TargetOrderId ??= foundTarget;
                 state.StopOrderId   ??= foundStop;
                 _log.LogInformation("[TS] Setup {S} bracket legs resolved — target={T} stop={St}",

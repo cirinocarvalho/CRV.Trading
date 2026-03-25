@@ -59,19 +59,12 @@ public class BrokerEventHandlerTests
         public void ResetSession() { }
         public void ResetTradeCounters() { }
         public EntrySignal? PendingEntry => null;
-        public ExitSignal? PendingExit => null;
-        public PartialSignal? PendingPartial => null;
-        public BESignal? PendingBE => null;
-        public ActiveTradeView? PreExitTrade => null;
-        public void ApplyFill(decimal p) { }
         public void ClearPendingSignals() { }
         public void RevertEntry() { }
-        public void RevertEntryToTickGate(decimal e) { }
         public void ForceExit(decimal p, DateTime t, ExitReason r = ExitReason.SessionEnd) { }
         public void Disarm() { }
         public void ResetCutoff() { }
         public SetupStateSnapshot GetSnapshot() => new();
-        public ActiveTradeView? GetActiveTrade(decimal p) => null;
         public void SetInTrade(bool active) => InTrade = active;
     }
 

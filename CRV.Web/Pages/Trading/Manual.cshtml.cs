@@ -156,19 +156,19 @@ public class ManualModel : PageModel
                 var sig = BuildEntry(isLong, Order.Contracts,
                     Order.EntryPrice, Order.StopPoints, Order.TargetPoints);
                 await exec.OnEntrySignalAsync(sig);
-                Placed.Add($"Bracket placed: {sig.Direction} {sig.Contracts}× Entry={sig.Entry} Stop={sig.Stop} Target={sig.Target}");
+                Placed.Add($"Bracket placed: {sig.Direction} {sig.TotalContracts}× Entry={sig.Entry} Stop={sig.Stop} Target={sig.Tg2Price}");
             }
             else
             {
                 var sig1 = BuildEntry(isLong, Order.PartialContracts,
                     Order.EntryPrice, Order.StopPoints, Order.PartialPoints);
                 await exec.OnEntrySignalAsync(sig1);
-                Placed.Add($"Bracket 1 (partial): {sig1.Direction} {sig1.Contracts}× Entry={sig1.Entry} Stop={sig1.Stop} Target={sig1.Target}");
+                Placed.Add($"Bracket 1 (partial): {sig1.Direction} {sig1.TotalContracts}× Entry={sig1.Entry} Stop={sig1.Stop} Target={sig1.Tg2Price}");
 
                 var sig2 = BuildEntry(isLong, remainCts,
                     Order.EntryPrice, Order.StopPoints, Order.TargetPoints);
                 await exec.OnEntrySignalAsync(sig2);
-                Placed.Add($"Bracket 2 (runner):  {sig2.Direction} {sig2.Contracts}× Entry={sig2.Entry} Stop={sig2.Stop} Target={sig2.Target}");
+                Placed.Add($"Bracket 2 (runner):  {sig2.Direction} {sig2.TotalContracts}× Entry={sig2.Entry} Stop={sig2.Stop} Target={sig2.Tg2Price}");
             }
         }
         catch (Exception ex)
@@ -334,9 +334,9 @@ public class ManualModel : PageModel
             Direction: isLong ? Direction.Long : Direction.Short,
             Entry:     entryPrice,
             Stop:      stop,
-            Target:    target,
-            Partial:   partial,
-            Contracts: contracts,
+            Tg2Price:       target,
+            Tg1Price:       partial,
+            TotalContracts: contracts,
             Time:      DateTime.UtcNow
         );
     }

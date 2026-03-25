@@ -186,8 +186,8 @@ public class SessionFakeoutStrategyTests
         var entry = s.PendingEntry!;
         Assert.Equal(5170m, entry.Entry);
         Assert.Equal(5166m, entry.Stop);
-        Assert.Equal(5210m, entry.Target);
-        Assert.Equal(5190m, entry.Partial);
+        Assert.Equal(5210m, entry.Tg2Price);
+        Assert.Equal(5190m, entry.Tg1Price);
     }
 
     [Fact]
@@ -334,6 +334,6 @@ public class SessionFakeoutStrategyTests
         // Entry at srLow=5170, ORB range=20 for level calc
         Assert.Equal(5170m, s.PendingEntry!.Entry);
         Assert.Equal(5168m, s.PendingEntry.Stop);    // 5170 - 20*0.10 = 5168
-        Assert.Equal(5190m, s.PendingEntry.Target);   // 5170 + 20 = 5190
+        Assert.Equal(5190m, s.PendingEntry.Tg2Price);   // 5170 + 20 = 5190
     }
 }
