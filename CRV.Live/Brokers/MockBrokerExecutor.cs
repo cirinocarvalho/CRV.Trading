@@ -94,7 +94,8 @@ public class MockBrokerExecutor : IOrderExecutor
                 Quantity = sig.Contracts, OcoGroupId = ocoId,
                 Direction = sig.Direction.ToString(),
                 SetupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString(),
-                // Limit: place as WORKING with LimitPrice; Market: fill immediately
+                // Limit: place as WORKING — EvaluateFills will fill when price reaches level.
+                // Market: fill immediately at the signal price.
                 LimitPrice = isLimit ? sig.Entry : null,
                 Status     = isLimit ? "WORKING" : "FILLED",
                 FillPrice  = isLimit ? null : sig.Entry,
@@ -119,7 +120,7 @@ public class MockBrokerExecutor : IOrderExecutor
             _orders.Add(target); newOrders.Add(target);
         }
         PersistNewOrdersAsync(newOrders);
-        // For limit orders, return null (no fill yet); for market, return the entry price
+        // Limit: return null (not filled yet); Market: return entry price
         return Task.FromResult<decimal?>(isLimit ? null : sig.Entry);
     }
 
@@ -418,5 +419,179 @@ public class MockBrokerExecutor : IOrderExecutor
             }
             catch (Exception ex) { _log.LogError(ex, "[MOCK] Failed to persist fills"); }
         });
+    }
+}
+
+// ── New group-order executor ─────────────────────────────────
+
+/// <summary>
+/// New mock broker — dumb order book that emits events via MockEventStream.
+/// No OCO auto-cancel — BrokerEventHandler manages all leg transitions.
+/// </summary>
+public class MockGroupOrderExecutor : IGroupOrderExecutor
+{
+    private readonly MockEventStream _stream;
+    private readonly ILogger _log;
+    private readonly Dictionary<string, Dictionary<string, MockLegState>> _ordersByGroup = new();
+    private readonly object _lock = new();
+
+    private class MockLegState
+    {
+        public string OrderId { get; set; } = "";
+        public string GroupOrderId { get; set; } = "";
+        public LegType LegType { get; set; }
+        public string Action { get; set; } = "";
+        public int Quantity { get; set; }
+        public decimal? LimitPrice { get; set; }
+        public decimal? StopPrice { get; set; }
+        public string Status { get; set; } = "WORKING";
+    }
+
+    public MockGroupOrderExecutor(MockEventStream stream, ILogger<MockGroupOrderExecutor> log)
+    {
+        _stream = stream;
+        _log = log;
+    }
+
+    public Task<GroupOrder?> OnEntrySignalAsync(EntrySignal sig)
+    {
+        var groupId = Guid.NewGuid().ToString("N")[..8];
+        bool isLong = sig.Direction == Direction.Long;
+        var exitAction = isLong ? "SELL" : "BUY";
+        var entryAction = isLong ? "BUY" : "SELL";
+        var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
+        var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
+        var partialCts = sig.Contracts / 2;
+        var remainCts = sig.Contracts - partialCts;
+
+        var group = new GroupOrder
+        {
+            GroupOrderId = groupId,
+            SetupId = setupId,
+            Ticker = ticker,
+            Direction = sig.Direction,
+            TotalContracts = sig.Contracts,
+            PartialContracts = partialCts,
+            Status = GroupOrderStatus.Pending,
+            Broker = "Mock",
+        };
+
+        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.Contracts, Price = sig.Entry };
+        var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Partial };
+        var tg2Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Target };
+        var stopLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.Contracts, Price = sig.Stop };
+        group.Legs.AddRange(new[] { entryLeg, tg1Leg, tg2Leg, stopLeg });
+
+        // Register in internal order book
+        var legs = new Dictionary<string, MockLegState>
+        {
+            [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.Contracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
+            [tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Partial },
+            [tg2Leg.OrderId] = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Target },
+            [stopLeg.OrderId] = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.Contracts, StopPrice = sig.Stop },
+        };
+
+        lock (_lock)
+            _ordersByGroup[groupId] = legs;
+
+        // Market entry: fill immediately
+        if (sig.OrderType != "Limit")
+        {
+            legs[entryLeg.OrderId].Status = "FILLED";
+            _stream.PushEvent(new OrderEvent(groupId, entryLeg.OrderId, LegType.Entry,
+                OrderLegStatus.Filled, sig.Entry, sig.Contracts, null, null, DateTime.UtcNow));
+        }
+
+        _log.LogInformation("[MOCK-GRP] Group {G} placed: {D} {Q}x @ {E}", groupId, sig.Direction, sig.Contracts, sig.Entry);
+        return Task.FromResult<GroupOrder?>(group);
+    }
+
+    public Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
+    {
+        lock (_lock)
+        {
+            foreach (var (groupId, legs) in _ordersByGroup)
+            {
+                if (legs.TryGetValue(orderId, out var leg))
+                {
+                    if (newPrice.HasValue)
+                    {
+                        if (leg.StopPrice.HasValue) leg.StopPrice = newPrice;
+                        else leg.LimitPrice = newPrice;
+                    }
+                    if (newQty.HasValue) leg.Quantity = newQty.Value;
+
+                    _stream.PushEvent(new OrderEvent(groupId, orderId, leg.LegType,
+                        OrderLegStatus.Modified, null, null, newPrice, newQty, DateTime.UtcNow));
+                    return Task.CompletedTask;
+                }
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task CancelOrderAsync(string orderId)
+    {
+        lock (_lock)
+        {
+            foreach (var (groupId, legs) in _ordersByGroup)
+            {
+                if (legs.TryGetValue(orderId, out var leg) && leg.Status == "WORKING")
+                {
+                    leg.Status = "CANCELED";
+                    _stream.PushEvent(new OrderEvent(groupId, orderId, leg.LegType,
+                        OrderLegStatus.Canceled, null, null, null, null, DateTime.UtcNow));
+                    return Task.CompletedTask;
+                }
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+    {
+        _log.LogInformation("[MOCK-GRP] Market close {D} {Q}x {T}", direction, qty, ticker);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Evaluate fills for all WORKING orders against current price.
+    /// Called on each tick. Emits OrderEvent for each fill — NO OCO auto-cancel.
+    /// BrokerEventHandler handles all leg management.
+    /// </summary>
+    public void EvaluateFills(decimal price, DateTime utcNow)
+    {
+        if (price <= 0) return;
+
+        lock (_lock)
+        {
+            foreach (var (groupId, legs) in _ordersByGroup)
+            {
+                foreach (var leg in legs.Values.Where(l => l.Status == "WORKING").ToList())
+                {
+                    bool fills = false;
+
+                    if (leg.Action == "BUY")
+                    {
+                        fills = (leg.StopPrice.HasValue && price >= leg.StopPrice)
+                             || (leg.LimitPrice.HasValue && price <= leg.LimitPrice);
+                    }
+                    else // SELL
+                    {
+                        fills = (leg.StopPrice.HasValue && price <= leg.StopPrice)
+                             || (leg.LimitPrice.HasValue && price >= leg.LimitPrice);
+                    }
+
+                    if (!fills) continue;
+
+                    leg.Status = "FILLED";
+                    _stream.PushEvent(new OrderEvent(groupId, leg.OrderId, leg.LegType,
+                        OrderLegStatus.Filled, price, leg.Quantity, null, null, utcNow));
+
+                    _log.LogInformation("[MOCK-GRP FILL] {A} {Q}x @ {P} (order {Id})",
+                        leg.Action, leg.Quantity, price, leg.OrderId);
+                }
+            }
+        }
     }
 }
