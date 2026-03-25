@@ -20,7 +20,7 @@ using Microsoft.Extensions.Logging;
 /// not an integer account ID. The account name is resolved once and cached via
 /// GetAccountAsync() → GET /account/list → first account.
 /// </summary>
-public class TradovateExecutor : IOrderExecutor
+public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 {
     private readonly TradovateAuthService  _auth;
     private readonly StrategyConfig        _cfg;
@@ -290,6 +290,127 @@ public class TradovateExecutor : IOrderExecutor
         }
         else
             _log.LogWarning("[TV] OnLevelsAdjusted {S}: TargetOrderId not set", setupId);
+    }
+
+    // ── IGroupOrderExecutor ────────────────────────────────────────
+
+    /// <summary>
+    /// Place an entry via OSO (entry+stop) plus separate tg1/tg2 limit orders.
+    /// Returns a GroupOrder with all leg IDs populated, or null on failure.
+    /// </summary>
+    async Task<GroupOrder?> IGroupOrderExecutor.OnEntrySignalAsync(EntrySignal sig)
+    {
+        var rawTicker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
+        var symbol = FuturesSymbol.ToTradovate(rawTicker);
+        var account = await GetAccountAsync();
+        var entryAction = sig.Direction == Direction.Long ? "Buy" : "Sell";
+        var exitAction = sig.Direction == Direction.Long ? "Sell" : "Buy";
+        bool isLimit = sig.OrderType == "Limit";
+
+        var groupId = Guid.NewGuid().ToString("N")[..8];
+        var partialCts = sig.Contracts / 2;
+        var remainCts = sig.Contracts - partialCts;
+
+        // 1. Place Entry + Stop via placeOSO
+        var osoBody = new
+        {
+            accountSpec = account.Name, accountId = account.Id,
+            action = entryAction, symbol, orderQty = sig.Contracts,
+            orderType = isLimit ? "Limit" : "Market",
+            price = isLimit ? (decimal?)sig.Entry : null,
+            isAutomated = true,
+            bracket1 = new { action = exitAction, orderType = "Stop", stopPrice = sig.Stop, orderQty = sig.Contracts }
+        };
+        var (entryId, _, stopId) = await PlaceOsoAsync(osoBody);
+        if (entryId is null)
+        {
+            _log.LogError("[TV-GRP] Entry OSO failed — no order IDs returned");
+            return null;
+        }
+
+        // 2. Place Tg1 (partial limit)
+        var tg1Body = new
+        {
+            accountSpec = account.Name, accountId = account.Id,
+            action = exitAction, symbol,
+            orderQty = partialCts, orderType = "Limit", price = sig.Partial,
+            isAutomated = true
+        };
+        var tg1Id = await PlaceSingleAsync(tg1Body);
+
+        // 3. Place Tg2 (remaining limit)
+        var tg2Body = new
+        {
+            accountSpec = account.Name, accountId = account.Id,
+            action = exitAction, symbol,
+            orderQty = remainCts, orderType = "Limit", price = sig.Target,
+            isAutomated = true
+        };
+        var tg2Id = await PlaceSingleAsync(tg2Body);
+
+        // Discover stop if placeOSO response didn't include it
+        if (stopId is null)
+        {
+            var (_, foundStop) = await FindBracketLegsAsync(entryId.Value, 0, sig.Stop);
+            stopId = foundStop;
+        }
+
+        var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
+        var buyAction = entryAction == "Buy" ? "BUY" : "SELL";
+        var sellAction = exitAction == "Sell" ? "SELL" : "BUY";
+
+        var group = new GroupOrder
+        {
+            GroupOrderId = groupId,
+            SetupId = setupId,
+            Ticker = rawTicker,
+            Direction = sig.Direction,
+            TotalContracts = sig.Contracts,
+            PartialContracts = partialCts,
+            Status = GroupOrderStatus.Pending,
+            Broker = "Tradovate",
+        };
+
+        group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = entryId.Value.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = sig.Contracts, Price = sig.Entry });
+        if (tg1Id.HasValue)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg1Id.Value.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = partialCts, Price = sig.Partial });
+        if (tg2Id.HasValue)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Id.Value.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = remainCts, Price = sig.Target });
+        if (stopId.HasValue)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = stopId.Value.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = sig.Contracts, Price = sig.Stop });
+
+        _log.LogInformation("[TV-GRP] Group {G} placed: entry={E} tg1={T1} tg2={T2} stop={S}",
+            groupId, entryId, tg1Id, tg2Id, stopId);
+
+        return group;
+    }
+
+    async Task IGroupOrderExecutor.ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
+    {
+        if (!long.TryParse(orderId, out var id)) return;
+        // Determine order type from price context: stopPrice if modifying stop, limitPrice for targets
+        await ModifyOrderAsync(id, newQty ?? 0, stopPrice: newPrice);
+    }
+
+    async Task IGroupOrderExecutor.CancelOrderAsync(string orderId)
+    {
+        if (!long.TryParse(orderId, out var id)) return;
+        await CancelOrderAsync(id);
+    }
+
+    async Task IGroupOrderExecutor.PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+    {
+        var account = await GetAccountAsync();
+        var symbol = FuturesSymbol.ToTradovate(ticker);
+        var action = direction == Direction.Long ? "Sell" : "Buy";
+        var body = new
+        {
+            accountSpec = account.Name, accountId = account.Id,
+            action, symbol, orderQty = qty,
+            orderType = "Market", isAutomated = true
+        };
+        var orderId = await PlaceSingleAsync(body);
+        _log.LogInformation("[TV-GRP] Market close placed, ID={Id}", orderId);
     }
 
     // ── Private helpers ───────────────────────────────────────────
