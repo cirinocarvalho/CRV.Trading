@@ -375,7 +375,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
     public async Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
     {
         _log.LogInformation("[TS] ENTRY {D} {Q}x {S} @ {E} Stop={St} Tgt={T}",
-            sig.Direction, sig.Contracts, sig.Setup, sig.Entry, sig.Stop, sig.Target);
+            sig.Direction, sig.TotalContracts, sig.Setup, sig.Entry, sig.Stop, sig.Tg2Price);
 
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker;
         var state = GetOrCreateState(sig.Setup.ToString());
@@ -389,7 +389,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         {
             AccountID   = _cfg.AccountId,
             Symbol      = ticker,
-            Quantity    = sig.Contracts.ToString(),
+            Quantity    = sig.TotalContracts.ToString(),
             OrderType   = isLimit ? "Limit" : "Market",
             LimitPrice  = isLimit ? sig.Entry.ToString("F2") : null,
             TradeAction = tradeAction,
@@ -405,9 +405,9 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         {
                             AccountID   = _cfg.AccountId,
                             Symbol      = ticker,
-                            Quantity    = sig.Contracts.ToString(),
+                            Quantity    = sig.TotalContracts.ToString(),
                             OrderType   = "Limit",
-                            LimitPrice  = sig.Target.ToString("F2"),
+                            LimitPrice  = sig.Tg2Price.ToString("F2"),
                             TradeAction = closeAction,
                             TimeInForce = new { Duration = "DAY" }
                         },
@@ -415,7 +415,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                         {
                             AccountID   = _cfg.AccountId,
                             Symbol      = ticker,
-                            Quantity    = sig.Contracts.ToString(),
+                            Quantity    = sig.TotalContracts.ToString(),
                             OrderType   = "StopMarket",
                             StopPrice   = sig.Stop.ToString("F2"),
                             TradeAction = closeAction,
@@ -448,7 +448,7 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
                 _log.LogInformation("[TS] Bracket leg IDs missing (target={T}, stop={S}) — polling account orders to discover",
                     state.TargetOrderId, state.StopOrderId);
                 var (foundTarget, foundStop) = await FindBracketLegsAsync(
-                    state.EntryOrderId, sig.Target, sig.Stop, sig.Direction);
+                    state.EntryOrderId, sig.Tg2Price, sig.Stop, sig.Direction);
                 state.TargetOrderId ??= foundTarget;
                 state.StopOrderId   ??= foundStop;
                 _log.LogInformation("[TS] Setup {S} bracket legs resolved — target={T} stop={St}",
@@ -459,107 +459,6 @@ public class TradeStationExecutor : CRV.Core.Interfaces.IOrderExecutor
         }
 
         return null;
-    }
-
-    public async Task OnPartialSignalAsync(PartialSignal sig)
-    {
-        _log.LogInformation("[TS] PARTIAL {S} {Q}ct @ {P} ({R}ct remaining)",
-            sig.Setup, sig.ContractsExited, sig.PartialPrice, sig.ContractsRemaining);
-
-        var state = GetOrCreateState(sig.Setup.ToString());
-        if (state.TargetOrderId != null)
-        {
-            await CancelOrderAsync(state.TargetOrderId);
-            state.TargetOrderId = null;
-        }
-        else
-        {
-            _log.LogWarning("[TS] OnPartialSignal {S}: TargetOrderId not set — cannot cancel bracket target", sig.Setup);
-        }
-
-        var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
-        var sym = state.Ticker ?? _cfg.Ticker;
-        var body = new
-        {
-            AccountID   = _cfg.AccountId,
-            Symbol      = sym,
-            Quantity    = sig.ContractsExited.ToString(),
-            OrderType   = "Limit",
-            LimitPrice  = sig.PartialPrice.ToString("F2"),
-            TradeAction = closeAction,
-            TimeInForce = new { Duration = "DAY" }
-        };
-
-        state.PartialOrderId = await PlaceSingleAsync(body);
-        _log.LogDebug("[TS] Setup {S} partial limit placed, ID={Id}", sig.Setup, state.PartialOrderId);
-    }
-
-    public async Task OnBESignalAsync(BESignal sig)
-    {
-        _log.LogInformation("[TS] MOVE_BE {S} → {P} ({Q}ct)",
-            sig.Setup, sig.NewStop, sig.ContractsRemaining);
-
-        var state = GetOrCreateState(sig.Setup.ToString());
-        if (state.StopOrderId != null)
-        {
-            var closeAction = sig.Direction == Direction.Long ? "SELL" : "BUYTOCOVER";
-            var body = new
-            {
-                AccountID   = _cfg.AccountId,
-                Symbol      = state.Ticker ?? _cfg.Ticker,
-                Quantity    = sig.ContractsRemaining.ToString(),
-                OrderType   = "StopMarket",
-                StopPrice   = sig.NewStop.ToString("F2"),
-                TradeAction = closeAction,
-                TimeInForce = new { Duration = "DAY" }
-            };
-            var ok = await ReplaceOrderAsync(state.StopOrderId, body);
-            if (ok) _log.LogDebug("[TS] Setup {S} stop modified to BE @ {P}", sig.Setup, sig.NewStop);
-        }
-        else
-        {
-            _log.LogWarning("[TS] OnBESignal {S}: StopOrderId not set — cannot modify stop", sig.Setup);
-        }
-    }
-
-    public async Task OnExitSignalAsync(ExitSignal sig)
-    {
-        _log.LogInformation("[TS] EXIT {S} {R} @ {P} {Q}ct",
-            sig.Setup, sig.Reason, sig.ExitPrice, sig.Contracts);
-
-        var state = GetOrCreateState(sig.Setup.ToString());
-
-        // Cancel any open bracket / partial legs
-        foreach (var id in new[] { state.EntryOrderId, state.StopOrderId, state.TargetOrderId, state.PartialOrderId }
-                     .Where(x => x != null))
-            await CancelOrderAsync(id!);
-
-        var direction = state.Direction ?? Direction.Long;
-        var exitTicker = state.Ticker ?? (!string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : _cfg.Ticker);
-        state.Clear();
-
-        // For Stop/Target exits the broker's bracket already filled — no market order needed.
-        // Only SessionEnd/AdverseTime/Manual require a market close.
-        bool brokerHandledExit = sig.Reason is ExitReason.Stop or ExitReason.Target;
-        if (brokerHandledExit)
-        {
-            _log.LogDebug("[TS] EXIT {S}: {R} — broker bracket filled, no market order needed", sig.Setup, sig.Reason);
-            return;
-        }
-
-        var closeAction = direction == Direction.Long ? "SELL" : "BUYTOCOVER";
-        var body = new
-        {
-            AccountID   = _cfg.AccountId,
-            Symbol      = exitTicker,
-            Quantity    = sig.Contracts.ToString(),
-            OrderType   = "Market",
-            TradeAction = closeAction,
-            TimeInForce = new { Duration = "DAY" }
-        };
-
-        var orderId = await PlaceSingleAsync(body);
-        _log.LogDebug("[TS] Market close placed, ID={Id}", orderId);
     }
 
     public async Task OnLevelsAdjustedAsync(string setupId, decimal newStop, decimal newTarget, int contracts)

@@ -124,20 +124,6 @@ public interface ISetupStrategy
 
     // ── Pending signals (consumed by engine after OnBar/OnTick) ──
     EntrySignal? PendingEntry { get; }
-    ExitSignal? PendingExit { get; }
-    PartialSignal? PendingPartial { get; }
-    BESignal? PendingBE { get; }
-
-    /// <summary>
-    /// Snapshot of the active trade captured just before BookExit resets state.
-    /// Used by RouteSignalsAsync to build the TradeRecord, since GetActiveTrade
-    /// returns null after the strategy has already transitioned to idle.
-    /// Cleared by ClearPendingSignals.
-    /// </summary>
-    ActiveTradeView? PreExitTrade { get; }
-
-    /// <summary>Adjust levels after broker reports actual fill price.</summary>
-    void ApplyFill(decimal actualFillPrice);
 
     /// <summary>Clear all pending signals after engine has processed them.</summary>
     void ClearPendingSignals();
@@ -145,14 +131,7 @@ public interface ISetupStrategy
     /// <summary>Revert an uncommitted entry (undo pending entry, keep armed state).</summary>
     void RevertEntry();
 
-    /// <summary>
-    /// Revert entry and activate tick confirmation gate. Used when broker returns null
-    /// for a Limit order — strategy reverts to armed and waits for a tick at the entry level.
-    /// The bar path won't re-send because _awaitingTickConfirm blocks further bar entries.
-    /// </summary>
-    void RevertEntryToTickGate(decimal entryLevel);
-
-    /// <summary>Request force exit of active trade.</summary>
+    /// <summary>Request force exit of active trade (resets state, no signal generation).</summary>
     void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd);
 
     /// <summary>
@@ -166,7 +145,4 @@ public interface ISetupStrategy
 
     /// <summary>Snapshot for dashboard display.</summary>
     SetupStateSnapshot GetSnapshot();
-
-    /// <summary>Active trade view with unrealized PnL, or null if no trade.</summary>
-    ActiveTradeView? GetActiveTrade(decimal lastPrice);
 }

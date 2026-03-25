@@ -78,17 +78,13 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
 
     public Task OnEntryAsync(EntrySignal sig) => Task.CompletedTask;
 
-    public Task OnPartialAsync(PartialSignal sig) => Task.CompletedTask;
-
-    public Task OnBEMoveAsync(BESignal sig) => Task.CompletedTask;
-
-    public async Task OnExitAsync(ExitSignal sig, TradeRecord trade)
+    public async Task OnExitAsync(TradeRecord trade)
     {
         // Push completed trade to dashboard table in real-time
         await _hub.Clients.All.SendAsync("Trade", new
         {
-            time     = TimeZoneInfo.ConvertTimeFromUtc(sig.Time, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).ToString("HH:mm:ss"),
-            setup    = !string.IsNullOrEmpty(trade.SetupLabel) ? trade.SetupLabel : sig.Setup.ToString(),
+            time     = TimeZoneInfo.ConvertTimeFromUtc(trade.ExitedAt, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).ToString("HH:mm:ss"),
+            setup    = !string.IsNullOrEmpty(trade.SetupLabel) ? trade.SetupLabel : trade.Setup.ToString(),
             ticker   = trade.Ticker?.TrimStart('/') ?? "",
             dir      = trade.Direction.ToString(),
             entry    = trade.Entry,

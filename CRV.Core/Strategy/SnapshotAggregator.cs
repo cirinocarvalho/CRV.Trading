@@ -42,6 +42,9 @@ public static class SnapshotAggregator
         // ── Price provider (for per-setup last price) ────────────
         public ILastPriceProvider? Prices { get; init; }
 
+        // ── BrokerEventHandler (for active trade views) ──────────
+        public BrokerEventHandler? BrokerHandler { get; init; }
+
         // ── Config values ───────────────────────────────────────
         public decimal DailyLossLimit { get; init; }
 
@@ -178,6 +181,8 @@ public static class SnapshotAggregator
             GroupSnapshots = inputs.GroupSnapshots,
         };
 
+        var brokerHandler = inputs.BrokerHandler;
+
         // Map each strategy to per-setup fields by SetupId
         foreach (var strategy in inputs.Strategies)
         {
@@ -188,7 +193,32 @@ public static class SnapshotAggregator
             if (setupLastPrice <= 0) setupLastPrice = inputs.LastPrice;
 
             var ss = strategy.GetSnapshot();
-            var trade = strategy.GetActiveTrade(setupLastPrice);
+
+            // Build ActiveTradeView from BrokerEventHandler if available
+            ActiveTradeView? trade = null;
+            if (brokerHandler != null)
+            {
+                var group = brokerHandler.GetGroupState(strategy.Id);
+                if (group == null) group = brokerHandler.GetGroupState(strategy.SetupId.ToString());
+                if (group?.EntryPrice != null)
+                {
+                    var stopLeg = group.GetLeg(LegType.Stop);
+                    var tg1Leg = group.GetLeg(LegType.Tg1);
+                    var tg2Leg = group.GetLeg(LegType.Tg2);
+                    trade = new ActiveTradeView
+                    {
+                        Direction = group.Direction,
+                        Contracts = group.TotalContracts,
+                        Entry = group.EntryPrice.Value,
+                        CurrentStop = stopLeg?.Price ?? 0m,
+                        InitialStop = stopLeg?.Price ?? 0m,
+                        Target = tg2Leg?.Price ?? 0m,
+                        Partial = tg1Leg?.Price ?? 0m,
+                        PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+                        EnteredAt = group.CreatedAt,
+                    };
+                }
+            }
 
             // Resolve per-setup ORB for Setups[] population
             OrbState perSetupOrb = default;

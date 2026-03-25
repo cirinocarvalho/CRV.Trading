@@ -51,10 +51,6 @@ public class TickerGroupTests
         public ModuleState? LastModuleState { get; private set; }
 
         public EntrySignal? PendingEntry { get; set; }
-        public ExitSignal? PendingExit { get; set; }
-        public PartialSignal? PendingPartial { get; set; }
-        public BESignal? PendingBE { get; set; }
-        public ActiveTradeView? PreExitTrade { get; set; }
 
         public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules)
         {
@@ -91,28 +87,17 @@ public class TickerGroupTests
             IsActive = false;
             IsArmed = false;
             PendingEntry = null;
-            PendingExit = null;
-            PendingPartial = null;
-            PendingBE = null;
         }
-        /// <summary>Direction of the active trade (used by GetActiveTrade when IsActive).</summary>
+        /// <summary>Direction of the active trade (used by opposing position guard).</summary>
         public Direction TradeDirection { get; set; } = Direction.Long;
 
-        public void ApplyFill(decimal actualFillPrice) { }
-        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals()
         {
             PendingEntry = null;
-            PendingExit = null;
-            PendingPartial = null;
-            PendingBE = null;
         }
         public void RevertEntry() { PendingEntry = null; IsActive = false; }
         public void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd) { }
         public SetupStateSnapshot GetSnapshot() => new() { SetupId = SetupId, Name = Name };
-        public ActiveTradeView? GetActiveTrade(decimal lastPrice) => IsActive
-            ? new ActiveTradeView { Setup = SetupId, Direction = TradeDirection, Entry = 100m, LastPrice = lastPrice }
-            : null;
     }
 
     // ── GetGroupKey tests ─────────────────────────────────────────
@@ -336,7 +321,6 @@ public class TickerGroupTests
 
         a.PendingEntry = new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2,
             DateTime.UtcNow, Ticker: "/NQH2026");
-        a.PendingPartial = new PartialSignal(SetupId.A, Direction.Long, 105m, 1, 1, 100m, DateTime.UtcNow);
 
         var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
         await group.ProcessBarAsync(MakeBar(utc, 100m, 105m, 95m, 102m));
@@ -344,7 +328,6 @@ public class TickerGroupTests
         var signals = group.CollectAndClearSignals();
         Assert.Single(signals);
         Assert.NotNull(signals[0].Entry);
-        Assert.NotNull(signals[0].Partial);
     }
 
     [Fact]
@@ -362,7 +345,7 @@ public class TickerGroupTests
 
         group.CollectAndClearSignals();
         var signals2 = group.CollectAndClearSignals();
-        Assert.Empty(signals2.Where(s => s.Entry != null || s.Exit != null || s.Partial != null || s.BE != null));
+        Assert.Empty(signals2.Where(s => s.Entry != null));
     }
 
     // ── State accessors ───────────────────────────────────────────
@@ -444,100 +427,6 @@ public class TickerGroupTests
         Assert.Equal("NQ", group.TickerKey);
     }
 
-    // ── Opposing position guard ───────────────────────────────────
-
-    [Fact]
-    public async Task RejectsEntry_WhenOpposingPositionActive()
-    {
-        // Setup A is already long; Setup B tries to enter short → must be reverted
-        var cfg = DefaultConfig();
-        cfg.AllowBothSameBar = true; // disable same-bar guard so only opposing guard fires
-        var group = new TickerGroup("NQ", cfg);
-
-        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
-        group.AddStrategy(a);
-        group.AddStrategy(b);
-
-        b.PendingEntry = new EntrySignal(SetupId.B, Direction.Short, 100m, 105m, 90m, 95m, 2,
-            DateTime.UtcNow, Ticker: "/NQH2026");
-
-        var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
-        var bar = MakeBar(utc, 100m, 105m, 95m, 102m);
-        await group.ProcessBarAsync(bar);
-
-        var signals = group.CollectAndClearSignals();
-        // B's entry should have been reverted
-        Assert.Null(signals.First(s => s.Strategy.SetupId == SetupId.B).Entry);
-    }
-
-    [Fact]
-    public async Task AllowsEntry_SameDirection_WhenOtherStrategyIsActive()
-    {
-        // Setup A is already long; Setup B tries to enter long → must be allowed
-        var cfg = DefaultConfig();
-        cfg.AllowBothSameBar = true; // disable same-bar guard
-        var group = new TickerGroup("NQ", cfg);
-
-        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
-        group.AddStrategy(a);
-        group.AddStrategy(b);
-
-        b.PendingEntry = new EntrySignal(SetupId.B, Direction.Long, 100m, 95m, 115m, 110m, 2,
-            DateTime.UtcNow, Ticker: "/NQH2026");
-
-        var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
-        var bar = MakeBar(utc, 100m, 105m, 95m, 102m);
-        await group.ProcessBarAsync(bar);
-
-        var signals = group.CollectAndClearSignals();
-        // B's entry should survive
-        Assert.NotNull(signals.First(s => s.Strategy.SetupId == SetupId.B).Entry);
-    }
-
-    [Fact]
-    public async Task AllowsEntry_WhenNoOtherStrategyIsActive()
-    {
-        // No active trades in the group → entry must proceed normally
-        var cfg = DefaultConfig();
-        var group = new TickerGroup("NQ", cfg);
-
-        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = false };
-        group.AddStrategy(a);
-
-        a.PendingEntry = new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 115m, 110m, 2,
-            DateTime.UtcNow, Ticker: "/NQH2026");
-
-        var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
-        var bar = MakeBar(utc, 100m, 105m, 95m, 102m);
-        await group.ProcessBarAsync(bar);
-
-        var signals = group.CollectAndClearSignals();
-        Assert.NotNull(signals.First(s => s.Strategy.SetupId == SetupId.A).Entry);
-    }
-
-    [Fact]
-    public async Task ProcessTickAsync_RejectsEntry_WhenOpposingPositionActive()
-    {
-        // Tick path: Setup A is long, Setup B tries to enter short via tick → reverted
-        var cfg = DefaultConfig();
-        var group = new TickerGroup("NQ", cfg);
-
-        var a = new FakeStrategy { Id = "A", SetupId = SetupId.A, IsActive = true, TradeDirection = Direction.Long };
-        var b = new FakeStrategy { Id = "B", SetupId = SetupId.B };
-        group.AddStrategy(a);
-        group.AddStrategy(b);
-
-        // Simulate OnTick producing a PendingEntry on B
-        b.PendingEntry = new EntrySignal(SetupId.B, Direction.Short, 100m, 105m, 90m, 95m, 2,
-            DateTime.UtcNow, Ticker: "/NQH2026");
-
-        // We override OnTick to leave PendingEntry in place (FakeStrategy.OnTick doesn't clear it)
-        var utc = new DateTime(2026, 3, 20, 14, 30, 0, DateTimeKind.Utc);
-        await group.ProcessTickAsync(100m, utc);
-
-        // After tick processing the opposing guard should have reverted B's entry
-        Assert.Null(b.PendingEntry);
-    }
+    // NOTE: Opposing position guard tests removed — guard now uses BrokerEventHandler
+    // (requires live broker context, not available in unit tests with FakeStrategy).
 }

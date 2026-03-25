@@ -11,52 +11,15 @@ public record EntrySignal(
     Direction Direction,
     decimal   Entry,
     decimal   Stop,
-    decimal   Target,
-    decimal   Partial,
-    int       Contracts,
+    decimal   Tg2Price,
+    decimal   Tg1Price,
+    int       TotalContracts,
     DateTime  Time,
     string    OrderType  = "Market",   // "Market" or "Limit"
     string    SessionId  = "NY",       // "Asia" | "London" | "NY"
     string    Ticker     = "",         // Per-setup ticker override; empty = use global
     string    SetupLabel = "",         // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
-    int       PartialContracts = 0);   // Contracts for tg1 partial exit (0 = Contracts/2)
-
-// ── Bridge extensions for WSS order management transition ───
-// Allow BrokerEventHandler to read EntrySignal using new field names
-// while strategies still construct using old names (Target, Partial, Contracts).
-public static class EntrySignalExtensions
-{
-    public static decimal Tg1Price(this EntrySignal s) => s.Partial;
-    public static decimal Tg2Price(this EntrySignal s) => s.Target;
-    public static int TotalContracts(this EntrySignal s) => s.Contracts;
-    public static int EffectivePartialContracts(this EntrySignal s) =>
-        s.PartialContracts > 0 ? s.PartialContracts : s.Contracts / 2;
-}
-
-public record ExitSignal(
-    SetupId    Setup,
-    ExitReason Reason,
-    decimal    ExitPrice,
-    int        Contracts,
-    DateTime   Time,
-    string     Ticker = "");          // Per-setup ticker override; empty = use global
-
-public record PartialSignal(
-    SetupId   Setup,
-    Direction Direction,
-    decimal   PartialPrice,
-    int       ContractsExited,
-    int       ContractsRemaining,
-    decimal   Entry,
-    DateTime  Time);
-
-public record BESignal(
-    SetupId   Setup,
-    Direction Direction,
-    decimal   NewStop,
-    decimal   Entry,
-    int       ContractsRemaining,
-    DateTime  Time);
+    int       PartialContracts = 0);   // Contracts for tg1 partial exit (0 = TotalContracts/2)
 
 // ── Completed trade — persisted to SQLite ────────────────────
 public class TradeRecord

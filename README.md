@@ -1,31 +1,30 @@
 # CRV.Trading
 
-ASP.NET Core web application for live and backtested ORB (Opening Range Breakout) futures trading. Built on a **composable engine** architecture that supports multiple instruments simultaneously via shared WebSocket connections. Supports Schwab, TradeStation, Tradovate, and Tradovate Replay brokers with real-time dashboard via SignalR. Includes analytical modules (session detection, VWAP bands, sweep detection, opening drive, trend day filter, false breakout detection) and high-volatility position sizing.
+ASP.NET Core web application for live and backtested ORB (Opening Range Breakout) futures trading. Built on a **composable engine** architecture where strategies are **pure signal generators** (emit `EntrySignal` only) and `BrokerEventHandler` manages the full trade lifecycle (fills, partials, break-even moves, exits). Supports multiple instruments simultaneously via shared WebSocket connections. Supports Schwab, TradeStation, Tradovate, and Tradovate Replay brokers with real-time dashboard via SignalR. Includes analytical modules (session detection, VWAP bands, sweep detection, opening drive, trend day filter, false breakout detection) and high-volatility position sizing.
 
 ## Projects
 
 | Project | Purpose |
 |---------|---------|
-| `CRV.Core` | Composable strategy engine (`ComposableEngine`, `ISetupStrategy`, `TickerGroup`), models, indicators, analytical modules, interfaces, DB context |
-| `CRV.Backtest` | Backtesting engine, bar loaders (CSV, Schwab, TradeStation, Tradovate) |
-| `CRV.Live` | Broker integrations (single- and multi-ticker bar feeds, order executors), real-time bar builder |
+| `CRV.Core` | Composable strategy engine (`ComposableEngine`, `TickerGroup`, `BrokerEventHandler`), pure signal strategies (`ISetupStrategy`), models, indicators, analytical modules, interfaces, DB context |
+| `CRV.Backtest` | Backtesting engine with `BacktestGroupOrderExecutor` + `BrokerEventHandler` fill simulation, bar loaders (CSV, Schwab, TradeStation, Tradovate) |
+| `CRV.Live` | Broker integrations (single- and multi-ticker bar feeds, group order executors, event streams), real-time bar builder |
 | `CRV.Web` | ASP.NET Core Razor Pages UI, SignalR hub, background services, REST API |
 | `CRV.Core.Tests` | xUnit tests covering indicators, strategy, modules, broker simulation, validation |
 
 ## Key Features
 
-- **Composable engine** — `ComposableEngine` coordinates per-instrument `TickerGroup` instances, each owning shared indicators/modules and multiple `ISetupStrategy` implementations; `StrategyFactory` creates concrete strategies, `RiskManager` enforces daily limits, `SnapshotAggregator` builds dashboard snapshots
+- **Composable engine** — `ComposableEngine` coordinates per-instrument `TickerGroup` instances, each owning shared indicators/modules and multiple `ISetupStrategy` implementations; strategies are **pure signal generators** that emit only `EntrySignal`; `BrokerEventHandler` manages the full trade lifecycle (entry confirmation, tg1 partial → break-even move, tg2 target, stop exits, P&L accrual) via `IGroupOrderExecutor` and broker event streams; `StrategyFactory` creates concrete strategies, `RiskManager` enforces daily limits, `SnapshotAggregator` builds dashboard snapshots
 - **Multi-ticker support** — each setup can trade a different instrument (e.g. Setup A on NQ, Setup B on ES); indicators and modules are shared within each `TickerGroup`
+- **WSS-style order management** — `IGroupOrderExecutor` creates `GroupOrder` with entry/stop/tg1/tg2 legs; broker event streams (`IBrokerEventStream`) push `OrderEvent` updates; `BrokerEventHandler` processes events and drives leg transitions (entry fill → place exit legs, tg1 fill → move stop to BE, tg2/stop fill → complete trade); same architecture for live (`MockGroupOrderExecutor`, `TradovateGroupOrderExecutor`) and backtest (`BacktestGroupOrderExecutor`)
 - **Shared WebSocket connections** — Schwab uses comma-separated `keys` for multi-symbol subscriptions on a single WSS; Tradovate sends separate `md/getchart`/`md/subscribeQuote` per symbol on one WSS; TradeStation uses per-symbol HTTP streams (no sharing possible)
 - **Setup Basket** — flexible setup configuration where each basket entry defines a strategy type + instrument + session slots + per-session cutoffs; replaces the fixed A/B/C/D slots with N user-defined entries (e.g. "Retest on MNQ for NY", "Retest on MGC for Asia+London", "SessionFakeout on MGC for NY"); dashboard dynamically renders only the cards in the basket; settings page with Add/Remove basket entries
-- **Strategy types** — Pullback (trend continuation), Retest (breakout retest), OrbFakeout (ORB false breakout reversal), SessionFakeout (prior session range false breakout reversal); each type can be used multiple times across different instruments and sessions
-- **Setup C** (ORB false breakout) — detects failed breakouts above/below the ORB range, enters the reversal when price re-enters the range; quality filters include rejection body %, penetration depth, VWAP side, and trend day score
-- **Setup D** (session range false breakout) — same pattern applied to prior session high/low (Asia H/L for London, London H/L for NY); range locked at session boundaries via `FalseBreakoutDetector.OnSessionStart()`
-- **False breakout detection module** — `FalseBreakoutDetector` with two `RangeBreakoutTracker` instances (ORB and session range); tracks breakout → bar counting → rejection → activation with configurable max time outside, penetration depth, body rejection %, and trend day score thresholds
+- **Strategy types** — Pullback (trend continuation), Retest (breakout retest), OrbFakeout (ORB false breakout reversal), SessionFakeout (prior session range false breakout reversal); each type can be used multiple times across different instruments and sessions; all strategies are pure signal generators — they emit `EntrySignal` with entry/stop/tg1/tg2 levels and `BrokerEventHandler` manages the full trade lifecycle
+- **False breakout detection module** — `FalseBreakoutDetector` with two `RangeBreakoutTracker` instances (ORB and session range); tracks breakout → bar counting → rejection → activation with configurable max time outside, penetration depth, body rejection %, and trend day score thresholds; feeds OrbFakeout and SessionFakeout strategies
 - **Compound fakeout** — when both ORB and session range trackers activate in the same direction simultaneously, flagged as a higher-conviction signal
 - **Multi-session trading** — Asia (7 PM–12 AM), London (3 AM–8 AM), and NY (9:30 AM–4 PM) sessions with independent ORB formation, per-session setup configs, and automatic engine reconfiguration at session boundaries via `SessionManager`
-- **Tick-level execution** — L1 tick entry/exit/partial/BE alongside bar-level processing
-- **Fill price feedback** — brokers poll for actual fill prices after market order placement; engine recalculates stop/target/partial levels based on real fills instead of theoretical entry prices
+- **Tick-level execution** — L1 tick entry evaluation alongside bar-level indicator/arm-state processing; `BrokerEventHandler` drives exit fills (stop/tg1/tg2) via `EvaluateFills` on each tick
+- **Fill price feedback** — brokers report actual fill prices via `OrderEvent`; `BrokerEventHandler` uses real fill prices for stop/target levels and P&L calculations
 - **Per-setup last price** — each setup card shows the last traded price from its subscribed instrument with a blinking green indicator dot, visible even when idle
 - **USD values on trade levels** — Stop, Partial, and Target rows show dollar risk/reward computed as `|level − entry| × contracts × pointValue`
 - **High-vol position sizing** — `CalcContracts()` scales contracts when ORB/ATR ratio ≥ 1.0
@@ -34,7 +33,8 @@ ASP.NET Core web application for live and backtested ORB (Opening Range Breakout
 - **Daily loss limit** — halts trading when cumulative daily P&L exceeds the configured threshold, with live gauge visualization on the dashboard
 - **Target % ORB options** — target levels at 25%, 50%, 75%, 100%, 125%, 150%, 200%, 250%, 300%, 350%, 400%, 450%, 500% of the ORB range
 - **Tradovate Replay** — run strategy against historical market data at configurable speeds (25–400%) via Tradovate's Market Replay service (`wss://replay.tradovateapi.com`)
-- **Mock broker** — full OCO order book for paper trading without a live account
+- **Mock broker** — `MockGroupOrderExecutor` with full group order book for paper trading without a live account; events delivered via `MockEventStream` channel
+- **Backtest fill simulation** — `BacktestGroupOrderExecutor` + `BrokerEventHandler` provide the same WSS-style fill simulation as live; synchronous event delivery (no async channel) for single-threaded backtest; OHLC tick-level stop/target evaluation
 - **Bracket leg discovery** — all brokers automatically discover stop/target order IDs after entry fill when the initial bracket response doesn't include them (handles async child order creation by exchanges)
 - **Lightweight Charts dashboard** — TradingView Lightweight Charts v4 powered by your own broker data (no CME licensing restrictions); dark theme with hollow teal up / solid dark-red down candles, volume histogram with MA(21) overlay, dynamic VWAP line (white 50% transparency), and ORB high/low/mid price lines
 - **Multi-instrument chart switching** — group-selector pills (derived from basket instruments) let you switch between instruments; chart loads ~200 historical bars via REST then receives live candle updates via SignalR; visible range limited to last 8 hours to prevent thin bars on multi-session data; proper cleanup of price lines, auto-scale reset, and async race guards on instrument switch

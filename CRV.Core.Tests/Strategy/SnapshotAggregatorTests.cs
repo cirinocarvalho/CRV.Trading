@@ -25,13 +25,10 @@ public class SnapshotAggregatorTests
         public int CutoffMinute { get; set; } = 59;
 
         private SetupStateSnapshot _snapshot = new();
-        private ActiveTradeView? _activeTrade;
 
         public void SetSnapshot(SetupStateSnapshot ss) => _snapshot = ss;
-        public void SetActiveTrade(ActiveTradeView? t) => _activeTrade = t;
 
         public SetupStateSnapshot GetSnapshot() => _snapshot;
-        public ActiveTradeView? GetActiveTrade(decimal lastPrice) => _activeTrade;
 
         // Unused interface members
         public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules) { }
@@ -45,22 +42,15 @@ public class SnapshotAggregatorTests
         public (int Hour, int Minute) GetCutoffForSession(string s) => (CutoffHour, CutoffMinute);
         public bool IsEnabledForSession(string s) => true;
         public EntrySignal? PendingEntry => null;
-        public ExitSignal? PendingExit => null;
-        public PartialSignal? PendingPartial => null;
-        public BESignal? PendingBE => null;
-        public ActiveTradeView? PreExitTrade => null;
-        public void ApplyFill(decimal actualFillPrice) { }
-        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals() { }
         public void RevertEntry() { }
         public void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd) { }
     }
 
-    private static StubStrategy MakeStub(SetupId id, SetupStateSnapshot? ss = null, ActiveTradeView? trade = null)
+    private static StubStrategy MakeStub(SetupId id, SetupStateSnapshot? ss = null)
     {
         var stub = new StubStrategy { Id = id.ToString(), SetupId = id };
         if (ss != null) stub.SetSnapshot(ss);
-        if (trade != null) stub.SetActiveTrade(trade);
         return stub;
     }
 
@@ -94,19 +84,12 @@ public class SnapshotAggregatorTests
             Enabled = true, PastCutoff = true, StickyTgt = true, StickyStp = false,
             Wins = 3, Losses = 1, WinPnl = 300m, LossPnl = -50m
         };
-        var trade = new ActiveTradeView
-        {
-            Setup = SetupId.A, Direction = Direction.Long,
-            Entry = 4990m, Target = 5010m, CurrentStop = 4980m,
-            Contracts = 2, RemainingContracts = 1, LastPrice = 5000m,
-            UnrealizedPnl = 200m
-        };
 
-        var inputs = DefaultInputs(MakeStub(SetupId.A, ss, trade));
+        var inputs = DefaultInputs(MakeStub(SetupId.A, ss));
         var snap = SnapshotAggregator.Build(inputs);
 
         var a = FindSetup(snap, "A");
-        Assert.Equal(trade, a.Trade);
+        Assert.Null(a.Trade); // Trade is now populated from BrokerEventHandler, not strategy
         Assert.Equal(2, a.TradeCount);
         Assert.Equal(3, a.MaxTrades);
         Assert.Equal(1, a.State);
@@ -261,44 +244,10 @@ public class SnapshotAggregatorTests
         Assert.True(snap.TradingHalted);
     }
 
-    // ── ActiveTradeView from strategy ───────────────────────────
-
-    [Fact]
-    public void ActiveTrade_MapsToSetupField()
-    {
-        var tradeA = new ActiveTradeView
-        {
-            Setup = SetupId.A, Direction = Direction.Long,
-            Entry = 5000m, Target = 5020m, CurrentStop = 4990m,
-            Contracts = 3, RemainingContracts = 2, PartialFilled = true,
-            LastPrice = 5010m, UnrealizedPnl = 400m,
-            EnteredAt = new DateTime(2026, 3, 20, 14, 0, 0)
-        };
-        var tradeC = new ActiveTradeView
-        {
-            Setup = SetupId.C, Direction = Direction.Short,
-            Entry = 5010m, Target = 4990m, CurrentStop = 5020m,
-            Contracts = 1, RemainingContracts = 1
-        };
-
-        var stubA = MakeStub(SetupId.A, new SetupStateSnapshot { SetupId = SetupId.A }, tradeA);
-        var stubC = MakeStub(SetupId.C, new SetupStateSnapshot { SetupId = SetupId.C }, tradeC);
-
-        var snap = SnapshotAggregator.Build(DefaultInputs(stubA, stubC));
-
-        var a = FindSetup(snap, "A");
-        Assert.NotNull(a.Trade);
-        Assert.Equal(Direction.Long, a.Trade!.Direction);
-        Assert.Equal(5000m, a.Trade.Entry);
-
-        Assert.Null(FindSetupOrNull(snap, "B"));  // not provided
-
-        var c = FindSetup(snap, "C");
-        Assert.NotNull(c.Trade);
-        Assert.Equal(Direction.Short, c.Trade!.Direction);
-
-        Assert.Null(FindSetupOrNull(snap, "D"));  // not provided
-    }
+    // ── ActiveTradeView from BrokerEventHandler ─────────────────
+    // NOTE: ActiveTradeView is now populated from BrokerEventHandler, not from strategy.
+    // Without a broker handler, Trade is always null. Broker-level trade tests are in
+    // BrokerEventHandlerTests.
 
     // ── Missing setups produce defaults ─────────────────────────
 

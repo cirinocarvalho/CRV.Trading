@@ -1,4 +1,22 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace CRV.Core.Models;
+
+/// <summary>
+/// Reads JSON floats (0.65) into C# int by truncating. Prevents deserialization
+/// failures when JS basket defaults accidentally use float literals for int fields.
+/// </summary>
+internal sealed class LenientIntConverter : JsonConverter<int>
+{
+    public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.Number
+            ? reader.TryGetInt32(out var i) ? i : (int)reader.GetDouble()
+            : int.Parse(reader.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+
+    public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options) =>
+        writer.WriteNumberValue(value);
+}
 
 /// <summary>All strategy inputs — shared by live engine and backtest engine.</summary>
 public class StrategyConfig
@@ -373,7 +391,12 @@ public class StrategyConfig
         {
             try
             {
-                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson);
+                var opts = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    Converters = { new LenientIntConverter() },
+                };
+                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
                 if (basket?.Count > 0)
                     return basket.Select(b => ToSetupConfig(b)).ToList();
             }
@@ -412,6 +435,8 @@ public class StrategyConfig
         RetestPct = b.Config.RetestPct,
         EntryTickOffset = b.Config.EntryTickOffset,
         OrderType = b.Config.OrderType,
+        MaxEntrySlippage = b.Config.MaxEntrySlippage,
+        UseTickConfirmation = b.Config.UseTickConfirmation,
         UseVwap = b.Config.UseVwap,
         UseOrbClose = b.Config.UseOrbClose,
         CutoffHour = b.Config.CutoffHour,

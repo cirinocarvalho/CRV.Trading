@@ -69,6 +69,14 @@ public class BrokerEventHandler
             return _active.TryGetValue(setupId, out var pair) ? pair.Group : null;
     }
 
+    /// <summary>Place an entry order and register the group for event tracking.</summary>
+    public async Task PlaceEntryAsync(EntrySignal signal, ISetupStrategy strategy)
+    {
+        var group = await _executor.OnEntrySignalAsync(signal);
+        if (group != null)
+            RegisterGroup(group, strategy);
+    }
+
     // ── Event handling ──────────────────────────────────────────
 
     private SemaphoreSlim GetGroupLock(string groupOrderId)

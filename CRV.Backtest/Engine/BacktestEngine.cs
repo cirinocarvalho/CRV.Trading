@@ -73,11 +73,27 @@ public class BacktestEngine
     public async Task<BacktestResult> RunAsync(IAsyncEnumerable<(string Ticker, Bar Bar)> taggedBars, CancellationToken ct = default)
     {
         var trades   = new List<TradeRecord>();
-        var sink     = new BacktestSink(trades);
+        var sink     = new BacktestSink();
         var prices   = new InMemoryPriceProvider();
-        var executor = new BacktestExecutor(_btCfg, _cfg, sink);
+
+        // WSS-style fill simulation
+        var groupExec = new BacktestGroupOrderExecutor(_btCfg, _cfg);
+        var handler = new BrokerEventHandler(groupExec);
+
+        // Synchronous event delivery: executor → handler (Func<OrderEvent, Task>)
+        groupExec.OnEvent = evt => handler.HandleEventAsync(evt);
+
+        // Capture completed trades with commission
+        handler.OnTradeCompleted += (group, trade) =>
+        {
+            trade.Commission = trade.Contracts * 2 * _cfg.CommissionPerSide;
+            trade.NetPnl = trade.GrossPnl - trade.Commission;
+            trades.Add(trade);
+        };
+
+        var noopExecutor = new NoopExecutor();
         var engineConfig = _cfg.ToEngineConfig();
-        var engine   = new ComposableEngine(executor, sink, prices, engineConfig);
+        var engine   = new ComposableEngine(noopExecutor, sink, prices, engineConfig, handler);
 
         // Only register enabled setups.
         // Collect distinct tickers for multi-ticker bar loading.
@@ -158,7 +174,7 @@ public class BacktestEngine
             if (newBkt && bkt.BucketKey != null)
             {
                 // ── Emit the completed TF bucket for this ticker ─────
-                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, ct);
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, ct);
                 tfBarsOut++;
 
                 // Start new bucket
@@ -191,7 +207,7 @@ public class BacktestEngine
         {
             if (bkt.BucketKey != null)
             {
-                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, ct);
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, ct);
                 tfBarsOut++;
             }
         }
@@ -205,6 +221,7 @@ public class BacktestEngine
         ComposableEngine engine, InMemoryPriceProvider prices,
         BucketState bkt, string ticker,
         int tfBarsOut, bool betweenSessions,
+        BacktestGroupOrderExecutor groupExec,
         CancellationToken ct)
     {
         var tfBar    = new Bar(bkt.BucketKey!.Value, bkt.Open, bkt.High, bkt.Low, bkt.Close, bkt.Volume);
@@ -223,22 +240,28 @@ public class BacktestEngine
             {
                 prices.UpdatePrice(ticker, o);
                 await engine.ProcessPriceTickAsync(o, t, ticker);
+                await groupExec.EvaluateFillsAsync(o, t);
                 if (c >= o)
                 {   // Bullish: O → L → H → C
                     prices.UpdatePrice(ticker, l);
                     await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), ticker);
+                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(15));
                     prices.UpdatePrice(ticker, h);
                     await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), ticker);
+                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(30));
                 }
                 else
                 {   // Bearish: O → H → L → C
                     prices.UpdatePrice(ticker, h);
                     await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), ticker);
+                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(15));
                     prices.UpdatePrice(ticker, l);
                     await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), ticker);
+                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(30));
                 }
                 prices.UpdatePrice(ticker, c);
                 await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
+                await groupExec.EvaluateFillsAsync(c, t.AddSeconds(45));
             }
             // 2. Process the completed TF bar to update indicators and arm state.
             //    Strategies armed by the bar will enter on the NEXT bucket's first
@@ -267,31 +290,164 @@ public class BacktestEngine
     }
 }
 
-// ── Fill Simulator ────────────────────────────────────────────
-internal class BacktestExecutor : IOrderExecutor
+// ── Noop Executor (legacy IOrderExecutor — signals go through BrokerEventHandler) ──
+internal class NoopExecutor : IOrderExecutor
+{
+    public Task<decimal?> OnEntrySignalAsync(EntrySignal sig) => Task.FromResult<decimal?>(null);
+}
+
+// ── Group Order Executor (WSS-style fill simulation for backtest) ──
+internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
 {
     private readonly BacktestConfig _btCfg;
     private readonly StrategyConfig _cfg;
-    private readonly BacktestSink   _sink;
 
-    public BacktestExecutor(BacktestConfig btCfg, StrategyConfig cfg, BacktestSink sink)
-    { _btCfg = btCfg; _cfg = cfg; _sink = sink; }
+    /// <summary>Synchronous event delivery callback (replaces async Channel).</summary>
+    public Func<OrderEvent, Task>? OnEvent { get; set; }
 
-    public Task<decimal?> OnEntrySignalAsync(EntrySignal sig)
+    // Internal order book: groupId → orderId → leg state
+    private readonly Dictionary<string, Dictionary<string, LegState>> _ordersByGroup = new();
+
+    private class LegState
     {
-        var filled = sig with { Entry = ApplySlip(sig.Entry, sig.Direction == Direction.Long) };
-        _sink.RecordEntry(filled);
-        return Task.FromResult<decimal?>(null);
+        public string OrderId = "";
+        public string GroupOrderId = "";
+        public LegType LegType;
+        public string Action = ""; // BUY | SELL
+        public int Quantity;
+        public decimal? LimitPrice;
+        public decimal? StopPrice;
+        public string Status = "WORKING";
     }
-    public Task OnPartialSignalAsync(PartialSignal sig) => Task.CompletedTask;
-    public Task OnBESignalAsync(BESignal sig)           => Task.CompletedTask;
-    public Task OnExitSignalAsync(ExitSignal sig)
+
+    public BacktestGroupOrderExecutor(BacktestConfig btCfg, StrategyConfig cfg)
+    { _btCfg = btCfg; _cfg = cfg; }
+
+    public async Task<GroupOrder?> OnEntrySignalAsync(EntrySignal sig)
     {
-        var filled = sig with { ExitPrice = sig.Reason == ExitReason.Stop
-            ? ApplySlip(sig.ExitPrice, false)
-            : sig.ExitPrice };
-        _sink.RecordExit(filled);
-        return Task.CompletedTask;
+        var groupId = Guid.NewGuid().ToString("N")[..8];
+        bool isLong = sig.Direction == Direction.Long;
+        var exitAction = isLong ? "SELL" : "BUY";
+        var entryAction = isLong ? "BUY" : "SELL";
+        var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
+        var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
+        var partialCts = sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2;
+        var remainCts = sig.TotalContracts - partialCts;
+
+        var group = new GroupOrder
+        {
+            GroupOrderId = groupId,
+            SetupId = setupId,
+            Ticker = ticker,
+            Direction = sig.Direction,
+            TotalContracts = sig.TotalContracts,
+            PartialContracts = partialCts,
+            PointValue = _cfg.PointValue,
+            Status = GroupOrderStatus.Pending,
+            Broker = "Backtest",
+            SessionId = sig.SessionId,
+        };
+
+        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
+        var tg1Leg   = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
+        var tg2Leg   = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Tg2Price };
+        var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
+        group.Legs.AddRange(new[] { entryLeg, tg1Leg, tg2Leg, stopLeg });
+
+        // Register in internal order book
+        var legs = new Dictionary<string, LegState>
+        {
+            [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.TotalContracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
+            [tg1Leg.OrderId]   = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price },
+            [tg2Leg.OrderId]   = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Tg2Price },
+            [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
+        };
+        _ordersByGroup[groupId] = legs;
+
+        // Apply slippage to entry fill price
+        var fillPrice = ApplySlip(sig.Entry, isLong);
+
+        // Market entry: fill immediately via synchronous callback
+        if (sig.OrderType != "Limit")
+        {
+            legs[entryLeg.OrderId].Status = "FILLED";
+            if (OnEvent != null)
+                await OnEvent(new OrderEvent(groupId, entryLeg.OrderId, LegType.Entry,
+                    OrderLegStatus.Filled, fillPrice, sig.TotalContracts, null, null, sig.Time));
+        }
+
+        return group;
+    }
+
+    public async Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
+    {
+        foreach (var (groupId, legs) in _ordersByGroup)
+        {
+            if (legs.TryGetValue(orderId, out var leg))
+            {
+                if (newPrice.HasValue)
+                {
+                    if (leg.StopPrice.HasValue) leg.StopPrice = newPrice;
+                    else leg.LimitPrice = newPrice;
+                }
+                if (newQty.HasValue) leg.Quantity = newQty.Value;
+                if (OnEvent != null)
+                    await OnEvent(new OrderEvent(groupId, orderId, leg.LegType,
+                        OrderLegStatus.Modified, null, null, newPrice, newQty, DateTime.UtcNow));
+                return;
+            }
+        }
+    }
+
+    public async Task CancelOrderAsync(string orderId)
+    {
+        foreach (var (groupId, legs) in _ordersByGroup)
+        {
+            if (legs.TryGetValue(orderId, out var leg) && leg.Status == "WORKING")
+            {
+                leg.Status = "CANCELED";
+                if (OnEvent != null)
+                    await OnEvent(new OrderEvent(groupId, orderId, leg.LegType,
+                        OrderLegStatus.Canceled, null, null, null, null, DateTime.UtcNow));
+                return;
+            }
+        }
+    }
+
+    public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+    {
+        return Task.CompletedTask; // No-op in backtest
+    }
+
+    /// <summary>Evaluate fills for all WORKING orders against current price.</summary>
+    public async Task EvaluateFillsAsync(decimal price, DateTime utcNow)
+    {
+        if (price <= 0) return;
+        foreach (var (groupId, legs) in _ordersByGroup)
+        {
+            foreach (var leg in legs.Values.Where(l => l.Status == "WORKING").ToList())
+            {
+                bool fills = leg.Action == "BUY"
+                    ? (leg.StopPrice.HasValue && price >= leg.StopPrice)
+                   || (leg.LimitPrice.HasValue && price <= leg.LimitPrice)
+                    : (leg.StopPrice.HasValue && price <= leg.StopPrice)
+                   || (leg.LimitPrice.HasValue && price >= leg.LimitPrice);
+
+                if (!fills) continue;
+
+                leg.Status = "FILLED";
+                if (OnEvent != null)
+                    await OnEvent(new OrderEvent(groupId, leg.OrderId, leg.LegType,
+                        OrderLegStatus.Filled, price, leg.Quantity, null, null, utcNow));
+            }
+        }
+
+        // Prune completed groups (all legs filled or canceled)
+        var completedGroups = _ordersByGroup
+            .Where(kv => kv.Value.Values.All(l => l.Status != "WORKING"))
+            .Select(kv => kv.Key).ToList();
+        foreach (var gid in completedGroups)
+            _ordersByGroup.Remove(gid);
     }
 
     private decimal ApplySlip(decimal price, bool isBuy)
@@ -305,31 +461,8 @@ internal class BacktestExecutor : IOrderExecutor
 // ── Event Sink ────────────────────────────────────────────────
 internal class BacktestSink : IStrategyEventSink
 {
-    private readonly List<TradeRecord> _trades;
-    private readonly Dictionary<string, EntrySignal> _open = new();
-
-    public BacktestSink(List<TradeRecord> trades) => _trades = trades;
-
-    public void RecordEntry(EntrySignal sig) => _open[sig.Setup.ToString()] = sig;
-
-    public void RecordExit(ExitSignal sig)
-    {
-        var key = sig.Setup.ToString();
-        if (!_open.TryGetValue(key, out var entry)) return;
-        _open.Remove(key);
-        // Trade record built in OnExitAsync below
-    }
-
-    public Task OnEntryAsync(EntrySignal s)  { _open[s.Setup.ToString()] = s; return Task.CompletedTask; }
-    public Task OnPartialAsync(PartialSignal s) => Task.CompletedTask;
-    public Task OnBEMoveAsync(BESignal s)       => Task.CompletedTask;
-
-    public Task OnExitAsync(ExitSignal sig, TradeRecord completed)
-    {
-        _trades.Add(completed);
-        return Task.CompletedTask;
-    }
-
+    public Task OnEntryAsync(EntrySignal s) => Task.CompletedTask;
+    public Task OnExitAsync(TradeRecord t) => Task.CompletedTask; // Trades collected via BrokerEventHandler.OnTradeCompleted
     public Task OnSnapshotAsync(EngineSnapshot snap) => Task.CompletedTask;
 }
 

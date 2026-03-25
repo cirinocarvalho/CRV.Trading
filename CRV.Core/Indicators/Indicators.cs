@@ -129,13 +129,15 @@ public class OrbCalculator
     /// <summary>
     /// Seed ORB high/low as a floor when restarting inside the ORB window.
     /// Keeps the ORB in "forming" state — subsequent bars can only expand the range.
+    /// Must set _lastTradingDate to prevent the first bar's date-change guard from wiping the seed.
     /// </summary>
-    public void SeedFloor(decimal high, decimal low)
+    public void SeedFloor(decimal high, decimal low, DateTime tradingDate)
     {
         _high   = Math.Max(_high, high);
         _low    = (_low == decimal.MaxValue) ? low : Math.Min(_low, low);
         _active = true;   // still forming
         _isSet  = false;  // not finalized yet
+        _lastTradingDate = tradingDate;
     }
 
     /// <summary>Update the ORB window times for a new session.</summary>
@@ -182,15 +184,21 @@ public class OrbCalculator
         var barEnd = time.AddMinutes(_tfMinutes);
         bool overlapsOrb = time < _orbEnd && barEnd > _orbStart;
 
-        if (overlapsOrb && !_isSet)
+        if (overlapsOrb)
         {
+            // De-freeze: if _isSet was prematurely set (e.g. bar ordering race)
+            // but a bar still overlaps the ORB window, revert to accumulating.
+            if (_isSet) { _isSet = false; _active = true; }
+
             _active = true;
             if (_high == 0) { _high = bar.High; _low = bar.Low; }
             else { _high = Math.Max(_high, bar.High); _low = Math.Min(_low, bar.Low); }
         }
-        else if (_active && !_isSet)
+        else if (_active && !_isSet && time >= _orbEnd)
         {
-            // First bar fully after ORB closed — finalize
+            // First bar fully after ORB closed — finalize.
+            // The time >= _orbEnd guard prevents premature freeze when bars
+            // arrive out of order (e.g. unconfirmed next bar before confirmed current bar).
             _isSet = true;
             _active = false;
             if (OrbRange > 0)

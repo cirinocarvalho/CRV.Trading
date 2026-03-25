@@ -13,9 +13,6 @@ public class ComposableEngineTests
     private class FakeExecutor : IOrderExecutor
     {
         public List<EntrySignal> Entries { get; } = new();
-        public List<ExitSignal> Exits { get; } = new();
-        public List<PartialSignal> Partials { get; } = new();
-        public List<BESignal> BEs { get; } = new();
 
         // Allow tests to control whether entries are blocked
         public bool BlockEntries { get; set; }
@@ -25,23 +22,16 @@ public class ComposableEngineTests
             Entries.Add(signal);
             return Task.FromResult<decimal?>(BlockEntries ? null : signal.Entry);
         }
-        public Task OnExitSignalAsync(ExitSignal signal) { Exits.Add(signal); return Task.CompletedTask; }
-        public Task OnPartialSignalAsync(PartialSignal signal) { Partials.Add(signal); return Task.CompletedTask; }
-        public Task OnBESignalAsync(BESignal signal) { BEs.Add(signal); return Task.CompletedTask; }
     }
 
     private class FakeSink : IStrategyEventSink
     {
         public List<EntrySignal> Entries { get; } = new();
-        public List<ExitSignal> Exits { get; } = new();
-        public List<PartialSignal> Partials { get; } = new();
-        public List<BESignal> BEs { get; } = new();
+        public List<TradeRecord> Exits { get; } = new();
         public List<EngineSnapshot> Snapshots { get; } = new();
 
         public Task OnEntryAsync(EntrySignal signal) { Entries.Add(signal); return Task.CompletedTask; }
-        public Task OnExitAsync(ExitSignal signal, TradeRecord completed) { Exits.Add(signal); return Task.CompletedTask; }
-        public Task OnPartialAsync(PartialSignal signal) { Partials.Add(signal); return Task.CompletedTask; }
-        public Task OnBEMoveAsync(BESignal signal) { BEs.Add(signal); return Task.CompletedTask; }
+        public Task OnExitAsync(TradeRecord completed) { Exits.Add(completed); return Task.CompletedTask; }
         public Task OnSnapshotAsync(EngineSnapshot snapshot) { Snapshots.Add(snapshot); return Task.CompletedTask; }
     }
 
@@ -74,10 +64,6 @@ public class ComposableEngineTests
         public bool TickModeEnabled { get; set; }
 
         public EntrySignal? PendingEntry { get; set; }
-        public ExitSignal? PendingExit { get; set; }
-        public PartialSignal? PendingPartial { get; set; }
-        public BESignal? PendingBE { get; set; }
-        public ActiveTradeView? PreExitTrade { get; set; }
 
         public StrategySetupConfig? LastConfig { get; private set; }
         public bool ForceExitCalled { get; private set; }
@@ -104,19 +90,11 @@ public class ComposableEngineTests
             IsActive = false;
             IsArmed = false;
             PendingEntry = null;
-            PendingExit = null;
-            PendingPartial = null;
-            PendingBE = null;
             ForceExitCalled = false;
         }
-        public void ApplyFill(decimal actualFillPrice) { }
-        public void RevertEntryToTickGate(decimal entryLevel) { }
         public void ClearPendingSignals()
         {
             PendingEntry = null;
-            PendingExit = null;
-            PendingPartial = null;
-            PendingBE = null;
         }
         public void RevertEntry() { PendingEntry = null; IsActive = false; }
         public void ForceExit(decimal currentPrice, DateTime utcTime, ExitReason reason = ExitReason.SessionEnd)
@@ -124,23 +102,12 @@ public class ComposableEngineTests
             ForceExitCalled = true;
             ForceExitPrice = currentPrice;
             IsActive = false;
-            PendingExit = new ExitSignal(SetupId, reason, currentPrice, 2, utcTime);
         }
         public SetupStateSnapshot GetSnapshot() => new()
         {
             SetupId = SetupId, Name = Name, Enabled = true,
             TradeCount = 1, MaxTrades = 5, Wins = 1, WinPnl = 100m,
         };
-        public ActiveTradeView? GetActiveTrade(decimal lastPrice) => IsActive
-            ? new ActiveTradeView
-            {
-                Setup = SetupId, Direction = Direction.Long,
-                Entry = 100m, CurrentStop = 95m, Target = 110m,
-                Contracts = 2, RemainingContracts = 2,
-                LastPrice = lastPrice, UnrealizedPnl = (lastPrice - 100m) * 20m * 2,
-                EnteredAt = DateTime.UtcNow.AddMinutes(-5),
-            }
-            : null;
     }
 
     // ── Config helpers ──────────────────────────────────────────────
@@ -256,7 +223,7 @@ public class ComposableEngineTests
 
         // Since no trade is active, no exit signal should fire (strategy not active)
         // This verifies the method doesn't throw and routes correctly
-        Assert.Empty(executor.Exits);
+        Assert.Empty(sink.Exits);
     }
 
     // ── 4. EnableTickMode propagates to engine state ──
@@ -429,7 +396,6 @@ public class ComposableEngineTests
 
         // No broker signals should have fired
         Assert.Empty(executor.Entries);
-        Assert.Empty(executor.Exits);
     }
 
     // ── Signal routing: entry signal dispatches to executor and sink ──
@@ -445,8 +411,7 @@ public class ComposableEngineTests
         var signals = new List<StrategySignals>
         {
             new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
-                new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2, DateTime.UtcNow, Ticker: "/NQH2026"),
-                null, null, null)
+                new EntrySignal(SetupId.A, Direction.Long, 100m, 95m, 110m, 105m, 2, DateTime.UtcNow, Ticker: "/NQH2026"))
         };
 
         await engine.RouteSignalsAsync(signals);
@@ -456,75 +421,9 @@ public class ComposableEngineTests
         Assert.Equal(SetupId.A, executor.Entries[0].Setup);
     }
 
-    // ── Signal routing: exit signal dispatches and records trade in risk manager ──
-
-    [Fact]
-    public async Task SignalRouting_ExitRecordsTradeInRiskManager()
-    {
-        var executor = new FakeExecutor();
-        var sink = new FakeSink();
-        var engine = new ComposableEngine(executor, sink, new FakePrices(), DefaultEngineConfig());
-
-        var fakeStrategy = new FakeStrategy { SetupId = SetupId.A, IsActive = true };
-
-        var signals = new List<StrategySignals>
-        {
-            new(fakeStrategy,
-                null,
-                new ExitSignal(SetupId.A, ExitReason.Target, 110m, 2, DateTime.UtcNow, Ticker: "/NQH2026"),
-                null, null)
-        };
-
-        await engine.RouteSignalsAsync(signals);
-
-        Assert.Single(executor.Exits);
-        Assert.Single(sink.Exits);
-    }
-
-    // ── Signal routing: partial dispatches to executor and sink ──
-
-    [Fact]
-    public async Task SignalRouting_PartialDispatchesToExecutorAndSink()
-    {
-        var executor = new FakeExecutor();
-        var sink = new FakeSink();
-        var engine = new ComposableEngine(executor, sink, new FakePrices(), DefaultEngineConfig());
-
-        var signals = new List<StrategySignals>
-        {
-            new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
-                null, null,
-                new PartialSignal(SetupId.A, Direction.Long, 105m, 1, 1, 100m, DateTime.UtcNow),
-                null)
-        };
-
-        await engine.RouteSignalsAsync(signals);
-
-        Assert.Single(executor.Partials);
-        Assert.Single(sink.Partials);
-    }
-
-    // ── Signal routing: BE dispatches to executor and sink ──
-
-    [Fact]
-    public async Task SignalRouting_BEDispatchesToExecutorAndSink()
-    {
-        var executor = new FakeExecutor();
-        var sink = new FakeSink();
-        var engine = new ComposableEngine(executor, sink, new FakePrices(), DefaultEngineConfig());
-
-        var signals = new List<StrategySignals>
-        {
-            new(new FakeStrategy { Id = "A", SetupId = SetupId.A },
-                null, null, null,
-                new BESignal(SetupId.A, Direction.Long, 100m, 100m, 2, DateTime.UtcNow))
-        };
-
-        await engine.RouteSignalsAsync(signals);
-
-        Assert.Single(executor.BEs);
-        Assert.Single(sink.BEs);
-    }
+    // ── Signal routing: exit and partial/BE tests removed — ──
+    // ExitSignal, PartialSignal, BESignal records deleted.
+    // RouteSignalsAsync will be updated in Task 6 to use new signal model.
 
     // ── PublishCurrentStateAsync triggers snapshot ──
 
@@ -597,18 +496,6 @@ public class ComposableEngineTests
         engine.Reconfigure(cfg, SessionId.NY);
 
         Assert.Equal("NY", engine.ActiveSessionId);
-    }
-
-    // ── GetActiveTrade returns null when no trade ──
-
-    [Fact]
-    public void GetActiveTrade_ReturnsNull_WhenNoActiveTrade()
-    {
-        var engine = CreateEngine();
-        engine.AddSetup(MakeSetupConfig(SetupId.A));
-
-        var trade = engine.GetActiveTrade("A");
-        Assert.Null(trade);
     }
 
     // ── Multiple groups with different tickers ──
