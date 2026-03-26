@@ -240,28 +240,28 @@ public class BacktestEngine
             {
                 prices.UpdatePrice(ticker, o);
                 await engine.ProcessPriceTickAsync(o, t, ticker);
-                await groupExec.EvaluateFillsAsync(o, t);
+                await groupExec.EvaluateFillsAsync(o, t, ticker);
                 if (c >= o)
                 {   // Bullish: O → L → H → C
                     prices.UpdatePrice(ticker, l);
                     await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(15));
+                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(15), ticker);
                     prices.UpdatePrice(ticker, h);
                     await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(30));
+                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(30), ticker);
                 }
                 else
                 {   // Bearish: O → H → L → C
                     prices.UpdatePrice(ticker, h);
                     await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(15));
+                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(15), ticker);
                     prices.UpdatePrice(ticker, l);
                     await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(30));
+                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(30), ticker);
                 }
                 prices.UpdatePrice(ticker, c);
                 await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
-                await groupExec.EvaluateFillsAsync(c, t.AddSeconds(45));
+                await groupExec.EvaluateFillsAsync(c, t.AddSeconds(45), ticker);
             }
             // 2. Process the completed TF bar to update indicators and arm state.
             //    Strategies armed by the bar will enter on the NEXT bucket's first
@@ -307,6 +307,8 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
 
     // Internal order book: groupId → orderId → leg state
     private readonly Dictionary<string, Dictionary<string, LegState>> _ordersByGroup = new();
+    // groupId → ticker (for filtering EvaluateFills by instrument)
+    private readonly Dictionary<string, string> _groupTickers = new(StringComparer.OrdinalIgnoreCase);
 
     private class LegState
     {
@@ -373,6 +375,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             legs[tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price };
         }
         _ordersByGroup[groupId] = legs;
+        _groupTickers[groupId] = ticker;
 
         // Apply slippage to entry fill price
         var fillPrice = ApplySlip(sig.Entry, isLong);
@@ -432,12 +435,16 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         return Task.CompletedTask; // No-op in backtest
     }
 
-    /// <summary>Evaluate fills for all WORKING orders against current price.</summary>
-    public async Task EvaluateFillsAsync(decimal price, DateTime utcNow)
+    /// <summary>Evaluate fills for WORKING orders on the given ticker against current price.</summary>
+    public async Task EvaluateFillsAsync(decimal price, DateTime utcNow, string ticker)
     {
         if (price <= 0) return;
         foreach (var (groupId, legs) in _ordersByGroup)
         {
+            // Only evaluate orders for the matching ticker
+            if (!_groupTickers.TryGetValue(groupId, out var grpTicker)
+                || !string.Equals(grpTicker, ticker, StringComparison.OrdinalIgnoreCase))
+                continue;
             foreach (var leg in legs.Values.Where(l => l.Status == "WORKING").ToList())
             {
                 bool fills = leg.Action == "BUY"
@@ -460,7 +467,10 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             .Where(kv => kv.Value.Values.All(l => l.Status != "WORKING"))
             .Select(kv => kv.Key).ToList();
         foreach (var gid in completedGroups)
+        {
             _ordersByGroup.Remove(gid);
+            _groupTickers.Remove(gid);
+        }
     }
 
     private decimal ApplySlip(decimal price, bool isBuy)
