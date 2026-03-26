@@ -323,7 +323,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
     public BacktestGroupOrderExecutor(BacktestConfig btCfg, StrategyConfig cfg)
     { _btCfg = btCfg; _cfg = cfg; }
 
-    public async Task<GroupOrder?> OnEntrySignalAsync(EntrySignal sig)
+    public Task<GroupOrder?> OnEntrySignalAsync(EntrySignal sig)
     {
         var groupId = Guid.NewGuid().ToString("N")[..8];
         bool isLong = sig.Direction == Direction.Long;
@@ -377,21 +377,27 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         // Apply slippage to entry fill price
         var fillPrice = ApplySlip(sig.Entry, isLong);
 
-        // Market entry: fill immediately via synchronous callback
+        // Market entry: fill immediately by setting group state directly.
+        // No event fired — PlaceEntryAsync activates after RegisterGroup.
+        // (Firing an event here would fail: group not yet in _active dictionary.)
         if (sig.OrderType != "Limit")
         {
             legs[entryLeg.OrderId].Status = "FILLED";
-            if (OnEvent != null)
-                await OnEvent(new OrderEvent(groupId, entryLeg.OrderId, LegType.Entry,
-                    OrderLegStatus.Filled, fillPrice, sig.TotalContracts, null, null, sig.Time));
+            entryLeg.Status = OrderLegStatus.Filled;
+            entryLeg.FillPrice = fillPrice;
+            entryLeg.FillTime = sig.Time;
+            group.Status = GroupOrderStatus.Active;
+            group.EntryPrice = fillPrice;
         }
 
-        return group;
+        return Task.FromResult<GroupOrder?>(group);
     }
 
-    public async Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
+    public Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
     {
-        foreach (var (groupId, legs) in _ordersByGroup)
+        // No event fired — BrokerEventHandler itself called this, so re-entering
+        // HandleEventAsync would deadlock on the per-group semaphore.
+        foreach (var (_, legs) in _ordersByGroup)
         {
             if (legs.TryGetValue(orderId, out var leg))
             {
@@ -401,27 +407,24 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                     else leg.LimitPrice = newPrice;
                 }
                 if (newQty.HasValue) leg.Quantity = newQty.Value;
-                if (OnEvent != null)
-                    await OnEvent(new OrderEvent(groupId, orderId, leg.LegType,
-                        OrderLegStatus.Modified, null, null, newPrice, newQty, DateTime.UtcNow));
-                return;
+                return Task.CompletedTask;
             }
         }
+        return Task.CompletedTask;
     }
 
-    public async Task CancelOrderAsync(string orderId)
+    public Task CancelOrderAsync(string orderId)
     {
-        foreach (var (groupId, legs) in _ordersByGroup)
+        // No event fired — same re-entrancy reason as ModifyOrderAsync.
+        foreach (var (_, legs) in _ordersByGroup)
         {
             if (legs.TryGetValue(orderId, out var leg) && leg.Status == "WORKING")
             {
                 leg.Status = "CANCELED";
-                if (OnEvent != null)
-                    await OnEvent(new OrderEvent(groupId, orderId, leg.LegType,
-                        OrderLegStatus.Canceled, null, null, null, null, DateTime.UtcNow));
-                return;
+                return Task.CompletedTask;
             }
         }
+        return Task.CompletedTask;
     }
 
     public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)

@@ -74,7 +74,18 @@ public class BrokerEventHandler
     {
         var group = await _executor.OnEntrySignalAsync(signal);
         if (group != null)
+        {
             RegisterGroup(group, strategy);
+
+            // Immediate fills (backtest market orders): group already Active + EntryPrice set
+            // by the executor before returning. Activate the strategy now — no event roundtrip
+            // needed (avoids re-entrancy with per-group semaphore).
+            if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
+            {
+                strategy.SetInTrade(true);
+                _log?.LogInformation("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
+            }
+        }
     }
 
     // ── Event handling ──────────────────────────────────────────
