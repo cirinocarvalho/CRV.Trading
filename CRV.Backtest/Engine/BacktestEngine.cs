@@ -351,6 +351,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             UseBe = sig.UseBe,
             Status = GroupOrderStatus.Pending,
             Broker = "Backtest",
+            CreatedAt = sig.Time,
             SessionId = sig.SessionId,
         };
 
