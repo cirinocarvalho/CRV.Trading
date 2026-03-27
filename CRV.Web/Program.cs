@@ -53,7 +53,9 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ── HTTP client factory (prevents socket exhaustion from new HttpClient()) ──
-builder.Services.AddHttpClient();
+// ConfigurePrimaryHttpMessageHandler removes the default logging handler
+builder.Services.AddHttpClient().ConfigureHttpClientDefaults(b =>
+    b.RemoveAllLoggers());
 
 // ── Core singleton services ───────────────────────────────────
 builder.Services.AddSingleton<StrategyConfigService>();

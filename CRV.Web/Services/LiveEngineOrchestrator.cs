@@ -11,6 +11,7 @@ using CRV.Live.Brokers.TradeStation;
 using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Hubs;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace CRV.Web.Services;
@@ -31,6 +32,8 @@ public class LiveEngineOrchestrator : BackgroundService
     private Task?                      _engineTask;
     private EngineSnapshot?            _lastSnapshot;
     private ComposableEngine?          _engine;   // non-null while engine is running
+    private BrokerEventHandler?        _brokerHandler;   // non-null while engine is running
+    private IGroupOrderExecutor?       _groupExecutor;   // non-null while engine is running
 
     public bool     IsRunning    { get; private set; }
     public string   Status       { get; private set; } = "Stopped";
@@ -58,6 +61,72 @@ public class LiveEngineOrchestrator : BackgroundService
         ComposableEngine? eng;
         lock (_lifecycleLock) { eng = _engine; }
         if (eng != null) await eng.ForceExitSetupAsync(setupId);
+    }
+
+    /// <summary>Place a manual trade through the running engine's BrokerEventHandler.</summary>
+    public async Task<(bool ok, string message, GroupOrder? group)> PlaceManualEntryAsync(EntrySignal signal, decimal pointValue = 0)
+    {
+        BrokerEventHandler? handler;
+        IGroupOrderExecutor? exec;
+        lock (_lifecycleLock) { handler = _brokerHandler; exec = _groupExecutor; }
+
+        if (handler == null || exec == null)
+            return (false, "Engine not running — start the engine first to place mock orders.", null);
+
+        var group = await exec.OnEntrySignalAsync(signal);
+        if (group == null)
+            return (false, "Executor returned null — order not placed.", null);
+
+        // Tag with active session so completed trades appear in session detail
+        ComposableEngine? engine;
+        lock (_lifecycleLock) { engine = _engine; }
+        group.SessionId = engine?.ActiveSessionId ?? signal.SessionId;
+
+        var stub = new ManualStrategy(signal) { PointValue = pointValue };
+        await handler.RegisterGroupAsync(group, stub);
+
+        // Immediate fills (market orders): group already Active + EntryPrice set
+        if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
+            stub.SetInTrade(true);
+
+        return (true, $"GroupOrder {group.GroupOrderId} placed: {group.Direction} {group.TotalContracts}× @ {group.EntryPrice ?? signal.Entry}", group);
+    }
+
+    /// <summary>Move a manual group's stop to break-even.</summary>
+    public async Task<(bool ok, string message)> MoveManualToBEAsync(string setupId)
+    {
+        BrokerEventHandler? handler;
+        IGroupOrderExecutor? exec;
+        lock (_lifecycleLock) { handler = _brokerHandler; exec = _groupExecutor; }
+
+        if (handler == null || exec == null)
+            return (false, "Engine not running.");
+
+        var group = handler.GetActiveGroup(setupId);
+        if (group == null)
+            return (false, $"No active group for '{setupId}'.");
+
+        if (group.EntryPrice is null)
+            return (false, "Group has no entry price yet.");
+
+        var stopLeg = group.GetLeg(LegType.Stop);
+        if (stopLeg == null || stopLeg.Status != OrderLegStatus.Working)
+            return (false, "No working stop leg to modify.");
+
+        await exec.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, null);
+        return (true, $"Stop moved to BE @ {group.EntryPrice.Value}");
+    }
+
+    /// <summary>Get all active manual group orders for display.</summary>
+    public List<GroupOrder> GetActiveGroups()
+    {
+        BrokerEventHandler? handler;
+        lock (_lifecycleLock) { handler = _brokerHandler; }
+        if (handler == null) return new();
+
+        // BrokerEventHandler tracks all active groups (automated + manual)
+        // Return them all for the manual page to display
+        return handler.GetAllActiveGroups();
     }
 
     /// <summary>
@@ -318,8 +387,10 @@ public class LiveEngineOrchestrator : BackgroundService
             });
 
             // ── Order executor — selected by EffectiveExecBroker ────
+            // TradovateReplay uses Mock executor because Tradovate replay requires a
+            // single WSS connection for both MD and orders — separate connections get killed.
             IOrderExecutor executor;
-            if (execBroker == "Mock")
+            if (execBroker is "Mock" or "TradovateReplay")
             {
                 executor = scope.ServiceProvider.GetRequiredService<MockBrokerExecutor>();
             }
@@ -337,12 +408,6 @@ public class LiveEngineOrchestrator : BackgroundService
                             scope.ServiceProvider.GetRequiredService<TradeStationAuthService>(),
                             execCfg,
                             scope.ServiceProvider.GetRequiredService<ILogger<TradeStationExecutor>>(),
-                            httpFactory),
-                        "TradovateReplay" => new TradovateExecutor(
-                            CreateReplayAuthService(scope),
-                            execCfg,
-                            scope.ServiceProvider.GetRequiredService<ILogger<TradovateExecutor>>(),
-                            scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
                             httpFactory),
                         "Tradovate" => new TradovateExecutor(
                             scope.ServiceProvider.GetRequiredService<TradovateAuthService>(),
@@ -425,28 +490,24 @@ public class LiveEngineOrchestrator : BackgroundService
             IGroupOrderExecutor? groupExecutor = null;
             BrokerEventHandler? brokerHandler = null;
 
-            if (execBroker == "Mock")
+            if (execBroker is "Mock" or "TradovateReplay")
             {
+                // Mock uses simulated fills. TradovateReplay also uses Mock executor
+                // because Tradovate replay requires a SINGLE WSS connection for both
+                // market data and orders — opening a separate event stream WSS causes
+                // the server to disconnect both connections after ~30s.
                 var mockStream = scope.ServiceProvider.GetRequiredService<MockEventStream>();
                 var mockGroupExec = new MockGroupOrderExecutor(mockStream,
                     scope.ServiceProvider.GetRequiredService<ILogger<MockGroupOrderExecutor>>());
                 eventStream = mockStream;
                 groupExecutor = mockGroupExec;
             }
-            else if (execBroker is "Tradovate" or "TradovateReplay")
+            else if (execBroker is "Tradovate")
             {
-                var tvAuth = execBroker == "TradovateReplay"
-                    ? CreateReplayAuthService(scope)
-                    : scope.ServiceProvider.GetRequiredService<TradovateAuthService>();
-                var tvStream = new TradovateEventStream(tvAuth,
-                    scope.ServiceProvider.GetRequiredService<ILogger<TradovateEventStream>>());
-                eventStream = tvStream;
-                // TradovateExecutor already implements IGroupOrderExecutor
+                // REST-only mode — no WSS event stream (unreliable, keeps disconnecting).
+                // Order state sync handled entirely by REST poller below.
                 if (executor is TradovateExecutor tvExec)
-                {
-                    tvExec.EventStream = tvStream;
                     groupExecutor = tvExec;
-                }
                 else if (executor is IGroupOrderExecutor tvGroupExec)
                     groupExecutor = tvGroupExec;
             }
@@ -458,18 +519,21 @@ public class LiveEngineOrchestrator : BackgroundService
 
                 // Trade completion wired after engine creation (needs Risk reference)
 
-                // Subscribe to event stream
-                eventStream!.OnOrderUpdate += evt =>
+                // Subscribe to event stream (if available — Tradovate uses REST-only)
+                if (eventStream != null)
                 {
-                    _ = Task.Run(async () =>
+                    eventStream.OnOrderUpdate += evt =>
                     {
-                        try { await brokerHandler.HandleEventAsync(evt); }
-                        catch (Exception ex) { _log.LogWarning(ex, "[BEH] Event handling failed"); }
-                    });
-                };
+                        _ = Task.Run(async () =>
+                        {
+                            try { await brokerHandler.HandleEventAsync(evt); }
+                            catch (Exception ex) { _log.LogWarning(ex, "[BEH] Event handling failed"); }
+                        });
+                    };
 
-                eventStream.OnDisconnected += () =>
-                    _log.LogWarning("[WSS] Broker event stream disconnected");
+                    eventStream.OnDisconnected += () =>
+                        _log.LogWarning("[WSS] Broker event stream disconnected");
+                }
             }
 
             // ── Run ─────────────────────────────────────────────────
@@ -480,7 +544,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 if (setupCfg.Enabled)
                     newEngine.AddSetup(setupCfg);
             }
-            lock (_lifecycleLock) { _engine = newEngine; }
+            lock (_lifecycleLock) { _engine = newEngine; _brokerHandler = brokerHandler; _groupExecutor = groupExecutor; }
 
             // Wire trade completion: record P&L in RiskManager + persist via sink
             if (brokerHandler != null)
@@ -490,7 +554,17 @@ public class LiveEngineOrchestrator : BackgroundService
                     // Record in risk manager so daily loss limit works
                     newEngine.Risk.RecordTrade(trade.NetPnl);
 
-                    // Clean up WSS order map for Tradovate
+                    // Alert: trade exit
+                    bool isWin = trade.IsWin;
+                    var dir = trade.Direction == CRV.Core.Models.Direction.Long ? "LONG" : "SHORT";
+                    var reason = trade.ExitReason.ToString();
+                    var pnl = trade.NetPnl >= 0 ? $"+${trade.NetPnl:F0}" : $"-${Math.Abs(trade.NetPnl):F0}";
+                    var label = trade.SetupLabel ?? trade.Setup.ToString();
+                    newEngine.AddAlert(reason.ToUpper(), trade.Setup,
+                        $"{dir} exit @ {trade.Exit:F2} | {reason} | {pnl} ({trade.RMultiple:F1}R)",
+                        isWin ? "green" : "red", label);
+
+                    // Clean up WSS order map for Tradovate (if WSS is active)
                     if (eventStream is TradovateEventStream tvs)
                         tvs.UnregisterGroup(group.GroupOrderId);
 
@@ -501,17 +575,110 @@ public class LiveEngineOrchestrator : BackgroundService
                             // Persist trade record via event sink
                             await wrappedSink.OnExitAsync(trade);
 
-                            // Persist GroupOrder + OrderLegs to DB
+                            // Update existing GroupOrder in DB (saved on entry fill),
+                            // or insert if entry-fill persistence failed.
                             using var dbScope = _sp.CreateScope();
                             var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
-                            db.GroupOrders.Add(group);
-                            foreach (var leg in group.Legs)
-                                db.OrderLegs.Add(leg);
+                            var existing = await db.GroupOrders.FirstOrDefaultAsync(
+                                g => g.GroupOrderId == group.GroupOrderId);
+                            if (existing != null)
+                            {
+                                existing.Status = group.Status;
+                                existing.CompletedAt = group.CompletedAt;
+                                existing.AccruedPartialPnl = group.AccruedPartialPnl;
+                                foreach (var leg in group.Legs)
+                                {
+                                    var dbLeg = await db.OrderLegs.FirstOrDefaultAsync(
+                                        l => l.OrderId == leg.OrderId);
+                                    if (dbLeg != null)
+                                    {
+                                        dbLeg.Status = leg.Status;
+                                        dbLeg.FillPrice = leg.FillPrice;
+                                        dbLeg.FillTime = leg.FillTime;
+                                        dbLeg.Price = leg.Price;
+                                        dbLeg.Quantity = leg.Quantity;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                db.GroupOrders.Add(group);
+                                foreach (var leg in group.Legs)
+                                    db.OrderLegs.Add(leg);
+                            }
                             await db.SaveChangesAsync();
                         }
                         catch (Exception ex)
                         {
                             _log.LogWarning(ex, "[BEH] Failed to persist trade/group for {G}", group.GroupOrderId);
+                        }
+                    });
+                };
+
+                // Persist GroupOrder to DB on entry fill
+                brokerHandler.OnEntryFilled += group =>
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var dbScope = _sp.CreateScope();
+                            var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+
+                            // Skip if already persisted (REST discovery may beat WSS reconciliation)
+                            if (await db.GroupOrders.AnyAsync(g => g.GroupOrderId == group.GroupOrderId))
+                            {
+                                _log.LogDebug("[PERSIST] GroupOrder {G} already exists — skipping", group.GroupOrderId);
+                                return;
+                            }
+
+                            db.GroupOrders.Add(group);
+                            foreach (var leg in group.Legs)
+                                db.OrderLegs.Add(leg);
+                            await db.SaveChangesAsync();
+                            _log.LogInformation("[PERSIST] GroupOrder {G} saved on entry fill", group.GroupOrderId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[PERSIST] Failed to save GroupOrder {G} on entry fill", group.GroupOrderId);
+                        }
+                    });
+                };
+
+                // Update DB on state change (Tg1 fill → PartialFilled)
+                brokerHandler.OnGroupStateChanged += group =>
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var dbScope = _sp.CreateScope();
+                            var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                            var existing = await db.GroupOrders.FirstOrDefaultAsync(
+                                g => g.GroupOrderId == group.GroupOrderId);
+                            if (existing != null)
+                            {
+                                existing.Status = group.Status;
+                                existing.AccruedPartialPnl = group.AccruedPartialPnl;
+                                foreach (var leg in group.Legs)
+                                {
+                                    var dbLeg = await db.OrderLegs.FirstOrDefaultAsync(
+                                        l => l.OrderId == leg.OrderId);
+                                    if (dbLeg != null)
+                                    {
+                                        dbLeg.Status = leg.Status;
+                                        dbLeg.FillPrice = leg.FillPrice;
+                                        dbLeg.FillTime = leg.FillTime;
+                                        dbLeg.Price = leg.Price;
+                                        dbLeg.Quantity = leg.Quantity;
+                                    }
+                                }
+                                await db.SaveChangesAsync();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[PERSIST] Failed to update GroupOrder {G}", group.GroupOrderId);
                         }
                     });
                 };
@@ -530,6 +697,142 @@ public class LiveEngineOrchestrator : BackgroundService
                     _log.LogWarning(ex, "[WSS] Event stream failed to connect — order events will not be received");
                 }
             }
+
+            // ── REST order status poller (reliable fallback for WSS) ──
+            if (brokerHandler != null && groupExecutor != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    _log.LogDebug("[POLL] REST order status poller started");
+                    while (!ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(3000, ct); // Poll every 3 seconds
+                        try
+                        {
+                            var activeGroups = brokerHandler.GetAllActiveGroups();
+                            if (activeGroups.Count == 0) continue;
+
+                            foreach (var group in activeGroups)
+                            {
+                                if (group.Legs.Count == 0) continue;
+                                var legCountBefore = group.Legs.Count;
+                                var events = await groupExecutor.PollOrderStatusesAsync(group);
+
+                                // Persist newly discovered bracket legs to DB
+                                if (group.Legs.Count > legCountBefore)
+                                {
+                                    try
+                                    {
+                                        using var dbScope = _sp.CreateScope();
+                                        var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                                        foreach (var leg in group.Legs.Skip(legCountBefore))
+                                        {
+                                            var exists = await db.OrderLegs.AnyAsync(
+                                                l => l.GroupOrderId == leg.GroupOrderId && l.OrderId == leg.OrderId, ct);
+                                            if (!exists)
+                                                db.OrderLegs.Add(leg);
+                                        }
+                                        await db.SaveChangesAsync(ct);
+                                        _log.LogInformation("[POLL] Persisted {N} new bracket legs for group {G}",
+                                            group.Legs.Count - legCountBefore, group.GroupOrderId);
+                                    }
+                                    catch (Exception dbEx)
+                                    {
+                                        _log.LogWarning(dbEx, "[POLL] Failed to persist bracket legs for group {G}", group.GroupOrderId);
+                                    }
+                                }
+
+                                foreach (var evt in events)
+                                    await brokerHandler.HandleEventAsync(evt);
+                            }
+                        }
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[POLL] REST poller error");
+                        }
+                    }
+                    _log.LogDebug("[POLL] REST order status poller stopped");
+                }, ct);
+            }
+
+            // ── Recover active trades from DB ─────────────────────────
+            // Only recover for real brokers — Mock orders don't survive restart
+            if (brokerHandler != null && execBroker != "Mock")
+            {
+                try
+                {
+                    using var dbScope = _sp.CreateScope();
+                    var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+
+                    var activeGroups = await db.GroupOrders
+                        .Where(g => (g.Status == GroupOrderStatus.Active || g.Status == GroupOrderStatus.PartialFilled)
+                                 && g.Broker != "Mock" && g.Broker != "Backtest")
+                        .ToListAsync(ct);
+
+                    foreach (var group in activeGroups)
+                    {
+                        // Hydrate legs (Legs navigation is [NotMapped])
+                        group.Legs = await db.OrderLegs
+                            .Where(l => l.GroupOrderId == group.GroupOrderId)
+                            .ToListAsync(ct);
+
+                        // Resolve strategy — engine strategy or ManualStrategy stub
+                        var strategy = newEngine.GetStrategy(group.SetupId);
+                        if (strategy == null)
+                        {
+                            var stubSignal = new EntrySignal(
+                                SetupId.A, group.Direction,
+                                group.EntryPrice ?? 0, group.InitialStopPrice, 0, 0,
+                                group.TotalContracts, group.CreatedAt,
+                                Ticker: group.Ticker, SetupLabel: group.SetupId);
+                            var stub = new ManualStrategy(stubSignal) { PointValue = group.PointValue };
+                            strategy = stub;
+                        }
+
+                        brokerHandler.RegisterGroup(group, strategy);
+                        strategy.SetInTrade(true);
+
+                        _log.LogInformation("[RECOVER] Restored group {G} setupId={S} status={St} entry={E}",
+                            group.GroupOrderId, group.SetupId, group.Status, group.EntryPrice);
+                    }
+
+                    if (activeGroups.Count > 0)
+                        _log.LogInformation("[RECOVER] Restored {Count} active trade(s) from DB — REST poller will sync state", activeGroups.Count);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[RECOVER] Failed to recover active trades — starting fresh");
+                }
+            }
+
+            // Clean up stale active groups from Mock/Backtest (they can't be recovered)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var dbScope = _sp.CreateScope();
+                    var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                    var stale = await db.GroupOrders
+                        .Where(g => (g.Status == GroupOrderStatus.Active || g.Status == GroupOrderStatus.PartialFilled)
+                                 && (g.Broker == "Mock" || g.Broker == "Backtest"))
+                        .ToListAsync();
+                    foreach (var g in stale)
+                    {
+                        g.Status = GroupOrderStatus.Canceled;
+                        g.CompletedAt = DateTime.UtcNow;
+                    }
+                    if (stale.Count > 0)
+                    {
+                        await db.SaveChangesAsync();
+                        _log.LogInformation("[CLEANUP] Marked {Count} stale Mock/Backtest groups as Canceled", stale.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[CLEANUP] Failed to clean up stale groups");
+                }
+            });
 
             // Seed module historical levels from daily bars (per ticker)
             foreach (var ticker in distinctTickers)
@@ -674,17 +977,24 @@ public class LiveEngineOrchestrator : BackgroundService
 
             // If the executor is MockBrokerExecutor, evaluate fills on every L1 tick
             // (MockBrokerExecutor is internally thread-safe — no engineLock needed here)
+            // Wrapped in try-catch so one executor's exception doesn't block the other
             if (executor is MockBrokerExecutor mockExec)
             {
-                mux.OnPriceTick += (price, time, _) =>
-                    mockExec.EvaluateFills(price, time);
+                mux.OnPriceTick += (price, time, ticker) =>
+                {
+                    try { mockExec.EvaluateFills(price, time, ticker); }
+                    catch (Exception ex) { _log.LogWarning(ex, "[MOCK] EvaluateFills error"); }
+                };
             }
 
             // Also evaluate fills on the MockGroupOrderExecutor (WSS path)
             if (groupExecutor is MockGroupOrderExecutor mockGrpExec)
             {
-                mux.OnPriceTick += (price, time, _) =>
-                    mockGrpExec.EvaluateFills(price, time);
+                mux.OnPriceTick += (price, time, ticker) =>
+                {
+                    try { mockGrpExec.EvaluateFills(price, time, ticker); }
+                    catch (Exception ex) { _log.LogWarning(ex, "[MOCK-GRP] EvaluateFills error"); }
+                };
             }
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Live");
@@ -833,7 +1143,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
                 finally { engineLock.Release(); }
             }
-            lock (_lifecycleLock) { _engine = null; }
+            lock (_lifecycleLock) { _engine = null; _brokerHandler = null; _groupExecutor = null; }
             tickCh.Writer.TryComplete();
             try { await tickTask; } catch { /* already cancelled */ }
 
@@ -865,7 +1175,7 @@ public class LiveEngineOrchestrator : BackgroundService
         }
         finally
         {
-            lock (_lifecycleLock) { _engine = null; }
+            lock (_lifecycleLock) { _engine = null; _brokerHandler = null; _groupExecutor = null; }
         }
     }
 
@@ -944,11 +1254,18 @@ public class LiveEngineOrchestrator : BackgroundService
         return feed;
     }
 
+
     /// <summary>
-    /// Creates a TradovateAuthService configured for the replay endpoint.
+    /// Creates a TradovateAuthService for replay. Auth goes through the standard live/demo
+    /// endpoint (replay.tradovateapi.com returns 404 for auth). The WSS URL points to
+    /// the dedicated replay endpoint which serves as a single connection for both
+    /// market data and order placement.
     /// </summary>
     private TradovateAuthService CreateReplayAuthService(IServiceScope scope)
     {
+        // Auth must go through live/demo — replay endpoint doesn't support auth.
+        // Get the base auth URL from the DI-registered service (live or demo).
+        var liveAuth = scope.ServiceProvider.GetRequiredService<TradovateAuthService>();
         return new TradovateAuthService(
             _config["Tradovate:Username"] ?? "",
             _config["Tradovate:Password"] ?? "",
@@ -957,7 +1274,7 @@ public class LiveEngineOrchestrator : BackgroundService
             _config["Tradovate:DeviceId"] ?? "",
             _config["Tradovate:AppId"] ?? "CRVBot",
             Path.Combine(Path.GetTempPath(), "crv-tradovate-replay-tokens.json"),
-            apiBaseUrl: "https://replay.tradovateapi.com/v1",
+            apiBaseUrl: liveAuth.ApiBaseUrl,  // use same auth endpoint as live/demo
             mdWssUrl: "wss://replay.tradovateapi.com/v1/websocket",
             httpFactory: scope.ServiceProvider.GetRequiredService<IHttpClientFactory>(),
             log: scope.ServiceProvider.GetRequiredService<ILogger<TradovateAuthService>>());

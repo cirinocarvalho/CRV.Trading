@@ -192,7 +192,9 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     // ── IGroupOrderExecutor ────────────────────────────────────────
 
     /// <summary>
-    /// Place an entry via OSO (entry+stop) plus separate tg1/tg2 limit orders.
+    /// Place an entry via Tradovate's native bracket strategy (orderStrategyTypeId=2).
+    /// Single API call — Tradovate manages the entire bracket lifecycle server-side:
+    /// stop auto-cancels targets, targets auto-cancel stop, BE moves, partial fills.
     /// Returns a GroupOrder with all leg IDs populated, or null on failure.
     /// </summary>
     async Task<GroupOrder?> IGroupOrderExecutor.OnEntrySignalAsync(EntrySignal sig)
@@ -201,7 +203,6 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         var symbol = FuturesSymbol.ToTradovate(rawTicker);
         var account = await GetAccountAsync();
         var entryAction = sig.Direction == Direction.Long ? "Buy" : "Sell";
-        var exitAction = sig.Direction == Direction.Long ? "Sell" : "Buy";
         bool isLimit = sig.OrderType == "Limit";
 
         var groupId = Guid.NewGuid().ToString("N")[..8];
@@ -211,57 +212,116 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             : 0;
         var remainCts = sig.TotalContracts - partialCts;
 
-        // 1. Place Entry + Stop via placeOSO
-        var osoBody = new
+        // Compute signed point offsets from entry price
+        // Both profitTarget and stopLoss are directional: + = above entry, − = below entry
+        var tg1Offset = sig.Tg1Price - sig.Entry;                  // + for long, − for short
+        var tg2Offset = sig.Tg2Price - sig.Entry;                  // + for long, − for short
+        var stopOffset = sig.Stop - sig.Entry;                      // − for long (below), + for short (above)
+        var beOffset = sig.UseBe ? Math.Abs(tg1Offset) : 0m;       // BE after Tg1-level profit
+
+        // Build bracket array — each bracket gets its own qty, target, and stop
+        // Use Dictionary<string,object> for reliable JSON serialization
+        var brackets = new List<Dictionary<string, object>>();
+        if (usePartial && partialCts > 0)
         {
-            accountSpec = account.Name, accountId = account.Id,
-            action = entryAction, symbol, orderQty = sig.TotalContracts,
-            orderType = isLimit ? "Limit" : "Market",
-            price = isLimit ? (decimal?)sig.Entry : null,
-            isAutomated = true,
-            bracket1 = new { action = exitAction, orderType = "Stop", stopPrice = sig.Stop, orderQty = sig.TotalContracts }
+            // Bracket 1: partial target (Tg1), no BE on this bracket
+            brackets.Add(new Dictionary<string, object>
+            {
+                ["qty"] = partialCts, ["profitTarget"] = tg1Offset,
+                ["stopLoss"] = stopOffset, ["trailingStop"] = false
+            });
+            // Bracket 2: full target (Tg2), with BE after Tg1-level profit
+            var b2 = new Dictionary<string, object>
+            {
+                ["qty"] = remainCts, ["profitTarget"] = tg2Offset,
+                ["stopLoss"] = stopOffset, ["trailingStop"] = false
+            };
+            if (beOffset > 0) b2["breakeven"] = beOffset;
+            brackets.Add(b2);
+        }
+        else
+        {
+            // Single bracket: full qty, one target + stop
+            brackets.Add(new Dictionary<string, object>
+            {
+                ["qty"] = sig.TotalContracts, ["profitTarget"] = tg2Offset,
+                ["stopLoss"] = stopOffset, ["trailingStop"] = false
+            });
+        }
+
+        // Build entry params — params must be a JSON string, not a nested object
+        // Use Dictionary to avoid System.Text.Json issues with anonymous types cast to object
+        var entryVersion = new Dictionary<string, object>
+        {
+            ["orderQty"] = sig.TotalContracts,
+            ["orderType"] = isLimit ? "Limit" : "Market",
+            ["timeInForce"] = "Day"
         };
-        var (entryId, _, stopId) = await PlaceOsoAsync(osoBody);
-        if (entryId is null)
+        if (isLimit) entryVersion["price"] = sig.Entry;
+
+        var paramsObj = new Dictionary<string, object>
         {
-            _log.LogError("[TV-GRP] Entry OSO failed — no order IDs returned");
+            ["entryVersion"] = entryVersion,
+            ["brackets"] = brackets
+        };
+        var paramsJson = JsonSerializer.Serialize(paramsObj);
+        _log.LogDebug("[TV-GRP] Bracket params JSON: {Params}", paramsJson);
+
+        var body = new
+        {
+            accountId = account.Id,
+            accountSpec = account.Name,
+            symbol,
+            orderStrategyTypeId = 2,
+            action = entryAction,
+            @params = paramsJson
+        };
+
+        // Single API call — Tradovate handles the entire bracket lifecycle
+        var (strategyId, entryOrderId) = await StartOrderStrategyAsync(body);
+        if (strategyId is null && entryOrderId is null)
+        {
+            _log.LogError("[TV-GRP] startOrderStrategy failed — check previous log for API error details");
             return null;
         }
 
-        // 2. Place Tg1 (partial limit) — only when UsePartial is enabled
-        long? tg1Id = null;
-        if (usePartial)
+        // Discover all bracket legs via REST polling (not WSS — unreliable connection)
+        // Tradovate computes bracket prices from the fill price using offsets,
+        // so we match by strategy ID sequence, action, and order type.
+        var exitAction = sig.Direction == Direction.Long ? "Sell" : "Buy";
+        var disc = await DiscoverBracketLegsAsync(
+            strategyId.Value, symbol, entryAction, exitAction, usePartial);
+
+        // Entry rejected (e.g. market closed) — no trade placed
+        if (disc.Entry is not null && disc.Entry.Status is "Rejected" or "Canceled" or "Cancelled")
         {
-            var tg1Body = new
-            {
-                accountSpec = account.Name, accountId = account.Id,
-                action = exitAction, symbol,
-                orderQty = partialCts, orderType = "Limit", price = sig.Tg1Price,
-                isAutomated = true
-            };
-            tg1Id = await PlaceSingleAsync(tg1Body);
+            _log.LogWarning("[TV-GRP] Entry {E} was {S} — order not placed", disc.Entry.Id, disc.Entry.Status);
+            return null;
         }
 
-        // 3. Place Tg2 (remaining limit — or full contracts when no partial)
-        var tg2Body = new
-        {
-            accountSpec = account.Name, accountId = account.Id,
-            action = exitAction, symbol,
-            orderQty = remainCts, orderType = "Limit", price = sig.Tg2Price,
-            isAutomated = true
-        };
-        var tg2Id = await PlaceSingleAsync(tg2Body);
+        // For single bracket, map Tg1 discovery to Tg2
+        var tg2Disc = disc.Tg2 ?? (usePartial ? null : disc.Tg1);
 
-        // Discover stop if placeOSO response didn't include it
-        if (stopId is null)
-        {
-            var (_, foundStop) = await FindBracketLegsAsync(entryId.Value, 0, sig.Stop);
-            stopId = foundStop;
-        }
+        // Register all legs with WSS (best-effort — REST is primary)
+        if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
+        if (disc.Tg1 is not null && usePartial) EventStream?.RegisterOrder(disc.Tg1.Id, groupId, LegType.Tg1);
+        if (tg2Disc is not null) EventStream?.RegisterOrder(tg2Disc.Id, groupId, LegType.Tg2);
+        if (disc.Stop is not null) EventStream?.RegisterOrder(disc.Stop.Id, groupId, LegType.Stop);
+        if (disc.Stop2 is not null) EventStream?.RegisterOrder(disc.Stop2.Id, groupId, LegType.Stop);
 
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
         var buyAction = entryAction == "Buy" ? "BUY" : "SELL";
-        var sellAction = exitAction == "Sell" ? "SELL" : "BUY";
+        var sellAction = entryAction == "Buy" ? "SELL" : "BUY";
+
+        // Helper to map Tradovate status to OrderLegStatus
+        static OrderLegStatus MapStatus(string s) => s switch
+        {
+            "Filled" => OrderLegStatus.Filled,
+            "Canceled" or "Cancelled" => OrderLegStatus.Canceled,
+            "Rejected" => OrderLegStatus.Rejected,
+            "Suspended" => OrderLegStatus.Working, // Bracket legs start Suspended, activate on entry fill
+            _ => OrderLegStatus.Working
+        };
 
         var group = new GroupOrder
         {
@@ -274,29 +334,217 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             UseBe = sig.UseBe,
             Status = GroupOrderStatus.Pending,
             Broker = "Tradovate",
+            BrokerStrategyId = strategyId?.ToString(),
         };
 
-        group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = entryId.Value.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = sig.TotalContracts, Price = sig.Entry });
-        if (tg1Id.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg1Id.Value.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = partialCts, Price = sig.Tg1Price });
-        if (tg2Id.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Id.Value.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = remainCts, Price = sig.Tg2Price });
-        if (stopId.HasValue)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = stopId.Value.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = sig.TotalContracts, Price = sig.Stop });
-
-        // Register all legs with WSS event stream for real-time routing
-        if (EventStream != null)
+        // Build legs from REST-discovered data (real prices from Tradovate, not our requested prices)
+        if (disc.Entry is not null)
         {
-            EventStream.RegisterOrder(entryId.Value, groupId, LegType.Entry);
-            if (tg1Id.HasValue) EventStream.RegisterOrder(tg1Id.Value, groupId, LegType.Tg1);
-            if (tg2Id.HasValue) EventStream.RegisterOrder(tg2Id.Value, groupId, LegType.Tg2);
-            if (stopId.HasValue) EventStream.RegisterOrder(stopId.Value, groupId, LegType.Stop);
+            var leg = new OrderLeg { GroupOrderId = groupId, OrderId = disc.Entry.Id.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = disc.Entry.Qty > 0 ? disc.Entry.Qty : sig.TotalContracts, Price = disc.Entry.Price, Status = MapStatus(disc.Entry.Status) };
+            if (disc.Entry.FillPrice.HasValue) leg.FillPrice = disc.Entry.FillPrice;
+            if (disc.Entry.Status == "Filled") leg.FillTime = DateTime.UtcNow;
+            group.Legs.Add(leg);
+
+            // If entry already filled, set group Active + EntryPrice
+            if (disc.Entry.Status == "Filled")
+            {
+                group.Status = GroupOrderStatus.Active;
+                group.EntryPrice = disc.Entry.FillPrice ?? disc.Entry.Price;
+            }
+        }
+        if (disc.Tg1 is not null && usePartial)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = disc.Tg1.Qty > 0 ? disc.Tg1.Qty : partialCts, Price = disc.Tg1.Price, Status = MapStatus(disc.Tg1.Status) });
+        if (tg2Disc is not null)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
+        if (disc.Stop is not null)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = disc.Stop.Qty > 0 ? disc.Stop.Qty : sig.TotalContracts, Price = disc.Stop.Price, Status = MapStatus(disc.Stop.Status) });
+
+        _log.LogInformation("[TV-GRP] Bracket strategy {Strat} group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S}",
+            strategyId, groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id);
+
+        // If bracket legs are missing (entry not filled yet), discover them in background
+        // when the entry eventually fills. Poll until bracket legs appear.
+        if (disc.Tg1 is null && disc.Tg2 is null && disc.Stop is null)
+        {
+            _ = Task.Run(async () =>
+            {
+                _log.LogDebug("[TV-GRP] Background bracket leg discovery started for group {G}", groupId);
+                // Wait for entry to fill — poll every 2s for up to 5 minutes
+                for (int i = 0; i < 150; i++)
+                {
+                    await Task.Delay(2000);
+                    var fullDisc = await DiscoverBracketLegsAsync(
+                        strategyId.Value, symbol, entryAction, exitAction, usePartial);
+
+                    if (fullDisc.Tg1 is not null || fullDisc.Tg2 is not null || fullDisc.Stop is not null)
+                    {
+                        // Update GroupOrder legs in place
+                        var tg2d = fullDisc.Tg2 ?? (usePartial ? null : fullDisc.Tg1);
+
+                        if (fullDisc.Tg1 is not null && usePartial)
+                        {
+                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = fullDisc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = fullDisc.Tg1.Qty > 0 ? fullDisc.Tg1.Qty : partialCts, Price = fullDisc.Tg1.Price, Status = MapStatus(fullDisc.Tg1.Status) });
+                            EventStream?.RegisterOrder(fullDisc.Tg1.Id, groupId, LegType.Tg1);
+                        }
+                        if (tg2d is not null)
+                        {
+                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2d.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2d.Qty > 0 ? tg2d.Qty : remainCts, Price = tg2d.Price, Status = MapStatus(tg2d.Status) });
+                            EventStream?.RegisterOrder(tg2d.Id, groupId, LegType.Tg2);
+                        }
+                        if (fullDisc.Stop is not null)
+                        {
+                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = fullDisc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = fullDisc.Stop.Qty > 0 ? fullDisc.Stop.Qty : sig.TotalContracts, Price = fullDisc.Stop.Price, Status = MapStatus(fullDisc.Stop.Status) });
+                            EventStream?.RegisterOrder(fullDisc.Stop.Id, groupId, LegType.Stop);
+                        }
+                        if (fullDisc.Stop2 is not null)
+                            EventStream?.RegisterOrder(fullDisc.Stop2.Id, groupId, LegType.Stop);
+
+                        // Update entry status if it filled during background polling
+                        if (fullDisc.Entry is not null && fullDisc.Entry.Status == "Filled" && group.Status == GroupOrderStatus.Pending)
+                        {
+                            var entryLeg = group.GetLeg(LegType.Entry);
+                            if (entryLeg != null)
+                            {
+                                entryLeg.Status = OrderLegStatus.Filled;
+                                entryLeg.FillPrice = fullDisc.Entry.FillPrice;
+                                entryLeg.FillTime = DateTime.UtcNow;
+                            }
+                            group.Status = GroupOrderStatus.Active;
+                            group.EntryPrice = fullDisc.Entry.FillPrice ?? fullDisc.Entry.Price;
+                        }
+
+                        _log.LogInformation("[TV-GRP] Background discovery completed for group {G}: tg1={T1} tg2={T2} stop={S}",
+                            groupId, fullDisc.Tg1?.Id, tg2d?.Id, fullDisc.Stop?.Id);
+                        return;
+                    }
+                }
+                _log.LogWarning("[TV-GRP] Background bracket leg discovery timed out for group {G}", groupId);
+            });
         }
 
-        _log.LogInformation("[TV-GRP] Group {G} placed: entry={E} tg1={T1} tg2={T2} stop={S}",
-            groupId, entryId, tg1Id, tg2Id, stopId);
-
         return group;
+    }
+
+    /// <summary>
+    /// Poll Tradovate REST /order/list for current status of all legs in a group.
+    /// Compares with GroupOrder leg status and returns OrderEvents for changed legs.
+    /// </summary>
+    async Task<List<OrderEvent>> IGroupOrderExecutor.PollOrderStatusesAsync(GroupOrder group)
+    {
+        var events = new List<OrderEvent>();
+        try
+        {
+            // ── Discover missing bracket legs via strategy link ──
+            // If group has BrokerStrategyId but only Entry leg, discover bracket legs
+            bool hasBracketLegs = group.Legs.Any(l => l.LegType is LegType.Tg1 or LegType.Tg2 or LegType.Stop);
+            if (!hasBracketLegs && !string.IsNullOrEmpty(group.BrokerStrategyId)
+                && long.TryParse(group.BrokerStrategyId, out var stratId))
+            {
+                _log.LogDebug("[TV-POLL] Group {G} missing bracket legs — discovering via strategy {S}",
+                    group.GroupOrderId, stratId);
+
+                var entryAction = group.Direction == Direction.Long ? "Buy" : "Sell";
+                var exitAction = group.Direction == Direction.Long ? "Sell" : "Buy";
+                bool usePartial = group.PartialContracts > 0 && group.PartialContracts < group.TotalContracts;
+
+                var disc = await DiscoverBracketLegsAsync(stratId, group.Ticker, entryAction, exitAction, usePartial);
+
+                // Entry was rejected/canceled — mark group as canceled, stop polling
+                if (disc.Entry is not null && disc.Entry.Status is "Rejected" or "Canceled" or "Cancelled")
+                {
+                    _log.LogWarning("[TV-POLL] Entry {E} was {S} — marking group {G} as Canceled",
+                        disc.Entry.Id, disc.Entry.Status, group.GroupOrderId);
+                    group.Status = GroupOrderStatus.Canceled;
+                    group.CompletedAt = DateTime.UtcNow;
+                    return events;
+                }
+
+                var sellAction = group.Direction == Direction.Long ? "SELL" : "BUY";
+                static OrderLegStatus MapSt(string s) => s switch
+                {
+                    "Filled" => OrderLegStatus.Filled,
+                    "Canceled" or "Cancelled" => OrderLegStatus.Canceled,
+                    "Rejected" => OrderLegStatus.Rejected,
+                    _ => OrderLegStatus.Working
+                };
+
+                var tg2Disc = disc.Tg2 ?? (usePartial ? null : disc.Tg1);
+
+                if (disc.Tg1 is not null && usePartial && group.GetLeg(LegType.Tg1) is null)
+                    group.Legs.Add(new OrderLeg { GroupOrderId = group.GroupOrderId, OrderId = disc.Tg1.Id.ToString(),
+                        LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction,
+                        Quantity = disc.Tg1.Qty, Price = disc.Tg1.Price, Status = MapSt(disc.Tg1.Status) });
+
+                if (tg2Disc is not null && group.GetLeg(LegType.Tg2) is null)
+                    group.Legs.Add(new OrderLeg { GroupOrderId = group.GroupOrderId, OrderId = tg2Disc.Id.ToString(),
+                        LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction,
+                        Quantity = tg2Disc.Qty, Price = tg2Disc.Price, Status = MapSt(tg2Disc.Status) });
+
+                if (disc.Stop is not null && group.GetLeg(LegType.Stop) is null)
+                    group.Legs.Add(new OrderLeg { GroupOrderId = group.GroupOrderId, OrderId = disc.Stop.Id.ToString(),
+                        LegType = LegType.Stop, OrderType = "Stop", Action = sellAction,
+                        Quantity = disc.Stop.Qty, Price = disc.Stop.Price, Status = MapSt(disc.Stop.Status) });
+
+                if (group.Legs.Count > 1)
+                    _log.LogInformation("[TV-POLL] Discovered bracket legs for group {G}: {Count} legs total",
+                        group.GroupOrderId, group.Legs.Count);
+            }
+
+            // ── Poll existing legs for status changes ──
+            var legIds = string.Join(",", group.Legs.Select(l => l.OrderId));
+            if (string.IsNullOrEmpty(legIds)) return events;
+
+            var json = await GetAsync($"/order/items?ids={legIds}");
+            using var doc = JsonDocument.Parse(json);
+
+            var brokerOrders = new Dictionary<string, (string status, decimal? fillPrice, int? fillQty)>();
+            foreach (var order in doc.RootElement.EnumerateArray())
+            {
+                var id = order.TryGetProperty("id", out var idp) && idp.ValueKind == JsonValueKind.Number
+                    ? idp.GetInt64().ToString() : null;
+                if (id is null) continue;
+
+                var status = order.TryGetProperty("ordStatus", out var sp) ? sp.GetString() : null;
+                var fillPrice = order.TryGetProperty("avgFillPrice", out var fp) && fp.ValueKind == JsonValueKind.Number
+                    ? (decimal?)fp.GetDecimal() : null;
+                var fillQty = order.TryGetProperty("filledQty", out var fq) && fq.ValueKind == JsonValueKind.Number
+                    ? (int?)fq.GetInt32() : null;
+
+                if (status is not null)
+                    brokerOrders[id] = (status, fillPrice, fillQty);
+            }
+
+            foreach (var leg in group.Legs)
+            {
+                if (!brokerOrders.TryGetValue(leg.OrderId, out var broker)) continue;
+
+                var brokerStatus = broker.status switch
+                {
+                    "Filled" => OrderLegStatus.Filled,
+                    "Canceled" or "Cancelled" => OrderLegStatus.Canceled,
+                    "Rejected" => OrderLegStatus.Rejected,
+                    "Working" => OrderLegStatus.Working,
+                    _ => (OrderLegStatus?)null
+                };
+
+                if (brokerStatus is not null && brokerStatus != leg.Status &&
+                    brokerStatus is OrderLegStatus.Filled or OrderLegStatus.Canceled or OrderLegStatus.Rejected or OrderLegStatus.Working)
+                {
+                    events.Add(new OrderEvent(
+                        group.GroupOrderId, leg.OrderId, leg.LegType,
+                        brokerStatus.Value, broker.fillPrice, broker.fillQty,
+                        null, null, DateTime.UtcNow));
+
+                    _log.LogInformation("[TV-POLL] Leg {Leg} {OrderId} status changed: {Old} → {New} @ {Price}",
+                        leg.LegType, leg.OrderId, leg.Status, brokerStatus, broker.fillPrice);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV-POLL] PollOrderStatusesAsync failed for group {G}", group.GroupOrderId);
+        }
+        return events;
     }
 
     async Task IGroupOrderExecutor.ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty)
@@ -429,7 +677,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             var url  = $"{_auth.ApiBaseUrl}/order/placeOSO";
             var resp = await PostAsync(url, body);
 
-            _log.LogInformation("[TV] PlaceOSO raw response: {Resp}", resp);
+            _log.LogDebug("[TV] PlaceOSO raw response: {Resp}", resp);
 
             using var doc = JsonDocument.Parse(resp);
             var root = doc.RootElement;
@@ -488,6 +736,238 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             _log.LogError(ex, "[TV] PlaceSingleAsync failed");
             return null;
         }
+    }
+
+    /// <summary>
+    /// POST /orderStrategy/startOrderStrategy — places a bracket strategy.
+    /// Tradovate manages the entire lifecycle: entry, brackets, BE, trailing stop.
+    /// Returns (strategyId, entryOrderId).
+    /// </summary>
+    private async Task<(long? strategyId, long? entryOrderId)> StartOrderStrategyAsync(object body)
+    {
+        try
+        {
+            var url = $"{_auth.ApiBaseUrl}/orderStrategy/startOrderStrategy";
+            var resp = await PostAsync(url, body);
+            _log.LogDebug("[TV] startOrderStrategy raw response: {Resp}", resp);
+
+            using var doc = JsonDocument.Parse(resp);
+            var root = doc.RootElement;
+
+            // Response may be nested: {"orderStrategy": {...}} or flat: {"id": ...}
+            var stratEl = root.TryGetProperty("orderStrategy", out var nested) ? nested : root;
+
+            var strategyId = stratEl.TryGetProperty("id", out var sid) && sid.ValueKind == JsonValueKind.Number
+                ? (long?)sid.GetInt64()
+                : stratEl.TryGetProperty("orderStrategyId", out var sid2) && sid2.ValueKind == JsonValueKind.Number
+                    ? (long?)sid2.GetInt64()
+                    : null;
+
+            // Entry order ID — may be at root, in orderStrategy, or absent (discovered later)
+            long? entryOrderId = null;
+            foreach (var el in new[] { root, stratEl })
+            {
+                if (el.TryGetProperty("orderId", out var eid) && eid.ValueKind == JsonValueKind.Number)
+                    { entryOrderId = eid.GetInt64(); break; }
+                if (el.TryGetProperty("entryOrder", out var eo))
+                {
+                    if (eo.TryGetProperty("id", out var eoid) && eoid.ValueKind == JsonValueKind.Number)
+                        { entryOrderId = eoid.GetInt64(); break; }
+                }
+            }
+
+            _log.LogInformation("[TV] startOrderStrategy — strategyId={S} entryOrderId={E}",
+                strategyId, entryOrderId);
+            return (strategyId, entryOrderId);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TV] StartOrderStrategyAsync failed");
+            return (null, null);
+        }
+    }
+
+    /// <summary>Info about a discovered order leg from REST.</summary>
+    private record DiscoveredLeg(long Id, string OrderType, string Action, decimal Price, int Qty, string Status, decimal? FillPrice);
+
+    /// <summary>Result of bracket leg discovery — includes full order info for REST-based state sync.</summary>
+    private record BracketDiscovery(
+        DiscoveredLeg? Entry, DiscoveredLeg? Tg1, DiscoveredLeg? Tg2,
+        DiscoveredLeg? Stop, DiscoveredLeg? Stop2);
+
+    /// <summary>
+    /// Discovers bracket leg orders via /orderStrategyLink/deps + /order/items.
+    /// Step 1: Get order IDs linked to strategy (labels: 256=entry, 0=bracket0, 1=bracket1)
+    /// Step 2: Fetch full order details by IDs
+    /// Step 3: Classify by label + orderType (Limit=target, Stop=stop)
+    /// </summary>
+    private async Task<BracketDiscovery> DiscoverBracketLegsAsync(
+        long strategyId, string symbol, string entryAction, string exitAction, bool usePartial)
+    {
+        const int maxAttempts = 15;
+        const int delayMs = 500;
+
+        try
+        {
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (attempt > 0) await Task.Delay(delayMs);
+
+                // Step 1: Get linked order IDs from strategy
+                var linksJson = await GetAsync($"/orderStrategyLink/deps?masterid={strategyId}");
+                using var linksDoc = JsonDocument.Parse(linksJson);
+
+                var orderIdsByLabel = new Dictionary<long, string>(); // orderId → label
+                foreach (var link in linksDoc.RootElement.EnumerateArray())
+                {
+                    var orderId = link.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
+                        ? oid.GetInt64() : 0;
+                    var label = link.TryGetProperty("label", out var lp) ? lp.GetString() ?? "" : "";
+                    if (orderId > 0)
+                        orderIdsByLabel[orderId] = label;
+                }
+
+                if (orderIdsByLabel.Count == 0)
+                {
+                    if (attempt % 5 == 0)
+                        _log.LogInformation("[TV] DiscoverBracketLegs attempt {A}/{Max}: no links yet for strategy {S}",
+                            attempt + 1, maxAttempts, strategyId);
+                    continue;
+                }
+
+                // Step 2: Fetch order details from two endpoints
+                // /orderVersion/items — always has orderType, price, stopPrice, qty
+                // /order/items — has ordStatus, action, avgFillPrice, filledQty
+                var ids = string.Join(",", orderIdsByLabel.Keys);
+                var versionJson = await GetAsync($"/orderVersion/items?ids={ids}");
+                var statusJson = await GetAsync($"/order/items?ids={ids}");
+                using var versionDoc = JsonDocument.Parse(versionJson);
+                using var statusDoc = JsonDocument.Parse(statusJson);
+
+                // Build status lookup from /order/items
+                var statusLookup = new Dictionary<long, (string status, string? action, decimal? fillPrice, int? fillQty)>();
+                foreach (var order in statusDoc.RootElement.EnumerateArray())
+                {
+                    var oid = order.TryGetProperty("id", out var idp2) && idp2.ValueKind == JsonValueKind.Number
+                        ? idp2.GetInt64() : 0;
+                    if (oid == 0) continue;
+                    var st = order.TryGetProperty("ordStatus", out var sp2) ? sp2.GetString() : null;
+                    var act = order.TryGetProperty("action", out var ap2) ? ap2.GetString() : null;
+                    var fp2 = order.TryGetProperty("avgFillPrice", out var fpp) && fpp.ValueKind == JsonValueKind.Number
+                        ? (decimal?)fpp.GetDecimal() : null;
+                    var fq2 = order.TryGetProperty("filledQty", out var fqp) && fqp.ValueKind == JsonValueKind.Number
+                        ? (int?)fqp.GetInt32() : null;
+                    statusLookup[oid] = (st ?? "Unknown", act, fp2, fq2);
+                }
+
+                DiscoveredLeg? entryLeg = null;
+                var bracketLegs = new Dictionary<string, (DiscoveredLeg? limit, DiscoveredLeg? stop)>();
+
+                // Merge version (type/price) + status (status/action/fill) per order
+                foreach (var ver in versionDoc.RootElement.EnumerateArray())
+                {
+                    long orderId = ver.TryGetProperty("orderId", out var oidp) && oidp.ValueKind == JsonValueKind.Number
+                        ? oidp.GetInt64()
+                        : ver.TryGetProperty("id", out var idp) && idp.ValueKind == JsonValueKind.Number
+                            ? idp.GetInt64() : 0;
+                    if (orderId == 0 || !orderIdsByLabel.TryGetValue(orderId, out var label)) continue;
+
+                    var orderType = ver.TryGetProperty("orderType", out var otp) ? otp.GetString() : null;
+                    var price = ver.TryGetProperty("price", out var pp) && pp.ValueKind == JsonValueKind.Number
+                        ? pp.GetDecimal() : 0m;
+                    var stopPx = ver.TryGetProperty("stopPrice", out var spp) && spp.ValueKind == JsonValueKind.Number
+                        ? spp.GetDecimal() : 0m;
+                    var qty = ver.TryGetProperty("orderQty", out var qp) && qp.ValueKind == JsonValueKind.Number
+                        ? qp.GetInt32() : 0;
+
+                    var status = "Unknown";
+                    string? action = null;
+                    decimal? fillPrice = null;
+                    if (statusLookup.TryGetValue(orderId, out var st))
+                    {
+                        status = st.status;
+                        action = st.action;
+                        fillPrice = st.fillPrice;
+                    }
+                    if (status is "Expired") continue;
+
+                    var leg = new DiscoveredLeg(orderId, orderType ?? "", action ?? "",
+                        orderType == "Stop" ? stopPx : price, qty, status, fillPrice);
+
+                    // Entry order — Market type or same action as entry
+                    if (orderType == "Market" || label == "256")
+                    {
+                        entryLeg = leg;
+                        continue;
+                    }
+
+                    // Bracket legs — classify by orderType from /orderVersion
+                    if (!bracketLegs.ContainsKey(label))
+                        bracketLegs[label] = (null, null);
+
+                    var bracket = bracketLegs[label];
+                    if (orderType == "Limit")
+                        bracketLegs[label] = (leg, bracket.stop);
+                    else if (orderType == "Stop")
+                        bracketLegs[label] = (bracket.limit, leg);
+                }
+
+                if (attempt == 0 || bracketLegs.Count > 0)
+                    _log.LogDebug("[TV] DiscoverBracketLegs attempt {A}: entry={E}({ES}) brackets={B}",
+                        attempt + 1, entryLeg?.Id, entryLeg?.Status, bracketLegs.Count);
+
+                // Map bracket labels to Tg1/Tg2/Stop based on bracket index
+                var sortedLabels = bracketLegs.Keys.OrderBy(k => k).ToList();
+                int expectedBrackets = usePartial ? 2 : 1;
+
+                if (sortedLabels.Count >= expectedBrackets)
+                {
+                    DiscoveredLeg? tg1 = null, tg2 = null, stop1 = null, stop2 = null;
+
+                    if (usePartial && sortedLabels.Count >= 2)
+                    {
+                        // Bracket "0" = partial (Tg1 + Stop1), bracket "1" = remainder (Tg2 + Stop2)
+                        tg1 = bracketLegs[sortedLabels[0]].limit;
+                        stop1 = bracketLegs[sortedLabels[0]].stop;
+                        tg2 = bracketLegs[sortedLabels[1]].limit;
+                        stop2 = bracketLegs[sortedLabels[1]].stop;
+                    }
+                    else
+                    {
+                        // Single bracket — Tg2 + Stop
+                        tg2 = bracketLegs[sortedLabels[0]].limit;
+                        stop1 = bracketLegs[sortedLabels[0]].stop;
+                    }
+
+                    _log.LogInformation(
+                        "[TV] Bracket legs discovered on attempt {A}: entry={E}({ES}) tg1={T1}({T1S}) tg2={T2}({T2S}) stop={S}({SS}) stop2={S2}",
+                        attempt + 1,
+                        entryLeg?.Id, entryLeg?.Status,
+                        tg1?.Id, tg1?.Status,
+                        tg2?.Id, tg2?.Status,
+                        stop1?.Id, stop1?.Status,
+                        stop2?.Id);
+
+                    return new BracketDiscovery(entryLeg, tg1, tg2, stop1, stop2);
+                }
+
+                // Entry found but bracket legs not yet visible — give a few attempts
+                if (entryLeg is not null && attempt >= 3 && bracketLegs.Count == 0)
+                {
+                    _log.LogInformation("[TV] Entry {E} ({S}) found but no bracket legs after {A} attempts — returning entry-only",
+                        entryLeg.Id, entryLeg.Status, attempt + 1);
+                    return new BracketDiscovery(entryLeg, null, null, null, null);
+                }
+            }
+
+            _log.LogWarning("[TV] DiscoverBracketLegsAsync timed out after {Max} attempts", maxAttempts);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TV] DiscoverBracketLegsAsync failed");
+        }
+
+        return new BracketDiscovery(null, null, null, null, null);
     }
 
     /// <summary>Cancels an order via POST /order/cancelOrder.</summary>
@@ -617,11 +1097,8 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var url  = path.StartsWith("http") ? path : $"{_auth.ApiBaseUrl}{path}";
-        _log.LogDebug("[TV] GET {Url}", url);
-
         var resp = await http.GetAsync(url);
         var body = await resp.Content.ReadAsStringAsync();
-        _log.LogDebug("[TV] GET {Url} → {Status} {Body}", url, (int)resp.StatusCode, body);
 
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException(
@@ -638,13 +1115,11 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var json    = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = false });
-        _log.LogDebug("[TV] POST {Url} {Body}", url, json);
 
         using var resp = await http.PostAsync(url,
             new StringContent(json, Encoding.UTF8, "application/json"));
 
         var respBody = await resp.Content.ReadAsStringAsync();
-        _log.LogDebug("[TV] POST {Url} → {Status} {Body}", url, (int)resp.StatusCode, respBody);
 
         if (!resp.IsSuccessStatusCode)
         {

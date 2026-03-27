@@ -55,6 +55,13 @@ public interface IGroupOrderExecutor
     Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty);
     Task CancelOrderAsync(string orderId);
     Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty);
+
+    /// <summary>
+    /// Poll broker REST API for current status of all legs in a group.
+    /// Returns OrderEvents for any legs whose status changed.
+    /// Used as a reliable alternative to WSS for order state sync.
+    /// </summary>
+    Task<List<OrderEvent>> PollOrderStatusesAsync(GroupOrder group) => Task.FromResult(new List<OrderEvent>());
 }
 
 public interface IStrategyEventSink
