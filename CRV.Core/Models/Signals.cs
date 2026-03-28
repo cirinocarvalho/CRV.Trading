@@ -20,6 +20,7 @@ public record EntrySignal(
     string    Ticker     = "",         // Per-setup ticker override; empty = use global
     string    SetupLabel = "",         // Basket entry ID (e.g. "retest-mnq"); empty = use Setup enum
     int       PartialContracts = 0,    // Contracts for tg1 partial exit (0 = TotalContracts/2)
+    decimal   PointValue = 0,          // Per-setup point value (0 = use global)
     bool      UsePartial = true,       // false = no tg1 leg, tg2 gets full contracts
     bool      UseBe      = true);      // false = stop stays at initial level after tg1 fill
 
@@ -198,6 +199,7 @@ public class ActiveTradeView
     public decimal    Target             { get; set; }
     public decimal    Partial            { get; set; }
     public int        Contracts          { get; set; }
+    public int        PartialContracts   { get; set; }
     public int        RemainingContracts { get; set; }
     public bool       PartialFilled      { get; set; }
     public decimal    LastPrice          { get; set; }

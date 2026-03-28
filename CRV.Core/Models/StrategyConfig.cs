@@ -104,6 +104,8 @@ public class StrategyConfig
     public bool    EnableA         { get; set; } = true;
     public string  ModeA           { get; set; } = "Conservative";
     public int     MaxTradesA      { get; set; } = 5;
+    public int     MaxLongTradesA  { get; set; } = 0;
+    public int     MaxShortTradesA { get; set; } = 0;
     public decimal NearPct         { get; set; } = 0.15m;   // legacy — alias for NearPctA (EF column kept for compat)
     public decimal NearPctA        { get; set; } = 0.15m;
     public decimal PullbackPct     { get; set; } = 0.50m;
@@ -150,6 +152,8 @@ public class StrategyConfig
     public bool    EnableB         { get; set; } = true;
     public string  ModeB           { get; set; } = "Conservative";
     public int     MaxTradesB      { get; set; } = 5;
+    public int     MaxLongTradesB  { get; set; } = 0;
+    public int     MaxShortTradesB { get; set; } = 0;
     public decimal NearPctB        { get; set; } = 0.15m;
     public decimal RetestPct       { get; set; } = 0.05m;
     public int     TargetPctB      { get; set; } = 100;
@@ -443,6 +447,8 @@ public class StrategyConfig
         CutoffMinute = b.Config.CutoffMinute,
         CloseAtRthClose = b.Config.CloseAtRthClose,
         MaxTrades = b.Config.MaxTrades,
+        MaxLongTrades = b.Config.MaxLongTrades,
+        MaxShortTrades = b.Config.MaxShortTrades,
         MaxAdverseMinutes = b.Config.MaxAdverseMinutes,
         UsePartial = b.Config.UsePartial,
         UseBe = b.Config.UseBe,
@@ -466,6 +472,7 @@ public class StrategyConfig
         UseVwap = UseVwapA, UseOrbClose = UseOrbCloseA,
         CutoffHour = CutoffHourA, CutoffMinute = CutoffMinuteA,
         CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
+        MaxLongTrades = MaxLongTradesA, MaxShortTrades = MaxShortTradesA,
         MaxAdverseMinutes = MaxAdverseMinutesA,
         UsePartial = UsePartialA, UseBe = UseBeA,
         PartialCts = PartialCtsA, AllowRearmAfterBe = AllowRearmAfterBeA,
@@ -486,6 +493,7 @@ public class StrategyConfig
         UseVwap = UseVwapB, UseOrbClose = UseOrbCloseB,
         CutoffHour = CutoffHourB, CutoffMinute = CutoffMinuteB,
         CloseAtRthClose = CloseAtRthCloseB, MaxTrades = MaxTradesB,
+        MaxLongTrades = MaxLongTradesB, MaxShortTrades = MaxShortTradesB,
         MaxAdverseMinutes = MaxAdverseMinutesB,
         UsePartial = UsePartialB, UseBe = UseBeB,
         PartialCts = PartialCtsB, AllowRearmAfterBe = AllowRearmAfterBeB,

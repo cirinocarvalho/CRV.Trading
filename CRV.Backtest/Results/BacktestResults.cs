@@ -47,10 +47,10 @@ public class PerformanceMetrics
     public int      StopExits       { get; set; }
     public int      SessionEndExits { get; set; }
 
-    // E = (WinRate% × AvgWin) − (LossRate% × AvgLoss)
-    // AvgLoss is negative, so subtracting it adds the loss contribution.
+    // E = (WinRate% × AvgWin) + (LossRate% × AvgLoss)
+    // AvgLoss is already negative, so adding it subtracts the loss contribution.
     public decimal Expectancy => TotalTrades > 0
-        ? (WinRate / 100m) * AvgWin - ((100m - WinRate) / 100m) * AvgLoss
+        ? (WinRate / 100m) * AvgWin + ((100m - WinRate) / 100m) * AvgLoss
         : 0;
 }
 

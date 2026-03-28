@@ -17,6 +17,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <ProjectReference Include="..\CRV.Core\CRV.Core.csproj" />
+    <ProjectReference Include="..\CRV.Backtest\CRV.Backtest.csproj" />
     <ProjectReference Include="..\CRV.Live\CRV.Live.csproj" />
   </ItemGroup>
 </Project>

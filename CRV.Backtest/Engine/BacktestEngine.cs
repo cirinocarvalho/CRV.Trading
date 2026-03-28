@@ -78,7 +78,7 @@ public class BacktestEngine
 
         // WSS-style fill simulation
         var groupExec = new BacktestGroupOrderExecutor(_btCfg, _cfg);
-        var handler = new BrokerEventHandler(groupExec);
+        var handler = new BrokerEventHandler(groupExec, _log);
 
         // Synchronous event delivery: executor → handler (Func<OrderEvent, Task>)
         groupExec.OnEvent = evt => handler.HandleEventAsync(evt);
@@ -347,8 +347,9 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             Direction = sig.Direction,
             TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
-            PointValue = _cfg.PointValue,
+            PointValue = sig.PointValue > 0 ? sig.PointValue : _cfg.PointValue,
             UseBe = sig.UseBe,
+            InitialStopPrice = sig.Stop,
             Status = GroupOrderStatus.Pending,
             Broker = "Backtest",
             CreatedAt = sig.Time,
@@ -368,8 +369,9 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
 
-        // Only add tg1 leg when UsePartial is enabled
-        if (usePartial)
+        // Only add tg1 leg when UsePartial is enabled AND partialCts > 0
+        // (with 1 contract, integer division gives 0 — no meaningful partial)
+        if (usePartial && partialCts > 0)
         {
             var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
             group.Legs.Add(tg1Leg);
@@ -440,14 +442,32 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
     public async Task EvaluateFillsAsync(decimal price, DateTime utcNow, string ticker)
     {
         if (price <= 0) return;
+
+        // Evaluate legs in priority order: Entry → Tg1 → Stop/Tg2.
+        // Process one fill per group per tick so that Tg1 partial always
+        // resolves before Tg2 when both levels are crossed in the same bar.
+        var legOrder = new[] { LegType.Entry, LegType.Tg1, LegType.Stop, LegType.Tg2 };
+
         foreach (var (groupId, legs) in _ordersByGroup)
         {
             // Only evaluate orders for the matching ticker
             if (!_groupTickers.TryGetValue(groupId, out var grpTicker)
                 || !string.Equals(grpTicker, ticker, StringComparison.OrdinalIgnoreCase))
                 continue;
-            foreach (var leg in legs.Values.Where(l => l.Status == "WORKING").ToList())
+
+            // Don't evaluate exit legs (Tg1/Stop/Tg2) until Entry has filled.
+            // With limit entries, the price may reach a target level before the
+            // entry limit is hit — filling exits before entry is nonsensical.
+            var entryState = legs.Values.FirstOrDefault(l => l.LegType == LegType.Entry);
+            bool entryFilled = entryState == null || entryState.Status == "FILLED";
+
+            foreach (var lt in legOrder)
             {
+                if (!entryFilled && lt != LegType.Entry) continue;
+
+                var leg = legs.Values.FirstOrDefault(l => l.LegType == lt && l.Status == "WORKING");
+                if (leg == null) continue;
+
                 bool fills = leg.Action == "BUY"
                     ? (leg.StopPrice.HasValue && price >= leg.StopPrice)
                    || (leg.LimitPrice.HasValue && price <= leg.LimitPrice)
@@ -457,9 +477,31 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                 if (!fills) continue;
 
                 leg.Status = "FILLED";
+                // Fill at the order level (not tick price) for realistic backtest P&L
+                var fillPrice = leg.LimitPrice ?? leg.StopPrice ?? price;
+
+                // Safety net: if Tg2 is about to fill but Tg1 hasn't filled yet,
+                // force-fill Tg1 first so partial P&L accrues correctly.
+                // The priority order (Entry→Tg1→Stop→Tg2) should prevent this,
+                // but this guards against any edge case in the tick sequence.
+                if (lt == LegType.Tg2)
+                {
+                    var tg1 = legs.Values.FirstOrDefault(l => l.LegType == LegType.Tg1 && l.Status == "WORKING");
+                    if (tg1 != null)
+                    {
+                        Console.WriteLine($"[BT-SAFETY] Tg2 fill for grp={groupId} but Tg1 still WORKING (limit={tg1.LimitPrice}, price={price}) — forcing Tg1 fill first");
+                        tg1.Status = "FILLED";
+                        var tg1Fill = tg1.LimitPrice ?? price;
+                        if (OnEvent != null)
+                            await OnEvent(new OrderEvent(groupId, tg1.OrderId, LegType.Tg1,
+                                OrderLegStatus.Filled, tg1Fill, tg1.Quantity, null, null, utcNow));
+                    }
+                }
+
                 if (OnEvent != null)
                     await OnEvent(new OrderEvent(groupId, leg.OrderId, leg.LegType,
-                        OrderLegStatus.Filled, price, leg.Quantity, null, null, utcNow));
+                        OrderLegStatus.Filled, fillPrice, leg.Quantity, null, null, utcNow));
+                break; // one fill per group per tick — let event handler process before next
             }
         }
 

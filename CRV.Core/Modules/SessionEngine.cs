@@ -71,7 +71,7 @@ public class SessionEngine : IEngineModule
         var local = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, _tz);
         var time  = TimeOnly.FromDateTime(local);
 
-        CurrentSession = DetectSession(time);
+        CurrentSession = DetectSession(time, local.DayOfWeek);
 
         // Update full-day high/low
         UpdateSessionHighLow(bar.High, bar.Low);
@@ -113,7 +113,7 @@ public class SessionEngine : IEngineModule
     {
         var local = TimeZoneInfo.ConvertTimeFromUtc(utcTime, _tz);
         var time  = TimeOnly.FromDateTime(local);
-        CurrentSession = DetectSession(time);
+        CurrentSession = DetectSession(time, local.DayOfWeek);
 
         // Update session high/low in real-time
         if (price > SessionHigh) SessionHigh = price;
@@ -201,7 +201,22 @@ public class SessionEngine : IEngineModule
     }
 
     public SessionType DetectSession(TimeOnly time)
+        => DetectSession(time, null);
+
+    public SessionType DetectSession(TimeOnly time, DayOfWeek? dayOfWeek)
     {
+        // Futures market closed: Friday 17:00 ET → Sunday 18:00 ET
+        if (dayOfWeek.HasValue)
+        {
+            var dow = dayOfWeek.Value;
+            if (dow == DayOfWeek.Saturday)
+                return SessionType.PreMarket;
+            if (dow == DayOfWeek.Sunday && time < new TimeOnly(18, 0))
+                return SessionType.PreMarket;
+            if (dow == DayOfWeek.Friday && time >= new TimeOnly(17, 0))
+                return SessionType.PreMarket;
+        }
+
         // Asia wraps midnight: 18:00-02:00
         if (time >= _cfg.AsiaStart || time < _cfg.AsiaEnd)
             return SessionType.Asia;

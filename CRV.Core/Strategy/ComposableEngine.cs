@@ -45,6 +45,10 @@ public class ComposableEngine
     /// <summary>BrokerEventHandler for WSS order management (null when using legacy path).</summary>
     public BrokerEventHandler? BrokerHandler => _brokerHandler;
 
+    /// <summary>Get a registered strategy by its Id (e.g. "pullback-mes"), or null.</summary>
+    public ISetupStrategy? GetStrategy(string setupId)
+        => _strategies.TryGetValue(setupId, out var s) ? s : null;
+
     public ComposableEngine(
         IOrderExecutor executor,
         IStrategyEventSink sink,
@@ -171,6 +175,9 @@ public class ComposableEngine
             if (string.IsNullOrEmpty(esig.SetupLabel) && !string.IsNullOrEmpty(label))
                 esig = esig with { SetupLabel = label };
 
+            if (!string.IsNullOrEmpty(_activeSessionId))
+                esig = esig with { SessionId = _activeSessionId };
+
             if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
                 continue;
 
@@ -295,10 +302,12 @@ public class ComposableEngine
     {
         if (!_strategies.TryGetValue(setupId, out var strategy)) return;
 
-        if (_brokerHandler != null && _brokerHandler.HasActiveGroup(setupId))
-            await _brokerHandler.ExitGroupAsync(setupId);
+        var exitPrice = _prices.GetLastPrice(strategy.Ticker);
 
-        strategy.ForceExit(_prices.GetLastPrice(strategy.Ticker), DateTime.UtcNow, ExitReason.Manual);
+        if (_brokerHandler != null && _brokerHandler.HasActiveGroup(setupId))
+            await _brokerHandler.ExitGroupAsync(setupId, exitPrice, ExitReason.Manual);
+
+        strategy.ForceExit(exitPrice, DateTime.UtcNow, ExitReason.Manual);
 
         AddAlert("EXIT", strategy.SetupId, $"Force exit", "orange");
         await PublishSnapshotInternal();
@@ -308,7 +317,7 @@ public class ComposableEngine
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         if (_brokerHandler != null)
-            await _brokerHandler.ExitAllAsync();
+            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker));
 
         foreach (var (_, strategy) in _strategies)
             strategy.ResetSession();
@@ -457,6 +466,7 @@ public class ComposableEngine
                         Target = tg2Leg?.Price ?? 0m,
                         Partial = tg1Leg?.Price ?? 0m,
                         Contracts = group.TotalContracts,
+                        PartialContracts = group.PartialContracts,
                         RemainingContracts = remaining,
                         PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
                         LastPrice = setupPrice,
@@ -510,6 +520,7 @@ public class ComposableEngine
         {
             Direction = group.Direction,
             Contracts = group.TotalContracts,
+            PartialContracts = group.PartialContracts,
             Entry = group.EntryPrice.Value,
             CurrentStop = stopLeg?.Price ?? 0m,
             InitialStop = stopLeg?.Price ?? 0m,
@@ -601,7 +612,8 @@ public class ComposableEngine
         await _sink.OnSnapshotAsync(snap);
     }
 
-    private void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "")
+    /// <summary>Add an alert to the ring buffer (visible in dashboard Alerts Feed).</summary>
+    public void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "")
     {
         _alertRing[_alertHead] = new AlertEvent
         {

@@ -8,6 +8,7 @@ using CRV.Live.Brokers.Schwab;
 using CRV.Live.Brokers.TradeStation;
 using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Services;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,7 @@ public class OrdersModel : PageModel
     private readonly TradeStationAuthService _ts;
     private readonly TradovateAuthService    _tv;
     private readonly MockBrokerExecutor      _mockExec;
+    private readonly LiveEngineOrchestrator  _orchestrator;
     private readonly TradingDbContext         _db;
     private readonly IConfiguration          _config;
     private readonly ILogger<OrdersModel>    _log;
@@ -35,18 +37,20 @@ public class OrdersModel : PageModel
         TradeStationAuthService ts,
         TradovateAuthService tv,
         MockBrokerExecutor mockExec,
+        LiveEngineOrchestrator orchestrator,
         TradingDbContext db,
         IConfiguration config,
         ILogger<OrdersModel> log)
     {
-        _cfgSvc   = cfgSvc;
-        _schwab   = schwab;
-        _ts       = ts;
-        _tv       = tv;
-        _mockExec = mockExec;
-        _db       = db;
-        _config   = config;
-        _log      = log;
+        _cfgSvc       = cfgSvc;
+        _schwab       = schwab;
+        _ts           = ts;
+        _tv           = tv;
+        _mockExec     = mockExec;
+        _orchestrator = orchestrator;
+        _db           = db;
+        _config       = config;
+        _log          = log;
     }
 
     public void OnGet() { }
@@ -85,6 +89,28 @@ public class OrdersModel : PageModel
         {
             _log.LogError(ex, "GetOrders failed");
             return new JsonResult(new { error = $"{ex.GetType().Name}: {ex.Message}" }) { StatusCode = 500 };
+        }
+    }
+
+    // ── Flat a specific group order ────────────────────────────────
+
+    public async Task<IActionResult> OnPostFlatGroupAsync(string groupOrderId)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(groupOrderId))
+                return new JsonResult(new { error = "Group order ID is required." }) { StatusCode = 400 };
+
+            var (ok, msg) = await _orchestrator.FlatGroupAsync(groupOrderId);
+            if (!ok)
+                return new JsonResult(new { error = msg }) { StatusCode = 400 };
+
+            return new JsonResult(new { message = msg });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "FlatGroup {Id} failed", groupOrderId);
+            return new JsonResult(new { error = ex.Message }) { StatusCode = 500 };
         }
     }
 
@@ -141,9 +167,11 @@ public class OrdersModel : PageModel
     private List<OrderView> GetMockOrdersFromMemory(
         string status, DateTime from, DateTime to)
     {
-        // Convert date range to UTC for consistent comparison
-        var fromUtc = DateTime.SpecifyKind(from, DateTimeKind.Utc);
-        var toUtc   = DateTime.SpecifyKind(to.AddDays(1), DateTimeKind.Utc);
+        // Convert date range (ET) to UTC for consistent comparison
+        var fromEt = DateTime.SpecifyKind(from, DateTimeKind.Unspecified);
+        var toEt   = DateTime.SpecifyKind(to.AddDays(1), DateTimeKind.Unspecified);
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(fromEt, _et);
+        var toUtc   = TimeZoneInfo.ConvertTimeToUtc(toEt, _et);
 
         // In-memory orders (current engine run — has SetupId + live status)
         var memAll = _mockExec.GetOrders();
@@ -200,17 +228,24 @@ public class OrdersModel : PageModel
     // ── AJAX: returns group orders (WSS-managed) as JSON ─────────
 
     public async Task<IActionResult> OnGetGroupOrdersAsync(
-        string? from = null, string? to = null)
+        string? broker = null, string? from = null, string? to = null)
     {
         try
         {
             var fromDate = DateTime.TryParse(from, out var fd) ? fd : DateTime.Today;
             var toDate   = DateTime.TryParse(to,   out var td) ? td : DateTime.Today;
-            var fromUtc  = DateTime.SpecifyKind(fromDate, DateTimeKind.Utc);
-            var toUtc    = DateTime.SpecifyKind(toDate.AddDays(1), DateTimeKind.Utc);
+            // User enters dates in ET — convert boundaries to UTC for DB comparison
+            var fromEt = DateTime.SpecifyKind(fromDate, DateTimeKind.Unspecified);
+            var toEt   = DateTime.SpecifyKind(toDate.AddDays(1), DateTimeKind.Unspecified);
+            var fromUtc = TimeZoneInfo.ConvertTimeToUtc(fromEt, _et);
+            var toUtc   = TimeZoneInfo.ConvertTimeToUtc(toEt, _et);
 
-            var groups = await _db.GroupOrders.AsNoTracking()
-                .Where(g => g.CreatedAt >= fromUtc && g.CreatedAt < toUtc)
+            // 1. Completed groups from DB
+            var query = _db.GroupOrders.AsNoTracking()
+                .Where(g => g.CreatedAt >= fromUtc && g.CreatedAt < toUtc);
+            if (!string.IsNullOrEmpty(broker))
+                query = query.Where(g => g.Broker == broker);
+            var groups = await query
                 .OrderByDescending(g => g.CreatedAt)
                 .ToListAsync();
 
@@ -222,42 +257,95 @@ public class OrdersModel : PageModel
             var legsByGroup = legs.GroupBy(l => l.GroupOrderId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            var result = groups.Select(g => new
-            {
-                g.GroupOrderId,
-                g.SetupId,
-                g.Ticker,
-                Direction = g.Direction.ToString(),
-                g.TotalContracts,
-                g.PartialContracts,
-                g.EntryPrice,
-                Status = g.Status.ToString(),
-                g.Broker,
-                CreatedAt = ToEtString(g.CreatedAt),
-                CompletedAt = g.CompletedAt.HasValue ? ToEtString(g.CompletedAt.Value) : null,
-                Legs = (legsByGroup.TryGetValue(g.GroupOrderId, out var gl)
-                    ? gl.Select(l => (object)new
-                    {
-                        l.OrderId,
-                        LegType = l.LegType.ToString(),
-                        l.OrderType,
-                        l.Action,
-                        l.Quantity,
-                        l.Price,
-                        Status = l.Status.ToString(),
-                        l.FillPrice,
-                        FillTime = l.FillTime.HasValue ? ToEtString(l.FillTime.Value) : null,
-                    }).ToList()
-                    : new List<object>())
-            }).ToList();
+            var result = groups.Select(g => MapGroup(g,
+                legsByGroup.TryGetValue(g.GroupOrderId, out var gl) ? gl : new())).ToList();
 
-            return new JsonResult(result);
+            _log.LogDebug("GetGroupOrders: {Count} DB groups, {LegCount} legs in range {From}–{To}",
+                groups.Count, legs.Count, fromUtc, toUtc);
+
+            // 2. Active in-memory groups (not yet in DB — pending/active/partial)
+            var activeGroups = _orchestrator.GetActiveGroups();
+            var dbGroupIds = new HashSet<string>(groupIds);
+            foreach (var ag in activeGroups)
+            {
+                if (dbGroupIds.Contains(ag.GroupOrderId)) continue;
+                if (!string.IsNullOrEmpty(broker) && ag.Broker != broker) continue;
+                result.Add(MapGroup(ag, ag.Legs ?? new()));
+            }
+
+            // Sort: active first, then by created descending
+            result.Sort((a, b) =>
+            {
+                bool aActive = a.Status is "Active" or "Pending" or "PartialFilled";
+                bool bActive = b.Status is "Active" or "Pending" or "PartialFilled";
+                if (aActive != bActive) return aActive ? -1 : 1;
+                return string.Compare(b.CreatedAt, a.CreatedAt, StringComparison.Ordinal);
+            });
+
+            var jsonOpts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+            return new JsonResult(result, jsonOpts);
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "GetGroupOrders failed");
             return new JsonResult(new { error = ex.Message }) { StatusCode = 500 };
         }
+    }
+
+    private GroupOrderDto MapGroup(GroupOrder g, List<OrderLeg> groupLegs) => new()
+    {
+        GroupOrderId = g.GroupOrderId,
+        SetupId = g.SetupId,
+        Ticker = g.Ticker,
+        Direction = g.Direction.ToString(),
+        TotalContracts = g.TotalContracts,
+        PartialContracts = g.PartialContracts,
+        EntryPrice = g.EntryPrice,
+        Status = g.Status.ToString(),
+        Broker = g.Broker,
+        CreatedAt = ToEtString(g.CreatedAt),
+        CompletedAt = g.CompletedAt.HasValue ? ToEtString(g.CompletedAt.Value) : null,
+        Legs = groupLegs.Select(l => new LegDto
+        {
+            OrderId = l.OrderId,
+            LegType = l.LegType.ToString(),
+            OrderType = l.OrderType,
+            Action = l.Action,
+            Quantity = l.Quantity,
+            Price = l.Price,
+            Status = l.Status.ToString(),
+            FillPrice = l.FillPrice,
+            FillTime = l.FillTime.HasValue ? ToEtString(l.FillTime.Value) : null,
+        }).ToList()
+    };
+
+    private class GroupOrderDto
+    {
+        public string GroupOrderId { get; set; } = "";
+        public string SetupId { get; set; } = "";
+        public string Ticker { get; set; } = "";
+        public string Direction { get; set; } = "";
+        public int TotalContracts { get; set; }
+        public int PartialContracts { get; set; }
+        public decimal? EntryPrice { get; set; }
+        public string Status { get; set; } = "";
+        public string Broker { get; set; } = "";
+        public string CreatedAt { get; set; } = "";
+        public string? CompletedAt { get; set; }
+        public List<LegDto> Legs { get; set; } = new();
+    }
+
+    private class LegDto
+    {
+        public string OrderId { get; set; } = "";
+        public string LegType { get; set; } = "";
+        public string OrderType { get; set; } = "";
+        public string Action { get; set; } = "";
+        public int Quantity { get; set; }
+        public decimal Price { get; set; }
+        public string Status { get; set; } = "";
+        public decimal? FillPrice { get; set; }
+        public string? FillTime { get; set; }
     }
 
     // ── Helper ────────────────────────────────────────────────────

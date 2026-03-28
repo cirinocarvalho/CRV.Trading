@@ -255,7 +255,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         {
             ["orderQty"] = sig.TotalContracts,
             ["orderType"] = isLimit ? "Limit" : "Market",
-            ["timeInForce"] = "Day"
+            ["timeInForce"] = "GTC"
         };
         if (isLimit) entryVersion["price"] = sig.Entry;
 
@@ -435,8 +435,18 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         try
         {
             // ── Discover missing bracket legs via strategy link ──
-            // If group has BrokerStrategyId but only Entry leg, discover bracket legs
             bool hasBracketLegs = group.Legs.Any(l => l.LegType is LegType.Tg1 or LegType.Tg2 or LegType.Stop);
+
+            // No strategy ID and no bracket legs → unrecoverable, mark canceled
+            if (!hasBracketLegs && string.IsNullOrEmpty(group.BrokerStrategyId))
+            {
+                _log.LogWarning("[TV-POLL] Group {G} has no BrokerStrategyId and no bracket legs — marking Canceled",
+                    group.GroupOrderId);
+                group.Status = GroupOrderStatus.Canceled;
+                group.CompletedAt = DateTime.UtcNow;
+                return events;
+            }
+
             if (!hasBracketLegs && !string.IsNullOrEmpty(group.BrokerStrategyId)
                 && long.TryParse(group.BrokerStrategyId, out var stratId))
             {

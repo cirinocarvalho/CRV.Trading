@@ -60,7 +60,11 @@ public class SessionFakeoutStrategy : ISetupStrategy
     public bool         IsArmed      => _state == 1 || _state == -1;
     private bool        _inTrade;
     public bool         InTrade      => _inTrade;
-    public void SetInTrade(bool active) => _inTrade = active;
+    public void SetInTrade(bool active)
+    {
+        _inTrade = active;
+        if (!active) _state = 0;
+    }
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -179,6 +183,8 @@ public class SessionFakeoutStrategy : ISetupStrategy
         if (!_inTrade && IsArmed)
         {
             bool isLong = _state == 1;
+            bool tickReady = _tradeCount < _cfg.MaxTrades;
+            if (!tickReady) return;
             var srLow  = modules.SessionRangeLow;
             var srHigh = modules.SessionRangeHigh;
             // Long: price crosses above session range low (after false break below)
@@ -251,6 +257,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
+            PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe);
 
         _tradeCount++;

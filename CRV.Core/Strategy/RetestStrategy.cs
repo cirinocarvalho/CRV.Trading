@@ -29,8 +29,10 @@ public class RetestStrategy : ISetupStrategy
     private bool _pastCutoff = false;
     private bool _retestLeftZone = false;  // Conservative: price must leave the ORB level zone before retest can fire
 
-    // ── Counters ──────────────────────────────────────────────────
-    private int     _tradeCount  = 0;
+    // ── Counters (per-direction to avoid longs eating short slots) ─
+    private int     _longCount   = 0;
+    private int     _shortCount  = 0;
+    private int     _tradeCount  = 0;  // kept for snapshot compat
 
     // ── Win/loss stats ────────────────────────────────────────────
     private int     _wins        = 0;
@@ -60,7 +62,11 @@ public class RetestStrategy : ISetupStrategy
     public bool         IsArmed      => _state == 1 || _state == -1 || _state == 2 || _state == -2;
     private bool        _inTrade;
     public bool         InTrade      => _inTrade;
-    public void SetInTrade(bool active) => _inTrade = active;
+    public void SetInTrade(bool active)
+    {
+        _inTrade = active;
+        if (!active) _state = 0;
+    }
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -94,7 +100,7 @@ public class RetestStrategy : ISetupStrategy
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -113,14 +119,14 @@ public class RetestStrategy : ISetupStrategy
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
         _pastCutoff = false; _retestLeftZone = false;
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
     }
 
     public void ResetTradeCounters()
     {
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _pastCutoff = false;
     }
@@ -152,7 +158,9 @@ public class RetestStrategy : ISetupStrategy
             _state = 0; _armEntry = 0; _retestLeftZone = false;
         }
 
-        bool isReady = _tradeCount < _cfg.MaxTrades;
+        bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
+        bool shortReady = _shortCount < _cfg.EffectiveMaxShort;
+        bool isReady    = longReady || shortReady;
 
         // Arm logic (only when idle)
         if (isReady && _state == 0)
@@ -183,11 +191,11 @@ public class RetestStrategy : ISetupStrategy
             bool orbLongOk  = !_cfg.UseOrbClose || orb.BullClose;
             bool orbShortOk = !_cfg.UseOrbClose || orb.BearClose;
 
-            if (bar.Close >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
+            if (longReady && bar.Close >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
             {
                 _state = 1; _armEntry = bar.Open; _retestLeftZone = false;
             }
-            else if (bar.Close <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
+            else if (shortReady && bar.Close <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
             {
                 _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
             }
@@ -196,26 +204,28 @@ public class RetestStrategy : ISetupStrategy
         // Aggressive mode: arm and compute entry on same bar
         if (_cfg.IsAggressive)
         {
-            if (isReady && _state == 1)
+            if (longReady && _state == 1)
                 TryEntry(orbHigh, true, orb, bar.Time);
-            else if (isReady && _state == -1)
+            else if (shortReady && _state == -1)
                 TryEntry(orbLow, false, orb, bar.Time);
         }
         else if (_cfg.IsSmartAggressive)
         {
             // SmartAggressive: arm on bar N (state ±1), enter on bar N+1.
-            if (isReady && _state == 2)
+            // Only enter if price has actually crossed the ORB boundary.
+            if (longReady && _state == 2 && bar.Open > orbHigh)
                 TryEntry(bar.Open, true, orb, bar.Time);
-            else if (isReady && _state == -2)
+            else if (shortReady && _state == -2 && bar.Open < orbLow)
                 TryEntry(bar.Open, false, orb, bar.Time);
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             if (_state == 1)  _state = 2;
             if (_state == -1) _state = -2;
 
-            // De-arm if price crosses OrbMid (setup invalidated)
-            if (_state == 2  && bar.Close < orbMid) _state = 0;
-            if (_state == -2 && bar.Close > orbMid) _state = 0;
+            // De-arm if price fully crosses to opposite ORB boundary (setup invalidated)
+            // Using orbLow/orbHigh instead of orbMid — allows normal pullbacks within ORB range
+            if (_state == 2  && bar.Close < orbLow)  _state = 0;
+            if (_state == -2 && bar.Close > orbHigh) _state = 0;
         }
         else
         {
@@ -260,15 +270,16 @@ public class RetestStrategy : ISetupStrategy
         decimal tickTol  = _cfg.TickSize * 2;
 
         // Conservative tick entry: armed (state ±1/±2), enter when price retests
-        if (!_inTrade && IsArmed && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
+        bool isLongArm = _state > 0;
+        bool tickReady = isLongArm ? _longCount < _cfg.EffectiveMaxLong : _shortCount < _cfg.EffectiveMaxShort;
+        if (!_inTrade && IsArmed && tickReady && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
         {
             decimal retestDist = orbRange * _cfg.RetestPct;
             decimal orbHigh    = orb.High;
             decimal orbLow     = orb.Low;
-            bool isLong = _state > 0;
-            if (isLong && price <= orbHigh + retestDist + tickTol)
+            if (isLongArm && price <= orbHigh + retestDist + tickTol)
                 TryEntry(orbHigh, true, orb, utc);
-            else if (!isLong && price >= orbLow - retestDist - tickTol)
+            else if (!isLongArm && price >= orbLow - retestDist - tickTol)
                 TryEntry(orbLow, false, orb, utc);
         }
     }
@@ -316,6 +327,11 @@ public class RetestStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
+        // Hard guard: retest entry must not be inside the ORB range
+        // (prevents entries that haven't crossed the boundary, regardless of mode/offset)
+        if (isLong && ep < orb.High) return;
+        if (!isLong && ep > orb.Low) return;
+
         var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
             _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
@@ -328,10 +344,12 @@ public class RetestStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
+            PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe);
 
-        _tradeCount++;
-        if (isLong) _bullTraded = true; else _bearTraded = true;
+        if (isLong) { _longCount++; _bullTraded = true; }
+        else        { _shortCount++; _bearTraded = true; }
+        _tradeCount = _longCount + _shortCount;
         _state = 0;
     }
 

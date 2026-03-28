@@ -91,8 +91,8 @@ public class SchwabHistoricalLoader
             ct.ThrowIfCancellationRequested();
             long sMs = new DateTimeOffset(cFrom).ToUnixTimeMilliseconds();
             long eMs = new DateTimeOffset(cTo).ToUnixTimeMilliseconds();
-            // needExtendedHoursData=false for futures — extended hours mixes overnight
-            // activity into RTH candles, producing different OHLC values than streaming.
+            // needExtendedHoursData=false for futures — futures trade nearly 24h,
+            // extended hours flag is for equities only.
             var url = $"{_apiBaseUrl}/marketdata/v1/pricehistory?symbol={Uri.EscapeDataString(apiSymbol)}" +
                       $"&periodType=day&frequencyType=minute&frequency={tf}&startDate={sMs}&endDate={eMs}&needExtendedHoursData=false";
             HttpResponseMessage resp;

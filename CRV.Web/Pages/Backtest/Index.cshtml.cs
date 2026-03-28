@@ -189,14 +189,6 @@ public class BacktestModel : PageModel
             ResultJson   = JsonSerializer.Serialize(result)
         };
         _db.BacktestRuns.Add(row);
-
-        foreach (var t in result.Trades)
-        {
-            t.Source    = $"backtest:{sessionId}";
-            t.SessionId = sessionId;
-            _db.Trades.Add(t);
-        }
-
         await _db.SaveChangesAsync();
     }
 }

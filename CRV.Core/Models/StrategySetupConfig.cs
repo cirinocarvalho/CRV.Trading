@@ -45,6 +45,16 @@ public class StrategySetupConfig
     public int CutoffMinute { get; set; } = 30;
     public bool CloseAtRthClose { get; set; } = true;
     public int MaxTrades { get; set; } = 5;
+    /// <summary>Max long entries per session. 0 = use MaxTrades.</summary>
+    public int MaxLongTrades { get; set; } = 0;
+    /// <summary>Max short entries per session. 0 = use MaxTrades.</summary>
+    public int MaxShortTrades { get; set; } = 0;
+
+    /// <summary>Effective max longs (falls back to MaxTrades if 0).</summary>
+    public int EffectiveMaxLong => MaxLongTrades > 0 ? MaxLongTrades : MaxTrades;
+    /// <summary>Effective max shorts (falls back to MaxTrades if 0).</summary>
+    public int EffectiveMaxShort => MaxShortTrades > 0 ? MaxShortTrades : MaxTrades;
+
     public int MaxAdverseMinutes { get; set; }
 
     // Exit

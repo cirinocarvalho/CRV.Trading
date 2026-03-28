@@ -19,7 +19,7 @@ public class PerSetupStats
     public decimal AvgWin   => Wins   > 0 ? WinPnl  / Wins   : 0;
     public decimal AvgLoss  => Losses > 0 ? LossPnl / Losses : 0;
     public decimal Expectancy => Trades > 0
-        ? (WinRate / 100m) * AvgWin - ((100m - WinRate) / 100m) * AvgLoss : 0;
+        ? (WinRate / 100m) * AvgWin + ((100m - WinRate) / 100m) * AvgLoss : 0;
 }
 
 public class DailyStats
@@ -46,7 +46,7 @@ public class DailyStats
     public decimal AvgWin     => TodayWins   > 0 ? TodayWinPnl  / TodayWins   : 0;
     public decimal AvgLoss    => TodayLosses > 0 ? TodayLossPnl / TodayLosses : 0;
     public decimal Expectancy => TodayTrades > 0
-        ? (WinRate / 100m) * AvgWin - ((100m - WinRate) / 100m) * AvgLoss : 0;
+        ? (WinRate / 100m) * AvgWin + ((100m - WinRate) / 100m) * AvgLoss : 0;
 
     // Legacy accessors for backward compatibility
     public int     TodayWinsA      => GetSetup("A").Wins;

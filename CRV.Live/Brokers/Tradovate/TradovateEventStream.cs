@@ -151,6 +151,13 @@ public class TradovateEventStream : IBrokerEventStream
         await _ws.ConnectAsync(new Uri(wssUrl), ct);
         _log.LogInformation("[TV-WSS] Connected to {Url}", wssUrl);
 
+        // Wait for SockJS open frame before authenticating
+        var openFrame = await ReceiveOneAsync(ct);
+        if (openFrame == "o")
+            _log.LogDebug("[TV-WSS] SockJS open frame received");
+        else
+            _log.LogWarning("[TV-WSS] Expected 'o' frame, got: {F}", openFrame);
+
         // Authenticate via WSS
         var authMsg = $"authorize\n0\n\n{token}";
         await SendAsync(authMsg, ct);

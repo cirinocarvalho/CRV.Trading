@@ -64,9 +64,18 @@
                 <div class="col-md-2">
                     <label class="form-label small mb-0">Mode</label>
                     <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).Mode">
-                        <option value="Conservative" selected="@(Model.Mode == "Conservative" ? "selected" : null)">Conservative</option>
-                        <option value="Aggressive"   selected="@(Model.Mode == "Aggressive"   ? "selected" : null)">Aggressive</option>
+                        <option value="Conservative"    selected="@(Model.Mode == "Conservative"    ? "selected" : null)">Conservative</option>
+                        <option value="Aggressive"       selected="@(Model.Mode == "Aggressive"       ? "selected" : null)">Aggressive</option>
+                        <option value="SmartAggressive"  selected="@(Model.Mode == "SmartAggressive"  ? "selected" : null)">SmartAggressive</option>
                     </select>
+                </div>
+            }
+            @if (Model.PullbackPct != null)
+            {
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">Pullback %</label>
+                    <input type="number" class="form-control form-control-sm session-field" step="any"
+                           data-session="@i" data-field="@(fieldPfx).PullbackPct" value="@Model.PullbackPct" />
                 </div>
             }
             <div class="col-md-2">
@@ -108,6 +117,16 @@
                 <label class="form-label small mb-0">Max Cts</label>
                 <input type="number" class="form-control form-control-sm session-field" min="1" max="50"
                        data-session="@i" data-field="@(fieldPfx).MaxContracts" value="@setup.MaxContracts" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Max Long</label>
+                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                       data-session="@i" data-field="@(fieldPfx).MaxLongTrades" value="@setup.MaxLongTrades" />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">Max Short</label>
+                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                       data-session="@i" data-field="@(fieldPfx).MaxShortTrades" value="@setup.MaxShortTrades" />
             </div>
             <div class="col-md-1">
                 <label class="form-label small mb-0">Partial %</label>

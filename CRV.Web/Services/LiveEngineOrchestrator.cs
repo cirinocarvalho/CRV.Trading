@@ -117,6 +117,25 @@ public class LiveEngineOrchestrator : BackgroundService
         return (true, $"Stop moved to BE @ {group.EntryPrice.Value}");
     }
 
+    /// <summary>Flat (force-exit) a specific group order by its GroupOrderId.</summary>
+    public async Task<(bool ok, string message)> FlatGroupAsync(string groupOrderId)
+    {
+        BrokerEventHandler? handler;
+        IGroupOrderExecutor? exec;
+        lock (_lifecycleLock) { handler = _brokerHandler; exec = _groupExecutor; }
+
+        if (handler == null || exec == null)
+            return (false, "Engine not running.");
+
+        var groups = handler.GetAllActiveGroups();
+        var group = groups.FirstOrDefault(g => g.GroupOrderId == groupOrderId);
+        if (group == null)
+            return (false, $"No active group '{groupOrderId}'.");
+
+        await handler.ExitGroupByIdAsync(groupOrderId, exitPrice: 0, ExitReason.Manual);
+        return (true, $"Flat sent for group {groupOrderId} ({group.SetupId} {group.Direction} {group.TotalContracts}×)");
+    }
+
     /// <summary>Get all active manual group orders for display.</summary>
     public List<GroupOrder> GetActiveGroups()
     {
@@ -706,7 +725,7 @@ public class LiveEngineOrchestrator : BackgroundService
                     _log.LogDebug("[POLL] REST order status poller started");
                     while (!ct.IsCancellationRequested)
                     {
-                        await Task.Delay(3000, ct); // Poll every 3 seconds
+                        await Task.Delay(10000, ct); // Poll every 10s — informational only, broker manages the trade
                         try
                         {
                             var activeGroups = brokerHandler.GetAllActiveGroups();
@@ -744,6 +763,41 @@ public class LiveEngineOrchestrator : BackgroundService
 
                                 foreach (var evt in events)
                                     await brokerHandler.HandleEventAsync(evt);
+
+                                // Persist leg status changes + group status to DB
+                                if (events.Count > 0 || group.Status == GroupOrderStatus.Canceled)
+                                {
+                                    try
+                                    {
+                                        using var dbScope2 = _sp.CreateScope();
+                                        var db2 = dbScope2.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                                        var dbGroup = await db2.GroupOrders.FirstOrDefaultAsync(
+                                            g => g.GroupOrderId == group.GroupOrderId, ct);
+                                        if (dbGroup != null)
+                                        {
+                                            dbGroup.Status = group.Status;
+                                            dbGroup.CompletedAt = group.CompletedAt;
+                                            dbGroup.EntryPrice = group.EntryPrice;
+                                            dbGroup.AccruedPartialPnl = group.AccruedPartialPnl;
+                                        }
+                                        foreach (var evt in events)
+                                        {
+                                            var dbLeg = await db2.OrderLegs.FirstOrDefaultAsync(
+                                                l => l.GroupOrderId == evt.GroupOrderId && l.OrderId == evt.OrderId, ct);
+                                            if (dbLeg != null)
+                                            {
+                                                dbLeg.Status = evt.Status;
+                                                if (evt.FillPrice.HasValue) dbLeg.FillPrice = evt.FillPrice;
+                                                if (evt.Status == OrderLegStatus.Filled) dbLeg.FillTime = evt.Timestamp;
+                                            }
+                                        }
+                                        await db2.SaveChangesAsync(ct);
+                                    }
+                                    catch (Exception dbEx)
+                                    {
+                                        _log.LogWarning(dbEx, "[POLL] Failed to persist status changes for group {G}", group.GroupOrderId);
+                                    }
+                                }
                             }
                         }
                         catch (OperationCanceledException) { break; }

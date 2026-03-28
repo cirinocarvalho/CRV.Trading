@@ -284,6 +284,23 @@
     </div>
 </div>
 
+<!-- Confirmation modal -->
+<div class="modal fade" id="dashConfirmModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title" id="dashConfirm-title">Confirm</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body font-monospace small" id="dashConfirm-body"></div>
+            <div class="modal-footer border-secondary py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm" id="dashConfirm-ok">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
 @Html.AntiForgeryToken()
 <script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
@@ -1163,8 +1180,30 @@ function updateDashboard(d) {
     }
 }
 
+// ── Confirmation modal helper ─────────────────────────────────
+const _dashModal = new bootstrap.Modal(document.getElementById('dashConfirmModal'));
+function dashConfirm(title, bodyHtml, btnClass, onConfirm) {
+    document.getElementById('dashConfirm-title').textContent = title;
+    document.getElementById('dashConfirm-body').innerHTML    = bodyHtml;
+    const okBtn = document.getElementById('dashConfirm-ok');
+    okBtn.className = 'btn btn-sm ' + (btnClass || 'btn-warning');
+    okBtn.textContent = 'Confirm';
+    const fresh = okBtn.cloneNode(true);
+    okBtn.replaceWith(fresh);
+    fresh.addEventListener('click', () => { _dashModal.hide(); onConfirm(); });
+    _dashModal.show();
+}
+
 // ── Force Exit ────────────────────────────────────────────────
-async function forceExit(setup) {
+function forceExit(setup) {
+    dashConfirm(
+        'Force Exit',
+        `Are you sure you want to <strong class="text-danger">force exit</strong> setup <strong>${setup}</strong> at market?`,
+        'btn-danger',
+        () => _doForceExit(setup)
+    );
+}
+async function _doForceExit(setup) {
     const btn = document.getElementById("btn-exit-" + setup.toLowerCase());
     if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
     try {
@@ -1183,7 +1222,15 @@ async function forceExit(setup) {
     }
 }
 
-async function forceOrb() {
+function forceOrb() {
+    dashConfirm(
+        'Force ORB',
+        'Are you sure you want to <strong class="text-warning">force recalculate</strong> the ORB from broker historical bars?',
+        'btn-warning',
+        _doForceOrb
+    );
+}
+async function _doForceOrb() {
     const btn = document.getElementById("btn-force-orb");
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading…'; }
     try {
@@ -1202,14 +1249,14 @@ async function forceOrb() {
 }
 
 // ── Setup state badge ─────────────────────────────────────────
-// state: A: 0=Idle ±1=Armed ±2=Active   B: 0=Idle ±1=Armed ±2=Retest ±3=Active
-function _setupBadge(id, state) {
+// state: 0=Idle ±1=Armed ±2=Retest(Retest)/Active(Pullback)
+function _setupBadge(state, strategyType) {
     const abs  = Math.abs(state);
     const dir  = state > 0 ? "LONG" : state < 0 ? "SHORT" : null;
-    if (state === 0)                   return { text: "IDLE",                     cls: "badge setup-idle"   };
-    if (abs === 1)                     return { text: `▶ ARMED ${dir}`,           cls: "badge setup-armed"  };
-    if (id === "b" && abs === 2)       return { text: `↩ RETEST ${dir}`,          cls: "badge setup-retest" };
-    /* active */                       return { text: `● ${dir} ACTIVE`,          cls: "badge " + (state > 0 ? "setup-long" : "setup-short") };
+    if (state === 0)                               return { text: "IDLE",                     cls: "badge setup-idle"   };
+    if (abs === 1)                                 return { text: `▶ ARMED ${dir}`,           cls: "badge setup-armed"  };
+    if (strategyType === "Retest" && abs === 2)    return { text: `↩ RETEST ${dir}`,          cls: "badge setup-retest" };
+    /* active */                                   return { text: `● ${dir} ACTIVE`,          cls: "badge " + (state > 0 ? "setup-long" : "setup-short") };
 }
 
 // ── Setup panel renderer ──────────────────────────────────────
@@ -1265,7 +1312,7 @@ function updateSetup(id, setup, sessionEnded) {
         if (sessionEnded)        badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
         else if (maxTradesReached) badge = { text: "MAX TRADES",   cls: "badge badge-halted" };
         else if (pastCutoff)     badge = { text: "CUTOFF",        cls: "badge setup-armed" };
-        else                     badge = _setupBadge(id, state ?? 0);
+        else                     badge = _setupBadge(state ?? 0, setup.strategyType);
         if (statusEl) { statusEl.textContent = badge.text; statusEl.className = badge.cls; }
         if (exitBtn)  exitBtn.classList.add("d-none");
         ["dir","entry","stop","partial","target","cts","unreal"].forEach(f => setText(id + "-" + f, "—"));
@@ -1309,7 +1356,7 @@ function updateSetup(id, setup, sessionEnded) {
     if (partPrice != null && trade.entry != null && pv > 0) {
         const partCts = trade.partialFilled
             ? (trade.contracts - trade.remainingContracts)   // actual exited contracts
-            : Math.floor(trade.contracts / 2);               // projected
+            : (trade.partialContracts || Math.floor(trade.contracts / 2));  // from config, fallback to half
         const partUsd = Math.abs(partPrice - trade.entry) * partCts * pv;
         const partPts = Math.abs(partPrice - trade.entry);
         partLabel += " | $" + Math.round(partUsd).toLocaleString() + " | " + partPts.toFixed(2) + " pts";
@@ -1322,7 +1369,7 @@ function updateSetup(id, setup, sessionEnded) {
     let tgtLabel = tgtPrice?.toFixed(2) ?? "—";
     if (tgtPrice != null && trade.entry != null && pv > 0) {
         const tgtPts = Math.abs(tgtPrice - trade.entry);
-        const partCts = Math.floor(trade.contracts / 2);
+        const partCts = trade.partialContracts || Math.floor(trade.contracts / 2);
         const remCts  = trade.contracts - partCts;  // contracts that ride to target
         // Target P&L for remaining contracts
         const tgtRemUsd = tgtPts * remCts * pv;

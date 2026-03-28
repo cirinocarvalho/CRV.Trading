@@ -245,7 +245,7 @@ public class TickerGroup
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
                     }
                     continue;
                 }
@@ -260,7 +260,7 @@ public class TickerGroup
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
                     }
                     // Disarm stale armed/waiting states so dashboard shows IDLE
                     strategy.Disarm();
@@ -338,7 +338,7 @@ public class TickerGroup
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd);
                     }
                     continue;
                 }
@@ -349,7 +349,7 @@ public class TickerGroup
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id);
+                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd);
                     }
                     strategy.Disarm();
                     continue;
@@ -366,6 +366,15 @@ public class TickerGroup
                     if (HasOpposingPosition(strategy, isLong))
                     {
                         strategy.RevertEntry();
+                    }
+                    // Cross-setup coordination: suppress entry if another already entered this bar
+                    else if (!_cfg.AllowBothSameBar && _enteredThisBar)
+                    {
+                        strategy.RevertEntry();
+                    }
+                    else
+                    {
+                        _enteredThisBar = true;
                     }
                 }
             }
@@ -602,6 +611,10 @@ public class TickerGroup
     public void ReconfigureOrb(TimeOnly orbStart, TimeOnly orbEnd)
     {
         _orb.Reconfigure(orbStart, orbEnd);
+        // Keep ORB suppression guard in sync — _cfg.OrbEnd is used at line 228
+        // to prevent premature entries during the ORB formation window.
+        _cfg.OrbStart = orbStart;
+        _cfg.OrbEnd = orbEnd;
     }
 
     // ── Ticker grouping helper ───────────────────────────────────

@@ -24,8 +24,10 @@ public class PullbackStrategy : ISetupStrategy
     private bool _bearTraded = false;
     private bool _pastCutoff = false;
 
-    // ── Counters ──────────────────────────────────────────────────
-    private int     _tradeCount  = 0;
+    // ── Counters (per-direction to avoid longs eating short slots) ─
+    private int     _longCount   = 0;
+    private int     _shortCount  = 0;
+    private int     _tradeCount  = 0;  // kept for snapshot compat
 
     // ── Win/loss stats ────────────────────────────────────────────
     private int     _wins        = 0;
@@ -55,7 +57,11 @@ public class PullbackStrategy : ISetupStrategy
     public bool         IsArmed      => _state == 1 || _state == -1;
     private bool        _inTrade;
     public bool         InTrade      => _inTrade;
-    public void SetInTrade(bool active) => _inTrade = active;
+    public void SetInTrade(bool active)
+    {
+        _inTrade = active;
+        if (!active) _state = 0;
+    }
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);
@@ -90,7 +96,7 @@ public class PullbackStrategy : ISetupStrategy
     {
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
@@ -108,14 +114,14 @@ public class PullbackStrategy : ISetupStrategy
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
         _pastCutoff = false;
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         ClearPendingSignals();
     }
 
     public void ResetTradeCounters()
     {
-        _tradeCount = 0;
+        _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _pastCutoff = false;
     }
@@ -146,7 +152,9 @@ public class PullbackStrategy : ISetupStrategy
             _state = 0; _armEntry = 0;
         }
 
-        bool isReady = _tradeCount < _cfg.MaxTrades;
+        bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
+        bool shortReady = _shortCount < _cfg.EffectiveMaxShort;
+        bool isReady    = longReady || shortReady;
 
         // Arm logic (only when idle)
         if (isReady && _state == 0)
@@ -157,23 +165,24 @@ public class PullbackStrategy : ISetupStrategy
             if (_bullTraded && bar.High < orbHigh - nearDist) _bullTraded = false;
             if (_bearTraded && bar.Low  > orbLow  + nearDist) _bearTraded = false;
 
-            bool aboveVwap  = !_cfg.UseVwap || bar.Close > ind.Vwap;
-            bool belowVwap  = !_cfg.UseVwap || bar.Close < ind.Vwap;
+            bool vwapReady  = _cfg.UseVwap && ind.Vwap > 0;
+            bool aboveVwap  = !vwapReady || bar.Close > ind.Vwap;
+            bool belowVwap  = !vwapReady || bar.Close < ind.Vwap;
             bool orbLongOk  = !_cfg.UseOrbClose || orb.BullClose;
             bool orbShortOk = !_cfg.UseOrbClose || orb.BearClose;
 
-            if (bar.High >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
+            if (longReady && bar.High >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
             {
                 _state = 1; _armEntry = bar.Open;
             }
-            else if (bar.Low <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
+            else if (shortReady && bar.Low <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
             {
                 _state = -1; _armEntry = bar.Open;
             }
         }
 
         // Bar-level entry (conservative or aggressive)
-        if (isReady && (_state == 1 || _state == -1))
+        if ((_state == 1 && longReady) || (_state == -1 && shortReady))
         {
             bool isLong = _state == 1;
             decimal pbPts   = orbRange * _cfg.PullbackPct;
@@ -204,9 +213,10 @@ public class PullbackStrategy : ISetupStrategy
         decimal tickTol  = _cfg.TickSize * 2;
 
         // Entry: armed but not in trade
-        if (!_inTrade && IsArmed)
+        bool isLong = _state == 1;
+        bool tickReady = isLong ? _longCount < _cfg.EffectiveMaxLong : _shortCount < _cfg.EffectiveMaxShort;
+        if (!_inTrade && IsArmed && tickReady)
         {
-            bool isLong = _state == 1;
             if (_cfg.IsAggressive)
             {
                 TryEntry(_armEntry, isLong, orb, utc);
@@ -280,10 +290,12 @@ public class PullbackStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
+            PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe);
 
-        _tradeCount++;
-        if (isLong) _bullTraded = true; else _bearTraded = true;
+        if (isLong) { _longCount++; _bullTraded = true; }
+        else        { _shortCount++; _bearTraded = true; }
+        _tradeCount = _longCount + _shortCount;
         _state = 0;
     }
 

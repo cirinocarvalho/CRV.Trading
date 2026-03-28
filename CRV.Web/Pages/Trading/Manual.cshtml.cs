@@ -4,7 +4,6 @@ using System.ComponentModel.DataAnnotations;
 using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Live;
-using CRV.Live.Brokers;
 using CRV.Live.Brokers.Schwab;
 using CRV.Live.Brokers.TradeStation;
 using CRV.Live.Brokers.Tradovate;
@@ -14,17 +13,21 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 public class ManualModel : PageModel
 {
-    private readonly StrategyConfigService   _cfgSvc;
-    private readonly SchwabAuthService       _schwab;
-    private readonly TradeStationAuthService _ts;
-    private readonly TradovateAuthService    _tv;
-    private readonly IConfiguration          _config;
-    private readonly ILogger<ManualModel>    _log;
+    private readonly StrategyConfigService     _cfgSvc;
+    private readonly SchwabAuthService         _schwab;
+    private readonly TradeStationAuthService   _ts;
+    private readonly TradovateAuthService      _tv;
+    private readonly LiveEngineOrchestrator    _orchestrator;
+    private readonly IConfiguration            _config;
+    private readonly ILogger<ManualModel>      _log;
 
     // ── Display ──────────────────────────────────────────────────
     public string CurrentBroker     => _cfgSvc.Current.Broker;
     public string CurrentExecBroker => _cfgSvc.Current.EffectiveExecBroker;
     public string CurrentTicker     => _cfgSvc.Current.Ticker;
+
+    // ── Active groups for display ─────────────────────────────────
+    public List<GroupOrder> ActiveGroups => _orchestrator.GetActiveGroups();
 
     // ── Result ───────────────────────────────────────────────────
     public List<string> Errors  { get; } = new();
@@ -34,20 +37,26 @@ public class ManualModel : PageModel
     [BindProperty] public ManualOrder Order { get; set; } = new();
     [BindProperty] public FlatForm    Flat  { get; set; } = new();
 
+    private readonly ILastPriceProvider       _prices;
+
     public ManualModel(
         StrategyConfigService cfgSvc,
         SchwabAuthService schwab,
         TradeStationAuthService ts,
         TradovateAuthService tv,
+        LiveEngineOrchestrator orchestrator,
+        ILastPriceProvider prices,
         IConfiguration config,
         ILogger<ManualModel> log)
     {
-        _cfgSvc = cfgSvc;
-        _schwab = schwab;
-        _ts     = ts;
-        _tv     = tv;
-        _config = config;
-        _log    = log;
+        _cfgSvc       = cfgSvc;
+        _schwab       = schwab;
+        _ts           = ts;
+        _tv           = tv;
+        _orchestrator = orchestrator;
+        _prices       = prices;
+        _config       = config;
+        _log          = log;
     }
 
     public void OnGet()
@@ -70,9 +79,35 @@ public class ManualModel : PageModel
                 "TradeStation" => await ManualBrokerOps.GetPositionsTradeStationAsync(_ts, cfg.AccountId),
                 "Schwab"       => await ManualBrokerOps.GetPositionsSchwabAsync(_schwab, cfg.AccountId),
                 "Tradovate" => await ManualBrokerOps.GetPositionsTradovateAsync(_tv, cfg.AccountId),
-                _              => await ManualBrokerOps.GetPositionsMockAsync()
+                _              => ManualBrokerOps.GetMockPositionsFromGroups(_orchestrator.GetActiveGroups())
             };
-            return new JsonResult(positions);
+
+            // Enrich positions with P&L using live engine prices + Schwab quotes as fallback
+            var missing = positions
+                .Where(p => _prices.GetLastPrice(FuturesSymbol.Normalize(p.Symbol)) <= 0)
+                .Select(p => FuturesSymbol.ToSchwab(p.Symbol))
+                .Distinct().ToList();
+
+            var schwabQuotes = missing.Count > 0
+                ? await ManualBrokerOps.GetQuotesSchwabAsync(_schwab, missing)
+                : new Dictionary<string, decimal>();
+
+            var enriched = positions.Select(p =>
+            {
+                var normalized = FuturesSymbol.Normalize(p.Symbol);
+                var lastPrice = _prices.GetLastPrice(normalized);
+                if (lastPrice <= 0)
+                    schwabQuotes.TryGetValue(normalized, out lastPrice);
+                if (lastPrice <= 0) return p;
+
+                var pv = FuturesSymbol.PointValue(normalized);
+                var diff = p.Direction == "LONG"
+                    ? lastPrice - p.AveragePrice
+                    : p.AveragePrice - lastPrice;
+                return p with { UnrealizedPnl = diff * pv * p.Quantity };
+            }).ToList();
+
+            return new JsonResult(enriched);
         }
         catch (Exception ex)
         {
@@ -136,40 +171,19 @@ public class ManualModel : PageModel
 
         try
         {
-            var httpFactory = HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>();
-            IOrderExecutor exec = cfg.EffectiveExecBroker switch
-            {
-                "TradeStation" => new TradeStationExecutor(_ts, cfg,
-                    HttpContext.RequestServices.GetRequiredService<ILogger<TradeStationExecutor>>(),
-                    httpFactory),
-                "Schwab" => new SchwabExecutor(_schwab, cfg,
-                    HttpContext.RequestServices.GetRequiredService<ILogger<SchwabExecutor>>(),
-                    httpFactory),
-                "Tradovate" => new TradovateExecutor(_tv, cfg,
-                    HttpContext.RequestServices.GetRequiredService<ILogger<TradovateExecutor>>(),
-                    httpFactory: httpFactory),
-                _ => HttpContext.RequestServices.GetRequiredService<MockBrokerExecutor>()
-            };
+            var sig = BuildEntry(isLong, Order.Contracts, Order.EntryPrice,
+                Order.StopPoints, Order.TargetPoints, Order.PartialPoints,
+                Order.Ticker, Order.PointValue, Order.OrderType,
+                Order.UsePartial, Order.PartialContracts, Order.UseBe);
 
-            if (!Order.UsePartial)
-            {
-                var sig = BuildEntry(isLong, Order.Contracts,
-                    Order.EntryPrice, Order.StopPoints, Order.TargetPoints);
-                await exec.OnEntrySignalAsync(sig);
-                Placed.Add($"Bracket placed: {sig.Direction} {sig.TotalContracts}× Entry={sig.Entry} Stop={sig.Stop} Target={sig.Tg2Price}");
-            }
+            // Always route through the orchestrator so a GroupOrder is created,
+            // registered with BrokerEventHandler, and visible in Group Orders /
+            // alerts / session tabs — regardless of broker (Mock or live).
+            var (ok, msg, group) = await _orchestrator.PlaceManualEntryAsync(sig, Order.PointValue);
+            if (ok)
+                Placed.Add(msg);
             else
-            {
-                var sig1 = BuildEntry(isLong, Order.PartialContracts,
-                    Order.EntryPrice, Order.StopPoints, Order.PartialPoints);
-                await exec.OnEntrySignalAsync(sig1);
-                Placed.Add($"Bracket 1 (partial): {sig1.Direction} {sig1.TotalContracts}× Entry={sig1.Entry} Stop={sig1.Stop} Target={sig1.Tg2Price}");
-
-                var sig2 = BuildEntry(isLong, remainCts,
-                    Order.EntryPrice, Order.StopPoints, Order.TargetPoints);
-                await exec.OnEntrySignalAsync(sig2);
-                Placed.Add($"Bracket 2 (runner):  {sig2.Direction} {sig2.TotalContracts}× Entry={sig2.Entry} Stop={sig2.Stop} Target={sig2.Tg2Price}");
-            }
+                Errors.Add(msg);
         }
         catch (Exception ex)
         {
@@ -182,9 +196,9 @@ public class ManualModel : PageModel
 
     // ── Cancel all open orders ────────────────────────────────────
 
-    public async Task<IActionResult> OnPostCancelAllAsync()
+    public async Task<IActionResult> OnPostCancelAllAsync(string? ticker)
     {
-        var cfg = BuildCfg(_cfgSvc.Current.Ticker);
+        var cfg = BuildCfg(ticker ?? _cfgSvc.Current.Ticker);
         try
         {
             var results = cfg.EffectiveExecBroker switch
@@ -210,7 +224,7 @@ public class ManualModel : PageModel
     {
         if (Flat.Contracts < 1) { Errors.Add("Contracts to close must be at least 1."); return Page(); }
 
-        var cfg = BuildCfg(_cfgSvc.Current.Ticker);
+        var cfg = BuildCfg(Flat.Ticker ?? _cfgSvc.Current.Ticker);
         bool isCurrentLong = Flat.Direction == "Long";
 
         try
@@ -289,6 +303,26 @@ public class ManualModel : PageModel
         return Page();
     }
 
+    // ── Move to Break-Even ────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostMoveToBEAsync(string setupId)
+    {
+        if (string.IsNullOrEmpty(setupId)) { Errors.Add("Setup ID required."); return Page(); }
+
+        try
+        {
+            var (ok, msg) = await _orchestrator.MoveManualToBEAsync(setupId);
+            if (ok) Placed.Add(msg);
+            else Errors.Add(msg);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Move to BE failed");
+            Errors.Add($"Move to BE failed: {ex.Message}");
+        }
+        return Page();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
 
     /// <summary>Clone config, resolve AccountId, and convert ticker to broker format.</summary>
@@ -323,11 +357,16 @@ public class ManualModel : PageModel
     }
 
     private static EntrySignal BuildEntry(bool isLong, int contracts,
-        decimal entryPrice, decimal stopPts, decimal targetPts)
+        decimal entryPrice, decimal stopPts, decimal targetPts,
+        decimal partialPts = 0, string ticker = "", decimal pointValue = 0,
+        string orderType = "Market", bool usePartial = false, int partialContracts = 0,
+        bool useBe = true)
     {
         decimal stop    = isLong ? entryPrice - stopPts   : entryPrice + stopPts;
         decimal target  = isLong ? entryPrice + targetPts : entryPrice - targetPts;
-        decimal partial = isLong ? entryPrice + targetPts * 0.5m : entryPrice - targetPts * 0.5m;
+        decimal partial = partialPts > 0
+            ? (isLong ? entryPrice + partialPts : entryPrice - partialPts)
+            : (isLong ? entryPrice + targetPts * 0.5m : entryPrice - targetPts * 0.5m);
 
         return new EntrySignal(
             Setup:     SetupId.A,
@@ -337,7 +376,13 @@ public class ManualModel : PageModel
             Tg2Price:       target,
             Tg1Price:       partial,
             TotalContracts: contracts,
-            Time:      DateTime.UtcNow
+            Time:           DateTime.UtcNow,
+            OrderType:      orderType,
+            Ticker:         ticker,
+            SetupLabel:     $"Manual-{DateTime.UtcNow:HHmmss}",
+            PartialContracts: usePartial ? partialContracts : 0,
+            UsePartial:       usePartial,
+            UseBe:            useBe
         );
     }
 }
@@ -349,6 +394,8 @@ public class ManualOrder
     [Required] public string  Ticker     { get; set; } = "";
     [Required] public string  Direction  { get; set; } = "Long";
     public            string  InputMode  { get; set; } = "Points";
+    public            string  OrderType  { get; set; } = "Market";  // "Market" | "Limit"
+    public            bool    UseBe      { get; set; } = true;      // Move stop to BE on partial fill
 
     [Range(0.01, double.MaxValue)] public decimal EntryPrice    { get; set; }
     [Range(1, 100)]                public int     Contracts     { get; set; } = 1;
@@ -376,6 +423,7 @@ public class ManualOrder
 
 public class FlatForm
 {
+    public string? Ticker { get; set; }
     [Required] public string Direction { get; set; } = "Long";
     [Range(1, 100)] public int Contracts { get; set; } = 1;
 }

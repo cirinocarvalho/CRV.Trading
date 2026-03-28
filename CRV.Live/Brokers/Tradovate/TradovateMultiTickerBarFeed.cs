@@ -269,6 +269,9 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
                 continue;
             }
 
+            // Log non-heartbeat frames for debugging
+            _log.LogDebug("TradovateMultiTicker frame: {Raw}", raw.Length > 200 ? raw[..200] + "..." : raw);
+
             if (!raw.StartsWith("a[")) continue;
 
             List<string> rawMessages;

@@ -151,10 +151,11 @@
                     <th>Broker</th>
                     <th>Created</th>
                     <th>Completed</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody id="groups-tbody">
-                <tr><td colspan="10" class="text-center text-muted small py-3">Click tab to load group orders.</td></tr>
+                <tr><td colspan="11" class="text-center text-muted small py-3">Click tab to load group orders.</td></tr>
             </tbody>
         </table>
     </div>
@@ -179,6 +180,25 @@
                 <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">No</button>
                 <button type="button" class="btn btn-sm btn-danger" id="cancel-confirm-btn">
                     <i class="bi bi-x-circle me-1"></i>Yes, Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Flat group confirmation modal -->
+<div class="modal fade" id="flatGroupModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title"><i class="bi bi-x-lg text-danger me-2"></i>Flat Group Order</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-3" id="flat-group-body"></div>
+            <div class="modal-footer border-secondary py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">No</button>
+                <button type="button" class="btn btn-sm btn-danger" id="flat-group-confirm-btn">
+                    <i class="bi bi-x-lg me-1"></i>Yes, Flat
                 </button>
             </div>
         </div>
@@ -357,7 +377,8 @@ document.getElementById('auto-refresh').addEventListener('change', e => {
 function loadGroupOrders() {
     const from = document.getElementById('f-from').value;
     const to   = document.getElementById('f-to').value;
-    const url  = `?handler=GroupOrders&from=${from}&to=${to}`;
+    const broker = document.getElementById('f-broker').value;
+    const url  = `?handler=GroupOrders&broker=${encodeURIComponent(broker)}&from=${from}&to=${to}`;
 
     document.getElementById('groups-tbody').innerHTML =
         '<tr><td colspan="10" class="text-center text-muted small py-3">Loading…</td></tr>';
@@ -384,7 +405,7 @@ function renderGroupOrders(data) {
     document.getElementById('groups-count').textContent = `${groups.length} group(s)`;
 
     if (groups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted small py-3">No group orders found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted small py-3">No group orders found.</td></tr>';
         return;
     }
 
@@ -399,6 +420,13 @@ function renderGroupOrders(data) {
     let html = '';
     for (const g of groups) {
         const dirCls = g.direction === 'Long' ? 'pnl-pos' : 'pnl-neg';
+        const isActive = g.status === 'Active' || g.status === 'Pending' || g.status === 'PartialFilled';
+        const flatBtn = isActive
+            ? `<button class="btn btn-danger btn-sm py-0 px-2"
+                       onclick="event.stopPropagation(); flatGroup('${g.groupOrderId}', '${g.setupId}', '${g.direction}', ${g.totalContracts})">
+                   <i class="bi bi-x-lg me-1"></i>Flat
+               </button>`
+            : '';
         html += `<tr style="cursor:pointer" onclick="this.nextElementSibling?.classList.toggle('d-none')">
             <td class="small fw-bold">${g.groupOrderId}</td>
             <td><span class="badge bg-warning text-dark">${g.setupId}</span></td>
@@ -410,10 +438,11 @@ function renderGroupOrders(data) {
             <td class="small">${g.broker}</td>
             <td class="small text-muted">${g.createdAt || '—'}</td>
             <td class="small text-muted">${g.completedAt || '—'}</td>
+            <td class="text-end">${flatBtn}</td>
         </tr>`;
         // Expandable legs row
         if (g.legs && g.legs.length > 0) {
-            html += `<tr class="d-none"><td colspan="10" class="px-4 py-1">
+            html += `<tr class="d-none"><td colspan="11" class="px-4 py-1">
                 <table class="table table-sm table-borderless mb-0 font-monospace small">
                     <thead><tr class="text-muted"><th>Leg</th><th>Order ID</th><th>Type</th><th>Action</th>
                         <th class="text-end">Qty</th><th class="text-end">Price</th><th class="text-end">Fill</th>
@@ -435,6 +464,51 @@ function renderGroupOrders(data) {
     }
     tbody.innerHTML = html;
 }
+
+// ── Flat group order ──────────────────────────────────────────
+let _flatGroupId = null;
+const _flatGroupModal = new bootstrap.Modal(document.getElementById('flatGroupModal'));
+
+function flatGroup(groupOrderId, setupId, direction, contracts) {
+    _flatGroupId = groupOrderId;
+    const dirCls = direction === 'Long' ? 'text-success' : 'text-danger';
+    const dirLabel = direction === 'Long' ? 'LONG' : 'SHORT';
+    document.getElementById('flat-group-body').innerHTML =
+        `<div class="mb-2">Flat group order at <strong>MARKET</strong>:</div>
+         <table class="table table-sm table-borderless mb-0 text-light">
+           <tr><td class="text-muted pe-3">Group</td><td><code>${groupOrderId}</code></td></tr>
+           <tr><td class="text-muted pe-3">Setup</td><td><strong>${setupId}</strong></td></tr>
+           <tr><td class="text-muted pe-3">Direction</td><td class="${dirCls}">${dirLabel}</td></tr>
+           <tr><td class="text-muted pe-3">Contracts</td><td>${contracts}</td></tr>
+         </table>
+         <div class="mt-2 small text-warning">This cancels bracket legs and sends a market close for this group only.</div>`;
+    _flatGroupModal.show();
+}
+
+document.getElementById('flat-group-confirm-btn').addEventListener('click', async () => {
+    if (!_flatGroupId) return;
+    const btn = document.getElementById('flat-group-confirm-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Flattening…';
+
+    const tok = '@Html.Raw(Antiforgery.GetAndStoreTokens(HttpContext).RequestToken)';
+    try {
+        const res = await fetch('?handler=FlatGroup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'RequestVerificationToken': tok },
+            body: `groupOrderId=${encodeURIComponent(_flatGroupId)}`
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        _flatGroupModal.hide();
+        loadGroupOrders();
+    } catch (err) {
+        alert('Flat failed: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-x-lg me-1"></i>Yes, Flat';
+        _flatGroupId = null;
+    }
+});
 
 // Populate status options for initial broker, then load
 onBrokerChanged();

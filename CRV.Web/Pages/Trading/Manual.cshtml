@@ -94,6 +94,27 @@
                 <label class="form-check-label text-danger fw-bold" for="dir-short">▼ SHORT</label>
             </div>
         </div>
+
+        <h6 class="mt-3"><i class="bi bi-receipt me-1"></i>Order Type</h6>
+        <div class="d-flex gap-2 mb-2">
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="Order.OrderType" id="ot-market"
+                       value="Market" checked="@(Model.Order.OrderType == "Market")" />
+                <label class="form-check-label fw-bold" for="ot-market">Market</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="Order.OrderType" id="ot-limit"
+                       value="Limit" checked="@(Model.Order.OrderType == "Limit")" />
+                <label class="form-check-label fw-bold" for="ot-limit">Limit</label>
+            </div>
+        </div>
+
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="Order.UseBe" value="true"
+                   id="chk-usebe" @(Model.Order.UseBe ? "checked" : "") />
+            <input type="hidden" name="Order.UseBe" value="false" />
+            <label class="form-check-label small fw-bold" for="chk-usebe">Move Stop to BE on Partial Fill</label>
+        </div>
     </div>
 </div>
 
@@ -202,10 +223,10 @@
 
         <!-- ── Partial exit toggle ────────────────────────────── -->
         <div class="form-check mb-2">
-            <input type="hidden" name="Order.UsePartial" value="false" />
             <input class="form-check-input" type="checkbox" name="Order.UsePartial" value="true"
                    id="chk-partial" @(Model.Order.UsePartial ? "checked" : "")
                    onchange="togglePartial(this.checked)" />
+            <input type="hidden" name="Order.UsePartial" value="false" />
             <label class="form-check-label small fw-bold" for="chk-partial">Partial Exit (2 OCO brackets)</label>
         </div>
 
@@ -338,13 +359,90 @@
     <input type="hidden" name="isLong"    id="pos-flat-islong" />
 </form>
 
+<!-- ══ Active Group Orders ════════════════════════════════════════════════ -->
+<div class="row g-3 mt-1">
+<div class="col-12">
+    <div class="settings-section">
+        <h6><i class="bi bi-layers-fill me-1 text-warning"></i>Active Group Orders</h6>
+        @if (Model.ActiveGroups.Count == 0)
+        {
+            <p class="text-muted small mb-0">No active group orders.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Group ID</th>
+                            <th>Setup</th>
+                            <th>Ticker</th>
+                            <th>Dir</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Entry</th>
+                            <th class="text-end">Stop</th>
+                            <th class="text-end">Tg1</th>
+                            <th class="text-end">Tg2</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var g in Model.ActiveGroups)
+                    {
+                        var isLng = g.Direction == CRV.Core.Models.Direction.Long;
+                        var dirCls = isLng ? "text-success" : "text-danger";
+                        var dirIcon = isLng ? "▲" : "▼";
+                        var entryLeg = g.GetLeg(CRV.Core.Models.LegType.Entry);
+                        var stop = g.GetLeg(CRV.Core.Models.LegType.Stop);
+                        var tg1 = g.GetLeg(CRV.Core.Models.LegType.Tg1);
+                        var tg2 = g.GetLeg(CRV.Core.Models.LegType.Tg2);
+                        var entryDisplay = g.EntryPrice ?? entryLeg?.Price;
+                        <tr>
+                            <td>@g.GroupOrderId</td>
+                            <td>@g.SetupId</td>
+                            <td>@g.Ticker</td>
+                            <td class="@dirCls fw-bold">@dirIcon</td>
+                            <td class="text-end">@g.TotalContracts</td>
+                            <td class="text-end">@(entryDisplay?.ToString("F2") ?? "—")</td>
+                            <td class="text-end">@(stop?.Price.ToString("F2") ?? "—")</td>
+                            <td class="text-end">@(tg1?.Price.ToString("F2") ?? "—")</td>
+                            <td class="text-end">@(tg2?.Price.ToString("F2") ?? "—")</td>
+                            <td>
+                                <span class="badge @(g.Status == CRV.Core.Models.GroupOrderStatus.Active ? "bg-success" : g.Status == CRV.Core.Models.GroupOrderStatus.PartialFilled ? "bg-warning text-dark" : "bg-secondary")">
+                                    @g.Status
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                @if (g.Status == CRV.Core.Models.GroupOrderStatus.Active || g.Status == CRV.Core.Models.GroupOrderStatus.PartialFilled)
+                                {
+                                    <form method="post" asp-page-handler="MoveToBE" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="setupId" value="@g.SetupId" />
+                                        <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-2"
+                                                title="Move stop to break-even">
+                                            <i class="bi bi-shield-check me-1"></i>BE
+                                        </button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+</div>
+
 <!-- ══ Manage Position ════════════════════════════════════════════════════ -->
 <div class="row g-3 mt-1">
 <div class="col-12">
     <div class="settings-section border-danger">
         <h6 class="text-danger"><i class="bi bi-exclamation-octagon-fill me-1"></i>Manage Position</h6>
         <p class="small text-muted mb-3">
-            These actions operate on the <strong class="font-monospace text-warning">@Model.CurrentTicker</strong>
+            These actions operate on the <strong class="font-monospace text-warning" id="manage-ticker">@Model.CurrentTicker</strong>
             account configured for <strong class="text-warning">@Model.CurrentBroker</strong>.
             They are independent of the automated engine.
         </p>
@@ -356,12 +454,13 @@
                 <div class="border border-warning rounded p-3 h-100">
                     <h6><i class="bi bi-x-circle me-1 text-warning"></i>Cancel All Open Orders</h6>
                     <p class="small text-muted mb-3">
-                        Cancels every pending order for <span class="font-monospace">@Model.CurrentTicker</span>
+                        Cancels every pending order for <span class="font-monospace" id="cancel-ticker">@Model.CurrentTicker</span>
                         on the broker — bracket legs, limit entries, stops.
                         Does <em>not</em> close an already-filled position.
                     </p>
                     <form method="post" asp-page-handler="CancelAll" class="d-grid" id="form-cancel-all">
                         @Html.AntiForgeryToken()
+                        <input type="hidden" name="ticker" id="cancel-ticker-hidden" value="@Model.CurrentTicker" />
                         <button type="button" class="btn btn-outline-warning fw-bold" onclick="confirmCancelAll()">
                             <i class="bi bi-x-circle-fill me-2"></i>Cancel All Open Orders
                         </button>
@@ -379,6 +478,7 @@
                     </p>
                     <form method="post" asp-page-handler="Flat" id="form-flat">
                         @Html.AntiForgeryToken()
+                        <input type="hidden" name="Flat.Ticker" id="flat-ticker-hidden" value="@Model.CurrentTicker" />
 
                         <div class="mb-2">
                             <label class="form-label small">Current Position Direction</label>
@@ -476,6 +576,15 @@ function mInstrChange() {
     document.getElementById('m-ticker-hidden').value    = ticker;
     document.getElementById('m-pv-hidden').value        = info.pointValue;
     document.getElementById('m-pv-label').textContent   = '$' + info.pointValue + '/pt';
+    // Update manage-position labels and hidden fields to reflect selected instrument
+    const mt = document.getElementById('manage-ticker');
+    const ct = document.getElementById('cancel-ticker');
+    if (mt) mt.textContent = ticker;
+    if (ct) ct.textContent = ticker;
+    const cth = document.getElementById('cancel-ticker-hidden');
+    const fth = document.getElementById('flat-ticker-hidden');
+    if (cth) cth.value = ticker;
+    if (fth) fth.value = ticker;
     fetchLastPrice(ticker);
     updatePreview();
 }

@@ -102,8 +102,8 @@ public class SnapshotAggregatorTests
         Assert.Equal(300m, a.WinPnl);
         Assert.Equal(-50m, a.LossPnl);
         // ExpectancyA: winRate=0.75, lossRate=0.25, avgWin=100, avgLoss=-50
-        // 0.75*100 - 0.25*(-50) = 75 + 12.5 = 87.5
-        Assert.Equal(87.5m, a.Expectancy);
+        // 0.75*100 + 0.25*(-50) = 75 - 12.5 = 62.5
+        Assert.Equal(62.5m, a.Expectancy);
     }
 
     [Fact]
@@ -172,8 +172,8 @@ public class SnapshotAggregatorTests
         Assert.True(d.Enabled);
         Assert.True(d.StickyTgt);
         // Expectancy: winRate=0.5, avgWin=100, lossRate=0.5, avgLoss=-100
-        // 0.5*100 - 0.5*(-100) = 50 + 50 = 100
-        Assert.Equal(100m, d.Expectancy);
+        // 0.5*100 + 0.5*(-100) = 50 - 50 = 0
+        Assert.Equal(0m, d.Expectancy);
     }
 
     // ── Risk fields ─────────────────────────────────────────────
@@ -427,8 +427,8 @@ public class SnapshotAggregatorTests
         var snap = SnapshotAggregator.Build(inputs);
 
         // winRate=0.5, avgWin=100, lossRate=0.5, avgLoss=-60
-        // 0.5*100 - 0.5*(-60) = 50 + 30 = 80
-        Assert.Equal(80m, snap.Expectancy);
+        // 0.5*100 + 0.5*(-60) = 50 - 30 = 20
+        Assert.Equal(20m, snap.Expectancy);
     }
 
     // ── CalcExpectancy edge cases ───────────────────────────────
@@ -449,8 +449,8 @@ public class SnapshotAggregatorTests
     [Fact]
     public void CalcExpectancy_OnlyLosses()
     {
-        // 2 losses totaling -$200 -> avgLoss=-100, lossRate=1.0 -> 0 - 1*(-100) = 100
-        Assert.Equal(100m, SnapshotAggregator.CalcExpectancy(0, 2, 0m, -200m));
+        // 2 losses totaling -$200 -> avgLoss=-100, lossRate=1.0 -> 0 + 1*(-100) = -100
+        Assert.Equal(-100m, SnapshotAggregator.CalcExpectancy(0, 2, 0m, -200m));
     }
 
     // ── All four setups together ────────────────────────────────

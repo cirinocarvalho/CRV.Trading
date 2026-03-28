@@ -194,7 +194,7 @@
                                 <span class="text-muted small">Avg Loss</span><span class="font-monospace small pnl-neg">@m.AvgLoss.ToString("C0")</span>
                             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
-                                <span class="text-muted small" title="E = (Win% × AvgWin) − (Loss% × AvgLoss)">Expectancy</span>
+                                <span class="text-muted small" title="E = (Win% × AvgWin) + (Loss% × AvgLoss)">Expectancy</span>
                                 <span class="font-monospace small @PnlCls(m.Expectancy)">@Pnl(m.Expectancy)</span>
                             </div>
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">

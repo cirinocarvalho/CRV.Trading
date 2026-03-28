@@ -419,6 +419,40 @@ public static class ManualBrokerOps
     public static Task<List<PositionView>> GetPositionsMockAsync()
         => Task.FromResult(new List<PositionView>());
 
+    /// <summary>Build mock positions from active group orders (entry-filled groups = open position).</summary>
+    public static List<PositionView> GetMockPositionsFromGroups(
+        IEnumerable<CRV.Core.Models.GroupOrder> activeGroups, decimal currentPrice = 0)
+    {
+        var positions = new List<PositionView>();
+        foreach (var g in activeGroups)
+        {
+            if (g.Status is not (CRV.Core.Models.GroupOrderStatus.Active
+                              or CRV.Core.Models.GroupOrderStatus.PartialFilled))
+                continue;
+            if (!g.EntryPrice.HasValue) continue;
+
+            bool isLong = g.Direction == CRV.Core.Models.Direction.Long;
+            int qty = g.Status == CRV.Core.Models.GroupOrderStatus.PartialFilled
+                ? g.TotalContracts - g.PartialContracts
+                : g.TotalContracts;
+            decimal entry = g.EntryPrice.Value;
+            decimal unrealized = currentPrice > 0
+                ? (isLong ? (currentPrice - entry) : (entry - currentPrice))
+                  * g.PointValue * qty + g.AccruedPartialPnl
+                : 0m;
+
+            positions.Add(new PositionView(
+                Symbol:        g.Ticker,
+                Direction:     isLong ? "Long" : "Short",
+                Quantity:      qty,
+                AveragePrice:  entry,
+                UnrealizedPnl: unrealized,
+                DayPnl:        null
+            ));
+        }
+        return positions;
+    }
+
     public static Task<List<OrderView>> GetOrdersMockAsync(MockBrokerExecutor? exec = null)
     {
         if (exec == null) return Task.FromResult(new List<OrderView>());
@@ -777,6 +811,45 @@ public static class ManualBrokerOps
         }
         catch (Exception) { /* non-critical: could not parse order ID from response */ }
         return null;
+    }
+
+    // ── Quotes — Schwab (data broker) ──────────────────────────────
+
+    /// <summary>
+    /// Fetch last trade prices for one or more symbols from Schwab marketdata API.
+    /// Symbols should be in Schwab format (e.g. "/MESM26").
+    /// Returns a dictionary of normalized ticker → last price.
+    /// </summary>
+    public static async Task<Dictionary<string, decimal>> GetQuotesSchwabAsync(
+        SchwabAuthService auth, IEnumerable<string> schwabSymbols)
+    {
+        var result = new Dictionary<string, decimal>();
+        var symbols = schwabSymbols.ToList();
+        if (symbols.Count == 0) return result;
+
+        try
+        {
+            var token = await auth.GetAccessTokenAsync();
+            using var http = BearerClient(token);
+            var joined = string.Join(",", symbols.Select(Uri.EscapeDataString));
+            var res = await http.GetAsync($"{auth.ApiBaseUrl}/marketdata/v1/quotes?symbols={joined}&indicative=false");
+            var body = await res.Content.ReadAsStringAsync();
+            if (!res.IsSuccessStatusCode) return result;
+
+            using var doc = JsonDocument.Parse(body);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                var normalized = FuturesSymbol.Normalize(prop.Name);
+                if (prop.Value.TryGetProperty("quote", out var q) &&
+                    q.TryGetProperty("lastPrice", out var lp))
+                {
+                    result[normalized] = lp.GetDecimal();
+                }
+            }
+        }
+        catch { /* non-critical — positions will show without P&L */ }
+
+        return result;
     }
 
     private static HttpClient BearerClient(string token, IHttpClientFactory? httpFactory = null)

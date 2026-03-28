@@ -266,8 +266,8 @@ public static class SnapshotAggregator
     }
 
     /// <summary>
-    /// Expectancy = winRate * avgWin - lossRate * avgLoss.
-    /// Matches OrbStrategyEngine.CalcExpectancy exactly.
+    /// Expectancy = winRate * avgWin + lossRate * avgLoss.
+    /// avgLoss is already negative, so adding it subtracts the loss contribution.
     /// </summary>
     internal static decimal CalcExpectancy(int wins, int losses, decimal winPnl, decimal lossPnl)
     {
@@ -277,6 +277,6 @@ public static class SnapshotAggregator
         decimal lossRate = (decimal)losses / total;
         decimal avgWin   = wins   > 0 ? winPnl  / wins   : 0;
         decimal avgLoss  = losses > 0 ? lossPnl / losses : 0;
-        return winRate * avgWin - lossRate * avgLoss;
+        return winRate * avgWin + lossRate * avgLoss;
     }
 }

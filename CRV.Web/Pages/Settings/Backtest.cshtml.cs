@@ -99,6 +99,8 @@ public class BacktestSettingsModel : PageModel
         if (Config.To.TimeOfDay == TimeSpan.Zero)
             Config.To = Config.To.Date.AddDays(1).AddSeconds(-1);
 
+        // Force-reload config from DB so direct sqlite3 edits are picked up
+        _cfgSvc.Reload();
         var cfg   = _cfgSvc.Current.Clone();
         // Let the backtest form override the execution TF independently of live settings
         cfg.ExecutionTFMinutes = Config.ExecutionTFMinutes;
@@ -177,14 +179,6 @@ public class BacktestSettingsModel : PageModel
             ResultJson   = JsonSerializer.Serialize(result),
         };
         _db.BacktestRuns.Add(row);
-
-        foreach (var t in result.Trades)
-        {
-            t.Source    = $"backtest:{sessId}";
-            t.SessionId = sessId;
-            _db.Trades.Add(t);
-        }
-
         await _db.SaveChangesAsync();
     }
 }

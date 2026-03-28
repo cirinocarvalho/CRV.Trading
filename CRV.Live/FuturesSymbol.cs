@@ -19,20 +19,27 @@ public static class FuturesSymbol
 {
     // Matches a trailing 4-digit year to convert to 2-digit (e.g. 2026 → 26)
     private static readonly Regex _year4 = new(@"(\d{4})$", RegexOptions.Compiled);
+    // Matches Tradovate 1-digit year: letter (month code) + single digit at end (e.g. MNQM6)
+    private static readonly Regex _year1 = new(@"(?<=[A-Z])(\d)$", RegexOptions.Compiled);
 
     /// <summary>
-    /// Strips a leading slash if present and converts a 4-digit year to 2-digit.
-    /// Returns the canonical format: no slash, 2-digit year.
+    /// Strips a leading slash if present and normalises to canonical 2-digit year.
+    /// Handles all broker formats:
     ///
-    /// "NQH2026"  → "NQH26"
-    /// "/NQH2026" → "NQH26"
-    /// "NQH26"    → "NQH26"   (idempotent)
-    /// "/NQH26"   → "NQH26"   (idempotent)
+    /// "NQH2026"  → "NQH26"    (4-digit year)
+    /// "/NQH2026" → "NQH26"    (Schwab + 4-digit)
+    /// "/NQH26"   → "NQH26"    (Schwab)
+    /// "NQH26"    → "NQH26"    (canonical — idempotent)
+    /// "NQH6"     → "NQH26"    (Tradovate 1-digit year)
     /// </summary>
     public static string Normalize(string ticker)
     {
         var t = ticker.TrimStart('/');
-        return _year4.Replace(t, m => m.Value.Length == 4 ? m.Value[2..] : m.Value);
+        // 4-digit year → 2-digit (2026 → 26)
+        t = _year4.Replace(t, m => m.Value.Length == 4 ? m.Value[2..] : m.Value);
+        // 1-digit year → 2-digit (6 → 26, assumes 2020s decade)
+        t = _year1.Replace(t, m => "2" + m.Value);
+        return t;
     }
 
     /// <summary>
@@ -96,6 +103,35 @@ public static class FuturesSymbol
         var norm = Normalize(ticker);
         // Last 3 chars = month code + 2-digit year (e.g. H26)
         return norm.Length > 3 ? norm[..^3] : norm;
+    }
+
+    /// <summary>
+    /// Returns the dollar-per-point multiplier for a futures symbol.
+    /// Used to compute P&amp;L: (exit - entry) * PointValue * qty.
+    /// </summary>
+    public static decimal PointValue(string ticker)
+    {
+        var root = RootSymbol(ticker).ToUpperInvariant();
+        return root switch
+        {
+            "ES"  => 50m,
+            "NQ"  => 20m,
+            "YM"  => 5m,
+            "RTY" => 50m,
+            "MES" => 5m,
+            "MNQ" => 2m,
+            "MYM" => 0.5m,
+            "M2K" => 5m,
+            "GC"  => 100m,
+            "MGC" => 10m,
+            "CL"  => 1000m,
+            "MCL" => 100m,
+            "SI"  => 5000m,
+            "SIL" => 50m,
+            "HG"  => 25000m,
+            "MBT" => 5m,       // Micro Bitcoin
+            _     => 1m,       // fallback — raw price diff
+        };
     }
 
     /// <summary>

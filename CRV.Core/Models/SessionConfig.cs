@@ -15,6 +15,8 @@ public abstract class SetupConfigBase
     public int     CutoffHour         { get; set; } = 14;
     public int     CutoffMinute       { get; set; } = 30;
     public int     MaxTrades          { get; set; } = 3;
+    public int     MaxLongTrades      { get; set; } = 0;
+    public int     MaxShortTrades     { get; set; } = 0;
     public string  OrderType          { get; set; } = "Market";
     public decimal MinRr              { get; set; } = 1.5m;
     public bool    CloseAtRthClose    { get; set; } = true;
@@ -129,6 +131,8 @@ public class SessionConfig
         c.CutoffHourA       = SetupA.CutoffHour;
         c.CutoffMinuteA     = SetupA.CutoffMinute;
         c.MaxTradesA        = SetupA.MaxTrades;
+        c.MaxLongTradesA    = SetupA.MaxLongTrades;
+        c.MaxShortTradesA   = SetupA.MaxShortTrades;
         c.OrderTypeA        = SetupA.OrderType;
         c.MinRrA            = SetupA.MinRr;
         c.CloseAtRthCloseA  = SetupA.CloseAtRthClose;
@@ -161,6 +165,8 @@ public class SessionConfig
         c.CutoffHourB       = SetupB.CutoffHour;
         c.CutoffMinuteB     = SetupB.CutoffMinute;
         c.MaxTradesB        = SetupB.MaxTrades;
+        c.MaxLongTradesB    = SetupB.MaxLongTrades;
+        c.MaxShortTradesB   = SetupB.MaxShortTrades;
         c.OrderTypeB        = SetupB.OrderType;
         c.MinRrB            = SetupB.MinRr;
         c.CloseAtRthCloseB  = SetupB.CloseAtRthClose;
@@ -264,6 +270,8 @@ public class SessionConfig
             CutoffHour        = cfg.CutoffHourA,
             CutoffMinute      = cfg.CutoffMinuteA,
             MaxTrades         = cfg.MaxTradesA,
+            MaxLongTrades     = cfg.MaxLongTradesA,
+            MaxShortTrades    = cfg.MaxShortTradesA,
             OrderType         = cfg.OrderTypeA,
             MinRr             = cfg.MinRrA,
             CloseAtRthClose   = cfg.CloseAtRthCloseA,
@@ -296,6 +304,8 @@ public class SessionConfig
             CutoffHour        = cfg.CutoffHourB,
             CutoffMinute      = cfg.CutoffMinuteB,
             MaxTrades         = cfg.MaxTradesB,
+            MaxLongTrades     = cfg.MaxLongTradesB,
+            MaxShortTrades    = cfg.MaxShortTradesB,
             OrderType         = cfg.OrderTypeB,
             MinRr             = cfg.MinRrB,
             CloseAtRthClose   = cfg.CloseAtRthCloseB,

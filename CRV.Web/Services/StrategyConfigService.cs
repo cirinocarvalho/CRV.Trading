@@ -49,6 +49,16 @@ public class StrategyConfigService
         ConfigChanged?.Invoke(cfg);
     }
 
+    /// <summary>
+    /// Force-reload config from DB (picks up direct sqlite3 edits).
+    /// </summary>
+    public void Reload()
+    {
+        var fresh = LoadFromDb();
+        lock (_lock) { _current = fresh; }
+        _log.LogInformation("StrategyConfig force-reloaded from DB.");
+    }
+
     // ── Private helpers ───────────────────────────────────────
 
     private StrategyConfig LoadFromDb()

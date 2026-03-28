@@ -29,8 +29,11 @@ public sealed record SetupConfigSectionModel(
     int     TargetPct,
     int     EntryTickOffset,
 
-    // Mode: "Conservative"/"Aggressive" — only A and B
+    // Mode: "Conservative"/"Aggressive"/"SmartAggressive" — only A and B
     string? Mode,
+
+    // PullbackPct: only A
+    decimal? PullbackPct,
 
     // RetestPct: only B
     decimal? RetestPct,

@@ -82,7 +82,7 @@ public class MockBrokerModel : PageModel
             AvgR         = trades.Average(t => t.RMultiple),
             AvgWin       = avgWin,
             AvgLoss      = avgLoss,
-            Expectancy   = (winRate / 100m) * avgWin - ((100m - winRate) / 100m) * avgLoss,
+            Expectancy   = (winRate / 100m) * avgWin + ((100m - winRate) / 100m) * avgLoss,
         };
     }
 

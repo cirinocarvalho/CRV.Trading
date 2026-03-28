@@ -149,12 +149,14 @@ public class MockBrokerExecutor : IOrderExecutor
     /// are immediately CANCELED. Thread-safe.
     /// </summary>
     /// <remarks>
-    /// All WORKING orders are evaluated regardless of symbol — correct for a
-    /// single-instrument executor where every order is for the same instrument.
+    /// Filters by ticker when provided to prevent cross-instrument fills
+    /// in multi-ticker setups.
     /// </remarks>
-    public void EvaluateFills(decimal price, DateTime utcNow)
+    public void EvaluateFills(decimal price, DateTime utcNow, string ticker = "")
     {
         if (price <= 0) return;
+        // Normalize ticker so Schwab (/MNQM26), Tradovate (MNQM6), canonical (MNQM26) all match
+        var normTicker = string.IsNullOrEmpty(ticker) ? "" : FuturesSymbol.Normalize(ticker);
         var filledIds   = new List<string>();
         var canceledIds = new List<string>();
 
@@ -164,6 +166,11 @@ public class MockBrokerExecutor : IOrderExecutor
             foreach (var o in working)
             {
                 if (o.Status != "WORKING") continue;
+
+                // Only evaluate orders for the matching ticker (compare normalized)
+                if (!string.IsNullOrEmpty(normTicker)
+                    && !string.Equals(FuturesSymbol.Normalize(o.Symbol ?? ""), normTicker, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 bool fills = o.Action == "BUY"
                     ? (o.StopPrice.HasValue  && price >= o.StopPrice)
@@ -350,6 +357,7 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
     private readonly MockEventStream _stream;
     private readonly ILogger _log;
     private readonly Dictionary<string, Dictionary<string, MockLegState>> _ordersByGroup = new();
+    private readonly Dictionary<string, string> _groupTickers = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
 
     private class MockLegState
@@ -393,6 +401,7 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
             TotalContracts = sig.TotalContracts,
             PartialContracts = partialCts,
             UseBe = sig.UseBe,
+            InitialStopPrice = sig.Stop,
             Status = GroupOrderStatus.Pending,
             Broker = "Mock",
         };
@@ -410,8 +419,9 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
             [stopLeg.OrderId] = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
 
-        // Only add tg1 leg when UsePartial is enabled
-        if (usePartial)
+        // Only add tg1 leg when UsePartial is enabled AND partialCts > 0
+        // (with 1 contract, integer division gives 0 — no meaningful partial)
+        if (usePartial && partialCts > 0)
         {
             var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
             group.Legs.Add(tg1Leg);
@@ -419,12 +429,21 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         }
 
         lock (_lock)
+        {
             _ordersByGroup[groupId] = legs;
+            _groupTickers[groupId] = ticker;
+        }
 
-        // Market entry: fill immediately
+        // Market entry: fill immediately — set group state so BEH.PlaceEntryAsync
+        // can call SetInTrade(true) synchronously (prevents duplicate tick entries)
         if (sig.OrderType != "Limit")
         {
             legs[entryLeg.OrderId].Status = "FILLED";
+            entryLeg.Status = OrderLegStatus.Filled;
+            entryLeg.FillPrice = sig.Entry;
+            entryLeg.FillTime = DateTime.UtcNow;
+            group.Status = GroupOrderStatus.Active;
+            group.EntryPrice = sig.Entry;
             _stream.PushEvent(new OrderEvent(groupId, entryLeg.OrderId, LegType.Entry,
                 OrderLegStatus.Filled, sig.Entry, sig.TotalContracts, null, null, DateTime.UtcNow));
         }
@@ -485,18 +504,27 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
     }
 
     /// <summary>
-    /// Evaluate fills for all WORKING orders against current price.
+    /// Evaluate fills for WORKING orders matching <paramref name="ticker"/> against current price.
     /// Called on each tick. Emits OrderEvent for each fill — NO OCO auto-cancel.
     /// BrokerEventHandler handles all leg management.
     /// </summary>
-    public void EvaluateFills(decimal price, DateTime utcNow)
+    public void EvaluateFills(decimal price, DateTime utcNow, string ticker = "")
     {
         if (price <= 0) return;
+
+        // Normalize ticker so Schwab (/MNQM26), Tradovate (MNQM6), canonical (MNQM26) all match
+        var normTicker = string.IsNullOrEmpty(ticker) ? "" : FuturesSymbol.Normalize(ticker);
 
         lock (_lock)
         {
             foreach (var (groupId, legs) in _ordersByGroup)
             {
+                // Only evaluate orders for the matching ticker (compare normalized)
+                if (!string.IsNullOrEmpty(normTicker)
+                    && _groupTickers.TryGetValue(groupId, out var grpTicker)
+                    && !string.Equals(FuturesSymbol.Normalize(grpTicker), normTicker, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 foreach (var leg in legs.Values.Where(l => l.Status == "WORKING").ToList())
                 {
                     bool fills = false;
@@ -518,8 +546,8 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
                     _stream.PushEvent(new OrderEvent(groupId, leg.OrderId, leg.LegType,
                         OrderLegStatus.Filled, price, leg.Quantity, null, null, utcNow));
 
-                    _log.LogInformation("[MOCK-GRP FILL] {A} {Q}x @ {P} (order {Id})",
-                        leg.Action, leg.Quantity, price, leg.OrderId);
+                    _log.LogInformation("[MOCK-GRP FILL] {A} {Q}x @ {P} ticker={T} (order {Id})",
+                        leg.Action, leg.Quantity, price, ticker, leg.OrderId);
                 }
             }
         }

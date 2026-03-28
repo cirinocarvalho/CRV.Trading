@@ -19,6 +19,9 @@ public class BrokerEventHandler
 
     // Active groups keyed by SetupId
     private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _active = new();
+    // Secondary index: GroupOrderId → (Group, Strategy) — includes displaced groups
+    // so in-flight events can still be processed after a setupId overwrite.
+    private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _byGroupId = new();
     private readonly object _lock = new();
 
     // Per-group async lock to serialize concurrent WSS events for the same group
@@ -26,8 +29,18 @@ public class BrokerEventHandler
     private readonly Dictionary<string, SemaphoreSlim> _groupLocks = new();
     private readonly object _groupLocksLock = new();
 
+    // Buffer for events that arrive before RegisterGroup (race between WSS fill and registration)
+    private readonly Dictionary<string, List<OrderEvent>> _earlyEvents = new();
+    private readonly object _earlyLock = new();
+
     /// <summary>Raised when a group completes (target, stop, or manual exit).</summary>
     public event Action<GroupOrder, TradeRecord>? OnTradeCompleted;
+
+    /// <summary>Raised when entry fills and the group becomes Active — persist to DB.</summary>
+    public event Action<GroupOrder>? OnEntryFilled;
+
+    /// <summary>Raised when group state changes (Tg1 fill → PartialFilled) — update DB.</summary>
+    public event Action<GroupOrder>? OnGroupStateChanged;
 
     public BrokerEventHandler(IGroupOrderExecutor executor, ILogger? log = null)
     {
@@ -38,15 +51,50 @@ public class BrokerEventHandler
     // ── Registration ────────────────────────────────────────────
 
     /// <summary>Register a newly placed group order for event tracking.</summary>
-    public void RegisterGroup(GroupOrder group, ISetupStrategy strategy)
+    public async Task RegisterGroupAsync(GroupOrder group, ISetupStrategy strategy)
     {
         // Ensure PointValue is set for P&L calculations
         if (group.PointValue == 0 && strategy.PointValue > 0)
             group.PointValue = strategy.PointValue;
 
+        // Ensure InitialStopPrice is captured before any BE modification
+        if (group.InitialStopPrice == 0)
+        {
+            var stopLeg = group.GetLeg(LegType.Stop);
+            if (stopLeg != null) group.InitialStopPrice = stopLeg.Price;
+        }
+
+        List<OrderEvent>? buffered = null;
         lock (_lock)
+        {
+            // If an existing group is still tracked for this setupId, keep it
+            // in _byGroupId so in-flight events (Tg1/Tg2/Stop fills) still get
+            // processed. Log the overwrite for diagnostics.
+            if (_active.TryGetValue(group.SetupId, out var existing))
+            {
+                _log?.LogWarning(
+                    "[BEH] RegisterGroup overwrite: setupId={S} old grp={OG} status={OS} replaced by grp={NG}",
+                    group.SetupId, existing.Group.GroupOrderId, existing.Group.Status, group.GroupOrderId);
+                // Old group stays in _byGroupId — its events will still be handled
+            }
+
             _active[group.SetupId] = (group, strategy);
+            _byGroupId[group.GroupOrderId] = (group, strategy);
+        }
+
+        // Drain any events that arrived before registration (WSS fill race)
+        lock (_earlyLock)
+            if (_earlyEvents.Remove(group.GroupOrderId, out buffered))
+                _log?.LogInformation("[BEH] Replaying {N} buffered events for group {G}", buffered.Count, group.GroupOrderId);
+
+        if (buffered != null)
+            foreach (var evt in buffered)
+                await HandleEventAsync(evt);
     }
+
+    /// <summary>Register a newly placed group order for event tracking (sync overload).</summary>
+    public void RegisterGroup(GroupOrder group, ISetupStrategy strategy)
+        => RegisterGroupAsync(group, strategy).GetAwaiter().GetResult();
 
     /// <summary>Get the active group for a setup, or null.</summary>
     public GroupOrder? GetActiveGroup(string setupId)
@@ -69,13 +117,45 @@ public class BrokerEventHandler
             return _active.TryGetValue(setupId, out var pair) ? pair.Group : null;
     }
 
+    /// <summary>Get all active group orders (for manual trade page display).</summary>
+    public List<GroupOrder> GetAllActiveGroups()
+    {
+        lock (_lock)
+            return _active.Values.Select(p => p.Group).ToList();
+    }
+
     /// <summary>Place an entry order and register the group for event tracking.</summary>
     public async Task PlaceEntryAsync(EntrySignal signal, ISetupStrategy strategy)
     {
+        // If there's already an active group for this setup, exit it first.
+        // This prevents orphaned groups whose events would be lost.
+        var setupId = !string.IsNullOrEmpty(signal.SetupLabel) ? signal.SetupLabel : signal.Setup.ToString();
+        GroupOrder? existing;
+        lock (_lock)
+            existing = _active.TryGetValue(setupId, out var pair) ? pair.Group : null;
+        if (existing != null)
+        {
+            _log?.LogWarning("[BEH] PlaceEntry for {S} but group {G} already active (status={St}) — canceling old group",
+                setupId, existing.GroupOrderId, existing.Status);
+            foreach (var leg in existing.Legs.Where(l => l.Status == OrderLegStatus.Working))
+            {
+                await _executor.CancelOrderAsync(leg.OrderId);
+                leg.Status = OrderLegStatus.Canceled;
+            }
+            existing.Status = GroupOrderStatus.Canceled;
+            existing.CompletedAt = DateTime.UtcNow;
+            strategy.SetInTrade(false);
+            RemoveGroup(existing);
+        }
+
         var group = await _executor.OnEntrySignalAsync(signal);
         if (group != null)
         {
-            RegisterGroup(group, strategy);
+            // Carry session context so completed trades are tagged correctly
+            if (string.IsNullOrEmpty(group.SessionId))
+                group.SessionId = signal.SessionId;
+
+            await RegisterGroupAsync(group, strategy);
 
             // Immediate fills (backtest market orders): group already Active + EntryPrice set
             // by the executor before returning. Activate the strategy now — no event roundtrip
@@ -84,6 +164,7 @@ public class BrokerEventHandler
             {
                 strategy.SetInTrade(true);
                 _log?.LogInformation("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
+                OnEntryFilled?.Invoke(group);
             }
         }
     }
@@ -109,6 +190,22 @@ public class BrokerEventHandler
             _groupLocks.Remove(groupOrderId);
     }
 
+    /// <summary>Remove a group from both indexes. Only removes from _active if it still
+    /// points to this group (a newer group may have replaced it via RegisterGroup).</summary>
+    private void RemoveGroup(GroupOrder group)
+    {
+        lock (_lock)
+        {
+            _byGroupId.Remove(group.GroupOrderId);
+            if (_active.TryGetValue(group.SetupId, out var current) &&
+                current.Group.GroupOrderId == group.GroupOrderId)
+            {
+                _active.Remove(group.SetupId);
+            }
+        }
+        RemoveGroupLock(group.GroupOrderId);
+    }
+
     /// <summary>Handle an order event from the broker event stream.</summary>
     public async Task HandleEventAsync(OrderEvent evt)
     {
@@ -132,14 +229,33 @@ public class BrokerEventHandler
 
         lock (_lock)
         {
-            var match = _active.Values.FirstOrDefault(p => p.Group.GroupOrderId == evt.GroupOrderId);
-            group = match.Group;
-            strategy = match.Strategy;
+            if (_byGroupId.TryGetValue(evt.GroupOrderId, out var match))
+            {
+                group = match.Group;
+                strategy = match.Strategy;
+            }
+            else
+            {
+                group = null;
+                strategy = null;
+            }
         }
 
         if (group == null)
         {
-            _log?.LogWarning("[BEH] Event for unknown group {GroupId}", evt.GroupOrderId);
+            // Buffer the event — the group may not be registered yet (race between
+            // WSS fill arriving and PlaceManualEntryAsync finishing RegisterGroup).
+            lock (_earlyLock)
+            {
+                if (!_earlyEvents.TryGetValue(evt.GroupOrderId, out var list))
+                {
+                    list = new List<OrderEvent>();
+                    _earlyEvents[evt.GroupOrderId] = list;
+                }
+                list.Add(evt);
+            }
+            _log?.LogInformation("[BEH] Buffered early event for group {GroupId} leg={Leg} status={S}",
+                evt.GroupOrderId, evt.LegType, evt.Status);
             return;
         }
 
@@ -150,6 +266,8 @@ public class BrokerEventHandler
             leg.Status = evt.Status;
             if (evt.FillPrice.HasValue) leg.FillPrice = evt.FillPrice;
             if (evt.Status == OrderLegStatus.Filled) leg.FillTime = evt.Timestamp;
+            if (evt.ModifiedQty.HasValue)
+                leg.Quantity = evt.ModifiedQty.Value;
             if (evt.ModifiedPrice.HasValue)
             {
                 leg.Price = evt.ModifiedPrice.Value;
@@ -176,8 +294,27 @@ public class BrokerEventHandler
 
     // ── Manual exit ─────────────────────────────────────────────
 
-    /// <summary>Manually exit a group order (Cancel if pending, Market Close if active).</summary>
-    public async Task ExitGroupAsync(string setupId)
+    /// <summary>Manually exit a group order by its GroupOrderId.</summary>
+    public async Task ExitGroupByIdAsync(string groupOrderId, decimal exitPrice = 0, ExitReason reason = ExitReason.Manual)
+    {
+        GroupOrder? group;
+        ISetupStrategy? strategy;
+
+        lock (_lock)
+        {
+            if (!_byGroupId.TryGetValue(groupOrderId, out var pair)) return;
+            group = pair.Group;
+            strategy = pair.Strategy;
+        }
+
+        await ExitGroupCoreAsync(group, strategy, exitPrice, reason);
+    }
+
+    /// <summary>Manually exit a group order (Cancel if pending, Market Close if active/partial).</summary>
+    /// <param name="setupId">Setup identifier (e.g. "pullback-mgc").</param>
+    /// <param name="exitPrice">Current market price for P&amp;L calculation. 0 = skip trade record.</param>
+    /// <param name="reason">Exit reason for the trade record.</param>
+    public async Task ExitGroupAsync(string setupId, decimal exitPrice = 0, ExitReason reason = ExitReason.Manual)
     {
         GroupOrder? group;
         ISetupStrategy? strategy;
@@ -189,49 +326,69 @@ public class BrokerEventHandler
             strategy = pair.Strategy;
         }
 
+        await ExitGroupCoreAsync(group, strategy, exitPrice, reason);
+    }
+
+    private async Task ExitGroupCoreAsync(GroupOrder group, ISetupStrategy? strategy,
+        decimal exitPrice, ExitReason reason)
+    {
+        // Cancel all working legs on the executor
+        foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
+        {
+            await _executor.CancelOrderAsync(leg.OrderId);
+            leg.Status = OrderLegStatus.Canceled;
+        }
+
         switch (group.Status)
         {
             case GroupOrderStatus.Pending:
-                foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
-                    await _executor.CancelOrderAsync(leg.OrderId);
                 group.Status = GroupOrderStatus.Canceled;
                 group.CompletedAt = DateTime.UtcNow;
-                break;
+                strategy?.SetInTrade(false);
+                RemoveGroup(group);
+                return;
 
             case GroupOrderStatus.Active:
-                foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
-                    await _executor.CancelOrderAsync(leg.OrderId);
                 await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, group.TotalContracts);
-                group.Status = GroupOrderStatus.Completed;
-                group.CompletedAt = DateTime.UtcNow;
                 break;
 
             case GroupOrderStatus.PartialFilled:
-                foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
-                    await _executor.CancelOrderAsync(leg.OrderId);
                 var remaining = group.TotalContracts - group.PartialContracts;
                 await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, remaining);
-                group.Status = GroupOrderStatus.Completed;
-                group.CompletedAt = DateTime.UtcNow;
                 break;
         }
 
-        strategy?.SetInTrade(false);
-
-        lock (_lock)
-            _active.Remove(setupId);
-        RemoveGroupLock(group.GroupOrderId);
+        // Record the trade with P&L — CompleteGroup handles TradeRecord creation,
+        // fires OnTradeCompleted, and removes from _active.
+        if (exitPrice > 0 && group.EntryPrice.HasValue)
+        {
+            await CompleteGroup(group, strategy!, reason, exitPrice, DateTime.UtcNow);
+        }
+        else
+        {
+            // Fallback: no price available — just clean up without trade record
+            _log?.LogWarning("[BEH] ExitGroupCoreAsync grp={G} — no exit price, trade not recorded",
+                group.GroupOrderId);
+            group.Status = GroupOrderStatus.Completed;
+            group.CompletedAt = DateTime.UtcNow;
+            strategy?.SetInTrade(false);
+            RemoveGroup(group);
+        }
     }
 
     /// <summary>Force-close all active groups (session boundary).</summary>
-    public async Task ExitAllAsync()
+    /// <param name="priceResolver">Resolves current price for a ticker. Null = no trade records.</param>
+    public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null)
     {
-        List<string> setupIds;
+        List<(string Id, string Ticker)> setupInfo;
         lock (_lock)
-            setupIds = _active.Keys.ToList();
+            setupInfo = _active.Select(kv => (kv.Key, kv.Value.Group.Ticker)).ToList();
 
-        foreach (var id in setupIds)
-            await ExitGroupAsync(id);
+        foreach (var (id, ticker) in setupInfo)
+        {
+            var price = priceResolver?.Invoke(ticker) ?? 0m;
+            await ExitGroupAsync(id, price, ExitReason.SessionEnd);
+        }
     }
 
     // ── P&L ─────────────────────────────────────────────────────
@@ -273,6 +430,7 @@ public class BrokerEventHandler
             group.EntryPrice = evt.FillPrice;
             strategy.SetInTrade(true);
             _log?.LogInformation("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, evt.FillPrice);
+            OnEntryFilled?.Invoke(group);
         }
         else if (evt.Status == OrderLegStatus.Rejected)
         {
@@ -298,6 +456,11 @@ public class BrokerEventHandler
                 : (group.EntryPrice.Value - evt.FillPrice.Value) * group.PointValue * group.PartialContracts;
             group.AccruedPartialPnl = partialPnl;
         }
+        else
+        {
+            _log?.LogWarning("[BEH] Tg1 FILLED grp={G} but cannot accrue: entryPrice={E} fillPrice={F}",
+                group.GroupOrderId, group.EntryPrice, evt.FillPrice);
+        }
 
         // Move stop to BE (if enabled) with reduced qty
         var stopLeg = group.GetLeg(LegType.Stop);
@@ -306,6 +469,9 @@ public class BrokerEventHandler
             var remaining = group.TotalContracts - group.PartialContracts;
             var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
             await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
+            // Update the GroupOrder leg to reflect the modification
+            stopLeg.Quantity = remaining;
+            if (group.UseBe) stopLeg.Price = newStopPrice;
             if (group.UseBe)
                 _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
                     group.GroupOrderId, group.EntryPrice, remaining);
@@ -313,16 +479,21 @@ public class BrokerEventHandler
                 _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop stays @ {P}, qty→{Q}",
                     group.GroupOrderId, stopLeg.Price, remaining);
         }
+
+        OnGroupStateChanged?.Invoke(group);
     }
 
     private async Task HandleTg2EventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        // Cancel stop leg
+        // Cancel stop leg and update its status on the GroupOrder
         var stopLeg = group.GetLeg(LegType.Stop);
         if (stopLeg != null && stopLeg.Status == OrderLegStatus.Working)
+        {
             await _executor.CancelOrderAsync(stopLeg.OrderId);
+            stopLeg.Status = OrderLegStatus.Canceled;
+        }
 
         await CompleteGroup(group, strategy, ExitReason.Target, evt.FillPrice ?? 0m, evt.Timestamp);
     }
@@ -331,12 +502,13 @@ public class BrokerEventHandler
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        // Cancel tg1 and tg2 legs that are still working
+        // Cancel tg1 and tg2 legs and update their status on the GroupOrder
         foreach (var leg in group.Legs.Where(l =>
             (l.LegType == LegType.Tg1 || l.LegType == LegType.Tg2) &&
             l.Status == OrderLegStatus.Working))
         {
             await _executor.CancelOrderAsync(leg.OrderId);
+            leg.Status = OrderLegStatus.Canceled;
         }
 
         await CompleteGroup(group, strategy, ExitReason.Stop, evt.FillPrice ?? 0m, evt.Timestamp);
@@ -345,15 +517,15 @@ public class BrokerEventHandler
     private async Task CancelRemainingAndComplete(GroupOrder group, ISetupStrategy strategy, GroupOrderStatus status)
     {
         foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
+        {
             await _executor.CancelOrderAsync(leg.OrderId);
+            leg.Status = OrderLegStatus.Canceled;
+        }
 
         group.Status = status;
         group.CompletedAt = DateTime.UtcNow;
         strategy.SetInTrade(false);
-
-        lock (_lock)
-            _active.Remove(group.SetupId);
-        RemoveGroupLock(group.GroupOrderId);
+        RemoveGroup(group);
     }
 
     private Task CompleteGroup(GroupOrder group, ISetupStrategy strategy,
@@ -369,12 +541,20 @@ public class BrokerEventHandler
             bool isLong = group.Direction == Direction.Long;
             var entry = group.EntryPrice.Value;
             var stopLeg = group.GetLeg(LegType.Stop);
-            var initStop = stopLeg?.Price ?? 0m;
+            var initStop = group.InitialStopPrice > 0 ? group.InitialStopPrice : (stopLeg?.Price ?? 0m);
             var tg1 = group.GetLeg(LegType.Tg1);
             var tg2 = group.GetLeg(LegType.Tg2);
 
-            // Compute total P&L
-            int remaining = group.TotalContracts - group.PartialContracts;
+            // Compute total P&L — only subtract partial contracts if partial actually filled
+            bool partialFilled = group.AccruedPartialPnl != 0m;
+
+            // Diagnostic: log when Tg1 leg exists but partial didn't fill on a Target exit
+            if (!partialFilled && reason == ExitReason.Target && tg1 != null)
+                _log?.LogWarning("[BEH] DIAG: Target exit but PartialFilled=false grp={G} tg1Status={S} tg1Fill={F} partialCts={P} accrued={A}",
+                    group.GroupOrderId, tg1.Status, tg1.FillPrice, group.PartialContracts, group.AccruedPartialPnl);
+            int remaining = partialFilled
+                ? group.TotalContracts - group.PartialContracts
+                : group.TotalContracts;
             decimal exitPnl = isLong
                 ? (exitPrice - entry) * group.PointValue * remaining
                 : (entry - exitPrice) * group.PointValue * remaining;
@@ -410,9 +590,7 @@ public class BrokerEventHandler
             OnTradeCompleted?.Invoke(group, trade);
         }
 
-        lock (_lock)
-            _active.Remove(group.SetupId);
-        RemoveGroupLock(group.GroupOrderId);
+        RemoveGroup(group);
 
         return Task.CompletedTask;
     }

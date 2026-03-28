@@ -157,9 +157,6 @@ public class LiveModel : PageModel
             _log.LogError(ex, "Failed to deserialize SessionsJson: {Json}", SessionsJson);
         }
 
-        // PullbackPct is not shown in the UI — derive it from ModeA so it stays consistent
-        Config.PullbackPct = Config.IsAggressiveA ? 0.25m : 0.50m;
-
         _cfgSvc.Update(Config);
         TempData["live_saved"] = "1";
         return RedirectToPage();

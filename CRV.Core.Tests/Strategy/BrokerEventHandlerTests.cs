@@ -235,11 +235,31 @@ public class BrokerEventHandlerTests
 
         await handler.HandleEventAsync(Evt("grp-001", "e1", LegType.Entry, OrderLegStatus.Filled, 20000m, 4));
 
-        await handler.ExitGroupAsync("A");
+        await handler.ExitGroupAsync("A", 20100m, ExitReason.Manual);
 
         Assert.Equal(GroupOrderStatus.Completed, group.Status);
         Assert.Single(exec.MarketCloses);
         Assert.Equal(4, exec.MarketCloses[0].qty);
+    }
+
+    [Fact]
+    public async Task ExitGroup_Active_CreatesTradeRecord()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+        var group = MakeGroup();
+        handler.RegisterGroup(group, strategy);
+
+        TradeRecord? completedTrade = null;
+        handler.OnTradeCompleted += (_, trade) => completedTrade = trade;
+
+        await handler.HandleEventAsync(Evt("grp-001", "e1", LegType.Entry, OrderLegStatus.Filled, 20000m, 4));
+        await handler.ExitGroupAsync("A", 20100m, ExitReason.Manual);
+
+        Assert.NotNull(completedTrade);
+        Assert.Equal(ExitReason.Manual, completedTrade!.ExitReason);
+        Assert.True(completedTrade.GrossPnl > 0);
     }
 
     [Fact]
@@ -257,7 +277,7 @@ public class BrokerEventHandlerTests
         exec.Modifications.Clear();
         exec.Cancellations.Clear();
 
-        await handler.ExitGroupAsync("A");
+        await handler.ExitGroupAsync("A", 20100m, ExitReason.Manual);
 
         Assert.Equal(GroupOrderStatus.Completed, group.Status);
         Assert.Single(exec.MarketCloses);
@@ -355,6 +375,37 @@ public class BrokerEventHandlerTests
         Assert.Equal(Direction.Long, completedTrade.Direction);
         Assert.Equal(20000m, completedTrade.Entry);
         Assert.Equal(20100m, completedTrade.Exit);
+        Assert.True(completedTrade.RMultiple > 0, $"RMultiple should be > 0 but was {completedTrade.RMultiple}");
+    }
+
+    [Fact]
+    public async Task RMultiple_UsesInitialStopPrice_NotModifiedStop()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+        var group = MakeGroup();
+        group.InitialStopPrice = 19950m; // Original stop
+        group.UseBe = true;
+        handler.RegisterGroup(group, strategy);
+
+        TradeRecord? completedTrade = null;
+        handler.OnTradeCompleted += (g, t) => completedTrade = t;
+
+        // Entry fill
+        await handler.HandleEventAsync(Evt("grp-001", "e1", LegType.Entry, OrderLegStatus.Filled, 20000m, 4));
+        // Tg1 fill → stop moves to BE (20000)
+        await handler.HandleEventAsync(Evt("grp-001", "t1", LegType.Tg1, OrderLegStatus.Filled, 20050m, 2));
+        // Tg2 fill → trade complete
+        await handler.HandleEventAsync(Evt("grp-001", "t2", LegType.Tg2, OrderLegStatus.Filled, 20100m, 2));
+
+        Assert.NotNull(completedTrade);
+        // Stop leg is now at BE (20000), but R should use InitialStopPrice (19950)
+        // risk = |20000 - 19950| * 20 * 4 = 50 * 20 * 4 = $4000
+        // pnl = partial(2ct × 50pts × $20) + remainder(2ct × 100pts × $20) = $2000 + $4000 = $6000
+        // rMult = 6000 / 4000 = 1.5
+        Assert.Equal(19950m, completedTrade!.InitialStop);
+        Assert.True(completedTrade.RMultiple > 0, $"RMultiple should be > 0 but was {completedTrade.RMultiple}");
     }
 
     [Fact]
@@ -409,5 +460,71 @@ public class BrokerEventHandlerTests
         await handler.HandleEventAsync(Evt("grp-001", "s1", LegType.Stop, OrderLegStatus.Filled, 19950m, 4));
 
         Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Fact]
+    public async Task DisplacedGroup_StillProcessesTg1AndTg2Events()
+    {
+        // Scenario: group1 is active for setupId "A", then group2 overwrites it.
+        // Events for group1 (Tg1, Tg2) should still be processed via _byGroupId.
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        // Group1: registered and entry filled
+        var group1 = new GroupOrder
+        {
+            GroupOrderId = "grp-OLD", SetupId = "A", Ticker = "/MES",
+            Direction = Direction.Long, TotalContracts = 2, PartialContracts = 1,
+            PointValue = 5m, Status = GroupOrderStatus.Pending, Broker = "Mock",
+        };
+        group1.Legs.Add(new OrderLeg { GroupOrderId = "grp-OLD", OrderId = "e1-old", LegType = LegType.Entry, OrderType = "Market", Action = "BUY", Quantity = 2, Price = 5000m });
+        group1.Legs.Add(new OrderLeg { GroupOrderId = "grp-OLD", OrderId = "t1-old", LegType = LegType.Tg1, OrderType = "Limit", Action = "SELL", Quantity = 1, Price = 5010m });
+        group1.Legs.Add(new OrderLeg { GroupOrderId = "grp-OLD", OrderId = "t2-old", LegType = LegType.Tg2, OrderType = "Limit", Action = "SELL", Quantity = 1, Price = 5020m });
+        group1.Legs.Add(new OrderLeg { GroupOrderId = "grp-OLD", OrderId = "s1-old", LegType = LegType.Stop, OrderType = "Stop", Action = "SELL", Quantity = 2, Price = 4990m });
+
+        handler.RegisterGroup(group1, strategy);
+        await handler.HandleEventAsync(Evt("grp-OLD", "e1-old", LegType.Entry, OrderLegStatus.Filled, 5000m));
+
+        Assert.Equal(GroupOrderStatus.Active, group1.Status);
+
+        // Group2 overwrites setupId "A"
+        var strategy2 = new FakeSetup();
+        var group2 = new GroupOrder
+        {
+            GroupOrderId = "grp-NEW", SetupId = "A", Ticker = "/MES",
+            Direction = Direction.Long, TotalContracts = 2, PartialContracts = 1,
+            PointValue = 5m, Status = GroupOrderStatus.Pending, Broker = "Mock",
+        };
+        group2.Legs.Add(new OrderLeg { GroupOrderId = "grp-NEW", OrderId = "e1-new", LegType = LegType.Entry, OrderType = "Market", Action = "BUY", Quantity = 2, Price = 5050m });
+        group2.Legs.Add(new OrderLeg { GroupOrderId = "grp-NEW", OrderId = "t1-new", LegType = LegType.Tg1, OrderType = "Limit", Action = "SELL", Quantity = 1, Price = 5060m });
+        group2.Legs.Add(new OrderLeg { GroupOrderId = "grp-NEW", OrderId = "t2-new", LegType = LegType.Tg2, OrderType = "Limit", Action = "SELL", Quantity = 1, Price = 5070m });
+        group2.Legs.Add(new OrderLeg { GroupOrderId = "grp-NEW", OrderId = "s1-new", LegType = LegType.Stop, OrderType = "Stop", Action = "SELL", Quantity = 2, Price = 5040m });
+
+        handler.RegisterGroup(group2, strategy2);
+
+        // _active["A"] now points to group2, but group1 is still in _byGroupId
+        Assert.Equal("grp-NEW", handler.GetActiveGroup("A")!.GroupOrderId);
+
+        // Tg1 fill arrives for group1 — should still be processed
+        await handler.HandleEventAsync(Evt("grp-OLD", "t1-old", LegType.Tg1, OrderLegStatus.Filled, 5010m));
+
+        Assert.Equal(GroupOrderStatus.PartialFilled, group1.Status);
+        Assert.Equal(50m, group1.AccruedPartialPnl); // (5010-5000)*5*1 = 50
+
+        // Tg2 fill arrives for group1 — completes the displaced group
+        TradeRecord? completedTrade = null;
+        handler.OnTradeCompleted += (g, t) => { if (g.GroupOrderId == "grp-OLD") completedTrade = t; };
+        await handler.HandleEventAsync(Evt("grp-OLD", "t2-old", LegType.Tg2, OrderLegStatus.Filled, 5020m));
+
+        Assert.Equal(GroupOrderStatus.Completed, group1.Status);
+        Assert.NotNull(completedTrade);
+        Assert.True(completedTrade!.PartialFilled);
+        // Partial: (5010-5000)*5*1=50, Exit: (5020-5000)*5*1=100, Total=150
+        Assert.Equal(150m, completedTrade.GrossPnl);
+
+        // group2 should still be active
+        Assert.True(handler.HasActiveGroup("A"));
+        Assert.Equal("grp-NEW", handler.GetActiveGroup("A")!.GroupOrderId);
     }
 }
