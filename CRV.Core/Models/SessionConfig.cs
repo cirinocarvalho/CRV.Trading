@@ -86,6 +86,15 @@ public class SetupConfigD : SetupConfigBase
     public int     EntryTickOffset  { get; set; } = 0;
 }
 
+// ── Setup F — TrendDay Module Config (not a strategy) ───────────────────────
+
+public class SetupConfigF
+{
+    public int     TrendDayThreshold   { get; set; } = 4;
+    public decimal ShallowPullbackMax  { get; set; } = 0.35m;
+    public int     VwapDevPeriod       { get; set; } = 20;
+}
+
 // ── Session-level config ────────────────────────────────────────────────────
 
 public class SessionConfig
@@ -105,6 +114,7 @@ public class SessionConfig
     public SetupConfigB SetupB        { get; set; } = new();
     public SetupConfigC SetupC        { get; set; } = new();
     public SetupConfigD SetupD        { get; set; } = new();
+    public SetupConfigF SetupF        { get; set; } = new();
 
     // ── ToLegacyConfig ─────────────────────────────────────────────────────
     /// <summary>
@@ -241,6 +251,11 @@ public class SessionConfig
         c.TickerD           = SetupD.CustomTicker;
         c.PointValueD       = SetupD.CustomPointValue;
         c.TickSizeD         = SetupD.CustomTickSize;
+
+        // ── Setup F (TrendDay module) ──────────────────────────────────────
+        c.TrendDayThreshold  = SetupF.TrendDayThreshold;
+        c.ShallowPullbackMax = SetupF.ShallowPullbackMax;
+        c.VwapDevPeriod      = SetupF.VwapDevPeriod;
 
         return c;
     }
@@ -383,6 +398,13 @@ public class SessionConfig
             CustomTicker      = cfg.TickerD,
             CustomPointValue  = cfg.PointValueD,
             CustomTickSize    = cfg.TickSizeD,
+        },
+
+        SetupF = new SetupConfigF
+        {
+            TrendDayThreshold  = cfg.TrendDayThreshold,
+            ShallowPullbackMax = cfg.ShallowPullbackMax,
+            VwapDevPeriod      = cfg.VwapDevPeriod,
         },
     };
 

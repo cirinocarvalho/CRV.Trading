@@ -231,8 +231,17 @@
     <div class="settings-section mt-3">
         <div class="d-flex align-items-center mb-2">
             <h6 class="mb-0"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
-            <span class="badge bg-secondary font-monospace ms-2">@r.Trades.Count trades</span>
-            <span class="ms-2 small text-muted">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
+            <span class="badge bg-secondary font-monospace ms-2 trade-count">@r.Trades.Count trades</span>
+            <span class="ms-2 small text-muted trade-wl">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
+            <select id="setup-filter" class="form-select form-select-sm ms-2" style="width:auto;" onchange="filterBySetup(this.value)">
+                <option value="">All Setups</option>
+                @foreach (var sl in r.Trades
+                    .Select(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
+                    .Distinct().OrderBy(x => x))
+                {
+                    <option value="@sl">@sl</option>
+                }
+            </select>
             <button type="button" class="btn btn-sm btn-outline-light ms-auto" onclick="exportTradesCsv()"><i class="bi bi-download me-1"></i>CSV</button>
         </div>
         <div class="table-responsive" style="max-height:460px;overflow-y:auto;">
@@ -259,7 +268,7 @@
                             ExitReason.Stop       => "bg-danger",
                             _                     => "bg-secondary"
                         };
-                        <tr class="@rowCls">
+                        <tr class="@rowCls" data-setup="@(!string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())">
                             <td class="td-dim">@rowNum</td>
                             <td class="td-time">@ToEt(t.EnteredAt)</td>
                             <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
@@ -340,6 +349,82 @@
         },
     });
 }());
+    </text>
+}
+
+@if (Model.Result?.Trades?.Count > 0)
+{
+    <text>
+    const _tradesData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        Model.Result.Trades.OrderBy(t => t.EnteredAt).Select(t => new {
+            setup = !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString(),
+            isWin = t.IsWin,
+            netPnl = t.NetPnl,
+            commission = t.Commission,
+            rMultiple = t.RMultiple,
+            dir = t.EffectiveDirection.ToString(),
+            exitReason = t.ExitReason.ToString()
+        })
+    ));
+    const _origMetrics = document.querySelector('.row.g-2')?.innerHTML;
+
+    function filterBySetup(selected) {
+        const rows = document.querySelectorAll('.trade-table tbody tr');
+        let n = 0, w = 0;
+        rows.forEach(row => {
+            const s = row.dataset.setup;
+            if (!s) return;
+            const show = !selected || s === selected;
+            row.style.display = show ? '' : 'none';
+            if (show) { n++; if (row.classList.contains('table-success')) w++; row.querySelector('td').textContent = n; }
+        });
+        document.querySelector('.trade-count').textContent = n + ' trades';
+        document.querySelector('.trade-wl').textContent = w + ' W / ' + (n - w) + ' L';
+
+        const grid = document.querySelector('.col-12.col-xl-8 .row.g-2');
+        if (!grid) return;
+        if (!selected) { grid.innerHTML = _origMetrics; return; }
+
+        const f = _tradesData.filter(t => t.setup === selected);
+        const wins = f.filter(t => t.isWin), losses = f.filter(t => !t.isWin);
+        const net = f.reduce((s, t) => s + t.netPnl, 0);
+        const wr = f.length ? (wins.length / f.length * 100) : 0;
+        const avgW = wins.length ? wins.reduce((s, t) => s + t.netPnl, 0) / wins.length : 0;
+        const avgL = losses.length ? losses.reduce((s, t) => s + t.netPnl, 0) / losses.length : 0;
+        const avgR = f.length ? f.reduce((s, t) => s + t.rMultiple, 0) / f.length : 0;
+        const grossW = wins.reduce((s, t) => s + t.netPnl, 0);
+        const grossL = Math.abs(losses.reduce((s, t) => s + t.netPnl, 0));
+        const pf = grossL > 0 ? (grossW / grossL).toFixed(2) : (net > 0 ? '∞' : '0.00');
+        const comm = f.reduce((s, t) => s + t.commission, 0);
+        const exp = f.length ? ((wins.length/f.length)*avgW + (losses.length/f.length)*avgL) : 0;
+        const longs = f.filter(t => t.dir === 'Long').length, shorts = f.length - longs;
+        const tgt = f.filter(t => t.exitReason === 'Target').length;
+        const stp = f.filter(t => t.exitReason === 'Stop').length;
+        const eod = f.filter(t => t.exitReason === 'SessionEnd').length;
+        let peak = 0, eq = 0, maxDd = 0;
+        f.forEach(t => { eq += t.netPnl; if (eq > peak) peak = eq; const dd = peak - eq; if (dd > maxDd) maxDd = dd; });
+        let mW = 0, mL = 0, cW = 0, cL = 0;
+        f.forEach(t => { if (t.isWin) { cW++; cL=0; mW=Math.max(mW,cW); } else { cL++; cW=0; mL=Math.max(mL,cL); } });
+        const fmt = v => (v >= 0 ? '+$' : '-$') + Math.abs(Math.round(v)).toLocaleString();
+        const cls = v => v > 0 ? 'pnl-pos' : v < 0 ? 'pnl-neg' : 'pnl-zero';
+        const row = (l, v, c) => `<div class="d-flex justify-content-between border-bottom border-secondary py-1"><span class="text-muted small">${l}</span><span class="font-monospace small ${c||''}">${v}</span></div>`;
+        grid.innerHTML = `<div class="col-12 col-md-4"><div class="settings-section h-100">
+            <h6><i class="bi bi-bar-chart-fill me-1"></i>${selected}</h6>
+            ${row('Trades', f.length, '')}
+            ${row('Win Rate', wr.toFixed(1)+'%', wr>=50?'pnl-pos':'pnl-neg')}
+            ${row('Net P&L', fmt(net), cls(net))}
+            ${row('Profit Factor', pf, pf>=1.5?'pnl-pos':'')}
+            ${row('Avg R', avgR.toFixed(2)+'R', cls(avgR))}
+            ${row('Max DD', '-$'+Math.round(maxDd).toLocaleString(), 'pnl-neg')}
+            ${row('Avg Win', '$'+Math.round(avgW).toLocaleString(), 'pnl-pos')}
+            ${row('Avg Loss', '$'+Math.round(avgL).toLocaleString(), 'pnl-neg')}
+            ${row('Expectancy', fmt(exp), cls(exp))}
+            ${row('Consec W / L', mW+' / '+mL, '')}
+            ${row('Long / Short', longs+' / '+shorts, '')}
+            ${row('Tgt / Stp / EOD', tgt+' / '+stp+' / '+eod, '')}
+            ${row('Commission', '-$'+Math.round(comm).toLocaleString(), 'pnl-neg')}
+        </div></div>`;
+    }
     </text>
 }
 
