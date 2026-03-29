@@ -68,10 +68,15 @@ builder.Services.AddSingleton<DailyStatsService>();
 // ── SMTP settings (email alerts) ─────────────────────────────
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
 
-// ── Strategy event sink (SignalR → dashboard) ─────────────────
+// ── Strategy event sinks (SignalR + Email) ───────────────────
 builder.Services.AddSingleton<SignalREventSink>();
+builder.Services.AddSingleton<EmailNotificationService>();
 builder.Services.AddSingleton<IStrategyEventSink>(sp =>
-    sp.GetRequiredService<SignalREventSink>());
+    new CompositeEventSink(new IStrategyEventSink[]
+    {
+        sp.GetRequiredService<SignalREventSink>(),
+        sp.GetRequiredService<EmailNotificationService>(),
+    }));
 
 // ── Broker credentials ────────────────────────────────────────
 // Store credentials in user-secrets or env vars (never in appsettings.json):
