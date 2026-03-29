@@ -9,6 +9,7 @@ using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Hubs;
 using CRV.Web.Services;
 using Microsoft.EntityFrameworkCore;
+using CRV.Core.Models;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -63,6 +64,9 @@ builder.Services.AddSingleton<LastPriceProvider>();
 builder.Services.AddSingleton<ILastPriceProvider>(sp =>
     sp.GetRequiredService<LastPriceProvider>());
 builder.Services.AddSingleton<DailyStatsService>();
+
+// ── SMTP settings (email alerts) ─────────────────────────────
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
 
 // ── Strategy event sink (SignalR → dashboard) ─────────────────
 builder.Services.AddSingleton<SignalREventSink>();
