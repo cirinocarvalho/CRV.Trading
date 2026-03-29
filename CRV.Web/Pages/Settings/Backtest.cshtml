@@ -159,7 +159,7 @@
             var allCards = new[] { (Title: "Total", Icon: "bi-bar-chart-fill", M: r.Total) }
                 .Concat(setupCards)
                 .ToList();
-            <div class="row g-2">
+            <div class="row g-2" id="metrics-grid">
                 @foreach (var card in allCards)
                 {
                     var m = card.M;
@@ -366,7 +366,7 @@
             exitReason = t.ExitReason.ToString()
         })
     ));
-    const _origMetrics = document.querySelector('.row.g-2')?.innerHTML;
+    const _origMetrics = document.getElementById('metrics-grid')?.innerHTML;
 
     function filterBySetup(selected) {
         const rows = document.querySelectorAll('.trade-table tbody tr');
@@ -381,7 +381,7 @@
         document.querySelector('.trade-count').textContent = n + ' trades';
         document.querySelector('.trade-wl').textContent = w + ' W / ' + (n - w) + ' L';
 
-        const grid = document.querySelector('.col-12.col-xl-8 .row.g-2');
+        const grid = document.getElementById('metrics-grid');
         if (!grid) return;
         if (!selected) { grid.innerHTML = _origMetrics; return; }
 
