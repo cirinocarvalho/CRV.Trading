@@ -100,8 +100,12 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         }
         _previousOrbFormed = snap.OrbFormed;
 
-        // Session change — detect session ID change
-        if (cfg.EmailOnSessionChange && snap.ActiveSessionId != _previousSessionId && !string.IsNullOrEmpty(_previousSessionId))
+        // Session change — detect transition between non-empty session IDs
+        // (empty → X = engine start, X → empty = session end, not a "change")
+        if (cfg.EmailOnSessionChange
+            && snap.ActiveSessionId != _previousSessionId
+            && !string.IsNullOrEmpty(_previousSessionId)
+            && !string.IsNullOrEmpty(snap.ActiveSessionId))
         {
             var alert = new AlertEvent
             {

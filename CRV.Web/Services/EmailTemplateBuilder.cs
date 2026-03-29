@@ -6,6 +6,16 @@ namespace CRV.Web.Services;
 /// <summary>Builds HTML email bodies for alert notifications and session summaries.</summary>
 public static class EmailTemplateBuilder
 {
+    private static readonly TimeZoneInfo _et =
+        TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+
+    /// <summary>Convert UTC DateTime to ET for display.</summary>
+    private static string FormatET(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(utc, _et).ToString("yyyy-MM-dd HH:mm:ss") + " ET";
+
+    private static string FormatTimeET(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(utc, _et).ToString("HH:mm:ss");
+
     private const string BaseStyle =
         "font-family:monospace;font-size:14px;color:#e0e0e0;background:#1a1a2e;padding:20px;";
     private const string ContainerStyle =
@@ -37,7 +47,7 @@ public static class EmailTemplateBuilder
             <div style="{ContainerStyle}">
               <h2 style="color:{color};margin:0 0 16px 0;">{HtmlEncode(alert.Type)}</h2>
               <table style="border-collapse:collapse;width:100%;">
-                <tr><td style="color:#888;padding-right:12px;">Time</td><td>{alert.Time:yyyy-MM-dd HH:mm:ss} UTC</td></tr>
+                <tr><td style="color:#888;padding-right:12px;">Time</td><td>{FormatET(alert.Time)}</td></tr>
                 {setupRow}
                 <tr><td style="color:#888;padding-right:12px;">Detail</td><td>{HtmlEncode(alert.Message)}</td></tr>
               </table>
@@ -57,7 +67,7 @@ public static class EmailTemplateBuilder
         var rows = string.Join("\n", alerts.Select(a =>
             $"""
             <tr style="border-bottom:1px solid #333;">
-              <td style="padding:6px 8px;color:#888;">{a.Time:HH:mm:ss}</td>
+              <td style="padding:6px 8px;color:#888;">{FormatTimeET(a.Time)}</td>
               <td style="padding:6px 8px;">{HtmlEncode(a.Type)}</td>
               <td style="padding:6px 8px;">{HtmlEncode(a.SetupLabel)}</td>
               <td style="padding:6px 8px;">{HtmlEncode(a.Message)}</td>
@@ -102,7 +112,7 @@ public static class EmailTemplateBuilder
             <html><body style="{BaseStyle}">
             <div style="{ContainerStyle}">
               <h2 style="color:#e0e0e0;margin:0 0 4px 0;">Session End Summary</h2>
-              <p style="color:#888;margin:0 0 16px 0;">{sessionId} — {date:dddd, MMMM d, yyyy} UTC</p>
+              <p style="color:#888;margin:0 0 16px 0;">{sessionId} — {date:dddd, MMMM d, yyyy}</p>
               <table style="border-collapse:collapse;width:100%;">
                 <tr><td style="color:#888;padding:4px 12px 4px 0;">Net P&L</td>
                     <td style="color:{pnlColor};font-weight:bold;">{stats.TodayNetPnL:C2}</td></tr>
