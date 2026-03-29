@@ -22,10 +22,12 @@ public class EngineController : ControllerBase
     private readonly TradeRepository _trades;
     private readonly IServiceProvider _sp;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly EmailNotificationService _emailSvc;
 
     public EngineController(LiveEngineOrchestrator engine, StrategyConfigService cfgSvc,
                             ILastPriceProvider prices, SnapshotBroadcastService broadcast,
-                            TradeRepository trades, IServiceProvider sp, ILoggerFactory loggerFactory)
+                            TradeRepository trades, IServiceProvider sp, ILoggerFactory loggerFactory,
+                            EmailNotificationService emailSvc)
     {
         _engine = engine;
         _cfgSvc = cfgSvc;
@@ -34,6 +36,7 @@ public class EngineController : ControllerBase
         _trades = trades;
         _sp = sp;
         _loggerFactory = loggerFactory;
+        _emailSvc = emailSvc;
     }
 
     [HttpPost("start")]
@@ -240,5 +243,13 @@ public class EngineController : ControllerBase
             r        = t.RMultiple
         });
         return Ok(rows);
+    }
+
+    /// <summary>Send a test email to verify SMTP and recipient configuration.</summary>
+    [HttpPost("email/test")]
+    public async Task<IActionResult> TestEmail()
+    {
+        var (ok, message) = await _emailSvc.SendTestEmailAsync();
+        return ok ? Ok(new { status = "ok", message }) : BadRequest(new { status = "error", message });
     }
 }
