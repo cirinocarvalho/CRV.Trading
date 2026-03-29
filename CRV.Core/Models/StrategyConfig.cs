@@ -18,6 +18,15 @@ internal sealed class LenientIntConverter : JsonConverter<int>
         writer.WriteNumberValue(value);
 }
 
+/// <summary>How the daily loss limit is measured.</summary>
+public enum DailyLossMode
+{
+    /// <summary>Absolute floor: blocks when TodayPnl &lt;= -MaxDailyLoss.</summary>
+    Floor,
+    /// <summary>Peak drawdown: blocks when (TodayPeak - TodayPnl) &gt;= MaxDailyLoss.</summary>
+    Peak
+}
+
 /// <summary>All strategy inputs — shared by live engine and backtest engine.</summary>
 public class StrategyConfig
 {
@@ -65,6 +74,8 @@ public class StrategyConfig
     public int     CutoffMinute    { get; set; } = 30;
     public bool    UseDailyLossLimit { get; set; } = true;
     public decimal MaxDailyLoss    { get; set; } = 500m;
+    /// <summary>Floor = absolute PnL floor (blocks at -MaxDailyLoss). Peak = drawdown from daily high-water mark.</summary>
+    public DailyLossMode DailyLossMode { get; set; } = DailyLossMode.Floor;
     public bool    UseVwap         { get; set; } = true;
     public bool    UseOrbClose     { get; set; } = false;
     public bool    AllowBothSameBar{ get; set; } = false;
@@ -352,6 +363,7 @@ public class StrategyConfig
         TickSize           = TickSize,
         UseDailyLossLimit  = UseDailyLossLimit,
         MaxDailyLoss       = MaxDailyLoss,
+        DailyLossMode      = DailyLossMode,
         AtrFilterPct       = AtrFilterPct,
         CommissionPerSide  = CommissionPerSide,
         AllowBothSameBar   = AllowBothSameBar,

@@ -279,9 +279,9 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 
         // Single API call — Tradovate handles the entire bracket lifecycle
         var (strategyId, entryOrderId) = await StartOrderStrategyAsync(body);
-        if (strategyId is null && entryOrderId is null)
+        if (strategyId is null || entryOrderId is null)
         {
-            _log.LogError("[TV-GRP] startOrderStrategy failed — check previous log for API error details");
+            _log.LogError("[TV-GRP] startOrderStrategy failed — strategyId={S} entryOrderId={E}", strategyId, entryOrderId);
             return null;
         }
 
@@ -374,7 +374,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 {
                     await Task.Delay(2000);
                     var fullDisc = await DiscoverBracketLegsAsync(
-                        strategyId.Value, symbol, entryAction, exitAction, usePartial);
+                        strategyId!.Value, symbol, entryAction, exitAction, usePartial);
 
                     if (fullDisc.Tg1 is not null || fullDisc.Tg2 is not null || fullDisc.Stop is not null)
                     {

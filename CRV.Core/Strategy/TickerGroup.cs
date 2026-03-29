@@ -245,7 +245,7 @@ public class TickerGroup
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd, bar.Time);
                     }
                     continue;
                 }
@@ -260,7 +260,7 @@ public class TickerGroup
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd, bar.Time);
                     }
                     // Disarm stale armed/waiting states so dashboard shows IDLE
                     strategy.Disarm();
@@ -338,7 +338,7 @@ public class TickerGroup
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd, utc);
                     }
                     continue;
                 }
@@ -349,7 +349,7 @@ public class TickerGroup
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            _ = _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd, utc);
                     }
                     strategy.Disarm();
                     continue;

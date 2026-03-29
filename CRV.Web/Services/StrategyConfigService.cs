@@ -56,7 +56,7 @@ public class StrategyConfigService
     {
         var fresh = LoadFromDb();
         lock (_lock) { _current = fresh; }
-        _log.LogInformation("StrategyConfig force-reloaded from DB.");
+        _log.LogDebug("StrategyConfig force-reloaded from DB.");
     }
 
     // ── Private helpers ───────────────────────────────────────
@@ -71,7 +71,7 @@ public class StrategyConfigService
             var cfg = db.Configs.AsNoTracking().FirstOrDefault(c => c.Id == ConfigId);
             if (cfg != null)
             {
-                _log.LogInformation("StrategyConfig loaded from DB (Id={Id}, UpdatedAt={At})",
+                _log.LogDebug("StrategyConfig loaded from DB (Id={Id}, UpdatedAt={At})",
                     cfg.Id, cfg.UpdatedAt);
                 cfg.Sessions = LoadSessions();
                 return cfg;

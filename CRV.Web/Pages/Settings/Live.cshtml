@@ -326,11 +326,19 @@
             <input name="Config.AtrFilterPct" type="number" step="any" value="@Model.Config.AtrFilterPct" class="form-control form-control-sm" />
         </div>
         <div class="row g-2 mt-1">
-            <div class="col-6">
+            <div class="col-4">
                 <label class="form-label small">Max Daily Loss ($)</label>
                 <input name="Config.MaxDailyLoss" type="number" step="50" value="@Model.Config.MaxDailyLoss" class="form-control form-control-sm" />
             </div>
-            <div class="col-6">
+            <div class="col-4">
+                <label class="form-label small">Loss Mode</label>
+                @{ var dlm = Model.Config.DailyLossMode; }
+                <select name="Config.DailyLossMode" class="form-select form-select-sm">
+                    <option value="Floor" selected="@(dlm == CRV.Core.Models.DailyLossMode.Floor)">Floor</option>
+                    <option value="Peak"  selected="@(dlm == CRV.Core.Models.DailyLossMode.Peak)">Peak</option>
+                </select>
+            </div>
+            <div class="col-4">
                 <label class="form-label small">Commission ($/side)</label>
                 <input name="Config.CommissionPerSide" type="number" step="0.01" value="@Model.Config.CommissionPerSide" class="form-control form-control-sm" />
             </div>

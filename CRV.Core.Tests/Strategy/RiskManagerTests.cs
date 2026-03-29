@@ -1,3 +1,4 @@
+using CRV.Core.Models;
 using CRV.Core.Strategy;
 using Xunit;
 
@@ -96,14 +97,14 @@ public class RiskManagerTests
     }
 
     // ──────────────────────────────────────────────
-    // 3. CanTrade returns false when loss limit breached
+    // 3. CanTrade returns false when drawdown from peak >= limit
     // ──────────────────────────────────────────────
 
     [Fact]
-    public void CanTrade_PnlExceedsLossLimit_ReturnsFalseAndSetsDdBreached()
+    public void CanTrade_DrawdownFromPeakExceedsLimit_ReturnsFalse()
     {
         var rm = new RiskManager();
-        rm.RecordTrade(-500m);  // TodayPnl = -500
+        rm.RecordTrade(-500m);  // Peak=0, PnL=-500, DD=500
 
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
 
@@ -112,27 +113,53 @@ public class RiskManagerTests
     }
 
     [Fact]
-    public void CanTrade_PnlExactlyAtNegativeLimit_ReturnsFalse()
+    public void CanTrade_DrawdownExactlyAtLimit_ReturnsFalse()
     {
         var rm = new RiskManager();
-        rm.RecordTrade(-300m);
+        rm.RecordTrade(-300m);  // Peak=0, PnL=-300, DD=300
 
-        // TodayPnl == -300, maxDailyLoss == 300  →  TodayPnl <= -maxDailyLoss
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 300m);
 
         Assert.False(result);
         Assert.True(rm.DdBreached);
     }
 
+    [Fact]
+    public void CanTrade_DrawdownFromPositivePeak_ReturnsFalse()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(400m);   // Peak=400, PnL=400, DD=0
+        rm.RecordTrade(-200m);  // Peak=400, PnL=200, DD=200
+
+        var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 200m, DailyLossMode.Peak);
+
+        Assert.False(result);
+        Assert.True(rm.DdBreached);
+    }
+
+    [Fact]
+    public void CanTrade_FloorMode_PositivePnlNeverBlocked()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(400m);   // Peak=400, PnL=400
+        rm.RecordTrade(-200m);  // Peak=400, PnL=200 — still positive
+
+        // Floor mode: PnL=200, limit=-200 → 200 > -200 → NOT blocked
+        var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 200m, DailyLossMode.Floor);
+
+        Assert.True(result);
+        Assert.False(rm.DdBreached);
+    }
+
     // ──────────────────────────────────────────────
-    // 4. CanTrade returns true when under limit
+    // 4. CanTrade returns true when drawdown under limit
     // ──────────────────────────────────────────────
 
     [Fact]
-    public void CanTrade_PnlBelowLimit_ReturnsTrue()
+    public void CanTrade_DrawdownBelowLimit_ReturnsTrue()
     {
         var rm = new RiskManager();
-        rm.RecordTrade(-200m);
+        rm.RecordTrade(-200m);  // Peak=0, PnL=-200, DD=200
 
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
 
@@ -141,7 +168,7 @@ public class RiskManagerTests
     }
 
     // ──────────────────────────────────────────────
-    // 5. CanTrade with useDailyLossLimit=false always returns true (unless DdBreached)
+    // 5. CanTrade with useDailyLossLimit=false always returns true
     // ──────────────────────────────────────────────
 
     [Fact]
@@ -157,37 +184,92 @@ public class RiskManagerTests
     }
 
     [Fact]
-    public void CanTrade_LimitDisabledButDdAlreadyBreached_ReturnsFalse()
+    public void CanTrade_LimitDisabledAfterBreach_ReturnsTrue()
     {
         var rm = new RiskManager();
         rm.RecordTrade(-500m);
         rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m); // breach it
 
-        // Now disable limit — DdBreached flag should still block trading
+        // Now disable limit — dynamic: DdBreached becomes false immediately
         var result = rm.CanTrade(useDailyLossLimit: false, maxDailyLoss: 0m);
 
-        Assert.False(result);
+        Assert.True(result);
+        Assert.False(rm.DdBreached);
     }
 
     // ──────────────────────────────────────────────
-    // 6. DdBreached stays true even if PnL recovers
+    // 6. DdBreached recovers dynamically when DD shrinks below limit
     // ──────────────────────────────────────────────
 
     [Fact]
-    public void DdBreached_StaysTrueAfterPnlRecovers()
+    public void DdBreached_PeakMode_RecoversDynamicallyWhenWinCreatesNewPeak()
     {
         var rm = new RiskManager();
-        rm.RecordTrade(-500m);
-        rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m); // set breach
+        rm.RecordTrade(-500m);  // Peak=0, PnL=-500, DD=500
+        rm.CanTrade(true, 500m, DailyLossMode.Peak);
 
         Assert.True(rm.DdBreached);
 
-        rm.RecordTrade(1_000m); // PnL is now positive
+        rm.RecordTrade(1_000m); // PnL=+500, Peak=500, DD=0
 
-        // Breach flag must not reset due to PnL recovery
+        // New peak resets DD to 0 → breach clears
+        Assert.False(rm.DdBreached);
+        var result = rm.CanTrade(true, 500m, DailyLossMode.Peak);
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void DdBreached_FloorMode_RecoversDynamicallyWhenPnlAboveFloor()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(-500m);  // PnL=-500
+        rm.CanTrade(true, 500m, DailyLossMode.Floor);
+
         Assert.True(rm.DdBreached);
-        var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
+
+        rm.RecordTrade(100m);   // PnL=-400, above -500 floor
+
+        Assert.False(rm.DdBreached);
+        var result = rm.CanTrade(true, 500m, DailyLossMode.Floor);
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void DdBreached_PeakMode_PartialRecoveryStillBreached()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(-500m);  // Peak=0, PnL=-500, DD=500
+        rm.CanTrade(true, 200m, DailyLossMode.Peak);
+
+        Assert.True(rm.DdBreached);
+
+        rm.RecordTrade(250m);   // PnL=-250, Peak=0, DD=250 — still >= 200
+
+        Assert.True(rm.DdBreached);
+        var result = rm.CanTrade(true, 200m, DailyLossMode.Peak);
         Assert.False(result);
+    }
+
+    [Fact]
+    public void DdBreached_PeakMode_FullScenario_WinLoseWinLose()
+    {
+        // Simulates the user's exact scenario with $200 Peak limit
+        var rm = new RiskManager();
+
+        rm.RecordTrade(-100m);  // Peak=0,   PnL=-100, DD=100
+        Assert.True(rm.CanTrade(true, 200m, DailyLossMode.Peak));  // not breached
+
+        rm.RecordTrade(500m);   // Peak=400, PnL=400,  DD=0
+        Assert.True(rm.CanTrade(true, 200m, DailyLossMode.Peak));  // not breached
+
+        rm.RecordTrade(-200m);  // Peak=400, PnL=200,  DD=200
+        Assert.False(rm.CanTrade(true, 200m, DailyLossMode.Peak)); // BLOCKED — dropped $200 from peak
+
+        rm.RecordTrade(300m);   // Peak=500, PnL=500,  DD=0
+        Assert.True(rm.CanTrade(true, 200m, DailyLossMode.Peak));  // resumes — new peak
+
+        rm.RecordTrade(-200m);  // Peak=500, PnL=300,  DD=200
+        Assert.False(rm.CanTrade(true, 200m, DailyLossMode.Peak)); // BLOCKED again
     }
 
     // ──────────────────────────────────────────────

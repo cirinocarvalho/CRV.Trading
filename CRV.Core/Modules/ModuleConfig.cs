@@ -10,7 +10,7 @@ public class ModuleConfig
     public TimeOnly NYOpenStart  { get; set; } = new(9, 30);
     public TimeOnly NYOpenEnd    { get; set; } = new(11, 30);
     public TimeOnly MiddayStart  { get; set; } = new(11, 30);
-    public TimeOnly MiddayEnd    { get; set; } = new(13, 30);
+    public TimeOnly MiddayEnd    { get; set; } = new(15, 0);
     public TimeOnly PowerStart   { get; set; } = new(15, 0);
     public TimeOnly PowerEnd     { get; set; } = new(16, 0);
 

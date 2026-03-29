@@ -78,22 +78,23 @@ public class BacktestEngine
 
         // WSS-style fill simulation
         var groupExec = new BacktestGroupOrderExecutor(_btCfg, _cfg);
-        var handler = new BrokerEventHandler(groupExec, _log);
+        var handler = new BrokerEventHandler(groupExec, _log) { IsBacktest = true };
 
         // Synchronous event delivery: executor → handler (Func<OrderEvent, Task>)
         groupExec.OnEvent = evt => handler.HandleEventAsync(evt);
 
-        // Capture completed trades with commission
+        var noopExecutor = new NoopExecutor();
+        var engineConfig = _cfg.ToEngineConfig();
+        var engine   = new ComposableEngine(noopExecutor, sink, prices, engineConfig, handler);
+
+        // Capture completed trades with commission and feed RiskManager
         handler.OnTradeCompleted += (group, trade) =>
         {
             trade.Commission = trade.Contracts * 2 * _cfg.CommissionPerSide;
             trade.NetPnl = trade.GrossPnl - trade.Commission;
             trades.Add(trade);
+            engine.Risk.RecordTrade(trade.NetPnl);
         };
-
-        var noopExecutor = new NoopExecutor();
-        var engineConfig = _cfg.ToEngineConfig();
-        var engine   = new ComposableEngine(noopExecutor, sink, prices, engineConfig, handler);
 
         // Only register enabled setups.
         // Collect distinct tickers for multi-ticker bar loading.
@@ -136,7 +137,6 @@ public class BacktestEngine
 
         await foreach (var (ticker, bar) in taggedBars.WithCancellation(ct))
         {
-            // ── Session transitions (based on bar time, ticker-independent) ──
             var local     = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
             var localTime = TimeOnly.FromDateTime(local);
             var tradingDate = _cfg.TradingDate(local);
@@ -147,21 +147,10 @@ public class BacktestEngine
                 engine.ResetDaily();
             }
 
-            var (transition, session) = sessionMgr.CheckTransition(localTime);
-            switch (transition)
-            {
-                case TransitionType.SessionStarted:
-                    engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
-                    betweenSessions = false;
-                    break;
-                case TransitionType.SessionEnded:
-                    await engine.ForceExitAllAsync(bar.Time);
-                    engine.SetIdle();
-                    betweenSessions = true;
-                    break;
-            }
-
             // ── Per-ticker bucket aggregation ────────────────────────────
+            // Emit completed buckets BEFORE session transitions so that
+            // the last bucket of a session processes its ticks while the
+            // session is still active (betweenSessions == false).
             if (!buckets.TryGetValue(ticker, out var bkt))
             {
                 bkt = new BucketState();
@@ -195,6 +184,37 @@ public class BacktestEngine
                 if (bar.Low  < bkt.Low)  bkt.Low  = bar.Low;
                 bkt.Close   = bar.Close;
                 bkt.Volume += bar.Volume;
+            }
+
+            // ── Session transitions (after bucket emission) ──────────────
+            var (transition, session) = sessionMgr.CheckTransition(localTime);
+            switch (transition)
+            {
+                case TransitionType.SessionStarted:
+                    engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
+                    betweenSessions = false;
+                    break;
+                case TransitionType.SessionEnded:
+                    // Flush ALL pending buckets before the session ends so their
+                    // ticks process while betweenSessions is still false.
+                    // This ensures cutoff/exit logic fires for all tickers, not
+                    // just whichever ticker's bar happened to arrive first at the
+                    // session boundary.
+                    foreach (var (flushTicker, flushBkt) in buckets)
+                    {
+                        if (flushBkt.BucketKey != null && flushBkt.Pending.Count > 0)
+                        {
+                            await EmitBucket(engine, prices, flushBkt, flushTicker,
+                                tfBarsOut, false, groupExec, ct);
+                            tfBarsOut++;
+                            flushBkt.Pending.Clear();
+                            flushBkt.BucketKey = null;
+                        }
+                    }
+                    await engine.ForceExitAllAsync(bar.Time);
+                    engine.SetIdle();
+                    betweenSessions = true;
+                    break;
             }
 
             // Queue tick data for live-phase buckets only
@@ -383,10 +403,12 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         // Apply slippage to entry fill price
         var fillPrice = ApplySlip(sig.Entry, isLong);
 
-        // Market entry: fill immediately by setting group state directly.
-        // No event fired — PlaceEntryAsync activates after RegisterGroup.
-        // (Firing an event here would fail: group not yet in _active dictionary.)
-        if (sig.OrderType != "Limit")
+        // Market OR Conservative Limit: fill immediately at sig.Entry.
+        // Conservative signals fire when price is already at the ORB level,
+        // so both Market and Limit should fill at the same price.
+        // Only non-conservative Limit entries stay pending for EvaluateFills.
+        bool fillNow = sig.OrderType != "Limit" || sig.Mode == "Conservative";
+        if (fillNow)
         {
             legs[entryLeg.OrderId].Status = "FILLED";
             entryLeg.Status = OrderLegStatus.Filled;

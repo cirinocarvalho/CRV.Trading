@@ -28,8 +28,9 @@ public class EngineConfig
     public decimal TickSize           { get; set; } = 0.25m;
 
     // ── Risk ────────────────────────────────────────────────────
-    public bool    UseDailyLossLimit  { get; set; } = true;
-    public decimal MaxDailyLoss       { get; set; } = 500m;
+    public bool           UseDailyLossLimit  { get; set; } = true;
+    public decimal        MaxDailyLoss       { get; set; } = 500m;
+    public DailyLossMode  DailyLossMode      { get; set; } = DailyLossMode.Floor;
 
     // ── ATR Filter ──────────────────────────────────────────────
     public decimal AtrFilterPct       { get; set; } = 0.50m;

@@ -16,6 +16,7 @@ public class BrokerEventHandler
 {
     private readonly IGroupOrderExecutor _executor;
     private readonly ILogger? _log;
+    public bool IsBacktest { get; init; }
 
     // Active groups keyed by SetupId
     private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _active = new();
@@ -127,6 +128,25 @@ public class BrokerEventHandler
     /// <summary>Place an entry order and register the group for event tracking.</summary>
     public async Task PlaceEntryAsync(EntrySignal signal, ISetupStrategy strategy)
     {
+        // One active trade per side per ticker — if any setup already has an active
+        // group on the same ticker + direction, skip this entry.
+        var ticker = signal.Ticker;
+        var dir = signal.Direction;
+        lock (_lock)
+        {
+            foreach (var (_, (g, _)) in _active)
+            {
+                if (g.Ticker == ticker &&
+                    g.Status is GroupOrderStatus.Active or GroupOrderStatus.Pending or GroupOrderStatus.PartialFilled)
+                {
+                    _log?.LogDebug(
+                        "[BEH] Skipping {Setup} {Dir} {Ticker} — already have active group {G} ({ExDir}) from {Existing}",
+                        signal.SetupLabel, dir, ticker, g.GroupOrderId, g.Direction, g.SetupId);
+                    return;
+                }
+            }
+        }
+
         // If there's already an active group for this setup, exit it first.
         // This prevents orphaned groups whose events would be lost.
         var setupId = !string.IsNullOrEmpty(signal.SetupLabel) ? signal.SetupLabel : signal.Setup.ToString();
@@ -148,6 +168,12 @@ public class BrokerEventHandler
             RemoveGroup(existing);
         }
 
+        // Conservative entries use Limit at the calculated level for tighter fills (live only).
+        // Backtest already fills conservative Market orders at sig.Entry via the executor,
+        // so no conversion needed — converting would double-gate (require price to touch twice).
+        if (!IsBacktest && signal.Mode == "Conservative" && signal.OrderType != "Limit")
+            signal = signal with { OrderType = "Limit" };
+
         var group = await _executor.OnEntrySignalAsync(signal);
         if (group != null)
         {
@@ -163,7 +189,7 @@ public class BrokerEventHandler
             if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
             {
                 strategy.SetInTrade(true);
-                _log?.LogInformation("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
+                _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
                 OnEntryFilled?.Invoke(group);
             }
         }
@@ -314,7 +340,7 @@ public class BrokerEventHandler
     /// <param name="setupId">Setup identifier (e.g. "pullback-mgc").</param>
     /// <param name="exitPrice">Current market price for P&amp;L calculation. 0 = skip trade record.</param>
     /// <param name="reason">Exit reason for the trade record.</param>
-    public async Task ExitGroupAsync(string setupId, decimal exitPrice = 0, ExitReason reason = ExitReason.Manual)
+    public async Task ExitGroupAsync(string setupId, decimal exitPrice = 0, ExitReason reason = ExitReason.Manual, DateTime? exitTime = null)
     {
         GroupOrder? group;
         ISetupStrategy? strategy;
@@ -326,11 +352,11 @@ public class BrokerEventHandler
             strategy = pair.Strategy;
         }
 
-        await ExitGroupCoreAsync(group, strategy, exitPrice, reason);
+        await ExitGroupCoreAsync(group, strategy, exitPrice, reason, exitTime);
     }
 
     private async Task ExitGroupCoreAsync(GroupOrder group, ISetupStrategy? strategy,
-        decimal exitPrice, ExitReason reason)
+        decimal exitPrice, ExitReason reason, DateTime? exitTime = null)
     {
         // Cancel all working legs on the executor
         foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
@@ -339,11 +365,13 @@ public class BrokerEventHandler
             leg.Status = OrderLegStatus.Canceled;
         }
 
+        var now = exitTime ?? DateTime.UtcNow;
+
         switch (group.Status)
         {
             case GroupOrderStatus.Pending:
                 group.Status = GroupOrderStatus.Canceled;
-                group.CompletedAt = DateTime.UtcNow;
+                group.CompletedAt = now;
                 strategy?.SetInTrade(false);
                 RemoveGroup(group);
                 return;
@@ -362,7 +390,7 @@ public class BrokerEventHandler
         // fires OnTradeCompleted, and removes from _active.
         if (exitPrice > 0 && group.EntryPrice.HasValue)
         {
-            await CompleteGroup(group, strategy!, reason, exitPrice, DateTime.UtcNow);
+            await CompleteGroup(group, strategy!, reason, exitPrice, now);
         }
         else
         {
@@ -378,7 +406,8 @@ public class BrokerEventHandler
 
     /// <summary>Force-close all active groups (session boundary).</summary>
     /// <param name="priceResolver">Resolves current price for a ticker. Null = no trade records.</param>
-    public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null)
+    /// <param name="exitTime">Simulated time for backtest; null = DateTime.UtcNow.</param>
+    public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null, DateTime? exitTime = null)
     {
         List<(string Id, string Ticker)> setupInfo;
         lock (_lock)
@@ -387,7 +416,7 @@ public class BrokerEventHandler
         foreach (var (id, ticker) in setupInfo)
         {
             var price = priceResolver?.Invoke(ticker) ?? 0m;
-            await ExitGroupAsync(id, price, ExitReason.SessionEnd);
+            await ExitGroupAsync(id, price, ExitReason.SessionEnd, exitTime);
         }
     }
 
@@ -429,7 +458,7 @@ public class BrokerEventHandler
             group.Status = GroupOrderStatus.Active;
             group.EntryPrice = evt.FillPrice;
             strategy.SetInTrade(true);
-            _log?.LogInformation("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, evt.FillPrice);
+            _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, evt.FillPrice);
             OnEntryFilled?.Invoke(group);
         }
         else if (evt.Status == OrderLegStatus.Rejected)
@@ -473,10 +502,10 @@ public class BrokerEventHandler
             stopLeg.Quantity = remaining;
             if (group.UseBe) stopLeg.Price = newStopPrice;
             if (group.UseBe)
-                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
+                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
                     group.GroupOrderId, group.EntryPrice, remaining);
             else
-                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — stop stays @ {P}, qty→{Q}",
+                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop stays @ {P}, qty→{Q}",
                     group.GroupOrderId, stopLeg.Price, remaining);
         }
 

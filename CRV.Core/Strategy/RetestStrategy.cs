@@ -345,7 +345,7 @@ public class RetestStrategy : ISetupStrategy
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
             PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
-            UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe);
+            UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe, Mode: _cfg.Mode);
 
         if (isLong) { _longCount++; _bullTraded = true; }
         else        { _shortCount++; _bearTraded = true; }

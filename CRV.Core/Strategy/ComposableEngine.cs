@@ -178,7 +178,7 @@ public class ComposableEngine
             if (!string.IsNullOrEmpty(_activeSessionId))
                 esig = esig with { SessionId = _activeSessionId };
 
-            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss))
+            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode))
                 continue;
 
             if (_brokerHandler != null)
@@ -317,7 +317,7 @@ public class ComposableEngine
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         if (_brokerHandler != null)
-            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker));
+            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker), utcTime);
 
         foreach (var (_, strategy) in _strategies)
             strategy.ResetSession();
@@ -656,6 +656,7 @@ public class ComposableEngine
         CommissionPerSide = cfg.CommissionPerSide,
         UseDailyLossLimit = cfg.UseDailyLossLimit,
         MaxDailyLoss = cfg.MaxDailyLoss,
+        DailyLossMode = cfg.DailyLossMode,
     };
 
     /// <summary>Build an EngineConfig from a StrategyConfig (for Reconfigure path).</summary>
@@ -672,6 +673,7 @@ public class ComposableEngine
         CommissionPerSide = cfg.CommissionPerSide,
         UseDailyLossLimit = cfg.UseDailyLossLimit,
         MaxDailyLoss = cfg.MaxDailyLoss,
+        DailyLossMode = cfg.DailyLossMode,
         SessionStartHour = cfg.SessionStartHour,
         RthStart = cfg.RthStart,
         RthEnd = cfg.RthEnd,

@@ -307,7 +307,7 @@ public class TickerGroupTests
         await group.ProcessBarAsync(MakeBar(utc2, 101m, 106m, 96m, 103m));
 
         var signals = group.CollectAndClearSignals();
-        Assert.Single(signals.Where(s => s.Entry != null));
+        Assert.Single(signals, s => s.Entry != null);
     }
 
     // ── CollectAndClearSignals ────────────────────────────────────
@@ -345,7 +345,7 @@ public class TickerGroupTests
 
         group.CollectAndClearSignals();
         var signals2 = group.CollectAndClearSignals();
-        Assert.Empty(signals2.Where(s => s.Entry != null));
+        Assert.DoesNotContain(signals2, s => s.Entry != null);
     }
 
     // ── State accessors ───────────────────────────────────────────
