@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using CRV.Core.Data;
 using CRV.Core.Interfaces;
+using CRV.Core.Models;
 using Microsoft.AspNetCore.RateLimiting;
 using CRV.Live.Brokers;
 using CRV.Live.Brokers.Schwab;
@@ -63,6 +64,9 @@ builder.Services.AddSingleton<LastPriceProvider>();
 builder.Services.AddSingleton<ILastPriceProvider>(sp =>
     sp.GetRequiredService<LastPriceProvider>());
 builder.Services.AddSingleton<DailyStatsService>();
+
+// ── SMTP settings (email alerts) ─────────────────────────────
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
 
 // ── Strategy event sink (SignalR → dashboard) ─────────────────
 builder.Services.AddSingleton<SignalREventSink>();
