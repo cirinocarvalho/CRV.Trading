@@ -565,6 +565,177 @@
     Changes take effect on the next bar. Active trades are not affected.
 </div>
 
+<!-- ── Email Alerts ─────────────────────────────────────────── -->
+<div class="card bg-dark border-secondary mb-3">
+  <div class="card-header d-flex align-items-center">
+    <i class="bi bi-envelope me-2 text-warning"></i>
+    <strong>Email Alerts</strong>
+    <div class="form-check form-switch ms-auto">
+      <input class="form-check-input" type="checkbox" id="emailEnabled"
+             asp-for="Config.EmailEnabled" onchange="toggleEmailSection(this)" />
+      <label class="form-check-label" for="emailEnabled">Enable</label>
+    </div>
+  </div>
+  <div class="card-body" id="emailSettingsBody">
+
+    <!-- SMTP Connection -->
+    <h6 class="text-warning mt-2 mb-2"><i class="bi bi-gear me-1"></i>SMTP Connection</h6>
+    <small class="text-muted d-block mb-2">
+      Username &amp; Password are stored in <code>user-secrets</code>. Set via:
+      <code>dotnet user-secrets set "Smtp:Username" "you@email.com"</code>
+    </small>
+    <div class="row g-2 mb-2">
+      <div class="col-md-4">
+        <label class="form-label small">Host</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+               value="@(ViewData["SmtpHost"])" disabled placeholder="Set in appsettings.json" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Port</label>
+        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+               value="@(ViewData["SmtpPort"])" disabled placeholder="587" />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">From Address</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+               value="@(ViewData["SmtpFrom"])" disabled placeholder="Set in appsettings.json" />
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button type="button" class="btn btn-outline-warning btn-sm w-100" onclick="sendTestEmail()">
+          <i class="bi bi-send me-1"></i>Test
+        </button>
+      </div>
+    </div>
+
+    <!-- Recipients -->
+    <div class="mb-3">
+      <label class="form-label small">Recipients (comma-separated)</label>
+      <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+             asp-for="Config.EmailRecipients" placeholder="you@email.com, alerts@email.com" />
+    </div>
+
+    <!-- Batch Interval -->
+    <div class="mb-3">
+      <label class="form-label small">Batch Interval (minutes)</label>
+      <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+             asp-for="Config.EmailBatchIntervalMinutes" min="1" max="60" style="max-width:120px" />
+    </div>
+
+    <!-- Alert Types Table -->
+    <h6 class="text-warning mt-3 mb-2"><i class="bi bi-bell me-1"></i>Alert Types</h6>
+    <table class="table table-dark table-sm table-bordered mb-3">
+      <thead>
+        <tr>
+          <th>Alert Type</th>
+          <th style="width:80px" class="text-center">Enabled</th>
+          <th style="width:140px" class="text-center">Mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Entry Signal</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnEntry" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnEntryMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td>Exit Signal</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnExit" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnExitMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td>ORB Formed</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnOrbFormed" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnOrbFormedMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td>Session Start/End</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnSessionChange" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnSessionChangeMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td>Daily Loss Breached</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnDailyLossBreached" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnDailyLossBreachedMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td>Engine Status</td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" asp-for="Config.EmailOnEngineStatus" /></td>
+          <td class="text-center">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" asp-for="Config.EmailOnEngineStatusMode">
+              <option value="instant">Instant</option>
+              <option value="batched">Batched</option>
+            </select>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Session End Summary -->
+    <div class="form-check form-switch mb-2">
+      <input class="form-check-input" type="checkbox" asp-for="Config.EmailOnSessionEnd" />
+      <label class="form-check-label" asp-for="Config.EmailOnSessionEnd">
+        Send session-end summary email (P&amp;L, win rate, per-setup breakdown)
+      </label>
+    </div>
+
+    <!-- Test result -->
+    <div id="emailTestResult" class="mt-2" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+function toggleEmailSection(cb) {
+    document.getElementById('emailSettingsBody').style.opacity = cb.checked ? '1' : '0.4';
+    document.getElementById('emailSettingsBody').style.pointerEvents = cb.checked ? 'auto' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var cb = document.getElementById('emailEnabled');
+    if (cb) toggleEmailSection(cb);
+});
+
+async function sendTestEmail() {
+    const el = document.getElementById('emailTestResult');
+    el.style.display = 'block';
+    el.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split me-1"></i>Sending test email...</span>';
+    try {
+        const res = await fetch('/api/engine/email/test', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+        } else {
+            el.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        }
+    } catch (err) {
+        el.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Request failed: ${err.message}</span>`;
+    }
+}
+</script>
+
 </form>
 
 

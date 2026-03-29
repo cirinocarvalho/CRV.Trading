@@ -9,6 +9,7 @@ using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 public class LiveModel : PageModel
@@ -19,6 +20,7 @@ public class LiveModel : PageModel
     private readonly TradeStationAuthService _ts;
     private readonly TradovateAuthService    _tv;
     private readonly ILogger<LiveModel>      _log;
+    private readonly IConfiguration          _config;
 
     [BindProperty] public StrategyConfig Config { get; set; } = new();
     public List<SessionConfig> Sessions { get; set; } = new();
@@ -44,7 +46,8 @@ public class LiveModel : PageModel
 
     public LiveModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator orchestrator,
                      SchwabAuthService schwab, TradeStationAuthService ts,
-                     TradovateAuthService tv, ILogger<LiveModel> log)
+                     TradovateAuthService tv, ILogger<LiveModel> log,
+                     IConfiguration configuration)
     {
         _cfgSvc       = cfgSvc;
         _orchestrator = orchestrator;
@@ -52,6 +55,7 @@ public class LiveModel : PageModel
         _ts           = ts;
         _tv           = tv;
         _log          = log;
+        _config       = configuration;
     }
 
     public bool IsNearRoll
@@ -80,6 +84,9 @@ public class LiveModel : PageModel
     {
         Config = _cfgSvc.Current.Clone();
         Sessions = Config.Sessions ?? SessionConfig.CreateDefaults(Config);
+        ViewData["SmtpHost"] = _config["Smtp:Host"] ?? "";
+        ViewData["SmtpPort"] = _config["Smtp:Port"] ?? "587";
+        ViewData["SmtpFrom"] = _config["Smtp:FromAddress"] ?? "";
     }
 
     public IActionResult OnPost()
