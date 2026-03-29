@@ -439,8 +439,12 @@
 <!-- ══ Manage Position ════════════════════════════════════════════════════ -->
 <div class="row g-3 mt-1">
 <div class="col-12">
-    <div class="settings-section border-danger">
-        <h6 class="text-danger"><i class="bi bi-exclamation-octagon-fill me-1"></i>Manage Position</h6>
+    <div class="card bg-dark border-danger mb-3">
+        <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#managePositionBody" aria-expanded="false" aria-controls="managePositionBody">
+            <i class="bi bi-exclamation-octagon-fill me-2 text-danger"></i>
+            <strong>Manage Position <i class="bi bi-chevron-down ms-2 small"></i></strong>
+        </div>
+        <div class="card-body collapse" id="managePositionBody">
         <p class="small text-muted mb-3">
             These actions operate on the <strong class="font-monospace text-warning" id="manage-ticker">@Model.CurrentTicker</strong>
             account configured for <strong class="text-warning">@Model.CurrentBroker</strong>.
@@ -514,6 +518,7 @@
             </div>
 
         </div><!-- /row -->
+        </div>
     </div>
 </div>
 </div><!-- /manage row -->
