@@ -540,13 +540,13 @@
 </style>
 <!-- ── Setup Basket ────────────────────────────────────────── -->
 <div class="card crv-card mb-3 mt-4">
-    <div class="card-header d-flex align-items-center">
-        <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Setup Basket</h6>
-        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="addBasketEntry()">
+    <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#basketBody" aria-expanded="false" aria-controls="basketBody">
+        <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Setup Basket <i class="bi bi-chevron-down ms-2 small"></i></h6>
+        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="event.stopPropagation(); addBasketEntry()">
             <i class="bi bi-plus-lg me-1"></i>Add Setup
         </button>
     </div>
-    <div class="card-body p-2">
+    <div class="card-body p-2 collapse" id="basketBody">
         <div id="basket-entries">
             <!-- Entries rendered by JS -->
         </div>
@@ -557,26 +557,18 @@
     </div>
 </div>
 
-<!-- ── Save button ────────────────────────────────────────── -->
-<button type="submit" class="btn btn-warning w-100 fw-bold mt-3">
-    <i class="bi bi-floppy me-2"></i>Save Live Settings
-</button>
-<div class="small text-muted mt-2 text-center">
-    Changes take effect on the next bar. Active trades are not affected.
-</div>
-
 <!-- ── Email Alerts ─────────────────────────────────────────── -->
 <div class="card bg-dark border-secondary mb-3">
-  <div class="card-header d-flex align-items-center">
+  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#emailBody" aria-expanded="false" aria-controls="emailBody">
     <i class="bi bi-envelope me-2 text-warning"></i>
-    <strong>Email Alerts</strong>
-    <div class="form-check form-switch ms-auto">
+    <strong>Email Alerts <i class="bi bi-chevron-down ms-2 small"></i></strong>
+    <div class="form-check form-switch ms-auto" onclick="event.stopPropagation()">
       <input class="form-check-input" type="checkbox" id="emailEnabled"
              asp-for="Config.EmailEnabled" onchange="toggleEmailSection(this)" />
       <label class="form-check-label" for="emailEnabled">Enable</label>
     </div>
   </div>
-  <div class="card-body" id="emailSettingsBody">
+  <div class="card-body collapse" id="emailBody">
 
     <!-- SMTP Connection -->
     <h6 class="text-warning mt-2 mb-2"><i class="bi bi-gear me-1"></i>SMTP Connection</h6>
@@ -710,8 +702,8 @@
 
 <script>
 function toggleEmailSection(cb) {
-    document.getElementById('emailSettingsBody').style.opacity = cb.checked ? '1' : '0.4';
-    document.getElementById('emailSettingsBody').style.pointerEvents = cb.checked ? 'auto' : 'none';
+    document.getElementById('emailBody').style.opacity = cb.checked ? '1' : '0.4';
+    document.getElementById('emailBody').style.pointerEvents = cb.checked ? 'auto' : 'none';
 }
 document.addEventListener('DOMContentLoaded', function() {
     var cb = document.getElementById('emailEnabled');
@@ -735,6 +727,14 @@ async function sendTestEmail() {
     }
 }
 </script>
+
+<!-- ── Save button ────────────────────────────────────────── -->
+<button type="submit" class="btn btn-warning w-100 fw-bold mt-3">
+    <i class="bi bi-floppy me-2"></i>Save Live Settings
+</button>
+<div class="small text-muted mt-2 text-center">
+    Changes take effect on the next bar. Active trades are not affected.
+</div>
 
 </form>
 
