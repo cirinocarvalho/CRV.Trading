@@ -292,6 +292,24 @@ public class StrategyConfig
     // ── Forced Exit ───────────────────────────────────────────
     public bool    CloseAtRthClose { get; set; } = true;
 
+    // ── Email Alerts ──────────────────────────────────────────
+    public bool   EmailEnabled                  { get; set; } = false;
+    public string EmailRecipients               { get; set; } = "";
+    public int    EmailBatchIntervalMinutes      { get; set; } = 5;
+    public bool   EmailOnEntry                  { get; set; } = true;
+    public string EmailOnEntryMode              { get; set; } = "instant";
+    public bool   EmailOnExit                   { get; set; } = true;
+    public string EmailOnExitMode               { get; set; } = "instant";
+    public bool   EmailOnOrbFormed              { get; set; } = false;
+    public string EmailOnOrbFormedMode          { get; set; } = "instant";
+    public bool   EmailOnSessionChange          { get; set; } = false;
+    public string EmailOnSessionChangeMode      { get; set; } = "instant";
+    public bool   EmailOnSessionEnd             { get; set; } = false;
+    public bool   EmailOnDailyLossBreached      { get; set; } = true;
+    public string EmailOnDailyLossBreachedMode  { get; set; } = "instant";
+    public bool   EmailOnEngineStatus           { get; set; } = false;
+    public string EmailOnEngineStatusMode       { get; set; } = "instant";
+
     // ── Computed helpers ─────────────────────────────────────
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsAggressiveA  => ModeA == "Aggressive";
