@@ -130,8 +130,14 @@
 <input type="hidden" name="Config.BasketJson" id="basket-json" value="@(Model.Config.BasketJson ?? "")" />
 
 <!-- ════════════════════════════════════════════════════════════ -->
-<!-- ── Row 1: Global Settings (3 columns) ─────────────────── -->
+<!-- ── Global Settings ────────────────────────────────────── -->
 <!-- ════════════════════════════════════════════════════════════ -->
+<div class="card bg-dark border-secondary mb-3">
+  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#globalSettingsBody" aria-expanded="true" aria-controls="globalSettingsBody">
+    <i class="bi bi-sliders me-2 text-warning"></i>
+    <strong>Global Settings <i class="bi bi-chevron-down ms-2 small"></i></strong>
+  </div>
+  <div class="card-body collapse show" id="globalSettingsBody">
 <div class="row g-3 mb-3 align-items-stretch">
 
 <!-- ── Instrument ──────────────────────────────────────────── -->
@@ -363,6 +369,8 @@
     </div>
 </div>
 
+</div>
+  </div>
 </div>
 
 
