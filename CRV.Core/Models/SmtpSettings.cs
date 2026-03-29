@@ -1,3 +1,4 @@
+// CRV.Core/Models/SmtpSettings.cs
 namespace CRV.Core.Models;
 
 public class SmtpSettings

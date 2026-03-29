@@ -23,9 +23,10 @@ namespace CRV.Web.Services;
 /// </summary>
 public class LiveEngineOrchestrator : BackgroundService
 {
-    private readonly IServiceProvider  _sp;
-    private readonly IConfiguration    _config;
-    private readonly ILogger           _log;
+    private readonly IServiceProvider       _sp;
+    private readonly IConfiguration         _config;
+    private readonly ILogger                _log;
+    private readonly EmailNotificationService _emailSvc;
 
     private readonly object            _lifecycleLock = new();
     private CancellationTokenSource?   _cts;
@@ -301,11 +302,12 @@ public class LiveEngineOrchestrator : BackgroundService
         }
     }
 
-    public LiveEngineOrchestrator(IServiceProvider sp, IConfiguration config, ILogger<LiveEngineOrchestrator> log)
+    public LiveEngineOrchestrator(IServiceProvider sp, IConfiguration config, ILogger<LiveEngineOrchestrator> log, EmailNotificationService emailSvc)
     {
-        _sp     = sp;
-        _config = config;
-        _log    = log;
+        _sp        = sp;
+        _config    = config;
+        _log       = log;
+        _emailSvc  = emailSvc;
     }
 
     protected override Task ExecuteAsync(CancellationToken ct)
@@ -332,6 +334,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
             _engineTask = Task.Run(() => RunEngineAsync(cfg, _cts.Token));
             Status = "Live";
+            _emailSvc.NotifyEngineStatus("Started");
         }
         return Task.CompletedTask;
     }
@@ -344,6 +347,7 @@ public class LiveEngineOrchestrator : BackgroundService
             _cts?.Cancel();
             IsRunning = false;
             Status    = "Stopped";
+            _emailSvc.NotifyEngineStatus("Stopped");
             _log.LogInformation("Live engine stopped.");
         }
     }
@@ -1222,6 +1226,7 @@ public class LiveEngineOrchestrator : BackgroundService
             _log.LogError(ex, "Engine task faulted.");
             Status    = $"Error: {ex.Message}";
             IsRunning = false;
+            _emailSvc.NotifyEngineStatus($"Error: {ex.Message}");
 
             using var scope = _sp.CreateScope();
             var hub = scope.ServiceProvider.GetRequiredService<IHubContext<TradingHub>>();
