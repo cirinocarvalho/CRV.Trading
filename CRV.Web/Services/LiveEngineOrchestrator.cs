@@ -640,6 +640,7 @@ public class LiveEngineOrchestrator : BackgroundService
                     scope.ServiceProvider.GetRequiredService<ILogger<BrokerEventHandler>>())
                 {
                     BrokerManagesExits = !isMock,
+                    CommissionPerSide = cfg.CommissionPerSide,
                 };
 
                 // Trade completion wired after engine creation (needs Risk reference)

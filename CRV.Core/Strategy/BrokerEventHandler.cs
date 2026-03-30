@@ -22,6 +22,9 @@ public class BrokerEventHandler
     /// When false (Mock/Backtest), session-end exits send cancel + market close to the executor.</summary>
     public bool BrokerManagesExits { get; init; }
 
+    /// <summary>Commission per side per contract (e.g. $0.59). Applied as 2 × contracts × rate.</summary>
+    public decimal CommissionPerSide { get; set; }
+
     // Active groups keyed by SetupId
     private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _active = new();
     // Secondary index: GroupOrderId → (Group, Strategy) — includes displaced groups
@@ -724,8 +727,8 @@ public class BrokerEventHandler
                 PartialFilled = partialFilled,
                 PartialPrice = tg1?.FillPrice ?? tg1?.Price ?? 0m,
                 GrossPnl = totalPnl,
-                Commission = 0m,  // calculated downstream by risk manager
-                NetPnl = totalPnl,
+                Commission = CommissionPerSide * 2 * group.TotalContracts,
+                NetPnl = totalPnl - (CommissionPerSide * 2 * group.TotalContracts),
                 RMultiple = rMult,
                 EnteredAt = group.CreatedAt,
                 ExitedAt = exitTime,
