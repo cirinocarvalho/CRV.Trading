@@ -567,16 +567,19 @@ public class BrokerEventHandler
                 // Dual-stop bracket: Stop1 (current) paired with Tg1, Stop2 paired with Tg2.
                 // The broker strategy already modifies Stop2 (BE + reduced qty) when Tg1 fills,
                 // but sometimes fails to cancel Stop1 via OCO. Safety-cancel it ourselves.
-                try
+                if (stopLeg.Status == OrderLegStatus.Working)
                 {
-                    await _executor.CancelOrderAsync(stopLeg.OrderId);
-                    _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — safety-cancelled Stop1 {O}",
-                        group.GroupOrderId, stopLeg.OrderId);
-                }
-                catch (Exception ex)
-                {
-                    _log?.LogWarning(ex, "[BEH] Failed to safety-cancel Stop1 {O} (may already be cancelled by OCO)",
-                        stopLeg.OrderId);
+                    try
+                    {
+                        await _executor.CancelOrderAsync(stopLeg.OrderId);
+                        _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — safety-cancelled Stop1 {O}",
+                            group.GroupOrderId, stopLeg.OrderId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.LogWarning(ex, "[BEH] Failed to safety-cancel Stop1 {O} (may already be cancelled by OCO)",
+                            stopLeg.OrderId);
+                    }
                 }
 
                 // Switch tracking to Stop2 (already modified by broker strategy)
