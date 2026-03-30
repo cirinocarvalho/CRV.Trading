@@ -462,7 +462,9 @@ public class ComposableEngine
                         Direction = group.Direction,
                         Entry = group.EntryPrice.Value,
                         InitialStop = stopLeg?.Price ?? 0m,
-                        CurrentStop = stopLeg?.Price ?? 0m,
+                        CurrentStop = (group.Status == GroupOrderStatus.PartialFilled && group.UseBe && group.EntryPrice.HasValue)
+                            ? group.EntryPrice.Value
+                            : (stopLeg?.Price ?? 0m),
                         Target = tg2Leg?.Price ?? 0m,
                         Partial = tg1Leg?.Price ?? 0m,
                         Contracts = group.TotalContracts,
