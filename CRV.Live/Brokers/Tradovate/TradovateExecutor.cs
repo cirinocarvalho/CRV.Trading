@@ -634,8 +634,34 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                     brokerOrders[id] = (status, fillPrice, fillQty);
             }
 
+            // Also fetch current prices from /orderVersion/items (stop may have been modified by BE)
+            var versionJson = await GetAsync($"/orderVersion/items?ids={legIds}");
+            using var verDoc = JsonDocument.Parse(versionJson);
+            var currentPrices = new Dictionary<string, decimal>();
+            foreach (var ver in verDoc.RootElement.EnumerateArray())
+            {
+                var oid = ver.TryGetProperty("orderId", out var voip) && voip.ValueKind == JsonValueKind.Number
+                    ? voip.GetInt64().ToString()
+                    : ver.TryGetProperty("id", out var vidp) && vidp.ValueKind == JsonValueKind.Number
+                        ? vidp.GetInt64().ToString() : null;
+                if (oid is null) continue;
+                var price = ver.TryGetProperty("price", out var pp) && pp.ValueKind == JsonValueKind.Number ? pp.GetDecimal() : 0;
+                if (price == 0)
+                    price = ver.TryGetProperty("stopPrice", out var spp) && spp.ValueKind == JsonValueKind.Number ? spp.GetDecimal() : 0;
+                if (price > 0)
+                    currentPrices[oid] = price;
+            }
+
             foreach (var leg in group.Legs)
             {
+                // Update leg price if broker modified it (e.g. BE stop move)
+                if (currentPrices.TryGetValue(leg.OrderId, out var curPrice) && curPrice != leg.Price && leg.Status == OrderLegStatus.Working)
+                {
+                    _log.LogDebug("[TV-POLL] Leg {Leg} {OrderId} price updated: {Old} → {New}",
+                        leg.LegType, leg.OrderId, leg.Price, curPrice);
+                    leg.Price = curPrice;
+                }
+
                 if (!brokerOrders.TryGetValue(leg.OrderId, out var broker)) continue;
 
                 var brokerStatus = broker.status switch
