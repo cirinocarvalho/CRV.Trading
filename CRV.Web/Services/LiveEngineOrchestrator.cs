@@ -443,6 +443,7 @@ public class LiveEngineOrchestrator : BackgroundService
             IsRunning = false;
             Status    = "Stopped";
             _emailSvc.NotifyEngineStatus("Stopped");
+            _emailSvc.FlushBatch(); // send any queued alerts before shutdown
             _log.LogInformation("Live engine stopped.");
         }
     }

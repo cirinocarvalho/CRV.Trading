@@ -45,8 +45,12 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         var interval = Math.Max(1, _cfgSvc.Current.EmailBatchIntervalMinutes);
         var ms = interval * 60_000;
         _batchTimer?.Dispose();
+        // First tick after 1 interval, then repeat every interval
         _batchTimer = new Timer(_ => FlushBatchQueue(), null, ms, ms);
     }
+
+    /// <summary>Force-flush any queued batch alerts (e.g. on session end or engine stop).</summary>
+    public void FlushBatch() => FlushBatchQueue();
 
     public Task OnEntryAsync(EntrySignal signal)
     {
