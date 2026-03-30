@@ -269,17 +269,20 @@ public class RetestStrategy : ISetupStrategy
         decimal orbRange = orb.Range;
         decimal tickTol  = _cfg.TickSize * 2;
 
-        // Conservative tick entry: armed (state ±1/±2), enter when price retests
+        // Conservative tick entry: only fire after full retest cycle (state ±2)
+        // State ±1 = armed but hasn't left/returned to zone yet — must NOT enter.
         bool isLongArm = _state > 0;
         bool tickReady = isLongArm ? _longCount < _cfg.EffectiveMaxLong : _shortCount < _cfg.EffectiveMaxShort;
-        if (!_inTrade && IsArmed && tickReady && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
+        bool retestConfirmed = _state == 2 || _state == -2;
+        if (!_inTrade && retestConfirmed && tickReady && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
         {
             decimal retestDist = orbRange * _cfg.RetestPct;
             decimal orbHigh    = orb.High;
             decimal orbLow     = orb.Low;
-            if (isLongArm && price <= orbHigh + retestDist + tickTol)
+            // Price must be IN the retest zone (both bounds) to trigger entry
+            if (isLongArm && price >= orbHigh - retestDist - tickTol && price <= orbHigh + retestDist + tickTol)
                 TryEntry(orbHigh, true, orb, utc);
-            else if (!isLongArm && price >= orbLow - retestDist - tickTol)
+            else if (!isLongArm && price >= orbLow - retestDist - tickTol && price <= orbLow + retestDist + tickTol)
                 TryEntry(orbLow, false, orb, utc);
         }
     }

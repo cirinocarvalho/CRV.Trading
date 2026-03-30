@@ -93,6 +93,71 @@ public class LiveEngineOrchestrator : BackgroundService
         return (true, $"GroupOrder {group.GroupOrderId} placed: {group.Direction} {group.TotalContracts}× @ {group.EntryPrice ?? signal.Entry}", group);
     }
 
+    /// <summary>Recover an orphaned Tradovate strategy and register it for live tracking.</summary>
+    public async Task<(bool ok, string message, GroupOrder? group)> RecoverStrategyAsync(
+        long strategyId, string ticker, Direction direction,
+        int totalContracts, int partialContracts, bool useBe, string setupId, decimal pointValue)
+    {
+        BrokerEventHandler? handler;
+        IGroupOrderExecutor? exec;
+        lock (_lifecycleLock) { handler = _brokerHandler; exec = _groupExecutor; }
+
+        if (handler == null || exec == null)
+            return (false, "Engine not running — start the engine first.", null);
+
+        var group = await exec.RecoverStrategyAsync(strategyId, ticker, direction,
+            totalContracts, partialContracts, useBe, setupId);
+        if (group == null)
+            return (false, $"Could not recover strategy {strategyId} — no legs found at broker.", null);
+
+        // Tag with active session
+        ComposableEngine? engine;
+        lock (_lifecycleLock) { engine = _engine; }
+        group.SessionId = engine?.ActiveSessionId;
+
+        // Create stub strategy for BrokerEventHandler registration
+        var stubSignal = new EntrySignal(
+            Setup: SetupId.A, Direction: direction, Entry: group.EntryPrice ?? 0,
+            Stop: group.GetLeg(LegType.Stop)?.Price ?? 0,
+            Tg2Price: group.GetLeg(LegType.Tg2)?.Price ?? 0,
+            Tg1Price: group.GetLeg(LegType.Tg1)?.Price ?? 0,
+            TotalContracts: totalContracts, Time: DateTime.UtcNow,
+            Ticker: ticker, SetupLabel: setupId,
+            PartialContracts: partialContracts, UseBe: useBe);
+        var stub = new ManualStrategy(stubSignal) { PointValue = pointValue };
+        group.PointValue = pointValue;
+
+        // Set initial stop price from discovered stop leg
+        var stopLeg = group.GetLeg(LegType.Stop);
+        if (stopLeg != null) group.InitialStopPrice = stopLeg.Price;
+
+        await handler.RegisterGroupAsync(group, stub);
+
+        if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
+            stub.SetInTrade(true);
+
+        // Persist to DB immediately (entry already filled)
+        try
+        {
+            using var scope = _sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+            if (!await db.GroupOrders.AnyAsync(g => g.GroupOrderId == group.GroupOrderId))
+            {
+                db.GroupOrders.Add(group);
+                foreach (var leg in group.Legs)
+                    db.OrderLegs.Add(leg);
+                await db.SaveChangesAsync();
+                _log?.LogInformation("[RECOVER] GroupOrder {G} persisted to DB", group.GroupOrderId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.LogError(ex, "[RECOVER] Failed to persist recovered group {G}", group.GroupOrderId);
+        }
+
+        return (true, $"Recovered group {group.GroupOrderId}: {group.Direction} {group.TotalContracts}× {ticker} @ {group.EntryPrice} — {group.Legs.Count} legs", group);
+    }
+
     /// <summary>Move a manual group's stop to break-even.</summary>
     public async Task<(bool ok, string message)> MoveManualToBEAsync(string setupId)
     {
@@ -128,10 +193,37 @@ public class LiveEngineOrchestrator : BackgroundService
         if (handler == null || exec == null)
             return (false, "Engine not running.");
 
-        var groups = handler.GetAllActiveGroups();
-        var group = groups.FirstOrDefault(g => g.GroupOrderId == groupOrderId);
+        // Check in-memory groups first, then fall back to DB for groups displaced during restart
+        var group = handler.GetGroupById(groupOrderId);
+        if (group == null)
+        {
+            // Fallback: load from DB (group may have been displaced by engine re-entry)
+            using var scope = _sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+            group = await db.GroupOrders.FirstOrDefaultAsync(g => g.GroupOrderId == groupOrderId);
+            if (group != null)
+            {
+                group.Legs = await db.OrderLegs
+                    .Where(l => l.GroupOrderId == groupOrderId)
+                    .ToListAsync();
+            }
+        }
         if (group == null)
             return (false, $"No active group '{groupOrderId}'.");
+
+        // Pending groups (entry not filled): cancel all working legs instead of market close
+        if (group.Status == GroupOrderStatus.Pending)
+        {
+            foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
+            {
+                try { await exec.CancelOrderAsync(leg.OrderId); leg.Status = OrderLegStatus.Canceled; }
+                catch (Exception ex) { _log?.LogWarning(ex, "[FLAT] Failed to cancel leg {L}", leg.OrderId); }
+            }
+            group.Status = GroupOrderStatus.Canceled;
+            group.CompletedAt = DateTime.UtcNow;
+            handler.RemoveGroupById(groupOrderId);
+            return (true, $"Canceled pending group {groupOrderId} ({group.SetupId} — all {group.Legs.Count} legs canceled)");
+        }
 
         await handler.ExitGroupByIdAsync(groupOrderId, exitPrice: 0, ExitReason.Manual);
         return (true, $"Flat sent for group {groupOrderId} ({group.SetupId} {group.Direction} {group.TotalContracts}×)");
@@ -638,8 +730,8 @@ public class LiveEngineOrchestrator : BackgroundService
                     });
                 };
 
-                // Persist GroupOrder to DB on entry fill
-                brokerHandler.OnEntryFilled += group =>
+                // Persist GroupOrder to DB immediately on creation (Pending or Active)
+                brokerHandler.OnGroupRegistered += group =>
                 {
                     _ = Task.Run(async () =>
                     {
@@ -648,7 +740,6 @@ public class LiveEngineOrchestrator : BackgroundService
                             using var dbScope = _sp.CreateScope();
                             var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
 
-                            // Skip if already persisted (REST discovery may beat WSS reconciliation)
                             if (await db.GroupOrders.AnyAsync(g => g.GroupOrderId == group.GroupOrderId))
                             {
                                 _log.LogDebug("[PERSIST] GroupOrder {G} already exists — skipping", group.GroupOrderId);
@@ -659,11 +750,46 @@ public class LiveEngineOrchestrator : BackgroundService
                             foreach (var leg in group.Legs)
                                 db.OrderLegs.Add(leg);
                             await db.SaveChangesAsync();
-                            _log.LogInformation("[PERSIST] GroupOrder {G} saved on entry fill", group.GroupOrderId);
+                            _log.LogInformation("[PERSIST] GroupOrder {G} saved (status={S})", group.GroupOrderId, group.Status);
                         }
                         catch (Exception ex)
                         {
-                            _log.LogWarning(ex, "[PERSIST] Failed to save GroupOrder {G} on entry fill", group.GroupOrderId);
+                            _log.LogWarning(ex, "[PERSIST] Failed to save GroupOrder {G}", group.GroupOrderId);
+                        }
+                    });
+                };
+
+                // Update DB on entry fill (Pending → Active)
+                brokerHandler.OnEntryFilled += group =>
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var dbScope = _sp.CreateScope();
+                            var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+
+                            var existing = await db.GroupOrders.FirstOrDefaultAsync(g => g.GroupOrderId == group.GroupOrderId);
+                            if (existing != null)
+                            {
+                                existing.Status = group.Status;
+                                existing.EntryPrice = group.EntryPrice;
+                                await db.SaveChangesAsync();
+                                _log.LogInformation("[PERSIST] GroupOrder {G} updated on entry fill @ {P}", group.GroupOrderId, group.EntryPrice);
+                            }
+                            else
+                            {
+                                // Fallback: wasn't persisted on creation (shouldn't happen)
+                                db.GroupOrders.Add(group);
+                                foreach (var leg in group.Legs)
+                                    db.OrderLegs.Add(leg);
+                                await db.SaveChangesAsync();
+                                _log.LogInformation("[PERSIST] GroupOrder {G} saved on entry fill (was missing)", group.GroupOrderId);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[PERSIST] Failed to update GroupOrder {G} on entry fill", group.GroupOrderId);
                         }
                     });
                 };
@@ -824,7 +950,9 @@ public class LiveEngineOrchestrator : BackgroundService
                     var db = dbScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
 
                     var activeGroups = await db.GroupOrders
-                        .Where(g => (g.Status == GroupOrderStatus.Active || g.Status == GroupOrderStatus.PartialFilled)
+                        .Where(g => (g.Status == GroupOrderStatus.Pending
+                                  || g.Status == GroupOrderStatus.Active
+                                  || g.Status == GroupOrderStatus.PartialFilled)
                                  && g.Broker != "Mock" && g.Broker != "Backtest")
                         .ToListAsync(ct);
 

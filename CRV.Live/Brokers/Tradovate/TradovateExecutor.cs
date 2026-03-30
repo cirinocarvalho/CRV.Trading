@@ -279,11 +279,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 
         // Single API call — Tradovate handles the entire bracket lifecycle
         var (strategyId, entryOrderId) = await StartOrderStrategyAsync(body);
-        if (strategyId is null || entryOrderId is null)
+        if (strategyId is null)
         {
-            _log.LogError("[TV-GRP] startOrderStrategy failed — strategyId={S} entryOrderId={E}", strategyId, entryOrderId);
+            _log.LogError("[TV-GRP] startOrderStrategy failed — no strategyId returned (entryOrderId={E})", entryOrderId);
             return null;
         }
+        if (entryOrderId is null)
+            _log.LogInformation("[TV-GRP] entryOrderId not in initial response — will discover via REST polling");
 
         // Discover all bracket legs via REST polling (not WSS — unreliable connection)
         // Tradovate computes bracket prices from the fill price using offsets,
@@ -421,6 +423,98 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 _log.LogWarning("[TV-GRP] Background bracket leg discovery timed out for group {G}", groupId);
             });
         }
+
+        return group;
+    }
+
+    /// <summary>
+    /// Recover an orphaned Tradovate strategy by re-discovering all bracket legs.
+    /// Creates a fully populated GroupOrder from the broker's current state.
+    /// </summary>
+    public async Task<GroupOrder?> RecoverStrategyAsync(long strategyId, string ticker, Direction direction,
+        int totalContracts, int partialContracts, bool useBe, string setupId)
+    {
+        var entryAction = direction == Direction.Long ? "Buy" : "Sell";
+        var exitAction  = direction == Direction.Long ? "Sell" : "Buy";
+        var usePartial  = partialContracts > 0;
+        var remainCts   = totalContracts - partialContracts;
+        var symbol      = FuturesSymbol.ToTradovate(ticker);
+
+        _log.LogInformation("[TV-RECOVER] Recovering strategy {S} for {Ticker} {Dir}", strategyId, ticker, direction);
+
+        var disc = await DiscoverBracketLegsAsync(strategyId, symbol, entryAction, exitAction, usePartial);
+        if (disc.Entry is null && disc.Tg1 is null && disc.Stop is null)
+        {
+            _log.LogError("[TV-RECOVER] No legs found for strategy {S}", strategyId);
+            return null;
+        }
+
+        var groupId    = Guid.NewGuid().ToString("N")[..8];
+        var buyAction  = entryAction == "Buy" ? "BUY" : "SELL";
+        var sellAction = entryAction == "Buy" ? "SELL" : "BUY";
+
+        static OrderLegStatus MapStatus(string s) => s switch
+        {
+            "Filled" => OrderLegStatus.Filled,
+            "Canceled" or "Cancelled" => OrderLegStatus.Canceled,
+            "Rejected" => OrderLegStatus.Rejected,
+            "Suspended" => OrderLegStatus.Working,
+            _ => OrderLegStatus.Working
+        };
+
+        var group = new GroupOrder
+        {
+            GroupOrderId    = groupId,
+            SetupId         = setupId,
+            Ticker          = ticker,
+            Direction       = direction,
+            TotalContracts  = totalContracts,
+            PartialContracts = partialContracts,
+            UseBe           = useBe,
+            Status          = GroupOrderStatus.Pending,
+            Broker          = "Tradovate",
+            BrokerStrategyId = strategyId.ToString(),
+        };
+
+        // Build legs from discovered data
+        if (disc.Entry is not null)
+        {
+            var leg = new OrderLeg
+            {
+                GroupOrderId = groupId, OrderId = disc.Entry.Id.ToString(),
+                LegType = LegType.Entry, OrderType = disc.Entry.OrderType == "Stop" ? "Stop" : "Limit",
+                Action = buyAction, Quantity = disc.Entry.Qty > 0 ? disc.Entry.Qty : totalContracts,
+                Price = disc.Entry.Price, Status = MapStatus(disc.Entry.Status)
+            };
+            if (disc.Entry.FillPrice.HasValue) leg.FillPrice = disc.Entry.FillPrice;
+            if (disc.Entry.Status == "Filled") leg.FillTime = DateTime.UtcNow;
+            group.Legs.Add(leg);
+
+            if (disc.Entry.Status == "Filled")
+            {
+                group.Status = GroupOrderStatus.Active;
+                group.EntryPrice = disc.Entry.FillPrice ?? disc.Entry.Price;
+            }
+        }
+
+        var tg2Disc = disc.Tg2 ?? (usePartial ? null : disc.Tg1);
+
+        if (disc.Tg1 is not null && usePartial)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = disc.Tg1.Qty > 0 ? disc.Tg1.Qty : partialContracts, Price = disc.Tg1.Price, Status = MapStatus(disc.Tg1.Status) });
+        if (tg2Disc is not null)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
+        if (disc.Stop is not null)
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = disc.Stop.Qty > 0 ? disc.Stop.Qty : totalContracts, Price = disc.Stop.Price, Status = MapStatus(disc.Stop.Status) });
+
+        // Register all legs with WSS for live tracking
+        if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
+        if (disc.Tg1 is not null && usePartial) EventStream?.RegisterOrder(disc.Tg1.Id, groupId, LegType.Tg1);
+        if (tg2Disc is not null) EventStream?.RegisterOrder(tg2Disc.Id, groupId, LegType.Tg2);
+        if (disc.Stop is not null) EventStream?.RegisterOrder(disc.Stop.Id, groupId, LegType.Stop);
+        if (disc.Stop2 is not null) EventStream?.RegisterOrder(disc.Stop2.Id, groupId, LegType.Stop);
+
+        _log.LogInformation("[TV-RECOVER] Recovered group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S}",
+            groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id);
 
         return group;
     }
@@ -618,6 +712,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     /// Polls GET /order/item?id={orderId} for the fill price.
     /// Retries up to 15 times at 200ms intervals. Returns null on timeout or error.
     /// </summary>
+    /// <summary>Public interface method — fetches fill price for any order by string ID.</summary>
+    public async Task<decimal?> GetOrderFillPriceAsync(string orderId)
+    {
+        if (!long.TryParse(orderId, out var id)) return null;
+        return await GetFillPriceAsync(id);
+    }
+
     private async Task<decimal?> GetFillPriceAsync(long orderId)
     {
         const int maxRetries   = 15;
@@ -759,22 +860,45 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         {
             var url = $"{_auth.ApiBaseUrl}/orderStrategy/startOrderStrategy";
             var resp = await PostAsync(url, body);
-            _log.LogDebug("[TV] startOrderStrategy raw response: {Resp}", resp);
+            _log.LogInformation("[TV] startOrderStrategy raw response: {Resp}", resp);
 
             using var doc = JsonDocument.Parse(resp);
             var root = doc.RootElement;
 
-            // Response may be nested: {"orderStrategy": {...}} or flat: {"id": ...}
+            long? strategyId = null;
+            long? entryOrderId = null;
+
+            // Try to find strategy ID from all known response shapes
+            // Shape 1: {"orderStrategy": {"id": 123, ...}}
+            // Shape 2: {"id": 123, ...}  (flat)
+            // Shape 3: {"orderStrategyId": 123, ...}
             var stratEl = root.TryGetProperty("orderStrategy", out var nested) ? nested : root;
 
-            var strategyId = stratEl.TryGetProperty("id", out var sid) && sid.ValueKind == JsonValueKind.Number
-                ? (long?)sid.GetInt64()
-                : stratEl.TryGetProperty("orderStrategyId", out var sid2) && sid2.ValueKind == JsonValueKind.Number
-                    ? (long?)sid2.GetInt64()
-                    : null;
+            // Try "id" on strategy element
+            if (stratEl.TryGetProperty("id", out var sid) && sid.ValueKind == JsonValueKind.Number)
+                strategyId = sid.GetInt64();
+            // Try "orderStrategyId" as fallback
+            if (strategyId is null && stratEl.TryGetProperty("orderStrategyId", out var sid2) && sid2.ValueKind == JsonValueKind.Number)
+                strategyId = sid2.GetInt64();
+            // Try root "id" if we used a nested element
+            if (strategyId is null && nested.ValueKind != JsonValueKind.Undefined && root.TryGetProperty("id", out var sid3) && sid3.ValueKind == JsonValueKind.Number)
+                strategyId = sid3.GetInt64();
+
+            // Deep scan: if still null, walk all top-level number properties looking for a plausible ID
+            if (strategyId is null)
+            {
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.GetInt64() > 400_000_000_000)
+                    {
+                        strategyId = prop.Value.GetInt64();
+                        _log.LogWarning("[TV] Found strategyId via deep scan in property '{P}': {V}", prop.Name, strategyId);
+                        break;
+                    }
+                }
+            }
 
             // Entry order ID — may be at root, in orderStrategy, or absent (discovered later)
-            long? entryOrderId = null;
             foreach (var el in new[] { root, stratEl })
             {
                 if (el.TryGetProperty("orderId", out var eid) && eid.ValueKind == JsonValueKind.Number)

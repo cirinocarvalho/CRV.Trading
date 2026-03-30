@@ -252,4 +252,34 @@ public class EngineController : ControllerBase
         var (ok, message) = await _emailSvc.SendTestEmailAsync();
         return ok ? Ok(new { status = "ok", message }) : BadRequest(new { status = "error", message });
     }
+
+    /// <summary>Recover an orphaned Tradovate strategy and register it for live tracking.</summary>
+    [HttpPost("recover-strategy")]
+    public async Task<IActionResult> RecoverStrategy([FromBody] RecoverStrategyRequest req)
+    {
+        var cfg = _cfgSvc.Current;
+        var pointValue = req.PointValue > 0 ? req.PointValue : cfg.PointValue;
+        var direction = req.Direction?.ToLowerInvariant() == "short"
+            ? CRV.Core.Models.Direction.Short
+            : CRV.Core.Models.Direction.Long;
+
+        var (ok, message, group) = await _engine.RecoverStrategyAsync(
+            req.StrategyId, req.Ticker, direction,
+            req.TotalContracts, req.PartialContracts, req.UseBe,
+            req.SetupId ?? $"Recovered-{req.StrategyId}", pointValue);
+
+        if (!ok) return BadRequest(new { status = "error", message });
+        return Ok(new
+        {
+            status = "ok", message,
+            groupOrderId = group?.GroupOrderId,
+            entryPrice = group?.EntryPrice,
+            legs = group?.Legs.Select(l => new { l.LegType, l.OrderId, l.Price, l.Status })
+        });
+    }
+
+    public record RecoverStrategyRequest(
+        long StrategyId, string Ticker, string Direction,
+        int TotalContracts, int PartialContracts = 0, bool UseBe = false,
+        string? SetupId = null, decimal PointValue = 0);
 }

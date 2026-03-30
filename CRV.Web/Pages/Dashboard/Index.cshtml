@@ -614,13 +614,33 @@ async function _lwcLoadGroup(groupKey) {
         console.log("[LWC] received", bars.length, "bars");
         // Shift UTC timestamps to ET for display (LWC renders raw timestamps on axis)
         var etOffset = _getEtOffsetSec();
-        bars.forEach(function(b) { b.time += etOffset; });
+        bars.forEach(function(b) { b.time = Math.round(b.time + etOffset); });
         // Filter out bars with null/zero/NaN OHLC values (warmup bars before first trade)
         var rawLen = bars.length;
         bars = bars.filter(function(b) {
-            return b.time > 0 && b.open > 0 && b.high > 0 && b.low > 0 && b.close > 0;
+            return Number.isFinite(b.time) && b.time > 0
+                && Number.isFinite(b.open) && b.open > 0
+                && Number.isFinite(b.high) && b.high > 0
+                && Number.isFinite(b.low)  && b.low > 0
+                && Number.isFinite(b.close) && b.close > 0;
         });
+        // Ensure strictly ascending times (LWC requirement) — deduplicate by keeping last
+        bars.sort(function(a, b) { return a.time - b.time; });
+        var deduped = [];
+        for (var di = 0; di < bars.length; di++) {
+            if (deduped.length > 0 && bars[di].time <= deduped[deduped.length - 1].time) {
+                deduped[deduped.length - 1] = bars[di]; // keep latest value for duplicate time
+            } else {
+                deduped.push(bars[di]);
+            }
+        }
+        bars = deduped;
         console.log("[LWC]", bars.length, "of", rawLen, "bars passed filter");
+        // Clear all series atomically before setting new data to avoid stale cross-series state
+        _lwcSeries.setData([]);
+        _lwcVolSeries.setData([]);
+        _lwcVolMaSeries.setData([]);
+        // Now set new data
         _lwcSeries.setData(bars);
         _lwcSeries.setMarkers([]);
         _lwcHasData = bars.length > 0;
@@ -652,8 +672,8 @@ async function _lwcLoadGroup(groupKey) {
             /* placeholder already removed */
         }
         _lwcDataReady = true;  // allow live updates now
-        // Show last 8 hours from the latest bar (prevents thin bars on multi-session)
-        if (bars.length > 0) {
+        // Show visible range — fitContent for small datasets, 8-hour window otherwise
+        if (bars.length > 20) {
             var lastBarTime = bars[bars.length - 1].time;
             var hoursBack = 8 * 3600;
             _lwcChart.timeScale().setVisibleRange({ from: lastBarTime - hoursBack, to: lastBarTime + 900 });
@@ -674,7 +694,8 @@ function _lwcUpdateCandle(gs) {
     if (!_lwcDataReady || !_lwcSeries || !gs || gs.barTime === 0) return;
     if (!gs.barOpen || !gs.barHigh || !gs.barLow || !gs.barClose) return;
     try {
-    var t = gs.barTime + _getEtOffsetSec();
+    var t = Math.round(gs.barTime + _getEtOffsetSec());
+    if (!Number.isFinite(t) || !Number.isFinite(gs.barOpen) || !Number.isFinite(gs.barClose)) return;
     // Only update if this timestamp is >= the last known bar time (never overwrite history)
     if (_lwcLastBarTime > 0 && t < _lwcLastBarTime) return;
     _lwcSeries.update({ time: t, open: gs.barOpen, high: gs.barHigh, low: gs.barLow, close: gs.barClose });

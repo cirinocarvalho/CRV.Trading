@@ -37,7 +37,10 @@ public class BrokerEventHandler
     /// <summary>Raised when a group completes (target, stop, or manual exit).</summary>
     public event Action<GroupOrder, TradeRecord>? OnTradeCompleted;
 
-    /// <summary>Raised when entry fills and the group becomes Active — persist to DB.</summary>
+    /// <summary>Raised when a new group is registered (Pending or Active) — persist to DB immediately.</summary>
+    public event Action<GroupOrder>? OnGroupRegistered;
+
+    /// <summary>Raised when entry fills and the group becomes Active — update DB.</summary>
     public event Action<GroupOrder>? OnEntryFilled;
 
     /// <summary>Raised when group state changes (Tg1 fill → PartialFilled) — update DB.</summary>
@@ -125,6 +128,32 @@ public class BrokerEventHandler
             return _active.Values.Select(p => p.Group).ToList();
     }
 
+    /// <summary>Get a group by its GroupOrderId (checks both active and displaced/pending).</summary>
+    public GroupOrder? GetGroupById(string groupOrderId)
+    {
+        lock (_lock)
+            return _byGroupId.TryGetValue(groupOrderId, out var pair) ? pair.Group : null;
+    }
+
+    /// <summary>Remove a group by its GroupOrderId (used when canceling pending groups).</summary>
+    public void RemoveGroupById(string groupOrderId)
+    {
+        lock (_lock)
+        {
+            if (_byGroupId.TryGetValue(groupOrderId, out var pair))
+            {
+                _byGroupId.Remove(groupOrderId);
+                // Also remove from _active if it's the current group for this setupId
+                if (_active.TryGetValue(pair.Strategy.Id, out var activePair)
+                    && activePair.Group.GroupOrderId == groupOrderId)
+                {
+                    _active.Remove(pair.Strategy.Id);
+                    pair.Strategy.SetInTrade(false);
+                }
+            }
+        }
+    }
+
     /// <summary>Place an entry order and register the group for event tracking.</summary>
     public async Task PlaceEntryAsync(EntrySignal signal, ISetupStrategy strategy)
     {
@@ -182,6 +211,10 @@ public class BrokerEventHandler
                 group.SessionId = signal.SessionId;
 
             await RegisterGroupAsync(group, strategy);
+
+            // Persist immediately (covers both Pending limit orders and already-filled market orders)
+            if (!IsBacktest)
+                OnGroupRegistered?.Invoke(group);
 
             // Immediate fills (backtest market orders): group already Active + EntryPrice set
             // by the executor before returning. Activate the strategy now — no event roundtrip
@@ -476,19 +509,27 @@ public class BrokerEventHandler
 
         group.Status = GroupOrderStatus.PartialFilled;
 
+        // Resolve fill price — WSS may not include it
+        var tg1FillPrice = evt.FillPrice;
+        if (tg1FillPrice is null or 0)
+        {
+            _log?.LogWarning("[BEH] Tg1 fill missing price in WSS event for order {O} — fetching via REST", evt.OrderId);
+            tg1FillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+        }
+
         // Accrue partial P&L
-        if (group.EntryPrice.HasValue && evt.FillPrice.HasValue)
+        if (group.EntryPrice.HasValue && tg1FillPrice is > 0)
         {
             bool isLong = group.Direction == Direction.Long;
             var partialPnl = isLong
-                ? (evt.FillPrice.Value - group.EntryPrice.Value) * group.PointValue * group.PartialContracts
-                : (group.EntryPrice.Value - evt.FillPrice.Value) * group.PointValue * group.PartialContracts;
+                ? (tg1FillPrice.Value - group.EntryPrice.Value) * group.PointValue * group.PartialContracts
+                : (group.EntryPrice.Value - tg1FillPrice.Value) * group.PointValue * group.PartialContracts;
             group.AccruedPartialPnl = partialPnl;
         }
         else
         {
             _log?.LogWarning("[BEH] Tg1 FILLED grp={G} but cannot accrue: entryPrice={E} fillPrice={F}",
-                group.GroupOrderId, group.EntryPrice, evt.FillPrice);
+                group.GroupOrderId, group.EntryPrice, tg1FillPrice);
         }
 
         // Move stop to BE (if enabled) with reduced qty
@@ -524,7 +565,8 @@ public class BrokerEventHandler
             stopLeg.Status = OrderLegStatus.Canceled;
         }
 
-        await CompleteGroup(group, strategy, ExitReason.Target, evt.FillPrice ?? 0m, evt.Timestamp);
+        var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2");
+        await CompleteGroup(group, strategy, ExitReason.Target, exitPrice, evt.Timestamp);
     }
 
     private async Task HandleStopEventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
@@ -540,7 +582,40 @@ public class BrokerEventHandler
             leg.Status = OrderLegStatus.Canceled;
         }
 
-        await CompleteGroup(group, strategy, ExitReason.Stop, evt.FillPrice ?? 0m, evt.Timestamp);
+        var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop");
+        await CompleteGroup(group, strategy, ExitReason.Stop, exitPrice, evt.Timestamp);
+    }
+
+    /// <summary>
+    /// Resolve exit fill price: use WSS event price if available, otherwise fall back to REST API.
+    /// Prevents exit @ 0.00 when WSS messages don't include avgFillPrice.
+    /// </summary>
+    private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel)
+    {
+        if (evt.FillPrice is > 0)
+            return evt.FillPrice.Value;
+
+        // WSS didn't include fill price — fetch from REST
+        _log?.LogWarning("[BEH] {Leg} fill missing price in WSS event for order {O} — fetching via REST",
+            legLabel, evt.OrderId);
+
+        try
+        {
+            var restPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+            if (restPrice is > 0)
+            {
+                _log?.LogInformation("[BEH] {Leg} fill price resolved via REST: {P} for order {O}",
+                    legLabel, restPrice, evt.OrderId);
+                return restPrice.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.LogWarning(ex, "[BEH] REST fill price lookup failed for {Leg} order {O}", legLabel, evt.OrderId);
+        }
+
+        _log?.LogError("[BEH] Could not resolve {Leg} fill price for order {O} — using 0", legLabel, evt.OrderId);
+        return 0m;
     }
 
     private async Task CancelRemainingAndComplete(GroupOrder group, ISetupStrategy strategy, GroupOrderStatus status)

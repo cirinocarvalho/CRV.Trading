@@ -266,6 +266,12 @@ public class TickerGroup
                     strategy.Disarm();
                     continue;
                 }
+                else
+                {
+                    // Clear stale cutoff flag from a previous session's ForceExit
+                    // so dashboard doesn't show CUTOFF when the strategy is actually active
+                    strategy.ResetCutoff();
+                }
 
                 bool orbActivated = _falseBreakout.OrbTracker.IsActivated;
                 bool wasArmed     = strategy.IsArmed || strategy.IsActive;
@@ -353,6 +359,10 @@ public class TickerGroup
                     }
                     strategy.Disarm();
                     continue;
+                }
+                else
+                {
+                    strategy.ResetCutoff();
                 }
 
                 strategy.OnTick(price, utc, orbState, indState, modState);

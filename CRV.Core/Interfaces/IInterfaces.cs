@@ -62,6 +62,20 @@ public interface IGroupOrderExecutor
     /// Used as a reliable alternative to WSS for order state sync.
     /// </summary>
     Task<List<OrderEvent>> PollOrderStatusesAsync(GroupOrder group) => Task.FromResult(new List<OrderEvent>());
+
+    /// <summary>
+    /// Fetch the fill price for a specific order via REST API.
+    /// Used as fallback when WSS events don't include avgFillPrice.
+    /// </summary>
+    Task<decimal?> GetOrderFillPriceAsync(string orderId) => Task.FromResult<decimal?>(null);
+
+    /// <summary>
+    /// Recover an orphaned broker strategy by re-discovering bracket legs via REST.
+    /// Creates a fully populated GroupOrder from the broker's current state.
+    /// </summary>
+    Task<GroupOrder?> RecoverStrategyAsync(long strategyId, string ticker, Direction direction,
+        int totalContracts, int partialContracts, bool useBe, string setupId)
+        => Task.FromResult<GroupOrder?>(null);
 }
 
 public interface IStrategyEventSink
