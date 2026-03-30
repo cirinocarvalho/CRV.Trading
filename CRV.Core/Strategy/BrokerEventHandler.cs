@@ -565,7 +565,8 @@ public class BrokerEventHandler
             if (!string.IsNullOrEmpty(group.Stop2OrderId))
             {
                 // Dual-stop bracket: Stop1 (current) paired with Tg1, Stop2 paired with Tg2.
-                // Safety-cancel Stop1 in case broker OCO didn't fire.
+                // The broker strategy already modifies Stop2 (BE + reduced qty) when Tg1 fills,
+                // but sometimes fails to cancel Stop1 via OCO. Safety-cancel it ourselves.
                 try
                 {
                     await _executor.CancelOrderAsync(stopLeg.OrderId);
@@ -577,21 +578,15 @@ public class BrokerEventHandler
                     _log?.LogWarning(ex, "[BEH] Failed to safety-cancel Stop1 {O} (may already be cancelled by OCO)",
                         stopLeg.OrderId);
                 }
-                stopLeg.Status = OrderLegStatus.Canceled;
 
-                // Switch tracking to Stop2 (the stop paired with Tg2)
+                // Switch tracking to Stop2 (already modified by broker strategy)
                 stopLeg.OrderId = group.Stop2OrderId;
                 stopLeg.Status = OrderLegStatus.Working;
-                group.Stop2OrderId = null; // consumed
-
-                // Modify Stop2 for BE and correct qty
-                var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
-                await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
                 stopLeg.Quantity = remaining;
-                if (group.UseBe) stopLeg.Price = newStopPrice;
-                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — switched to Stop2 {O}, {BE} @ {P} qty={Q}",
-                    group.GroupOrderId, stopLeg.OrderId,
-                    group.UseBe ? "BE" : "hold", group.UseBe ? group.EntryPrice : stopLeg.Price, remaining);
+                if (group.UseBe) stopLeg.Price = group.EntryPrice.Value;
+                group.Stop2OrderId = null; // consumed
+                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — switched to Stop2 {O}, qty={Q}",
+                    group.GroupOrderId, stopLeg.OrderId, remaining);
             }
             else
             {
