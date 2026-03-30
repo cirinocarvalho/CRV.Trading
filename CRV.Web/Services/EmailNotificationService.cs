@@ -13,6 +13,7 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
     private readonly IOptionsMonitor<SmtpSettings> _smtpOpts;
     private readonly StrategyConfigService         _cfgSvc;
     private readonly DailyStatsService             _statsSvc;
+    private readonly IServiceProvider              _sp;
     private readonly ILogger<EmailNotificationService> _log;
 
     private readonly ConcurrentQueue<AlertEvent> _batchQueue = new();
@@ -26,11 +27,13 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         IOptionsMonitor<SmtpSettings> smtpOpts,
         StrategyConfigService cfgSvc,
         DailyStatsService statsSvc,
+        IServiceProvider sp,
         ILogger<EmailNotificationService> log)
     {
         _smtpOpts = smtpOpts;
         _cfgSvc   = cfgSvc;
         _statsSvc = statsSvc;
+        _sp       = sp;
         _log      = log;
 
         ResetBatchTimer();
@@ -116,13 +119,37 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
             EnqueueOrSend(alert, cfg.EmailOnSessionChangeMode);
         }
 
-        // Session end summary
+        // Session end summary — query DB for actual trades (in-memory stats reset on restart)
         if (cfg.EmailOnSessionEnd && snap.SessionEnded && !_previousSessionEnded && !string.IsNullOrEmpty(_previousSessionId))
         {
-            var stats = _statsSvc.Get();
-            var (subject, body) = EmailTemplateBuilder.BuildSessionEndSummary(
-                _previousSessionId, snap.Time.Date, stats);
-            SendEmailAsync(subject, body);
+            var sessionId = _previousSessionId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _sp.CreateScope();
+                    var repo = scope.ServiceProvider.GetRequiredService<TradeRepository>();
+                    var trades = await repo.GetTodayAsync();
+                    var sessionTrades = trades.Where(t => t.SessionId == sessionId).ToList();
+
+                    var stats = new DailyStats
+                    {
+                        TodayTrades = sessionTrades.Count,
+                        TodayWins   = sessionTrades.Count(t => t.NetPnl >= 0),
+                        TodayLosses = sessionTrades.Count(t => t.NetPnl < 0),
+                        TodayPnL    = sessionTrades.Sum(t => t.GrossPnl),
+                        TodayNetPnL = sessionTrades.Sum(t => t.NetPnl),
+                    };
+
+                    var (subject, body) = EmailTemplateBuilder.BuildSessionEndSummary(
+                        sessionId, DateTime.UtcNow.Date, stats);
+                    SendEmailAsync(subject, body);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Failed to build session end summary email");
+                }
+            });
         }
         _previousSessionEnded = snap.SessionEnded;
         _previousSessionId = snap.ActiveSessionId;
