@@ -36,6 +36,10 @@ public class GroupOrder
     public string? BrokerStrategyId { get; set; }
     public bool UseBe { get; set; } = true;
     public string? SessionId { get; set; }
+    /// <summary>Second stop order ID from the other partial bracket. When Tg1 fills,
+    /// the broker OCO should cancel the paired stop — but if it doesn't, we explicitly
+    /// cancel the orphaned stop and switch tracking to Stop2.</summary>
+    public string? Stop2OrderId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
     public List<OrderLeg> Legs { get; set; } = new();

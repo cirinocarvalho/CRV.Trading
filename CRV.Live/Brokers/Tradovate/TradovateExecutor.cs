@@ -360,9 +360,12 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
         if (disc.Stop is not null)
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = disc.Stop.Qty > 0 ? disc.Stop.Qty : sig.TotalContracts, Price = disc.Stop.Price, Status = MapStatus(disc.Stop.Status) });
+        // Track the second stop (from Tg2 bracket) for safety-cancel on Tg1 fill
+        if (disc.Stop2 is not null && disc.Stop2.Status is not "Canceled" and not "Cancelled")
+            group.Stop2OrderId = disc.Stop2.Id.ToString();
 
-        _log.LogInformation("[TV-GRP] Bracket strategy {Strat} group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S}",
-            strategyId, groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id);
+        _log.LogInformation("[TV-GRP] Bracket strategy {Strat} group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S} stop2={S2}",
+            strategyId, groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id, disc.Stop2?.Id);
 
         // If bracket legs are missing (entry not filled yet), discover them in background
         // when the entry eventually fills. Poll until bracket legs appear.
@@ -535,15 +538,19 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = activeStop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = stopQty, Price = activeStop.Price, Status = MapStatus(activeStop.Status) });
         }
 
+        // Track the other stop for safety-cancel on Tg1 fill
+        var otherStop = activeStop == disc.Stop ? disc.Stop2 : disc.Stop;
+        if (otherStop is not null && otherStop.Status is not "Canceled" and not "Cancelled")
+            group.Stop2OrderId = otherStop.Id.ToString();
+
         // Register all legs with WSS for live tracking
         if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
         if (disc.Tg1 is not null && usePartial) EventStream?.RegisterOrder(disc.Tg1.Id, groupId, LegType.Tg1);
         if (tg2Disc is not null) EventStream?.RegisterOrder(tg2Disc.Id, groupId, LegType.Tg2);
         if (activeStop is not null) EventStream?.RegisterOrder(activeStop.Id, groupId, LegType.Stop);
         // Also register the other stop if still active
-        var otherStop = activeStop == disc.Stop ? disc.Stop2 : disc.Stop;
-        if (otherStop is not null && otherStop.Status is not "Canceled" and not "Cancelled")
-            EventStream?.RegisterOrder(otherStop.Id, groupId, LegType.Stop);
+        if (!string.IsNullOrEmpty(group.Stop2OrderId))
+            EventStream?.RegisterOrder(otherStop!.Id, groupId, LegType.Stop);
 
         // Detect if trade is already completed (stop or Tg2 already filled)
         var stopLeg = group.GetLeg(LegType.Stop);

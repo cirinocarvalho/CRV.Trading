@@ -555,22 +555,55 @@ public class BrokerEventHandler
                 group.GroupOrderId, group.EntryPrice, tg1FillPrice);
         }
 
-        // Move stop to BE (if enabled) with reduced qty
+        // Handle dual-stop bracket: cancel the stop paired with Tg1 (broker OCO
+        // should do this, but sometimes doesn't), then switch to Stop2 for remaining.
         var stopLeg = group.GetLeg(LegType.Stop);
         if (stopLeg != null && group.EntryPrice.HasValue)
         {
             var remaining = group.TotalContracts - group.PartialContracts;
-            var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
-            await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
-            // Update the GroupOrder leg to reflect the modification
-            stopLeg.Quantity = remaining;
-            if (group.UseBe) stopLeg.Price = newStopPrice;
-            if (group.UseBe)
-                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop→BE @ {P}, qty→{Q}",
-                    group.GroupOrderId, group.EntryPrice, remaining);
+
+            if (!string.IsNullOrEmpty(group.Stop2OrderId))
+            {
+                // Dual-stop bracket: Stop1 (current) paired with Tg1, Stop2 paired with Tg2.
+                // Safety-cancel Stop1 in case broker OCO didn't fire.
+                try
+                {
+                    await _executor.CancelOrderAsync(stopLeg.OrderId);
+                    _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — safety-cancelled Stop1 {O}",
+                        group.GroupOrderId, stopLeg.OrderId);
+                }
+                catch (Exception ex)
+                {
+                    _log?.LogWarning(ex, "[BEH] Failed to safety-cancel Stop1 {O} (may already be cancelled by OCO)",
+                        stopLeg.OrderId);
+                }
+                stopLeg.Status = OrderLegStatus.Canceled;
+
+                // Switch tracking to Stop2 (the stop paired with Tg2)
+                stopLeg.OrderId = group.Stop2OrderId;
+                stopLeg.Status = OrderLegStatus.Working;
+                group.Stop2OrderId = null; // consumed
+
+                // Modify Stop2 for BE and correct qty
+                var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
+                await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
+                stopLeg.Quantity = remaining;
+                if (group.UseBe) stopLeg.Price = newStopPrice;
+                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — switched to Stop2 {O}, {BE} @ {P} qty={Q}",
+                    group.GroupOrderId, stopLeg.OrderId,
+                    group.UseBe ? "BE" : "hold", group.UseBe ? group.EntryPrice : stopLeg.Price, remaining);
+            }
             else
-                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop stays @ {P}, qty→{Q}",
-                    group.GroupOrderId, stopLeg.Price, remaining);
+            {
+                // Single-stop bracket: just modify the existing stop
+                var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
+                await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
+                stopLeg.Quantity = remaining;
+                if (group.UseBe) stopLeg.Price = newStopPrice;
+                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop {BE} @ {P}, qty→{Q}",
+                    group.GroupOrderId, group.UseBe ? "→BE" : "stays",
+                    group.UseBe ? group.EntryPrice : stopLeg.Price, remaining);
+            }
         }
 
         OnGroupStateChanged?.Invoke(group);
