@@ -200,23 +200,30 @@ public static class SnapshotAggregator
             {
                 var group = brokerHandler.GetGroupState(strategy.Id);
                 if (group == null) group = brokerHandler.GetGroupState(strategy.SetupId.ToString());
-                if (group?.EntryPrice != null)
+                if (group != null)
                 {
-                    var stopLeg = group.GetLeg(LegType.Stop);
-                    var tg1Leg = group.GetLeg(LegType.Tg1);
-                    var tg2Leg = group.GetLeg(LegType.Tg2);
-                    trade = new ActiveTradeView
+                    // Use fill price if available, else entry leg limit price for pending entries
+                    var entryLeg = group.GetLeg(LegType.Entry);
+                    var entryPrice = group.EntryPrice ?? entryLeg?.Price ?? 0m;
+                    if (entryPrice > 0)
                     {
-                        Direction = group.Direction,
-                        Contracts = group.TotalContracts,
-                        Entry = group.EntryPrice.Value,
-                        CurrentStop = stopLeg?.Price ?? 0m,
-                        InitialStop = stopLeg?.Price ?? 0m,
-                        Target = tg2Leg?.Price ?? 0m,
-                        Partial = tg1Leg?.Price ?? 0m,
-                        PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
-                        EnteredAt = group.CreatedAt,
-                    };
+                        var stopLeg = group.GetLeg(LegType.Stop);
+                        var tg1Leg = group.GetLeg(LegType.Tg1);
+                        var tg2Leg = group.GetLeg(LegType.Tg2);
+                        trade = new ActiveTradeView
+                        {
+                            Direction = group.Direction,
+                            Contracts = group.TotalContracts,
+                            Entry = entryPrice,
+                            CurrentStop = stopLeg?.Price ?? 0m,
+                            InitialStop = stopLeg?.Price ?? 0m,
+                            Target = tg2Leg?.Price ?? 0m,
+                            Partial = tg1Leg?.Price ?? 0m,
+                            PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+                            EnteredAt = group.CreatedAt,
+                            GroupStatus = group.Status.ToString(),
+                        };
+                    }
                 }
             }
 
