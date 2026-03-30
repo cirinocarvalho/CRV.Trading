@@ -240,32 +240,113 @@ public class OrdersModel : PageModel
             var fromUtc = TimeZoneInfo.ConvertTimeToUtc(fromEt, _et);
             var toUtc   = TimeZoneInfo.ConvertTimeToUtc(toEt, _et);
 
-            // 1. Completed groups from DB
-            var query = _db.GroupOrders.AsNoTracking()
-                .Where(g => g.CreatedAt >= fromUtc && g.CreatedAt < toUtc);
-            if (!string.IsNullOrEmpty(broker))
-                query = query.Where(g => g.Broker == broker);
-            var groups = await query
-                .OrderByDescending(g => g.CreatedAt)
-                .ToListAsync();
+            // 1. Completed groups — from DB GroupOrders (Mock) or Trades table (live)
+            var result = new List<GroupOrderDto>();
+            var dbGroupIds = new HashSet<string>();
 
-            var groupIds = groups.Select(g => g.GroupOrderId).ToList();
-            var legs = await _db.OrderLegs.AsNoTracking()
-                .Where(l => groupIds.Contains(l.GroupOrderId))
-                .ToListAsync();
+            bool isLiveBroker = !string.IsNullOrEmpty(broker) && broker != "Mock" && broker != "Backtest";
 
-            var legsByGroup = legs.GroupBy(l => l.GroupOrderId)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            if (isLiveBroker)
+            {
+                // Live broker: fetch ALL strategies from broker REST with real order data
+                var tvExec = _orchestrator.GetGroupExecutor() as TradovateExecutor;
+                if (tvExec != null)
+                {
+                    var allStrategies = await tvExec.GetAllStrategiesAsync();
 
-            var result = groups.Select(g => MapGroup(g,
-                legsByGroup.TryGetValue(g.GroupOrderId, out var gl) ? gl : new())).ToList();
+                    // Load strategy logs to match setupId labels
+                    var stratLogs = await _db.StrategyLogs.AsNoTracking()
+                        .Where(s => s.CreatedAt >= fromUtc && s.CreatedAt < toUtc)
+                        .ToDictionaryAsync(s => s.BrokerStrategyId, s => s);
 
-            _log.LogDebug("GetGroupOrders: {Count} DB groups, {LegCount} legs in range {From}–{To}",
-                groups.Count, legs.Count, fromUtc, toUtc);
+                    // Filter strategies by date range
+                    var filtered = allStrategies
+                        .Where(s => s.Timestamp >= fromUtc && s.Timestamp < toUtc)
+                        .OrderByDescending(s => s.Timestamp)
+                        .ToList();
 
-            // 2. Active in-memory groups (not yet in DB — pending/active/partial)
+                    foreach (var strat in filtered)
+                    {
+                        // Match with StrategyLog for setup label
+                        var stratIdStr = strat.StrategyId.ToString();
+                        stratLogs.TryGetValue(stratIdStr, out var log);
+
+                        var direction = strat.Action == "Sell" ? "Short" : "Long";
+                        var exitAction = strat.Action == "Sell" ? "Buy" : "Sell";
+
+                        // Classify legs from order links
+                        var legs = new List<LegDto>();
+                        foreach (var link in strat.OrderLinks.OrderBy(l => l.OrderId))
+                        {
+                            string legType;
+                            if (link.Label == "256" || link.Action == strat.Action)
+                                legType = "Entry";
+                            else if (link.OrderType == "Stop")
+                                legType = "Stop";
+                            else if (link.OrderType == "Limit")
+                                legType = legs.Any(l => l.LegType == "Tg1") ? "Tg2" : "Tg1";
+                            else
+                                legType = "Unknown";
+
+                            legs.Add(new LegDto
+                            {
+                                OrderId = link.OrderId.ToString(),
+                                LegType = legType,
+                                OrderType = link.OrderType,
+                                Action = link.Action,
+                                Quantity = link.Qty,
+                                Price = link.Price,
+                                Status = link.Status,
+                                FillPrice = link.FillPrice,
+                            });
+                        }
+
+                        var entryLeg = legs.FirstOrDefault(l => l.LegType == "Entry");
+                        var isCompleted = strat.Status == "ExecutionInterrupted" || strat.Status == "Completed";
+
+                        result.Add(new GroupOrderDto
+                        {
+                            GroupOrderId = stratIdStr,
+                            SetupId = log?.SetupId ?? "",  // blank if not from CRV
+                            Ticker = log?.Ticker ?? $"contract-{strat.ContractId}",
+                            Direction = direction,
+                            TotalContracts = strat.EntryQty,
+                            EntryPrice = entryLeg?.FillPrice ?? strat.EntryPrice,
+                            Status = isCompleted ? "Completed" : strat.Status,
+                            Broker = broker,
+                            CreatedAt = strat.Timestamp.ToString("o"),
+                            CompletedAt = isCompleted ? strat.Timestamp.ToString("o") : null,
+                            Legs = legs
+                        });
+                    }
+                }
+            }
+            else
+            {
+                // Mock/Backtest: use GroupOrders + OrderLegs from DB (existing behavior)
+                var query = _db.GroupOrders.AsNoTracking()
+                    .Where(g => g.CreatedAt >= fromUtc && g.CreatedAt < toUtc);
+                if (!string.IsNullOrEmpty(broker))
+                    query = query.Where(g => g.Broker == broker);
+                var groups = await query
+                    .OrderByDescending(g => g.CreatedAt)
+                    .ToListAsync();
+
+                var groupIds = groups.Select(g => g.GroupOrderId).ToList();
+                dbGroupIds = new HashSet<string>(groupIds);
+                var legs = await _db.OrderLegs.AsNoTracking()
+                    .Where(l => groupIds.Contains(l.GroupOrderId))
+                    .ToListAsync();
+
+                var legsByGroup = legs.GroupBy(l => l.GroupOrderId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                result = groups.Select(g => MapGroup(g,
+                    legsByGroup.TryGetValue(g.GroupOrderId, out var gl) ? gl : new())).ToList();
+            }
+
+            // 2. Active in-memory groups (pending/active/partial)
             var activeGroups = _orchestrator.GetActiveGroups();
-            var dbGroupIds = new HashSet<string>(groupIds);
             foreach (var ag in activeGroups)
             {
                 if (dbGroupIds.Contains(ag.GroupOrderId)) continue;

@@ -52,6 +52,15 @@
         </div>
 
         <div class="col-auto">
+            <label class="form-label small">Setup</label>
+            <select id="f-setup" class="form-select form-select-sm" style="min-width:160px"
+                    onchange="applyGroupFilter()">
+                <option value="" selected>(All incl. blank)</option>
+                <option value="__has_setup__">All with setup</option>
+            </select>
+        </div>
+
+        <div class="col-auto">
             <label class="form-label small">From</label>
             <input type="date" id="f-from" class="form-control form-control-sm"
                    value="@DateTime.Today.AddDays(-7).ToString("yyyy-MM-dd")" />
@@ -393,15 +402,48 @@ function loadGroupOrders() {
         });
 }
 
+// Store last loaded data for client-side filtering
+let _lastGroupData = [];
+
 function renderGroupOrders(data) {
+    _lastGroupData = Array.isArray(data) ? data : [];
+
+    // Populate setup filter dropdown with unique setups from data
+    const setupSel = document.getElementById('f-setup');
+    const curVal = setupSel.value;
+    const setups = [...new Set(_lastGroupData.map(g => g.setupId).filter(s => s))].sort();
+    // Keep first two static options, remove old dynamic ones
+    while (setupSel.options.length > 2) setupSel.remove(2);
+    for (const s of setups) {
+        const opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        setupSel.add(opt);
+    }
+    setupSel.value = curVal || '';
+
+    applyGroupFilter();
+}
+
+function applyGroupFilter() {
     const tbody = document.getElementById('groups-tbody');
-    if (data.error) {
-        document.getElementById('groups-error').textContent = data.error;
+    const setupFilter = document.getElementById('f-setup').value;
+
+    if (_lastGroupData.error) {
+        document.getElementById('groups-error').textContent = _lastGroupData.error;
         document.getElementById('groups-error').classList.remove('d-none');
         return;
     }
 
-    const groups = Array.isArray(data) ? data : [];
+    let groups = _lastGroupData;
+
+    // Apply setup filter
+    if (setupFilter === '__has_setup__') {
+        groups = groups.filter(g => g.setupId);
+    } else if (setupFilter) {
+        groups = groups.filter(g => g.setupId === setupFilter);
+    }
+    // default (empty) = show all including blank
+
     document.getElementById('groups-count').textContent = `${groups.length} group(s)`;
 
     if (groups.length === 0) {

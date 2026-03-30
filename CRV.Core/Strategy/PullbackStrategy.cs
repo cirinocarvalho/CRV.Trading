@@ -217,6 +217,9 @@ public class PullbackStrategy : ISetupStrategy
         bool tickReady = isLong ? _longCount < _cfg.EffectiveMaxLong : _shortCount < _cfg.EffectiveMaxShort;
         if (!_inTrade && IsArmed && tickReady)
         {
+            // Pullback entry: price must be inside the ORB range
+            if (price <= orb.Low || price >= orb.High) return;
+
             if (_cfg.IsAggressive)
             {
                 TryEntry(_armEntry, isLong, orb, utc);
@@ -270,6 +273,10 @@ public class PullbackStrategy : ISetupStrategy
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {
         if (_inTrade) return; // already in trade
+
+        // Pullback entry must be inside the ORB range (between orbLow and orbHigh)
+        if (isLong && (ep <= orb.Low || ep >= orb.High)) return;
+        if (!isLong && (ep <= orb.Low || ep >= orb.High)) return;
 
         // Apply entry tick offset
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)

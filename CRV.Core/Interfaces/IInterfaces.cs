@@ -70,6 +70,13 @@ public interface IGroupOrderExecutor
     Task<decimal?> GetOrderFillPriceAsync(string orderId) => Task.FromResult<decimal?>(null);
 
     /// <summary>
+    /// Fetch order IDs for bracket legs linked to a strategy ID.
+    /// Returns dict of LegType label → orderId (e.g. "Entry" → "439010903012").
+    /// </summary>
+    Task<Dictionary<string, long>> GetStrategyOrderIdsAsync(long strategyId)
+        => Task.FromResult(new Dictionary<string, long>());
+
+    /// <summary>
     /// Recover an orphaned broker strategy by re-discovering bracket legs via REST.
     /// Creates a fully populated GroupOrder from the broker's current state.
     /// </summary>

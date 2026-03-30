@@ -13,6 +13,7 @@ public class TradingDbContext : DbContext
     public DbSet<OrderRecord>   Orders  { get; set; } = null!;
     public DbSet<GroupOrder>    GroupOrders { get; set; } = null!;
     public DbSet<OrderLeg>      OrderLegs   { get; set; } = null!;
+    public DbSet<StrategyLog>  StrategyLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -61,6 +62,15 @@ public class TradingDbContext : DbContext
             e.HasIndex(l => l.OrderId).IsUnique();
             e.Property(l => l.LegType).HasConversion<string>();
             e.Property(l => l.Status).HasConversion<string>();
+        });
+
+        // ── Strategy Log (lightweight recovery for live brokers) ───
+        b.Entity<StrategyLog>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasIndex(s => s.BrokerStrategyId);
+            e.HasIndex(s => s.CreatedAt);
+            e.Ignore(s => s.Direction); // stored as DirectionStr
         });
     }
 }

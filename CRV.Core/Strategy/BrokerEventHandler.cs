@@ -18,6 +18,10 @@ public class BrokerEventHandler
     private readonly ILogger? _log;
     public bool IsBacktest { get; init; }
 
+    /// <summary>When true, session-end exits only clear in-memory state — broker manages the bracket lifecycle.
+    /// When false (Mock/Backtest), session-end exits send cancel + market close to the executor.</summary>
+    public bool BrokerManagesExits { get; init; }
+
     // Active groups keyed by SetupId
     private readonly Dictionary<string, (GroupOrder Group, ISetupStrategy Strategy)> _active = new();
     // Secondary index: GroupOrderId → (Group, Strategy) — includes displaced groups
@@ -391,6 +395,18 @@ public class BrokerEventHandler
     private async Task ExitGroupCoreAsync(GroupOrder group, ISetupStrategy? strategy,
         decimal exitPrice, ExitReason reason, DateTime? exitTime = null)
     {
+        // Live broker manages exits — don't send cancel/market close for session-end exits
+        // The broker's brackets (targets/stops) handle the trade lifecycle.
+        // Only allow manual exits (ExitReason.Manual) to send broker orders.
+        if (BrokerManagesExits && reason != ExitReason.Manual)
+        {
+            _log?.LogInformation("[BEH] Skipping broker exit for grp={G} reason={R} — broker manages exits",
+                group.GroupOrderId, reason);
+            strategy?.SetInTrade(false);
+            RemoveGroup(group);
+            return;
+        }
+
         // Cancel all working legs on the executor
         foreach (var leg in group.Legs.Where(l => l.Status == OrderLegStatus.Working))
         {
@@ -442,6 +458,27 @@ public class BrokerEventHandler
     /// <param name="exitTime">Simulated time for backtest; null = DateTime.UtcNow.</param>
     public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null, DateTime? exitTime = null)
     {
+        if (BrokerManagesExits)
+        {
+            // Live broker: don't send cancel/market close — broker's brackets handle exits.
+            // Just clear in-memory tracking so the engine can re-discover on next session.
+            _log?.LogInformation("[BEH] ExitAllAsync — broker manages exits, clearing in-memory state only");
+            List<(GroupOrder Group, ISetupStrategy Strategy)> toRemove;
+            lock (_lock)
+                toRemove = _active.Values.ToList();
+            foreach (var (group, strategy) in toRemove)
+            {
+                strategy.SetInTrade(false);
+                strategy.ResetSession();
+            }
+            lock (_lock)
+            {
+                _active.Clear();
+                _byGroupId.Clear();
+            }
+            return;
+        }
+
         List<(string Id, string Ticker)> setupInfo;
         lock (_lock)
             setupInfo = _active.Select(kv => (kv.Key, kv.Value.Group.Ticker)).ToList();

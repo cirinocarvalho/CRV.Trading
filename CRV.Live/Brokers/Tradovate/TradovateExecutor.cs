@@ -719,6 +719,177 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         return await GetFillPriceAsync(id);
     }
 
+    /// <summary>
+    /// Fetch all order strategies from Tradovate with their linked orders.
+    /// Returns a list of strategy summaries including order IDs, statuses, and fill prices.
+    /// </summary>
+    public async Task<List<BrokerStrategyView>> GetAllStrategiesAsync()
+    {
+        var result = new List<BrokerStrategyView>();
+        try
+        {
+            // Step 1: Get all strategies
+            var stratJson = await GetAsync("/orderStrategy/list");
+            using var stratDoc = JsonDocument.Parse(stratJson);
+
+            var strategies = new List<(long id, string action, int contractId, string paramsJson, string status, DateTime timestamp)>();
+            foreach (var s in stratDoc.RootElement.EnumerateArray())
+            {
+                var id = s.TryGetProperty("id", out var sid) && sid.ValueKind == JsonValueKind.Number ? sid.GetInt64() : 0;
+                if (id == 0) continue;
+                var action = s.TryGetProperty("action", out var ap) ? ap.GetString() ?? "" : "";
+                var contractId = s.TryGetProperty("contractId", out var cid) && cid.ValueKind == JsonValueKind.Number ? cid.GetInt32() : 0;
+                var prms = s.TryGetProperty("params", out var pp) ? pp.GetString() ?? "" : "";
+                var status = s.TryGetProperty("status", out var sp) ? sp.GetString() ?? "" : "";
+                var ts = s.TryGetProperty("timestamp", out var tp) && tp.ValueKind == JsonValueKind.String
+                    ? DateTime.TryParse(tp.GetString(), out var dt) ? dt : DateTime.MinValue : DateTime.MinValue;
+                strategies.Add((id, action, contractId, prms, status, ts));
+            }
+
+            // Step 2: For each strategy, get linked orders
+            foreach (var (stratId, action, contractId, paramsJson, status, timestamp) in strategies)
+            {
+                var view = new BrokerStrategyView
+                {
+                    StrategyId = stratId,
+                    Action = action,
+                    ContractId = contractId,
+                    Status = status,
+                    Timestamp = timestamp,
+                };
+
+                // Parse entry price from params
+                try
+                {
+                    using var pDoc = JsonDocument.Parse(paramsJson);
+                    if (pDoc.RootElement.TryGetProperty("entryVersion", out var ev))
+                    {
+                        view.EntryPrice = ev.TryGetProperty("price", out var ep) && ep.ValueKind == JsonValueKind.Number ? ep.GetDecimal() : 0;
+                        view.EntryQty = ev.TryGetProperty("orderQty", out var eq) && eq.ValueKind == JsonValueKind.Number ? eq.GetInt32() : 0;
+                        view.OrderType = ev.TryGetProperty("orderType", out var ot) ? ot.GetString() ?? "Limit" : "Limit";
+                    }
+                }
+                catch { /* params parse failure — non-critical */ }
+
+                // Get linked orders
+                try
+                {
+                    var linksJson = await GetAsync($"/orderStrategyLink/deps?masterid={stratId}");
+                    using var linksDoc = JsonDocument.Parse(linksJson);
+
+                    var orderIds = new List<long>();
+                    foreach (var link in linksDoc.RootElement.EnumerateArray())
+                    {
+                        var oid = link.TryGetProperty("orderId", out var oip) && oip.ValueKind == JsonValueKind.Number ? oip.GetInt64() : 0;
+                        var label = link.TryGetProperty("label", out var lp) ? lp.GetString() ?? "" : "";
+                        if (oid > 0)
+                        {
+                            orderIds.Add(oid);
+                            view.OrderLinks.Add(new BrokerOrderLink { OrderId = oid, Label = label });
+                        }
+                    }
+
+                    // Batch fetch order details
+                    if (orderIds.Count > 0)
+                    {
+                        var ids = string.Join(",", orderIds);
+                        var ordersJson = await GetAsync($"/order/items?ids={ids}");
+                        using var ordersDoc = JsonDocument.Parse(ordersJson);
+                        foreach (var o in ordersDoc.RootElement.EnumerateArray())
+                        {
+                            var oid = o.TryGetProperty("id", out var oip2) && oip2.ValueKind == JsonValueKind.Number ? oip2.GetInt64() : 0;
+                            var link = view.OrderLinks.FirstOrDefault(l => l.OrderId == oid);
+                            if (link == null) continue;
+
+                            link.Status = o.TryGetProperty("ordStatus", out var osp) ? osp.GetString() ?? "" : "";
+                            link.Action = o.TryGetProperty("action", out var oap) ? oap.GetString() ?? "" : "";
+                            link.FillPrice = o.TryGetProperty("avgFillPrice", out var afp) && afp.ValueKind == JsonValueKind.Number ? afp.GetDecimal() : null;
+                        }
+
+                        // Fetch order versions for type/price info
+                        var versionsJson = await GetAsync($"/orderVersion/items?ids={ids}");
+                        using var versionsDoc = JsonDocument.Parse(versionsJson);
+                        foreach (var v in versionsDoc.RootElement.EnumerateArray())
+                        {
+                            var oid = v.TryGetProperty("orderId", out var voip) && voip.ValueKind == JsonValueKind.Number ? voip.GetInt64() : 0;
+                            var link = view.OrderLinks.FirstOrDefault(l => l.OrderId == oid);
+                            if (link == null) continue;
+
+                            link.OrderType = v.TryGetProperty("orderType", out var otp) ? otp.GetString() ?? "" : "";
+                            link.Price = v.TryGetProperty("price", out var pp2) && pp2.ValueKind == JsonValueKind.Number ? pp2.GetDecimal() : 0;
+                            if (link.Price == 0)
+                                link.Price = v.TryGetProperty("stopPrice", out var spp) && spp.ValueKind == JsonValueKind.Number ? spp.GetDecimal() : 0;
+                            link.Qty = v.TryGetProperty("orderQty", out var oqp) && oqp.ValueKind == JsonValueKind.Number ? oqp.GetInt32() : 0;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[TV] Failed to fetch order links for strategy {S}", stratId);
+                }
+
+                result.Add(view);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TV] GetAllStrategiesAsync failed");
+        }
+        return result;
+    }
+
+    /// <summary>View model for a broker strategy with its linked orders.</summary>
+    public class BrokerStrategyView
+    {
+        public long StrategyId { get; set; }
+        public string Action { get; set; } = "";
+        public int ContractId { get; set; }
+        public string Status { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+        public decimal EntryPrice { get; set; }
+        public int EntryQty { get; set; }
+        public string OrderType { get; set; } = "Limit";
+        public string? SetupId { get; set; } // filled from StrategyLog
+        public List<BrokerOrderLink> OrderLinks { get; set; } = new();
+    }
+
+    public class BrokerOrderLink
+    {
+        public long OrderId { get; set; }
+        public string Label { get; set; } = ""; // "256"=entry, "0"=bracket0, "1"=bracket1
+        public string OrderType { get; set; } = "";
+        public string Action { get; set; } = "";
+        public string Status { get; set; } = "";
+        public decimal Price { get; set; }
+        public int Qty { get; set; }
+        public decimal? FillPrice { get; set; }
+    }
+
+    /// <summary>Fetch order IDs linked to a strategy from Tradovate REST.</summary>
+    public async Task<Dictionary<string, long>> GetStrategyOrderIdsAsync(long strategyId)
+    {
+        var result = new Dictionary<string, long>();
+        try
+        {
+            var linksJson = await GetAsync($"/orderStrategyLink/deps?masterid={strategyId}");
+            using var linksDoc = JsonDocument.Parse(linksJson);
+
+            foreach (var link in linksDoc.RootElement.EnumerateArray())
+            {
+                var orderId = link.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
+                    ? oid.GetInt64() : 0;
+                var label = link.TryGetProperty("label", out var lp) ? lp.GetString() ?? "" : "";
+                if (orderId > 0)
+                    result[label] = orderId;
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV] GetStrategyOrderIdsAsync failed for {S}", strategyId);
+        }
+        return result;
+    }
+
     private async Task<decimal?> GetFillPriceAsync(long orderId)
     {
         const int maxRetries   = 15;
@@ -750,6 +921,35 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Get account cash balance snapshot from Tradovate for daily P&L verification.
+    /// Returns (realizedPnl, unrealizedPnl, totalCashValue) or null on error.
+    /// </summary>
+    public async Task<(decimal realized, decimal unrealized, decimal cashValue)?> GetCashBalanceAsync()
+    {
+        try
+        {
+            var account = await GetAccountAsync();
+            var json = await GetAsync($"/cashBalance/getCashBalanceSnapshot?accountId={account.Id}");
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var realized = root.TryGetProperty("realizedPnl", out var rp) && rp.ValueKind == JsonValueKind.Number
+                ? rp.GetDecimal() : 0m;
+            var unrealized = root.TryGetProperty("openPnl", out var up) && up.ValueKind == JsonValueKind.Number
+                ? up.GetDecimal() : 0m;
+            var cashValue = root.TryGetProperty("totalCashValue", out var cv) && cv.ValueKind == JsonValueKind.Number
+                ? cv.GetDecimal() : 0m;
+
+            return (realized, unrealized, cashValue);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV] GetCashBalanceAsync failed");
+            return null;
+        }
     }
 
     /// <summary>
