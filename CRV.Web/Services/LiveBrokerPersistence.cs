@@ -119,6 +119,16 @@ public class LiveBrokerPersistence : IBrokerPersistence
                             _log?.LogInformation("[RECOVER] Strategy {S} already completed at broker — will record trade",
                                 log.BrokerStrategyId);
                         }
+                        else if (group.Status == GroupOrderStatus.Canceled
+                            || (group.Status == GroupOrderStatus.Pending
+                                && group.GetLeg(LegType.Entry)?.Status is OrderLegStatus.Canceled or OrderLegStatus.Rejected))
+                        {
+                            // Entry was cancelled/rejected — mark log completed, skip recovery
+                            log.IsCompleted = true;
+                            _log?.LogInformation("[RECOVER] Strategy {S} entry cancelled at broker — skipping",
+                                log.BrokerStrategyId);
+                            continue;
+                        }
 
                         result.Add(group);
                         _log?.LogInformation("[RECOVER] Restored strategy {S} → group {G} status={St}",
