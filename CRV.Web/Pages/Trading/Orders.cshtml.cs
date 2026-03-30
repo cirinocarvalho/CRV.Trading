@@ -313,7 +313,7 @@ public class OrdersModel : PageModel
                             TotalContracts = strat.EntryQty,
                             EntryPrice = entryLeg?.FillPrice ?? strat.EntryPrice,
                             Status = isCompleted ? "Completed" : strat.Status,
-                            Broker = broker,
+                            Broker = broker ?? "",
                             CreatedAt = DateTime.SpecifyKind(log?.CreatedAt ?? strat.Timestamp, DateTimeKind.Utc).ToString("o"),
                             CompletedAt = isCompleted ? DateTime.SpecifyKind(strat.Timestamp, DateTimeKind.Utc).ToString("o") : null,
                             Legs = legs
