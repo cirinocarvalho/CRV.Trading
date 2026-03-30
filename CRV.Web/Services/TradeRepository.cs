@@ -27,6 +27,21 @@ public class TradeRepository
             .ToListAsync();
     }
 
+    /// <summary>Get trades for a specific trading day. Trading day = previous day 18:00 ET → selected day 18:00 ET.</summary>
+    public async Task<List<TradeRecord>> GetByDateAsync(DateTime dateEt)
+    {
+        var est = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+        const int sessionStartHour = 18;
+        var tradingDayStart = dateEt.Date.AddDays(-1).AddHours(sessionStartHour);
+        var tradingDayEnd   = dateEt.Date.AddHours(sessionStartHour);
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(tradingDayStart, est);
+        var toUtc   = TimeZoneInfo.ConvertTimeToUtc(tradingDayEnd, est);
+        return await _db.Trades
+            .Where(t => t.EnteredAt >= fromUtc && t.EnteredAt < toUtc && (t.Source == "live" || t.Source == "mock"))
+            .OrderByDescending(t => t.EnteredAt)
+            .ToListAsync();
+    }
+
     public async Task<List<TradeRecord>> GetBySourceAsync(string source)
         => await _db.Trades.Where(t => t.Source == source)
                             .OrderBy(t => t.EnteredAt).ToListAsync();
