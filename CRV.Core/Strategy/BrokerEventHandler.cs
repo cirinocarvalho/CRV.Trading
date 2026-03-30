@@ -395,9 +395,12 @@ public class BrokerEventHandler
     private async Task ExitGroupCoreAsync(GroupOrder group, ISetupStrategy? strategy,
         decimal exitPrice, ExitReason reason, DateTime? exitTime = null)
     {
-        // Live broker manages exits for active/partial trades — don't send market close.
-        // But always allow: manual exits, and cancellation of pending entries (not real positions).
-        if (BrokerManagesExits && reason != ExitReason.Manual && group.Status != GroupOrderStatus.Pending)
+        // BrokerManagesExits only blocks mid-trade interference (e.g. engine restart).
+        // Always allow: manual exits, session end/cutoff, and pending entry cancellation.
+        if (BrokerManagesExits
+            && reason != ExitReason.Manual
+            && reason != ExitReason.SessionEnd
+            && group.Status != GroupOrderStatus.Pending)
         {
             _log?.LogInformation("[BEH] Skipping broker exit for grp={G} reason={R} — broker manages exits, group stays tracked",
                 group.GroupOrderId, reason);
