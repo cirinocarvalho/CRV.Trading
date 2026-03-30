@@ -500,7 +500,23 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         var tg2Disc = disc.Tg2 ?? (usePartial ? null : disc.Tg1);
 
         if (disc.Tg1 is not null && usePartial)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = disc.Tg1.Qty > 0 ? disc.Tg1.Qty : partialContracts, Price = disc.Tg1.Price, Status = MapStatus(disc.Tg1.Status) });
+        {
+            var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = disc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = disc.Tg1.Qty > 0 ? disc.Tg1.Qty : partialContracts, Price = disc.Tg1.Price, Status = MapStatus(disc.Tg1.Status) };
+            if (disc.Tg1.FillPrice.HasValue) tg1Leg.FillPrice = disc.Tg1.FillPrice;
+            if (disc.Tg1.Status == "Filled") tg1Leg.FillTime = DateTime.UtcNow;
+            group.Legs.Add(tg1Leg);
+
+            // If Tg1 already filled, set group to PartialFilled and accrue P&L
+            if (disc.Tg1.Status == "Filled" && group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
+            {
+                group.Status = GroupOrderStatus.PartialFilled;
+                bool isLong = direction == Direction.Long;
+                var tg1Fill = disc.Tg1.FillPrice ?? disc.Tg1.Price;
+                group.AccruedPartialPnl = isLong
+                    ? (tg1Fill - group.EntryPrice.Value) * group.PointValue * partialContracts
+                    : (group.EntryPrice.Value - tg1Fill) * group.PointValue * partialContracts;
+            }
+        }
         if (tg2Disc is not null)
             group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
         if (disc.Stop is not null)
