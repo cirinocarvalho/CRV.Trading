@@ -210,6 +210,17 @@ public static class SnapshotAggregator
                         var stopLeg = group.GetLeg(LegType.Stop);
                         var tg1Leg = group.GetLeg(LegType.Tg1);
                         var tg2Leg = group.GetLeg(LegType.Tg2);
+                        // Calculate unrealized P&L inline (avoid re-lookup by setupId which may not match)
+                        bool isPartial = group.Status == GroupOrderStatus.PartialFilled;
+                        int remQty = isPartial ? group.RemainingContracts : group.TotalContracts;
+                        bool isLong = group.Direction == Direction.Long;
+                        decimal unrealPnl = group.EntryPrice.HasValue && setupLastPrice > 0 && group.PointValue > 0
+                            ? (isLong
+                                ? (setupLastPrice - entryPrice) * group.PointValue * remQty
+                                : (entryPrice - setupLastPrice) * group.PointValue * remQty)
+                              + group.AccruedPartialPnl
+                            : 0m;
+
                         trade = new ActiveTradeView
                         {
                             Direction = group.Direction,
@@ -218,16 +229,16 @@ public static class SnapshotAggregator
                             RemainingContracts = group.RemainingContracts,
                             Entry = entryPrice,
                             // When partial filled + BE, the broker moved stop to entry — use that
-                            CurrentStop = (group.Status == GroupOrderStatus.PartialFilled && group.UseBe && group.EntryPrice.HasValue)
+                            CurrentStop = (isPartial && group.UseBe && group.EntryPrice.HasValue)
                                 ? group.EntryPrice.Value
                                 : (stopLeg?.Price ?? 0m),
                             InitialStop = group.InitialStopPrice > 0 ? group.InitialStopPrice : (stopLeg?.Price ?? 0m),
                             Target = tg2Leg?.Price ?? 0m,
                             Partial = tg1Leg?.Price ?? 0m,
-                            PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+                            PartialFilled = isPartial,
                             PointValue = group.PointValue,
                             LastPrice = setupLastPrice,
-                            UnrealizedPnl = brokerHandler.GetUnrealizedPnl(strategy.Id, setupLastPrice),
+                            UnrealizedPnl = unrealPnl,
                             EnteredAt = group.CreatedAt,
                             GroupStatus = group.Status.ToString(),
                         };
