@@ -555,53 +555,24 @@ public class BrokerEventHandler
                 group.GroupOrderId, group.EntryPrice, tg1FillPrice);
         }
 
-        // Handle dual-stop bracket: cancel the stop paired with Tg1 (broker OCO
-        // should do this, but sometimes doesn't), then switch to Stop2 for remaining.
+        // Update in-memory stop tracking — broker strategy handles all modifications/cancels.
         var stopLeg = group.GetLeg(LegType.Stop);
-        if (stopLeg != null && group.EntryPrice.HasValue)
+        if (stopLeg != null)
         {
             var remaining = group.TotalContracts - group.PartialContracts;
 
             if (!string.IsNullOrEmpty(group.Stop2OrderId))
             {
-                // Dual-stop bracket: Stop1 (current) paired with Tg1, Stop2 paired with Tg2.
-                // The broker strategy already modifies Stop2 (BE + reduced qty) when Tg1 fills,
-                // but sometimes fails to cancel Stop1 via OCO. Safety-cancel it ourselves.
-                if (stopLeg.Status == OrderLegStatus.Working)
-                {
-                    try
-                    {
-                        await _executor.CancelOrderAsync(stopLeg.OrderId);
-                        _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — safety-cancelled Stop1 {O}",
-                            group.GroupOrderId, stopLeg.OrderId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _log?.LogWarning(ex, "[BEH] Failed to safety-cancel Stop1 {O} (may already be cancelled by OCO)",
-                            stopLeg.OrderId);
-                    }
-                }
-
-                // Switch tracking to Stop2 (already modified by broker strategy)
+                // Dual-stop bracket: switch tracking to Stop2 (broker handles Stop1 cancel + Stop2 BE)
                 stopLeg.OrderId = group.Stop2OrderId;
                 stopLeg.Status = OrderLegStatus.Working;
-                stopLeg.Quantity = remaining;
-                if (group.UseBe) stopLeg.Price = group.EntryPrice.Value;
-                group.Stop2OrderId = null; // consumed
-                _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — switched to Stop2 {O}, qty={Q}",
-                    group.GroupOrderId, stopLeg.OrderId, remaining);
+                group.Stop2OrderId = null;
             }
-            else
-            {
-                // Single-stop bracket: just modify the existing stop
-                var newStopPrice = group.UseBe ? group.EntryPrice.Value : stopLeg.Price;
-                await _executor.ModifyOrderAsync(stopLeg.OrderId, newStopPrice, remaining);
-                stopLeg.Quantity = remaining;
-                if (group.UseBe) stopLeg.Price = newStopPrice;
-                _log?.LogDebug("[BEH] Tg1 FILLED grp={G} — stop {BE} @ {P}, qty→{Q}",
-                    group.GroupOrderId, group.UseBe ? "→BE" : "stays",
-                    group.UseBe ? group.EntryPrice : stopLeg.Price, remaining);
-            }
+
+            stopLeg.Quantity = remaining;
+            if (group.UseBe && group.EntryPrice.HasValue) stopLeg.Price = group.EntryPrice.Value;
+            _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}",
+                group.GroupOrderId, stopLeg.OrderId, remaining);
         }
 
         OnGroupStateChanged?.Invoke(group);
@@ -611,13 +582,9 @@ public class BrokerEventHandler
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        // Cancel stop leg and update its status on the GroupOrder
+        // Mark stop as canceled in memory — broker OCO handles the actual cancel
         var stopLeg = group.GetLeg(LegType.Stop);
-        if (stopLeg != null && stopLeg.Status == OrderLegStatus.Working)
-        {
-            await _executor.CancelOrderAsync(stopLeg.OrderId);
-            stopLeg.Status = OrderLegStatus.Canceled;
-        }
+        if (stopLeg != null) stopLeg.Status = OrderLegStatus.Canceled;
 
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2");
         if (exitPrice == 0)
@@ -635,14 +602,11 @@ public class BrokerEventHandler
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        // Cancel tg1 and tg2 legs and update their status on the GroupOrder
+        // Mark tg1/tg2 as canceled in memory — broker OCO handles the actual cancel
         foreach (var leg in group.Legs.Where(l =>
             (l.LegType == LegType.Tg1 || l.LegType == LegType.Tg2) &&
             l.Status == OrderLegStatus.Working))
-        {
-            await _executor.CancelOrderAsync(leg.OrderId);
             leg.Status = OrderLegStatus.Canceled;
-        }
 
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop");
         // Last resort: use the stop leg's limit price to avoid recording exit @ 0
@@ -720,20 +684,33 @@ public class BrokerEventHandler
             var tg1 = group.GetLeg(LegType.Tg1);
             var tg2 = group.GetLeg(LegType.Tg2);
 
-            // Compute total P&L — only subtract partial contracts if partial actually filled
-            bool partialFilled = group.AccruedPartialPnl != 0m;
+            // Detect partial fill from Tg1 leg status or group status — not just AccruedPartialPnl
+            bool partialFilled = group.Status == GroupOrderStatus.PartialFilled
+                || tg1?.Status == OrderLegStatus.Filled
+                || group.AccruedPartialPnl != 0m;
 
-            // Diagnostic: log when Tg1 leg exists but partial didn't fill on a Target exit
-            if (!partialFilled && reason == ExitReason.Target && tg1 != null)
-                _log?.LogWarning("[BEH] DIAG: Target exit but PartialFilled=false grp={G} tg1Status={S} tg1Fill={F} partialCts={P} accrued={A}",
-                    group.GroupOrderId, tg1.Status, tg1.FillPrice, group.PartialContracts, group.AccruedPartialPnl);
+            // Recalculate partial P&L if Tg1 filled but accrued wasn't set
+            decimal partialPnl = group.AccruedPartialPnl;
+            if (partialFilled && partialPnl == 0m && group.PartialContracts > 0)
+            {
+                var tg1Fill = tg1?.FillPrice ?? tg1?.Price ?? 0m;
+                if (tg1Fill > 0)
+                {
+                    partialPnl = isLong
+                        ? (tg1Fill - entry) * group.PointValue * group.PartialContracts
+                        : (entry - tg1Fill) * group.PointValue * group.PartialContracts;
+                    _log?.LogWarning("[BEH] Recalculated partial P&L for grp={G}: tg1Fill={F} partialPnl={P}",
+                        group.GroupOrderId, tg1Fill, partialPnl);
+                }
+            }
+
             int remaining = partialFilled
                 ? group.TotalContracts - group.PartialContracts
                 : group.TotalContracts;
             decimal exitPnl = isLong
                 ? (exitPrice - entry) * group.PointValue * remaining
                 : (entry - exitPrice) * group.PointValue * remaining;
-            decimal totalPnl = exitPnl + group.AccruedPartialPnl;
+            decimal totalPnl = exitPnl + partialPnl;
 
             decimal risk = Math.Abs(entry - initStop) * group.PointValue * group.TotalContracts;
             decimal rMult = risk > 0 ? totalPnl / risk : 0m;
@@ -751,7 +728,7 @@ public class BrokerEventHandler
                 Partial = tg1?.Price ?? 0m,
                 Exit = exitPrice,
                 ExitReason = reason,
-                PartialFilled = group.AccruedPartialPnl != 0m,
+                PartialFilled = partialFilled,
                 PartialPrice = tg1?.FillPrice ?? tg1?.Price ?? 0m,
                 GrossPnl = totalPnl,
                 Commission = 0m,  // calculated downstream by risk manager
