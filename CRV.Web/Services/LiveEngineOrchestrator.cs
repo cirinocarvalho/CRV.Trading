@@ -868,7 +868,8 @@ public class LiveEngineOrchestrator : BackgroundService
                                 RMultiple = rMult,
                                 EnteredAt = group.CreatedAt,
                                 ExitedAt = group.CompletedAt ?? DateTime.UtcNow,
-                                SessionId = group.SessionId ?? "",
+                                SessionId = group.SessionId
+                                    ?? DetectSessionName(group.CreatedAt, cfg.Timezone),
                                 Source = "live",
                             };
 
@@ -883,6 +884,10 @@ public class LiveEngineOrchestrator : BackgroundService
                                 group.GroupOrderId, group.SetupId, exitReason, exitPrice, partialPnl, exitPnl, totalPnl);
                             continue; // don't register — trade is done
                         }
+
+                        // Tag with session from trade time if not already set
+                        if (string.IsNullOrEmpty(group.SessionId))
+                            group.SessionId = DetectSessionName(group.CreatedAt, cfg.Timezone);
 
                         brokerHandler.RegisterGroup(group, strategy);
                         if (group.Status != GroupOrderStatus.Pending)
@@ -1561,6 +1566,29 @@ public class LiveEngineOrchestrator : BackgroundService
         {
             _log.LogWarning(ex, "Backfill failed — engine will start without historical data.");
             return 0;
+        }
+    }
+
+    /// <summary>Determine session name (Asia/London/NY) from a UTC timestamp.</summary>
+    private static string DetectSessionName(DateTime utc, string timezone)
+    {
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+            var local = TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
+            var time = TimeOnly.FromDateTime(local);
+
+            // Use same boundaries as SessionEngine.DetectSession
+            // Asia: 19:00-02:00, London: 02:00-09:30, NY: 09:30-18:00
+            if (time >= new TimeOnly(19, 0) || time < new TimeOnly(2, 0))
+                return "Asia";
+            if (time >= new TimeOnly(2, 0) && time < new TimeOnly(9, 30))
+                return "London";
+            return "NY";
+        }
+        catch
+        {
+            return "NY"; // safe default
         }
     }
 }
