@@ -223,6 +223,8 @@ public static class SnapshotAggregator
                             Partial = tg1Leg?.Price ?? 0m,
                             PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
                             PointValue = group.PointValue,
+                            LastPrice = setupLastPrice,
+                            UnrealizedPnl = brokerHandler.GetUnrealizedPnl(strategy.Id, setupLastPrice),
                             EnteredAt = group.CreatedAt,
                             GroupStatus = group.Status.ToString(),
                         };
