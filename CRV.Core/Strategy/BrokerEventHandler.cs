@@ -458,14 +458,6 @@ public class BrokerEventHandler
     /// <param name="exitTime">Simulated time for backtest; null = DateTime.UtcNow.</param>
     public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null, DateTime? exitTime = null)
     {
-        if (BrokerManagesExits)
-        {
-            // Live broker: don't send cancel/market close, don't remove groups.
-            // Broker's brackets handle exits. Groups stay tracked for REST poller.
-            _log?.LogInformation("[BEH] ExitAllAsync — broker manages exits, groups stay tracked");
-            return;
-        }
-
         List<(string Id, string Ticker)> setupInfo;
         lock (_lock)
             setupInfo = _active.Select(kv => (kv.Key, kv.Value.Group.Ticker)).ToList();

@@ -243,9 +243,9 @@ public class TickerGroup
                     if (strategy.IsActive)
                     {
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
-                        strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                        strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd, bar.Time);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
                     }
                     continue;
                 }
@@ -258,9 +258,9 @@ public class TickerGroup
                     if (strategy.IsActive)
                     {
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
-                        strategy.ForceExit(px, bar.Time, ExitReason.SessionEnd);
+                        strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd, bar.Time);
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
                     }
                     // Cancel pending entries that haven't filled yet
                     else if (_brokerHandler != null)
