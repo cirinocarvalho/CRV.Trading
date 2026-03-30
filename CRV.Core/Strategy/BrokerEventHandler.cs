@@ -395,11 +395,9 @@ public class BrokerEventHandler
     private async Task ExitGroupCoreAsync(GroupOrder group, ISetupStrategy? strategy,
         decimal exitPrice, ExitReason reason, DateTime? exitTime = null)
     {
-        // Live broker manages exits — don't send cancel/market close for session-end exits.
-        // The broker's brackets (targets/stops) handle the trade lifecycle.
-        // Keep the group tracked so REST poller continues monitoring.
-        // Only allow manual exits (ExitReason.Manual) to send broker orders.
-        if (BrokerManagesExits && reason != ExitReason.Manual)
+        // Live broker manages exits for active/partial trades — don't send market close.
+        // But always allow: manual exits, and cancellation of pending entries (not real positions).
+        if (BrokerManagesExits && reason != ExitReason.Manual && group.Status != GroupOrderStatus.Pending)
         {
             _log?.LogInformation("[BEH] Skipping broker exit for grp={G} reason={R} — broker manages exits, group stays tracked",
                 group.GroupOrderId, reason);

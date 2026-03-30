@@ -262,6 +262,13 @@ public class TickerGroup
                         if (_brokerHandler != null)
                             await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd, bar.Time);
                     }
+                    // Cancel pending entries that haven't filled yet
+                    else if (_brokerHandler != null)
+                    {
+                        var pendingGroup = _brokerHandler.GetGroupState(strategy.Id);
+                        if (pendingGroup?.Status == GroupOrderStatus.Pending)
+                            await _brokerHandler.ExitGroupAsync(strategy.Id, 0, ExitReason.SessionEnd, bar.Time);
+                    }
                     // Disarm stale armed/waiting states so dashboard shows IDLE
                     strategy.Disarm();
                     continue;
