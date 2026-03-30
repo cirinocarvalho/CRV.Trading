@@ -518,16 +518,32 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             }
         }
         if (tg2Disc is not null)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
-        if (disc.Stop is not null)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = disc.Stop.Qty > 0 ? disc.Stop.Qty : totalContracts, Price = disc.Stop.Price, Status = MapStatus(disc.Stop.Status) });
+        {
+            var tg2Qty = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts;
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Qty, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
+        }
+
+        // Use the ACTIVE stop leg: if Tg1 filled, Stop1 is Canceled → use Stop2
+        var activeStop = disc.Stop;
+        if (activeStop is not null && activeStop.Status is "Canceled" or "Cancelled" && disc.Stop2 is not null)
+            activeStop = disc.Stop2;
+        if (activeStop is not null)
+        {
+            var stopQty = group.Status == GroupOrderStatus.PartialFilled
+                ? totalContracts - partialContracts
+                : (activeStop.Qty > 0 ? activeStop.Qty : totalContracts);
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = activeStop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = stopQty, Price = activeStop.Price, Status = MapStatus(activeStop.Status) });
+        }
 
         // Register all legs with WSS for live tracking
         if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
         if (disc.Tg1 is not null && usePartial) EventStream?.RegisterOrder(disc.Tg1.Id, groupId, LegType.Tg1);
         if (tg2Disc is not null) EventStream?.RegisterOrder(tg2Disc.Id, groupId, LegType.Tg2);
-        if (disc.Stop is not null) EventStream?.RegisterOrder(disc.Stop.Id, groupId, LegType.Stop);
-        if (disc.Stop2 is not null) EventStream?.RegisterOrder(disc.Stop2.Id, groupId, LegType.Stop);
+        if (activeStop is not null) EventStream?.RegisterOrder(activeStop.Id, groupId, LegType.Stop);
+        // Also register the other stop if still active
+        var otherStop = activeStop == disc.Stop ? disc.Stop2 : disc.Stop;
+        if (otherStop is not null && otherStop.Status is not "Canceled" and not "Cancelled")
+            EventStream?.RegisterOrder(otherStop.Id, groupId, LegType.Stop);
 
         _log.LogInformation("[TV-RECOVER] Recovered group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S}",
             groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id);
