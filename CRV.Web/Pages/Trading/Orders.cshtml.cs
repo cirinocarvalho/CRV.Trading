@@ -314,8 +314,8 @@ public class OrdersModel : PageModel
                             EntryPrice = entryLeg?.FillPrice ?? strat.EntryPrice,
                             Status = isCompleted ? "Completed" : strat.Status,
                             Broker = broker,
-                            CreatedAt = (log?.CreatedAt ?? strat.Timestamp).ToString("o"),
-                            CompletedAt = isCompleted ? strat.Timestamp.ToString("o") : null,
+                            CreatedAt = DateTime.SpecifyKind(log?.CreatedAt ?? strat.Timestamp, DateTimeKind.Utc).ToString("o"),
+                            CompletedAt = isCompleted ? DateTime.SpecifyKind(strat.Timestamp, DateTimeKind.Utc).ToString("o") : null,
                             Legs = legs
                         });
                     }

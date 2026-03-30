@@ -825,7 +825,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 var prms = s.TryGetProperty("params", out var pp) ? pp.GetString() ?? "" : "";
                 var status = s.TryGetProperty("status", out var sp) ? sp.GetString() ?? "" : "";
                 var ts = s.TryGetProperty("timestamp", out var tp) && tp.ValueKind == JsonValueKind.String
-                    ? DateTime.TryParse(tp.GetString(), out var dt) ? dt : DateTime.MinValue : DateTime.MinValue;
+                    ? DateTimeOffset.TryParse(tp.GetString(), out var dto) ? dto.UtcDateTime : DateTime.MinValue : DateTime.MinValue;
                 strategies.Add((id, action, contractId, prms, status, ts));
             }
 
