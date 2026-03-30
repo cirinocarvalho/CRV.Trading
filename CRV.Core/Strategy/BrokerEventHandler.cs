@@ -510,9 +510,9 @@ public class BrokerEventHandler
             _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, evt.FillPrice);
             OnEntryFilled?.Invoke(group);
         }
-        else if (evt.Status == OrderLegStatus.Rejected)
+        else if (evt.Status == OrderLegStatus.Rejected || evt.Status == OrderLegStatus.Canceled)
         {
-            _log?.LogWarning("[BEH] Entry REJECTED grp={G}", group.GroupOrderId);
+            _log?.LogWarning("[BEH] Entry {S} grp={G}", evt.Status, group.GroupOrderId);
             return CancelRemainingAndComplete(group, strategy, GroupOrderStatus.Canceled);
         }
 
