@@ -545,8 +545,26 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         if (otherStop is not null && otherStop.Status is not "Canceled" and not "Cancelled")
             EventStream?.RegisterOrder(otherStop.Id, groupId, LegType.Stop);
 
-        _log.LogInformation("[TV-RECOVER] Recovered group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S}",
-            groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id);
+        // Detect if trade is already completed (stop or Tg2 already filled)
+        var stopLeg = group.GetLeg(LegType.Stop);
+        var tg2Leg = group.GetLeg(LegType.Tg2);
+        if (stopLeg?.Status == OrderLegStatus.Filled)
+        {
+            group.Status = GroupOrderStatus.Completed;
+            group.CompletedAt = DateTime.UtcNow;
+            _log.LogInformation("[TV-RECOVER] Strategy {S} already completed (stop filled @ {P})",
+                strategyId, stopLeg.FillPrice ?? activeStop?.FillPrice);
+        }
+        else if (tg2Leg?.Status == OrderLegStatus.Filled)
+        {
+            group.Status = GroupOrderStatus.Completed;
+            group.CompletedAt = DateTime.UtcNow;
+            _log.LogInformation("[TV-RECOVER] Strategy {S} already completed (target filled @ {P})",
+                strategyId, tg2Leg.FillPrice ?? tg2Disc?.FillPrice);
+        }
+
+        _log.LogInformation("[TV-RECOVER] Recovered group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S} status={St}",
+            groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, activeStop?.Id, group.Status);
 
         return group;
     }

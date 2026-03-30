@@ -804,6 +804,65 @@ public class LiveEngineOrchestrator : BackgroundService
                             strategy = stub;
                         }
 
+                        // Already completed at broker — record trade and skip registration
+                        if (group.Status == GroupOrderStatus.Completed && group.EntryPrice.HasValue)
+                        {
+                            var stopLeg = group.GetLeg(LegType.Stop);
+                            var tg2Leg = group.GetLeg(LegType.Tg2);
+                            var tg1Leg = group.GetLeg(LegType.Tg1);
+                            bool exitedByTarget = tg2Leg?.Status == OrderLegStatus.Filled;
+                            bool exitedByStop = stopLeg?.Status == OrderLegStatus.Filled;
+                            var exitPrice = exitedByTarget ? (tg2Leg!.FillPrice ?? tg2Leg.Price)
+                                          : exitedByStop ? (stopLeg!.FillPrice ?? stopLeg.Price) : 0m;
+                            var exitReason = exitedByTarget ? ExitReason.Target : ExitReason.Stop;
+
+                            bool isLong = group.Direction == Direction.Long;
+                            int remaining = group.AccruedPartialPnl != 0
+                                ? group.TotalContracts - group.PartialContracts
+                                : group.TotalContracts;
+                            decimal exitPnl = isLong
+                                ? (exitPrice - group.EntryPrice.Value) * group.PointValue * remaining
+                                : (group.EntryPrice.Value - exitPrice) * group.PointValue * remaining;
+                            decimal totalPnl = exitPnl + group.AccruedPartialPnl;
+                            decimal risk = Math.Abs(group.EntryPrice.Value - group.InitialStopPrice) * group.PointValue * group.TotalContracts;
+                            decimal rMult = risk > 0 ? totalPnl / risk : 0m;
+
+                            var trade = new TradeRecord
+                            {
+                                Setup = strategy.SetupId,
+                                SetupLabel = strategy.Id,
+                                Direction = group.Direction,
+                                Ticker = group.Ticker,
+                                Contracts = group.TotalContracts,
+                                Entry = group.EntryPrice.Value,
+                                InitialStop = group.InitialStopPrice,
+                                Target = tg2Leg?.Price ?? 0m,
+                                Partial = tg1Leg?.Price ?? 0m,
+                                Exit = exitPrice,
+                                ExitReason = exitReason,
+                                PartialFilled = group.AccruedPartialPnl != 0,
+                                PartialPrice = tg1Leg?.FillPrice ?? tg1Leg?.Price ?? 0m,
+                                GrossPnl = totalPnl,
+                                NetPnl = totalPnl,
+                                RMultiple = rMult,
+                                EnteredAt = group.CreatedAt,
+                                ExitedAt = group.CompletedAt ?? DateTime.UtcNow,
+                                SessionId = group.SessionId ?? "",
+                                Source = "live",
+                            };
+
+                            // Persist trade record
+                            _ = Task.Run(async () =>
+                            {
+                                try { await wrappedSink.OnExitAsync(trade); }
+                                catch (Exception ex) { _log.LogWarning(ex, "[RECOVER] Failed to persist completed trade for {G}", group.GroupOrderId); }
+                            });
+
+                            _log.LogInformation("[RECOVER] Recorded completed trade {G} {Setup}: {Reason} @ {Exit} P&L={Pnl}",
+                                group.GroupOrderId, group.SetupId, exitReason, exitPrice, totalPnl);
+                            continue; // don't register — trade is done
+                        }
+
                         brokerHandler.RegisterGroup(group, strategy);
                         if (group.Status != GroupOrderStatus.Pending)
                             strategy.SetInTrade(true);

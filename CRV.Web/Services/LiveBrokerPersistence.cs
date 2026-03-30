@@ -110,6 +110,16 @@ public class LiveBrokerPersistence : IBrokerPersistence
                     {
                         group.PointValue = log.PointValue;
                         group.CreatedAt = log.CreatedAt;
+
+                        if (group.Status == GroupOrderStatus.Completed)
+                        {
+                            // Trade already finished at broker — mark log completed, still return
+                            // group so orchestrator can record the TradeRecord if needed
+                            log.IsCompleted = true;
+                            _log?.LogInformation("[RECOVER] Strategy {S} already completed at broker — will record trade",
+                                log.BrokerStrategyId);
+                        }
+
                         result.Add(group);
                         _log?.LogInformation("[RECOVER] Restored strategy {S} → group {G} status={St}",
                             log.BrokerStrategyId, group.GroupOrderId, group.Status);
