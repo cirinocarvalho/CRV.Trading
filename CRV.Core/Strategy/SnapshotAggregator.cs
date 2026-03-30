@@ -217,7 +217,10 @@ public static class SnapshotAggregator
                             PartialContracts = group.PartialContracts,
                             RemainingContracts = group.RemainingContracts,
                             Entry = entryPrice,
-                            CurrentStop = stopLeg?.Price ?? 0m,
+                            // When partial filled + BE, the broker moved stop to entry — use that
+                            CurrentStop = (group.Status == GroupOrderStatus.PartialFilled && group.UseBe && group.EntryPrice.HasValue)
+                                ? group.EntryPrice.Value
+                                : (stopLeg?.Price ?? 0m),
                             InitialStop = group.InitialStopPrice > 0 ? group.InitialStopPrice : (stopLeg?.Price ?? 0m),
                             Target = tg2Leg?.Price ?? 0m,
                             Partial = tg1Leg?.Price ?? 0m,
