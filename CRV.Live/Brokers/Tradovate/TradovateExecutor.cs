@@ -1262,7 +1262,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 using var statusDoc = JsonDocument.Parse(statusJson);
 
                 // Build status lookup from /order/items
-                var statusLookup = new Dictionary<long, (string status, string? action, decimal? fillPrice, int? fillQty)>();
+                var statusLookup = new Dictionary<long, (string status, string? action, decimal? fillPrice, int? fillQty, decimal? price, decimal? stopPrice, int? qty)>();
                 foreach (var order in statusDoc.RootElement.EnumerateArray())
                 {
                     var oid = order.TryGetProperty("id", out var idp2) && idp2.ValueKind == JsonValueKind.Number
@@ -1274,7 +1274,14 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                         ? (decimal?)fpp.GetDecimal() : null;
                     var fq2 = order.TryGetProperty("filledQty", out var fqp) && fqp.ValueKind == JsonValueKind.Number
                         ? (int?)fqp.GetInt32() : null;
-                    statusLookup[oid] = (st ?? "Unknown", act, fp2, fq2);
+                    // /order/items has current prices (reflects broker modifications)
+                    var curPrice = order.TryGetProperty("price", out var cpp) && cpp.ValueKind == JsonValueKind.Number
+                        ? (decimal?)cpp.GetDecimal() : null;
+                    var curStopPx = order.TryGetProperty("stopPrice", out var cspp) && cspp.ValueKind == JsonValueKind.Number
+                        ? (decimal?)cspp.GetDecimal() : null;
+                    var curQty = order.TryGetProperty("orderQty", out var cqp) && cqp.ValueKind == JsonValueKind.Number
+                        ? (int?)cqp.GetInt32() : null;
+                    statusLookup[oid] = (st ?? "Unknown", act, fp2, fq2, curPrice, curStopPx, curQty);
                 }
 
                 DiscoveredLeg? entryLeg = null;
@@ -1305,6 +1312,10 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                         status = st.status;
                         action = st.action;
                         fillPrice = st.fillPrice;
+                        // Prefer current prices from /order/items (reflects broker modifications)
+                        if (st.stopPrice is > 0) stopPx = st.stopPrice.Value;
+                        if (st.price is > 0 && orderType != "Stop") price = st.price.Value;
+                        if (st.qty is > 0) qty = st.qty.Value;
                     }
                     if (status is "Expired") continue;
 
