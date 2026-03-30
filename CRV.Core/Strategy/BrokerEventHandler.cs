@@ -620,6 +620,14 @@ public class BrokerEventHandler
         }
 
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2");
+        if (exitPrice == 0)
+        {
+            var tg2Leg = group.GetLeg(LegType.Tg2);
+            exitPrice = tg2Leg?.Price ?? 0m;
+            if (exitPrice > 0)
+                _log?.LogWarning("[BEH] Tg2 fill price unresolved — using target limit price {P} for order {O}",
+                    exitPrice, evt.OrderId);
+        }
         await CompleteGroup(group, strategy, ExitReason.Target, exitPrice, evt.Timestamp);
     }
 
@@ -637,6 +645,15 @@ public class BrokerEventHandler
         }
 
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop");
+        // Last resort: use the stop leg's limit price to avoid recording exit @ 0
+        if (exitPrice == 0)
+        {
+            var stopLeg = group.GetLeg(LegType.Stop);
+            exitPrice = stopLeg?.Price ?? 0m;
+            if (exitPrice > 0)
+                _log?.LogWarning("[BEH] Stop fill price unresolved — using stop limit price {P} for order {O}",
+                    exitPrice, evt.OrderId);
+        }
         await CompleteGroup(group, strategy, ExitReason.Stop, exitPrice, evt.Timestamp);
     }
 
