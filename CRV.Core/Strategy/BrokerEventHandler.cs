@@ -459,22 +459,9 @@ public class BrokerEventHandler
     {
         if (BrokerManagesExits)
         {
-            // Live broker: don't send cancel/market close — broker's brackets handle exits.
-            // Just clear in-memory tracking so the engine can re-discover on next session.
-            _log?.LogInformation("[BEH] ExitAllAsync — broker manages exits, clearing in-memory state only");
-            List<(GroupOrder Group, ISetupStrategy Strategy)> toRemove;
-            lock (_lock)
-                toRemove = _active.Values.ToList();
-            foreach (var (group, strategy) in toRemove)
-            {
-                strategy.SetInTrade(false);
-                strategy.ResetSession();
-            }
-            lock (_lock)
-            {
-                _active.Clear();
-                _byGroupId.Clear();
-            }
+            // Live broker: don't send cancel/market close, don't remove groups.
+            // Broker's brackets handle exits. Groups stay tracked for REST poller.
+            _log?.LogInformation("[BEH] ExitAllAsync — broker manages exits, groups stay tracked");
             return;
         }
 
