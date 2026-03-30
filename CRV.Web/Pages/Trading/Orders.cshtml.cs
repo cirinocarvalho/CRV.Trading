@@ -346,10 +346,16 @@ public class OrdersModel : PageModel
             }
 
             // 2. Active in-memory groups (pending/active/partial)
+            // Collect broker strategy IDs already shown from REST to avoid duplicates
+            var brokerStratIds = isLiveBroker
+                ? new HashSet<string>(result.Select(r => r.GroupOrderId))
+                : new HashSet<string>();
             var activeGroups = _orchestrator.GetActiveGroups();
             foreach (var ag in activeGroups)
             {
                 if (dbGroupIds.Contains(ag.GroupOrderId)) continue;
+                // For live brokers, skip if the broker strategy is already in the REST results
+                if (!string.IsNullOrEmpty(ag.BrokerStrategyId) && brokerStratIds.Contains(ag.BrokerStrategyId)) continue;
                 if (!string.IsNullOrEmpty(broker) && ag.Broker != broker) continue;
                 result.Add(MapGroup(ag, ag.Legs ?? new()));
             }
