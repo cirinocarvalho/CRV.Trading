@@ -11,6 +11,9 @@ public class BasketEntry
     /// <summary>Unique ID within the basket (e.g. "b-mnq-1", "a-mcl-1").</summary>
     public string Id { get; set; } = "";
 
+    /// <summary>Whether this setup is active. Disabled setups stay in the basket but are skipped by the engine.</summary>
+    public bool Enabled { get; set; } = true;
+
     /// <summary>Display label (e.g. "B — Retest [MNQ]").</summary>
     public string Label { get; set; } = "";
 

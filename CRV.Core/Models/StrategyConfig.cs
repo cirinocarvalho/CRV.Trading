@@ -454,7 +454,7 @@ public class StrategyConfig
         Name = b.Label,
         SetupId = SetupId.F, // generic for basket entries
         StrategyType = b.StrategyType,
-        Enabled = true,
+        Enabled = b.Enabled,
         Ticker = b.Ticker,
         PointValue = b.PointValue,
         TickSize = b.TickSize,
