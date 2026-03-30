@@ -812,18 +812,39 @@ public class LiveEngineOrchestrator : BackgroundService
                             var tg1Leg = group.GetLeg(LegType.Tg1);
                             bool exitedByTarget = tg2Leg?.Status == OrderLegStatus.Filled;
                             bool exitedByStop = stopLeg?.Status == OrderLegStatus.Filled;
-                            var exitPrice = exitedByTarget ? (tg2Leg!.FillPrice ?? tg2Leg.Price)
-                                          : exitedByStop ? (stopLeg!.FillPrice ?? stopLeg.Price) : 0m;
                             var exitReason = exitedByTarget ? ExitReason.Target : ExitReason.Stop;
 
+                            // Fetch actual fill prices from broker REST (discovery may not have them)
+                            var exitLeg = exitedByTarget ? tg2Leg : stopLeg;
+                            decimal exitPrice = exitLeg?.FillPrice ?? 0m;
+                            if (exitPrice == 0 && exitLeg != null)
+                            {
+                                exitPrice = await groupExecutor.GetOrderFillPriceAsync(exitLeg.OrderId) ?? exitLeg.Price;
+                            }
+
+                            // Tg1 partial P&L: if Tg1 filled but AccruedPartialPnl wasn't set
                             bool isLong = group.Direction == Direction.Long;
-                            int remaining = group.AccruedPartialPnl != 0
+                            bool partialFilled = tg1Leg?.Status == OrderLegStatus.Filled;
+                            decimal partialPnl = group.AccruedPartialPnl;
+                            decimal tg1FillPrice = 0m;
+
+                            if (partialFilled && partialPnl == 0 && group.EntryPrice.HasValue)
+                            {
+                                tg1FillPrice = tg1Leg!.FillPrice ?? 0m;
+                                if (tg1FillPrice == 0)
+                                    tg1FillPrice = await groupExecutor.GetOrderFillPriceAsync(tg1Leg!.OrderId) ?? tg1Leg.Price;
+                                partialPnl = isLong
+                                    ? (tg1FillPrice - group.EntryPrice.Value) * group.PointValue * group.PartialContracts
+                                    : (group.EntryPrice.Value - tg1FillPrice) * group.PointValue * group.PartialContracts;
+                            }
+
+                            int remaining = partialFilled
                                 ? group.TotalContracts - group.PartialContracts
                                 : group.TotalContracts;
                             decimal exitPnl = isLong
                                 ? (exitPrice - group.EntryPrice.Value) * group.PointValue * remaining
                                 : (group.EntryPrice.Value - exitPrice) * group.PointValue * remaining;
-                            decimal totalPnl = exitPnl + group.AccruedPartialPnl;
+                            decimal totalPnl = exitPnl + partialPnl;
                             decimal risk = Math.Abs(group.EntryPrice.Value - group.InitialStopPrice) * group.PointValue * group.TotalContracts;
                             decimal rMult = risk > 0 ? totalPnl / risk : 0m;
 
@@ -840,8 +861,8 @@ public class LiveEngineOrchestrator : BackgroundService
                                 Partial = tg1Leg?.Price ?? 0m,
                                 Exit = exitPrice,
                                 ExitReason = exitReason,
-                                PartialFilled = group.AccruedPartialPnl != 0,
-                                PartialPrice = tg1Leg?.FillPrice ?? tg1Leg?.Price ?? 0m,
+                                PartialFilled = partialFilled,
+                                PartialPrice = tg1FillPrice > 0 ? tg1FillPrice : (tg1Leg?.FillPrice ?? tg1Leg?.Price ?? 0m),
                                 GrossPnl = totalPnl,
                                 NetPnl = totalPnl,
                                 RMultiple = rMult,
@@ -858,8 +879,8 @@ public class LiveEngineOrchestrator : BackgroundService
                                 catch (Exception ex) { _log.LogWarning(ex, "[RECOVER] Failed to persist completed trade for {G}", group.GroupOrderId); }
                             });
 
-                            _log.LogInformation("[RECOVER] Recorded completed trade {G} {Setup}: {Reason} @ {Exit} P&L={Pnl}",
-                                group.GroupOrderId, group.SetupId, exitReason, exitPrice, totalPnl);
+                            _log.LogInformation("[RECOVER] Recorded completed trade {G} {Setup}: {Reason} @ {Exit} partial={PartialPnl} exit={ExitPnl} total={Pnl}",
+                                group.GroupOrderId, group.SetupId, exitReason, exitPrice, partialPnl, exitPnl, totalPnl);
                             continue; // don't register — trade is done
                         }
 
