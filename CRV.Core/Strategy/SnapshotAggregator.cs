@@ -214,12 +214,15 @@ public static class SnapshotAggregator
                         {
                             Direction = group.Direction,
                             Contracts = group.TotalContracts,
+                            PartialContracts = group.PartialContracts,
+                            RemainingContracts = group.RemainingContracts,
                             Entry = entryPrice,
                             CurrentStop = stopLeg?.Price ?? 0m,
-                            InitialStop = stopLeg?.Price ?? 0m,
+                            InitialStop = group.InitialStopPrice > 0 ? group.InitialStopPrice : (stopLeg?.Price ?? 0m),
                             Target = tg2Leg?.Price ?? 0m,
                             Partial = tg1Leg?.Price ?? 0m,
                             PartialFilled = group.Status == GroupOrderStatus.PartialFilled,
+                            PointValue = group.PointValue,
                             EnteredAt = group.CreatedAt,
                             GroupStatus = group.Status.ToString(),
                         };
