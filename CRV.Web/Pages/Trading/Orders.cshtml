@@ -55,15 +55,15 @@
             <label class="form-label small">Setup</label>
             <select id="f-setup" class="form-select form-select-sm" style="min-width:160px"
                     onchange="applyGroupFilter()">
-                <option value="" selected>(All incl. blank)</option>
-                <option value="__has_setup__">All with setup</option>
+                <option value="">(All incl. blank)</option>
+                <option value="__has_setup__" selected>All with setup</option>
             </select>
         </div>
 
         <div class="col-auto">
             <label class="form-label small">From</label>
             <input type="date" id="f-from" class="form-control form-control-sm"
-                   value="@DateTime.Today.AddDays(-7).ToString("yyyy-MM-dd")" />
+                   value="@DateTime.Today.ToString("yyyy-MM-dd")" />
         </div>
 
         <div class="col-auto">
@@ -424,6 +424,13 @@ function renderGroupOrders(data) {
     applyGroupFilter();
 }
 
+function fmtDt(s) {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    return d.toLocaleString('en-US', { month:'2-digit', day:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false, timeZone:'America/New_York' });
+}
+
 function applyGroupFilter() {
     const tbody = document.getElementById('groups-tbody');
     const setupFilter = document.getElementById('f-setup').value;
@@ -478,8 +485,8 @@ function applyGroupFilter() {
             <td class="text-end">${fmtP(g.entryPrice)}</td>
             <td class="${statusCls(g.status)} small">${g.status}</td>
             <td class="small">${g.broker}</td>
-            <td class="small text-muted">${g.createdAt || '—'}</td>
-            <td class="small text-muted">${g.completedAt || '—'}</td>
+            <td class="small text-muted">${fmtDt(g.createdAt)}</td>
+            <td class="small text-muted">${fmtDt(g.completedAt)}</td>
             <td class="text-end">${flatBtn}</td>
         </tr>`;
         // Expandable legs row
