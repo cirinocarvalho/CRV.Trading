@@ -1012,7 +1012,10 @@ function updateDashboard(d) {
     }
 
     // ── DD Limit gauge ─────────────────────────────────────
-    const ddUsed  = Math.min(d.dailyLossUsed ?? 0, maxDailyLoss);
+    // Same fallback pattern as P&L: after restart engine has 0, use DB loss instead
+    const ddUsedEngine = d.dailyLossUsed ?? 0;
+    const ddUsedDb     = Math.max(0, -(_dbStats.pnl ?? 0));
+    const ddUsed  = Math.min(engineTrades >= _dbStats.trades ? ddUsedEngine : ddUsedDb, maxDailyLoss);
     const ddPct   = maxDailyLoss > 0 ? Math.round(ddUsed / maxDailyLoss * 100) : 0;
     const ddArc   = document.getElementById("dd-gauge-arc");
     const ddText  = document.getElementById("dd-gauge-text");
