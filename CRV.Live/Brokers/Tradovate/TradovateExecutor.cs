@@ -747,7 +747,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         await CancelOrderAsync(id);
     }
 
-    async Task IGroupOrderExecutor.PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+    async Task<decimal> IGroupOrderExecutor.PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
     {
         var account = await GetAccountAsync();
         var symbol = FuturesSymbol.ToTradovate(ticker);
@@ -760,6 +760,57 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         };
         var orderId = await PlaceSingleAsync(body);
         _log.LogInformation("[TV-GRP] Market close placed, ID={Id}", orderId);
+
+        if (orderId is null) return 0m;
+
+        // Poll /fill/deps?masterid={orderId} to get the actual fill price.
+        // Market orders fill almost instantly — a few retries is sufficient.
+        var fillPrice = await GetFillPriceByDepsAsync(orderId.Value);
+        if (fillPrice is not null)
+        {
+            _log.LogInformation("[TV-GRP] Market close fill price: {P} (order {Id})", fillPrice, orderId);
+            return fillPrice.Value;
+        }
+
+        _log.LogWarning("[TV-GRP] Could not retrieve fill price for market close order {Id}", orderId);
+        return 0m;
+    }
+
+    /// <summary>
+    /// Fetch fill price for a market order via GET /fill/deps?masterid={orderId}.
+    /// Retries up to 10 times at 300ms. Returns null on timeout or error.
+    /// </summary>
+    private async Task<decimal?> GetFillPriceByDepsAsync(long orderId)
+    {
+        const int maxRetries = 10;
+        const int delayMs    = 300;
+        try
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                var json = await GetAsync($"/fill/deps?masterid={orderId}");
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var fill in doc.RootElement.EnumerateArray())
+                    {
+                        if (fill.TryGetProperty("price", out var p) &&
+                            p.ValueKind == JsonValueKind.Number)
+                            return p.GetDecimal();
+                    }
+                }
+                _log.LogDebug("[TV] GetFillPriceByDeps poll {I}/{Max} — no fill yet for order {Id}",
+                    i + 1, maxRetries, orderId);
+                await Task.Delay(delayMs);
+            }
+            _log.LogWarning("[TV] GetFillPriceByDeps timed out after {Max} retries for order {Id}",
+                maxRetries, orderId);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV] GetFillPriceByDepsAsync failed for order {Id}", orderId);
+        }
+        return null;
     }
 
     // ── Private helpers ───────────────────────────────────────────

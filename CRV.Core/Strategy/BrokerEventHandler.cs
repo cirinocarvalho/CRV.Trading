@@ -438,21 +438,28 @@ public class BrokerEventHandler
                 return;
 
             case GroupOrderStatus.Active:
-                await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, group.TotalContracts);
+            {
+                var fillPrice = await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, group.TotalContracts);
+                if (fillPrice > 0) exitPrice = fillPrice;
                 break;
+            }
 
             case GroupOrderStatus.PartialFilled:
+            {
                 var remaining = group.TotalContracts - group.PartialContracts;
-                await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, remaining);
+                var fillPrice = await _executor.PlaceMarketCloseAsync(group.Ticker, group.Direction, remaining);
+                if (fillPrice > 0) exitPrice = fillPrice;
                 break;
+            }
         }
 
         // Record the trade with P&L — CompleteGroup handles TradeRecord creation,
         // fires OnTradeCompleted, and removes from _active.
         if (group.EntryPrice.HasValue)
         {
-            // If no market price available, fall back to entry price (records $0 P&L
-            // rather than losing the trade record entirely — easier to correct later).
+            // If broker fill price was unavailable, fall back to the price passed by the caller
+            // (bar close / tick price). If even that is 0, record at entry price so the trade
+            // is never silently dropped — P&L can be corrected manually later.
             var recordPrice = exitPrice > 0 ? exitPrice : group.EntryPrice.Value;
             if (exitPrice <= 0)
                 _log?.LogWarning("[BEH] ExitGroupCoreAsync grp={G} — no exit price, recording trade at entry price {P}",
