@@ -41,6 +41,13 @@ public class StrategySetupConfig
     // Filters
     public bool UseVwap { get; set; } = true;
     public bool UseOrbClose { get; set; }
+    /// <summary>
+    /// When true, a bar must CLOSE beyond the ORB boundary (not just wick through it)
+    /// before the pullback setup arms. Filters fakeout breakouts that only wick above/below
+    /// the ORB level and immediately reverse back inside the range.
+    /// Default false to preserve legacy behaviour.
+    /// </summary>
+    public bool UseCloseConfirmation { get; set; } = false;
     public int CutoffHour { get; set; } = 14;
     public int CutoffMinute { get; set; } = 30;
     public bool CloseAtRthClose { get; set; } = true;

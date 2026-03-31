@@ -177,11 +177,21 @@ public class PullbackStrategy : ISetupStrategy
             bool orbLongOk  = !_cfg.UseOrbClose || orb.BullClose;
             bool orbShortOk = !_cfg.UseOrbClose || orb.BearClose;
 
-            if (longReady && bar.High >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
+            // Breakout detection: wick-based (default) or close-confirmation (fakeout filter)
+            // Close confirmation requires the bar to CLOSE beyond the ORB boundary, not just wick.
+            // A wick that closes back inside the range is a fakeout — don't arm it.
+            bool longBreak  = _cfg.UseCloseConfirmation
+                ? bar.Close >= orbHigh
+                : bar.High  >= orbHigh - nearDist;
+            bool shortBreak = _cfg.UseCloseConfirmation
+                ? bar.Close <= orbLow
+                : bar.Low   <= orbLow  + nearDist;
+
+            if (longReady  && longBreak  && orbLongOk  && aboveVwap && !_bullTraded)
             {
                 _state = 1; _armEntry = bar.Open;
             }
-            else if (shortReady && bar.Low <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
+            else if (shortReady && shortBreak && orbShortOk && belowVwap && !_bearTraded)
             {
                 _state = -1; _armEntry = bar.Open;
             }
