@@ -934,39 +934,6 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
             }
 
-            // Seed per-setup trade counters from current SESSION's DB trades so [X/Max] is correct after restart
-            try
-            {
-                using var seedScope = _sp.CreateScope();
-                var seedDb = seedScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
-                var currentSession = DetectSessionName(DateTime.UtcNow, cfg.Timezone);
-                var todayUtc = DateTime.UtcNow.Date;
-                var sessionTrades = await seedDb.Trades
-                    .Where(t => t.Source == "live" && t.EnteredAt >= todayUtc && t.SessionId == currentSession)
-                    .ToListAsync(ct);
-
-                var countsByLabel = sessionTrades
-                    .GroupBy(t => t.SetupLabel ?? t.Setup.ToString())
-                    .ToDictionary(
-                        g => g.Key,
-                        g => (longs: g.Count(t => t.Direction == CRV.Core.Models.Direction.Long),
-                              shorts: g.Count(t => t.Direction == CRV.Core.Models.Direction.Short)));
-
-                foreach (var strategy in newEngine.GetStrategies())
-                {
-                    if (countsByLabel.TryGetValue(strategy.Id, out var counts))
-                    {
-                        strategy.SeedTradeCount(counts.longs, counts.shorts);
-                        _log.LogInformation("[SEED] {S} trade count seeded from {Sess} session: {L}L {Sh}S",
-                            strategy.Id, currentSession, counts.longs, counts.shorts);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "[SEED] Failed to seed trade counts from DB");
-            }
-
             // Clean up stale active groups from Mock/Backtest (they can't be recovered)
             _ = Task.Run(async () =>
             {
@@ -1272,6 +1239,41 @@ public class LiveEngineOrchestrator : BackgroundService
                     newEngine.ReseedSessionRange(preInitSession.SessionId);
                 // Publish initial snapshot immediately so dashboard shows warmed-up values
                 if (totalBackfill > 0) await _engine.PublishCurrentStateAsync();
+            }
+
+            // Seed per-setup trade counters from the current SESSION's DB trades so [X/Max] is correct
+            // after restart. Must run AFTER ResetDaily() + Reconfigure() + ResetWarmupCounters() because
+            // all three call ResetSession() which zeros the counters, wiping any earlier seeding.
+            try
+            {
+                using var seedScope = _sp.CreateScope();
+                var seedDb = seedScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                var currentSession = DetectSessionName(DateTime.UtcNow, cfg.Timezone);
+                var todayUtc = DateTime.UtcNow.Date;
+                var sessionTrades = await seedDb.Trades
+                    .Where(t => t.Source == "live" && t.EnteredAt >= todayUtc && t.SessionId == currentSession)
+                    .ToListAsync(ct);
+
+                var countsByLabel = sessionTrades
+                    .GroupBy(t => t.SetupLabel ?? t.Setup.ToString())
+                    .ToDictionary(
+                        g => g.Key,
+                        g => (longs: g.Count(t => t.Direction == CRV.Core.Models.Direction.Long),
+                              shorts: g.Count(t => t.Direction == CRV.Core.Models.Direction.Short)));
+
+                foreach (var strategy in newEngine.GetStrategies())
+                {
+                    if (countsByLabel.TryGetValue(strategy.Id, out var counts))
+                    {
+                        strategy.SeedTradeCount(counts.longs, counts.shorts);
+                        _log.LogInformation("[SEED] {S} trade count seeded from {Sess} session: {L}L {Sh}S",
+                            strategy.Id, currentSession, counts.longs, counts.shorts);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[SEED] Failed to seed trade counts from DB");
             }
 
             // Any confirmed bar whose open-time is before this cutoff arrived via the stream's
