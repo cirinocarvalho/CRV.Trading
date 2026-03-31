@@ -564,14 +564,6 @@ public class BrokerEventHandler
                 stopLeg.Status = OrderLegStatus.Working;
                 group.Stop2OrderId = null;
             }
-            else if (group.UseBe && group.EntryPrice.HasValue)
-            {
-                // Single-stop bracket: explicitly modify stop at broker to BE (entry price)
-                _log?.LogInformation("[BEH] Moving stop {O} to BE={BE} for grp={G}",
-                    stopLeg.OrderId, group.EntryPrice.Value, group.GroupOrderId);
-                await _executor.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, remaining);
-            }
-
             stopLeg.Quantity = remaining;
             if (group.UseBe && group.EntryPrice.HasValue) stopLeg.Price = group.EntryPrice.Value;
             _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}",
