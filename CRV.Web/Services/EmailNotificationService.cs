@@ -21,6 +21,8 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
     private bool _previousOrbFormed;
     private bool _previousSessionEnded;
     private string _previousSessionId = "";
+    private DateTime _lastSessionEndEmail = DateTime.MinValue;
+    private string _lastSessionChangeKey = "";
     private bool _dailyLossBreachSent;
 
     public EmailNotificationService(
@@ -108,24 +110,33 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         _previousOrbFormed = snap.OrbFormed;
 
         // Session change — detect transition between non-empty session IDs
-        // (empty → X = engine start, X → empty = session end, not a "change")
+        // Dedup: skip if same transition was already sent (prevents bouncing at boundaries)
         if (cfg.EmailOnSessionChange
             && snap.ActiveSessionId != _previousSessionId
             && !string.IsNullOrEmpty(_previousSessionId)
             && !string.IsNullOrEmpty(snap.ActiveSessionId))
         {
-            var alert = new AlertEvent
+            var changeKey = $"{_previousSessionId}→{snap.ActiveSessionId}";
+            if (changeKey != _lastSessionChangeKey)
             {
-                Time    = snap.Time,
-                Type    = "Session Change",
-                Message = $"Session changed: {_previousSessionId} → {snap.ActiveSessionId}",
-            };
-            EnqueueOrSend(alert, cfg.EmailOnSessionChangeMode);
+                _lastSessionChangeKey = changeKey;
+                var alert = new AlertEvent
+                {
+                    Time    = snap.Time,
+                    Type    = "Session Change",
+                    Message = $"Session changed: {_previousSessionId} → {snap.ActiveSessionId}",
+                };
+                EnqueueOrSend(alert, cfg.EmailOnSessionChangeMode);
+            }
         }
 
         // Session end summary — query DB for actual trades (in-memory stats reset on restart)
-        if (cfg.EmailOnSessionEnd && snap.SessionEnded && !_previousSessionEnded && !string.IsNullOrEmpty(_previousSessionId))
+        // Dedup: max one session end email per 5 minutes
+        if (cfg.EmailOnSessionEnd && snap.SessionEnded && !_previousSessionEnded
+            && !string.IsNullOrEmpty(_previousSessionId)
+            && (DateTime.UtcNow - _lastSessionEndEmail).TotalMinutes > 5)
         {
+            _lastSessionEndEmail = DateTime.UtcNow;
             var sessionId = _previousSessionId;
             _ = Task.Run(async () =>
             {
