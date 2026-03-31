@@ -49,6 +49,9 @@ public class ComposableEngine
     public ISetupStrategy? GetStrategy(string setupId)
         => _strategies.TryGetValue(setupId, out var s) ? s : null;
 
+    public IReadOnlyCollection<ISetupStrategy> GetStrategies()
+        => _strategies.Values;
+
     public ComposableEngine(
         IOrderExecutor executor,
         IStrategyEventSink sink,

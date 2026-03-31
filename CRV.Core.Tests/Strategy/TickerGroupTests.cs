@@ -39,6 +39,7 @@ public class TickerGroupTests
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }
         public void SetInTrade(bool active) => InTrade = active;
+        public void SeedTradeCount(int l, int s) { }
         public int CutoffHour { get; set; } = 23;
         public int CutoffMinute { get; set; } = 59;
 

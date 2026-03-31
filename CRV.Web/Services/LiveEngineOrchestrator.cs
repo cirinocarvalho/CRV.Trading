@@ -934,6 +934,38 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
             }
 
+            // Seed per-setup trade counters from today's DB trades so [X/Max] is correct after restart
+            try
+            {
+                using var seedScope = _sp.CreateScope();
+                var seedDb = seedScope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                var todayUtc = DateTime.UtcNow.Date;
+                var todayTrades = await seedDb.Trades
+                    .Where(t => t.Source == "live" && t.EnteredAt >= todayUtc)
+                    .ToListAsync(ct);
+
+                var countsByLabel = todayTrades
+                    .GroupBy(t => t.SetupLabel ?? t.Setup.ToString())
+                    .ToDictionary(
+                        g => g.Key,
+                        g => (longs: g.Count(t => t.Direction == CRV.Core.Models.Direction.Long),
+                              shorts: g.Count(t => t.Direction == CRV.Core.Models.Direction.Short)));
+
+                foreach (var strategy in newEngine.GetStrategies())
+                {
+                    if (countsByLabel.TryGetValue(strategy.Id, out var counts))
+                    {
+                        strategy.SeedTradeCount(counts.longs, counts.shorts);
+                        _log.LogInformation("[SEED] {S} trade count seeded: {L}L {Sh}S",
+                            strategy.Id, counts.longs, counts.shorts);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[SEED] Failed to seed trade counts from DB");
+            }
+
             // Clean up stale active groups from Mock/Backtest (they can't be recovered)
             _ = Task.Run(async () =>
             {
