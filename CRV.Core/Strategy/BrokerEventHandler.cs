@@ -503,23 +503,30 @@ public class BrokerEventHandler
 
     // ── Private event handlers ──────────────────────────────────
 
-    private Task HandleEntryEventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
+    private async Task HandleEntryEventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
     {
         if (evt.Status == OrderLegStatus.Filled)
         {
             group.Status = GroupOrderStatus.Active;
-            group.EntryPrice = evt.FillPrice;
+
+            // WSS fill events may not include the fill price — fetch via REST as fallback
+            var fillPrice = evt.FillPrice;
+            if (fillPrice is null or 0)
+            {
+                _log?.LogWarning("[BEH] Entry fill missing price in WSS event for order {O} — fetching via REST", evt.OrderId);
+                fillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+            }
+
+            group.EntryPrice = fillPrice;
             strategy.SetInTrade(true);
-            _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, evt.FillPrice);
+            _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
             OnEntryFilled?.Invoke(group);
         }
         else if (evt.Status == OrderLegStatus.Rejected || evt.Status == OrderLegStatus.Canceled)
         {
             _log?.LogWarning("[BEH] Entry {S} grp={G}", evt.Status, group.GroupOrderId);
-            return CancelRemainingAndComplete(group, strategy, GroupOrderStatus.Canceled);
+            await CancelRemainingAndComplete(group, strategy, GroupOrderStatus.Canceled);
         }
-
-        return Task.CompletedTask;
     }
 
     private async Task HandleTg1EventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)

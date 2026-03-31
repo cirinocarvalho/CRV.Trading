@@ -214,11 +214,13 @@ public static class SnapshotAggregator
                         bool isPartial = group.Status == GroupOrderStatus.PartialFilled;
                         int remQty = isPartial ? group.RemainingContracts : group.TotalContracts;
                         bool isLong = group.Direction == Direction.Long;
-                        // Only calculate P&L when entry is actually filled (not pending limit price)
-                        decimal unrealPnl = group.EntryPrice.HasValue && setupLastPrice > 0 && group.PointValue > 0
+                        // Use entryPrice (which falls back to limit price) so unrealized P&L
+                        // is correct even when the WSS fill event didn't include a fill price
+                        decimal unrealPnl = entryPrice > 0 && setupLastPrice > 0 && group.PointValue > 0
+                                            && group.Status != GroupOrderStatus.Pending
                             ? (isLong
-                                ? (setupLastPrice - group.EntryPrice.Value) * group.PointValue * remQty
-                                : (group.EntryPrice.Value - setupLastPrice) * group.PointValue * remQty)
+                                ? (setupLastPrice - entryPrice) * group.PointValue * remQty
+                                : (entryPrice - setupLastPrice) * group.PointValue * remQty)
                               + group.AccruedPartialPnl
                             : 0m;
 
