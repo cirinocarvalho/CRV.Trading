@@ -147,8 +147,9 @@ public class StrategyConfig
     public int     ContractsA       { get; set; } = 2;
     public decimal HiVolMultA       { get; set; } = 1.0m;
     public int     MaxContractsA    { get; set; } = 2;
-    public bool    UseVwapA         { get; set; } = true;
-    public bool    UseOrbCloseA     { get; set; } = false;
+    public bool    UseVwapA                { get; set; } = true;
+    public bool    UseOrbCloseA            { get; set; } = false;
+    public bool    UseCloseConfirmationA   { get; set; } = false;
     public int     CutoffHourA      { get; set; } = 14;
     public int     CutoffMinuteA    { get; set; } = 30;
     public bool    CloseAtRthCloseA { get; set; } = true;
@@ -501,7 +502,7 @@ public class StrategyConfig
         NearPct = NearPctA, MinRr = MinRrA, Mode = ModeA,
         PullbackPct = PullbackPct, EntryTickOffset = EntryTickOffsetA,
         OrderType = OrderTypeA,
-        UseVwap = UseVwapA, UseOrbClose = UseOrbCloseA,
+        UseVwap = UseVwapA, UseOrbClose = UseOrbCloseA, UseCloseConfirmation = UseCloseConfirmationA,
         CutoffHour = CutoffHourA, CutoffMinute = CutoffMinuteA,
         CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
         MaxLongTrades = MaxLongTradesA, MaxShortTrades = MaxShortTradesA,

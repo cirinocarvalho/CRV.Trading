@@ -175,6 +175,13 @@
                         <label class="form-check-label small">ORB Close</label>
                     </div>
                 }
+                @if (Model.UseCloseConfirmation != null)
+                {
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseCloseConfirmation" @(Model.UseCloseConfirmation.Value ? "checked" : "") />
+                        <label class="form-check-label small">Close Confirm</label>
+                    </div>
+                }
                 <div class="form-check form-check-inline">
                     <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).CloseAtRthClose" @(setup.CloseAtRthClose ? "checked" : "") />
                     <label class="form-check-label small">Close RTH</label>

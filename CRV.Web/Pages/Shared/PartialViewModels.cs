@@ -42,5 +42,8 @@ public sealed record SetupConfigSectionModel(
     bool? UseVwap,
 
     // UseOrbClose: only A and B
-    bool? UseOrbClose
+    bool? UseOrbClose,
+
+    // UseCloseConfirmation: only A
+    bool? UseCloseConfirmation
 );

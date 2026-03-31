@@ -494,8 +494,9 @@
                                     Mode:           s.SetupA.Mode,
                                     PullbackPct:    s.SetupA.PullbackPct,
                                     RetestPct:      null,
-                                    UseVwap:        s.SetupA.UseVwap,
-                                    UseOrbClose:    s.SetupA.UseOrbClose))
+                                    UseVwap:                s.SetupA.UseVwap,
+                                    UseOrbClose:            s.SetupA.UseOrbClose,
+                                    UseCloseConfirmation:   s.SetupA.UseCloseConfirmation))
                                 @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
                                     SessionIndex:   i,
                                     SessionId:      s.SessionId.ToString(),
@@ -508,8 +509,9 @@
                                     Mode:           s.SetupB.Mode,
                                     PullbackPct:    null,
                                     RetestPct:      s.SetupB.RetestPct,
-                                    UseVwap:        s.SetupB.UseVwap,
-                                    UseOrbClose:    s.SetupB.UseOrbClose))
+                                    UseVwap:                s.SetupB.UseVwap,
+                                    UseOrbClose:            s.SetupB.UseOrbClose,
+                                    UseCloseConfirmation:   null))
                                 @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
                                     SessionIndex:   i,
                                     SessionId:      s.SessionId.ToString(),
@@ -523,7 +525,8 @@
                                     PullbackPct:    null,
                                     RetestPct:      null,
                                     UseVwap:        null,
-                                    UseOrbClose:    null))
+                                    UseOrbClose:    null,
+                                    UseCloseConfirmation: null))
                                 @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
                                     SessionIndex:   i,
                                     SessionId:      s.SessionId.ToString(),
@@ -537,7 +540,8 @@
                                     PullbackPct:    null,
                                     RetestPct:      null,
                                     UseVwap:        null,
-                                    UseOrbClose:    null))
+                                    UseOrbClose:    null,
+                                    UseCloseConfirmation: null))
                                 </tbody>
                         </table>
                     </div>
@@ -1130,6 +1134,7 @@ function renderBasket() {
                 _bCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
                 _bCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
                 _bCheck(entry.Id, 'UseVwap', cfg.UseVwap !== false, 'VWAP') +
+                (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
             '</div>' +

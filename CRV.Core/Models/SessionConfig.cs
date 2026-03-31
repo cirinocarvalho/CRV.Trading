@@ -46,8 +46,9 @@ public class SetupConfigA : SetupConfigBase
     public decimal StopPct            { get; set; } = 0.10m;
     public int     TargetPct          { get; set; } = 100;
     public int     EntryTickOffset    { get; set; } = 0;
-    public bool    UseVwap            { get; set; } = true;
-    public bool    UseOrbClose        { get; set; } = false;
+    public bool    UseVwap                { get; set; } = true;
+    public bool    UseOrbClose            { get; set; } = false;
+    public bool    UseCloseConfirmation   { get; set; } = false;
 }
 
 // ── Setup B — Breakout Retest ───────────────────────────────────────────────
@@ -160,8 +161,9 @@ public class SessionConfig
         c.StopPctA          = SetupA.StopPct;
         c.TargetPctA        = SetupA.TargetPct;
         c.EntryTickOffsetA  = SetupA.EntryTickOffset;
-        c.UseVwapA          = SetupA.UseVwap;
-        c.UseOrbCloseA      = SetupA.UseOrbClose;
+        c.UseVwapA                = SetupA.UseVwap;
+        c.UseOrbCloseA            = SetupA.UseOrbClose;
+        c.UseCloseConfirmationA   = SetupA.UseCloseConfirmation;
         c.UseCustomTickerA  = SetupA.UseCustomTicker;
         c.TickerA           = SetupA.CustomTicker;
         c.PointValueA       = SetupA.CustomPointValue;
@@ -302,8 +304,9 @@ public class SessionConfig
             StopPct           = cfg.StopPctA,
             TargetPct         = cfg.TargetPctA,
             EntryTickOffset   = cfg.EntryTickOffsetA,
-            UseVwap           = cfg.UseVwapA,
-            UseOrbClose       = cfg.UseOrbCloseA,
+            UseVwap                = cfg.UseVwapA,
+            UseOrbClose            = cfg.UseOrbCloseA,
+            UseCloseConfirmation   = cfg.UseCloseConfirmationA,
             UseCustomTicker   = cfg.UseCustomTickerA,
             CustomTicker      = cfg.TickerA,
             CustomPointValue  = cfg.PointValueA,
