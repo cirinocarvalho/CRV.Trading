@@ -417,6 +417,15 @@ public class BrokerEventHandler
             leg.Status = OrderLegStatus.Canceled;
         }
 
+        // Cancel Stop2 if it was never promoted into Legs (i.e. Tg1 never filled).
+        // Stop2OrderId is set at entry and moved to the Stop leg only on Tg1 fill.
+        // Without this, Stop2 stays Working at the broker after a cutoff/session-end exit.
+        if (!string.IsNullOrEmpty(group.Stop2OrderId))
+        {
+            await _executor.CancelOrderAsync(group.Stop2OrderId);
+            group.Stop2OrderId = null;
+        }
+
         var now = exitTime ?? DateTime.UtcNow;
 
         switch (group.Status)
@@ -440,14 +449,20 @@ public class BrokerEventHandler
 
         // Record the trade with P&L — CompleteGroup handles TradeRecord creation,
         // fires OnTradeCompleted, and removes from _active.
-        if (exitPrice > 0 && group.EntryPrice.HasValue)
+        if (group.EntryPrice.HasValue)
         {
-            await CompleteGroup(group, strategy!, reason, exitPrice, now);
+            // If no market price available, fall back to entry price (records $0 P&L
+            // rather than losing the trade record entirely — easier to correct later).
+            var recordPrice = exitPrice > 0 ? exitPrice : group.EntryPrice.Value;
+            if (exitPrice <= 0)
+                _log?.LogWarning("[BEH] ExitGroupCoreAsync grp={G} — no exit price, recording trade at entry price {P}",
+                    group.GroupOrderId, recordPrice);
+            await CompleteGroup(group, strategy!, reason, recordPrice, now);
         }
         else
         {
-            // Fallback: no price available — just clean up without trade record
-            _log?.LogWarning("[BEH] ExitGroupCoreAsync grp={G} — no exit price, trade not recorded",
+            // No entry price at all — group never filled, just clean up
+            _log?.LogWarning("[BEH] ExitGroupCoreAsync grp={G} — no entry price, trade not recorded",
                 group.GroupOrderId);
             group.Status = GroupOrderStatus.Completed;
             group.CompletedAt = DateTime.UtcNow;
@@ -658,6 +673,13 @@ public class BrokerEventHandler
         {
             await _executor.CancelOrderAsync(leg.OrderId);
             leg.Status = OrderLegStatus.Canceled;
+        }
+
+        // Cancel Stop2 if it was never promoted into Legs (Tg1 never filled)
+        if (!string.IsNullOrEmpty(group.Stop2OrderId))
+        {
+            await _executor.CancelOrderAsync(group.Stop2OrderId);
+            group.Stop2OrderId = null;
         }
 
         group.Status = status;
