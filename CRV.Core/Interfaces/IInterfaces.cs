@@ -54,7 +54,9 @@ public interface IGroupOrderExecutor
     Task<GroupOrder?> OnEntrySignalAsync(EntrySignal signal);
     Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty);
     Task CancelOrderAsync(string orderId);
-    Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty);
+    /// <summary>Place a market order to close an open position.
+    /// Returns the actual fill price (from broker REST after placement), or 0 if unavailable.</summary>
+    Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty);
 
     /// <summary>
     /// Poll broker REST API for current status of all legs in a group.

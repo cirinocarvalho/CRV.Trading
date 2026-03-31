@@ -455,9 +455,9 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         return Task.CompletedTask;
     }
 
-    public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+    public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
     {
-        return Task.CompletedTask; // No-op in backtest
+        return Task.FromResult(0m); // No-op in backtest
     }
 
     /// <summary>Evaluate fills for WORKING orders on the given ticker against current price.</summary>
