@@ -820,13 +820,24 @@ public class LiveEngineOrchestrator : BackgroundService
                             var tg2Leg = group.GetLeg(LegType.Tg2);
                             var tg1Leg = group.GetLeg(LegType.Tg1);
                             bool exitedByTarget = tg2Leg?.Status == OrderLegStatus.Filled;
+
+                            // Stop1 may be Canceled if BE (Stop2) fired — check Stop2OrderId as fallback
                             bool exitedByStop = stopLeg?.Status == OrderLegStatus.Filled;
+                            string? resolvedStopOrderId = exitedByStop ? stopLeg!.OrderId : group.Stop2OrderId;
+                            if (!exitedByStop && !string.IsNullOrEmpty(group.Stop2OrderId))
+                                exitedByStop = true; // Stop2 (BE) fired — original stop was canceled
+
                             var exitReason = exitedByTarget ? ExitReason.Target : ExitReason.Stop;
 
                             // Fetch actual fill prices from broker REST (discovery may not have them)
                             var exitLeg = exitedByTarget ? tg2Leg : stopLeg;
                             decimal exitPrice = exitLeg?.FillPrice ?? 0m;
-                            if (exitPrice == 0 && exitLeg != null)
+                            if (exitPrice == 0 && !exitedByTarget && !string.IsNullOrEmpty(resolvedStopOrderId))
+                            {
+                                // Try the resolved stop order (may be Stop2/BE, not Stop1)
+                                exitPrice = await groupExecutor.GetOrderFillPriceAsync(resolvedStopOrderId) ?? exitLeg?.Price ?? 0m;
+                            }
+                            else if (exitPrice == 0 && exitLeg != null)
                             {
                                 exitPrice = await groupExecutor.GetOrderFillPriceAsync(exitLeg.OrderId) ?? exitLeg.Price;
                             }
