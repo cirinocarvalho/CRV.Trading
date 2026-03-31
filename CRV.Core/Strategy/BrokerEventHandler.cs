@@ -551,7 +551,7 @@ public class BrokerEventHandler
                 group.GroupOrderId, group.EntryPrice, tg1FillPrice);
         }
 
-        // Update in-memory stop tracking — broker strategy handles all modifications/cancels.
+        // Update stop tracking and move to BE at broker if needed.
         var stopLeg = group.GetLeg(LegType.Stop);
         if (stopLeg != null)
         {
@@ -563,6 +563,13 @@ public class BrokerEventHandler
                 stopLeg.OrderId = group.Stop2OrderId;
                 stopLeg.Status = OrderLegStatus.Working;
                 group.Stop2OrderId = null;
+            }
+            else if (group.UseBe && group.EntryPrice.HasValue)
+            {
+                // Single-stop bracket: explicitly modify stop at broker to BE (entry price)
+                _log?.LogInformation("[BEH] Moving stop {O} to BE={BE} for grp={G}",
+                    stopLeg.OrderId, group.EntryPrice.Value, group.GroupOrderId);
+                await _executor.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, remaining);
             }
 
             stopLeg.Quantity = remaining;
