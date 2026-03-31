@@ -594,9 +594,17 @@ public class BrokerEventHandler
                 group.Stop2OrderId = null;
             }
             stopLeg.Quantity = remaining;
-            if (group.UseBe && group.EntryPrice.HasValue) stopLeg.Price = group.EntryPrice.Value;
-            _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}",
-                group.GroupOrderId, stopLeg.OrderId, remaining);
+            if (group.UseBe && group.EntryPrice.HasValue)
+            {
+                stopLeg.Price = group.EntryPrice.Value;
+                // Push the BE price into the executor so that:
+                //   - Backtest: EvaluateFillsAsync uses the new StopPrice (not original stop)
+                //   - Live (dual-stop bracket): Stop2 is already at BE — this is a harmless no-op
+                await _executor.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, remaining);
+            }
+            _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}{BE}",
+                group.GroupOrderId, stopLeg.OrderId, remaining,
+                group.UseBe ? $" BE={group.EntryPrice}" : "");
         }
 
         OnGroupStateChanged?.Invoke(group);
