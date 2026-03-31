@@ -29,6 +29,8 @@
                href="/settings/live"><i class="bi bi-sliders me-1"></i>Live Settings</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="backtest-settings"?"active text-warning":"")"
                href="/settings/backtest"><i class="bi bi-clock-history me-1"></i>Backtest</a>
+            <a class="nav-link @(ViewData["Page"]?.ToString()=="performance"?"active text-warning":"")"
+               href="/performance"><i class="bi bi-bar-chart-line me-1"></i>Performance</a>
         </div>
         <div class="ms-auto d-flex align-items-center gap-3">
             <span id="nav-ticker" class="text-muted small font-monospace"></span>

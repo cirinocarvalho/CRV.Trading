@@ -1,0 +1,415 @@
+@page "/performance"
+@model CRV.Web.Pages.Performance.PerformanceModel
+@using CRV.Core.Models
+@using CRV.Backtest.Results
+@{
+    ViewData["Title"] = "Performance";
+    ViewData["Page"]  = "performance";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "pnl-zero";
+    string Pnl(decimal v)    => (v >= 0 ? "+$" : "-$") + Math.Abs(v).ToString("N0");
+
+    var etTz = CRV.Web.Pages.Performance.PerformanceModel.EtTz();
+    string ToEt(DateTime utc)     => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d HH:mm:ss");
+    string ToEtTime(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm:ss");
+    string EtLabel(DateTime utc)  => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).IsDaylightSavingTime() ? "EDT" : "EST";
+    string EqLabel(DateTime utc)  => Model.SingleDay
+        ? TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm")
+        : TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d");
+}
+
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+    <h5 class="mb-0"><i class="bi bi-bar-chart-line me-2 text-warning"></i>Performance</h5>
+    @if (Model.Result != null)
+    {
+        var r = Model.Result;
+        var tzLabel = r.Trades.Count > 0 ? EtLabel(r.Trades[0].EnteredAt) : "ET";
+        <span class="badge bg-dark border border-secondary font-monospace ms-auto small">
+            @r.BtConfig.From.ToString("MMM d yyyy") &rarr; @r.BtConfig.To.ToString("MMM d yyyy")
+            &nbsp;&middot;&nbsp;@r.Total.TotalTrades trades
+            &nbsp;&middot;&nbsp;<span class="@PnlCls(r.Total.NetPnl)">@Pnl(r.Total.NetPnl)</span>
+        </span>
+    }
+</div>
+
+
+<form method="get" class="settings-section mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-12 col-sm-auto">
+            <label class="form-label small mb-1">From <span class="text-muted">(ET)</span></label>
+            <input type="datetime-local" name="FromStr" class="form-control form-control-sm font-monospace"
+                   value="@Model.FromEt.ToString("yyyy-MM-ddTHH:mm")" />
+        </div>
+        <div class="col-12 col-sm-auto">
+            <label class="form-label small mb-1">To <span class="text-muted">(ET)</span></label>
+            <input type="datetime-local" name="ToStr" class="form-control form-control-sm font-monospace"
+                   value="@Model.ToEt.ToString("yyyy-MM-ddTHH:mm")" />
+        </div>
+        <div class="col-12 col-sm-auto">
+            <label class="form-label small mb-1">Session</label>
+            <select name="Session" class="form-select form-select-sm">
+                <option value="All"    selected="@(Model.Session=="All")">All Sessions</option>
+                <option value="Asia"   selected="@(Model.Session=="Asia")">Asia</option>
+                <option value="London" selected="@(Model.Session=="London")">London</option>
+                <option value="NY"     selected="@(Model.Session=="NY")">NY</option>
+            </select>
+        </div>
+        <div class="col-12 col-sm-auto">
+            <label class="form-label small mb-1">Setup</label>
+            <select name="Setup" class="form-select form-select-sm">
+                <option value="All" selected="@(Model.Setup=="All")">All Setups</option>
+                @foreach (var s in Model.AvailableSetups)
+                {
+                    <option value="@s" selected="@(Model.Setup==s)">@s</option>
+                }
+            </select>
+        </div>
+        <div class="col-12 col-sm-auto ms-sm-auto">
+            <button type="submit" class="btn btn-warning btn-sm w-100">
+                <i class="bi bi-funnel-fill me-1"></i>Apply
+            </button>
+        </div>
+        <div class="col-12 col-sm-auto">
+            <a href="/performance" class="btn btn-outline-secondary btn-sm w-100">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+            </a>
+        </div>
+    </div>
+</form>
+
+@if (Model.Result == null)
+{
+    <div class="settings-section d-flex flex-column align-items-center justify-content-center py-5 text-center opacity-50">
+        <i class="bi bi-bar-chart-line" style="font-size:3rem;color:#ffd700;"></i>
+        <div class="mt-3 text-muted">No live trades found for the selected range</div>
+        <div class="text-muted small mt-1">Adjust the date range or filters and click <strong>Apply</strong></div>
+    </div>
+}
+else
+{
+    var r = Model.Result;
+
+
+    var setupCards = r.PerSetup
+        .Where(kv => kv.Value.TotalTrades > 0)
+        .Select(kv => (Title: kv.Key, Icon: "bi-circle-fill", M: kv.Value))
+        .ToList();
+    var allCards = new[] { (Title: "Total", Icon: "bi-bar-chart-fill", M: r.Total) }
+        .Concat(setupCards)
+        .ToList();
+
+    <div class="row g-2 mb-3" id="metrics-grid">
+        @foreach (var card in allCards)
+        {
+            var m = card.M;
+            <div class="col-12 col-md-4 col-xl-3">
+                <div class="settings-section h-100">
+                    <h6><i class="bi @card.Icon me-1"></i>@card.Title</h6>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Trades</span>
+                        <span class="font-monospace small">@m.TotalTrades</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Win Rate</span>
+                        <span class="font-monospace small @(m.WinRate >= 50 ? "pnl-pos" : "pnl-neg")">@m.WinRate.ToString("F1")%</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Net P&amp;L</span>
+                        <span class="font-monospace small @PnlCls(m.NetPnl)">@Pnl(m.NetPnl)</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Profit Factor</span>
+                        <span class="font-monospace small @(m.ProfitFactor >= 1.5m ? "pnl-pos" : m.ProfitFactor < 1 && m.TotalTrades > 0 ? "pnl-neg" : "")">@(m.ProfitFactor == 0 && m.NetPnl > 0 ? "∞" : m.ProfitFactor.ToString("F2"))</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Avg R</span>
+                        <span class="font-monospace small @PnlCls(m.AvgR)">@m.AvgR.ToString("F2")R</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Max DD</span>
+                        <span class="font-monospace small pnl-neg">-@m.MaxDrawdown.ToString("C0")</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Avg Win</span>
+                        <span class="font-monospace small pnl-pos">@m.AvgWin.ToString("C0")</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Avg Loss</span>
+                        <span class="font-monospace small pnl-neg">@m.AvgLoss.ToString("C0")</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small" title="E = (Win% × AvgWin) + (Loss% × AvgLoss)">Expectancy</span>
+                        <span class="font-monospace small @PnlCls(m.Expectancy)">@Pnl(m.Expectancy)</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Consec W / L</span>
+                        <span class="font-monospace small">@m.MaxConsecWins / @m.MaxConsecLosses</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Long / Short</span>
+                        <span class="font-monospace small">@m.LongTrades / @m.ShortTrades</span>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                        <span class="text-muted small">Tgt / Stp / EOD</span>
+                        <span class="font-monospace small">@m.TargetExits / @m.StopExits / @m.SessionEndExits</span>
+                    </div>
+                    <div class="d-flex justify-content-between py-1">
+                        <span class="text-muted small">Commission</span>
+                        <span class="font-monospace small pnl-neg">-@m.TotalCommission.ToString("C0")</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+
+    <div class="settings-section mb-3">
+        <h6 class="mb-3">
+            <i class="bi bi-graph-up me-1"></i>Equity Curve
+            <span class="text-muted fw-normal small ms-2">@r.EquityCurve.Count points</span>
+            <span class="badge ms-2 @(r.Total.NetPnl >= 0 ? "bg-success" : "bg-danger") font-monospace small">@Pnl(r.Total.NetPnl)</span>
+        </h6>
+        <canvas id="equity-chart" style="max-height:220px;"></canvas>
+    </div>
+
+
+    <div class="settings-section">
+        @{
+            var tzLbl = r.Trades.Count > 0 ? EtLabel(r.Trades[0].EnteredAt) : "ET";
+        }
+        <div class="d-flex align-items-center mb-2 flex-wrap gap-2">
+            <h6 class="mb-0"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
+            <span class="badge bg-secondary font-monospace trade-count">@r.Trades.Count trades</span>
+            <span class="small text-muted trade-wl">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
+            <select id="setup-filter" class="form-select form-select-sm" style="width:auto;"
+                    onchange="filterBySetup(this.value)">
+                <option value="">All Setups</option>
+                @foreach (var sl in r.Trades
+                    .Select(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
+                    .Distinct().OrderBy(x => x))
+                {
+                    <option value="@sl">@sl</option>
+                }
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-light ms-auto"
+                    onclick="exportTradesCsv()">
+                <i class="bi bi-download me-1"></i>CSV
+            </button>
+        </div>
+        <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
+            <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
+                    <tr>
+                        <th>#</th>
+                        <th>In (@tzLbl)</th>
+                        <th>Out</th>
+                        <th>Dur</th>
+                        <th>Session</th>
+                        <th>Setup</th>
+                        <th>Instr</th>
+                        <th>Dir</th>
+                        <th class="text-end">Entry</th>
+                        <th class="text-end">Exit</th>
+                        <th class="text-end">Stop</th>
+                        <th class="text-end">Target</th>
+                        <th class="text-end">Cts</th>
+                        <th>Part</th>
+                        <th>Reason</th>
+                        <th class="text-end">Gross</th>
+                        <th class="text-end">Comm</th>
+                        <th class="text-end">Net</th>
+                        <th class="text-end">R</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int rowNum = 0; }
+                    @foreach (var t in r.Trades.OrderBy(t => t.EnteredAt))
+                    {
+                        rowNum++;
+                        var setupLabel = !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString();
+                        string rowCls = t.IsWin ? "table-success bg-opacity-10" : "table-danger bg-opacity-10";
+                        string reasonBadge = t.ExitReason switch
+                        {
+                            ExitReason.Target     => "bg-success",
+                            ExitReason.Stop       => "bg-danger",
+                            _                     => "bg-secondary"
+                        };
+                        string sessionBadge = t.SessionId switch
+                        {
+                            "Asia"   => "bg-info text-dark",
+                            "London" => "bg-primary",
+                            "NY"     => "bg-warning text-dark",
+                            _        => "bg-secondary"
+                        };
+                        <tr class="@rowCls" data-setup="@setupLabel">
+                            <td class="td-dim">@rowNum</td>
+                            <td class="td-time">@ToEt(t.EnteredAt)</td>
+                            <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
+                            <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
+                            <td><span class="badge @sessionBadge small">@(t.SessionId ?? "—")</span></td>
+                            <td><span class="badge bg-warning text-dark">@setupLabel</span></td>
+                            <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
+                            <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@t.EffectiveDirection</td>
+                            <td class="text-end">@t.Entry.ToString("F2")</td>
+                            <td class="text-end">@t.Exit.ToString("F2")</td>
+                            <td class="text-end td-dim">@t.InitialStop.ToString("F2")</td>
+                            <td class="text-end td-dim">@t.Target.ToString("F2")</td>
+                            <td class="text-end">@t.Contracts</td>
+                            <td class="text-center">
+                                @if (t.PartialFilled) { <i class="bi bi-check-lg text-success"></i> }
+                                else { <span class="td-dim">—</span> }
+                            </td>
+                            <td><span class="badge @reasonBadge small">@t.ExitReason</span></td>
+                            <td class="text-end @(t.GrossPnl >= 0 ? "pnl-pos" : "pnl-neg")">@Pnl(t.GrossPnl)</td>
+                            <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
+                            <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
+                            <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+@if (Model.Result?.EquityCurve?.Count > 0)
+{
+    var curve      = Model.Result.EquityCurve;
+    var lastEquity = (double)curve[^1].Equity;
+    <text>
+(function () {
+    const labels    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(curve.Select(p => EqLabel(p.Time))));
+    const values    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(curve.Select(p => (double)p.Equity)));
+    const positive  = @(lastEquity >= 0 ? "true" : "false");
+    const lineColor = positive ? '#00ff88' : '#ff4466';
+    const fillColor = positive ? 'rgba(0,255,136,.07)' : 'rgba(255,68,102,.07)';
+    new Chart(document.getElementById('equity-chart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Equity', data: values, borderColor: lineColor, backgroundColor: fillColor,
+                  borderWidth: 2, pointRadius: values.length <= 80 ? 3 : 0, pointHoverRadius: 5,
+                  fill: true, tension: 0.15 },
+                { label: 'Zero', data: new Array(values.length).fill(0),
+                  borderColor: 'rgba(255,255,255,.18)', borderDash: [4,4],
+                  borderWidth: 1, pointRadius: 0, fill: false },
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ctx.datasetIndex === 0
+                    ? ' $' + ctx.parsed.y.toLocaleString('en-US', { maximumFractionDigits: 0 }) : null } }
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 20, color: '#666', font: { size: 11 } }, grid: { color: '#1a1d24' } },
+                y: { ticks: { color: '#666', font: { size: 11 }, callback: v => '$' + v.toLocaleString() }, grid: { color: '#1a1d24' } },
+            },
+        },
+    });
+}());
+    </text>
+}
+
+@if (Model.Result?.Trades?.Count > 0)
+{
+    <text>
+const _tradesData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+    Model.Result.Trades.OrderBy(t => t.EnteredAt).Select(t => new {
+        setup       = !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString(),
+        isWin       = t.IsWin,
+        netPnl      = t.NetPnl,
+        commission  = t.Commission,
+        rMultiple   = t.RMultiple,
+        dir         = t.EffectiveDirection.ToString(),
+        exitReason  = t.ExitReason.ToString()
+    })
+));
+const _origMetrics = document.getElementById('metrics-grid')?.innerHTML;
+
+function filterBySetup(selected) {
+    const rows = document.querySelectorAll('.trade-table tbody tr');
+    let n = 0, w = 0;
+    rows.forEach(row => {
+        const s    = row.dataset.setup;
+        const show = !selected || s === selected;
+        row.style.display = show ? '' : 'none';
+        if (show) { n++; if (row.classList.contains('table-success')) w++; row.querySelector('td').textContent = n; }
+    });
+    document.querySelector('.trade-count').textContent = n + ' trades';
+    document.querySelector('.trade-wl').textContent    = w + ' W / ' + (n - w) + ' L';
+
+    const grid = document.getElementById('metrics-grid');
+    if (!grid) return;
+    if (!selected) { grid.innerHTML = _origMetrics; return; }
+
+    const f       = _tradesData.filter(t => t.setup === selected);
+    const wins    = f.filter(t => t.isWin), losses = f.filter(t => !t.isWin);
+    const net     = f.reduce((s, t) => s + t.netPnl, 0);
+    const wr      = f.length ? (wins.length / f.length * 100) : 0;
+    const avgW    = wins.length   ? wins.reduce((s, t)   => s + t.netPnl, 0) / wins.length   : 0;
+    const avgL    = losses.length ? losses.reduce((s, t) => s + t.netPnl, 0) / losses.length : 0;
+    const avgR    = f.length ? f.reduce((s, t) => s + t.rMultiple, 0) / f.length : 0;
+    const grossW  = wins.reduce((s, t) => s + t.netPnl, 0);
+    const grossL  = Math.abs(losses.reduce((s, t) => s + t.netPnl, 0));
+    const pf      = grossL > 0 ? (grossW / grossL).toFixed(2) : (net > 0 ? '∞' : '0.00');
+    const comm    = f.reduce((s, t) => s + t.commission, 0);
+    const exp     = f.length ? ((wins.length/f.length)*avgW + (losses.length/f.length)*avgL) : 0;
+    const longs   = f.filter(t => t.dir === 'Long').length, shorts = f.length - longs;
+    const tgt     = f.filter(t => t.exitReason === 'Target').length;
+    const stp     = f.filter(t => t.exitReason === 'Stop').length;
+    const eod     = f.filter(t => t.exitReason === 'SessionEnd').length;
+    let peak = 0, eq = 0, maxDd = 0;
+    f.forEach(t => { eq += t.netPnl; if (eq > peak) peak = eq; const dd = peak - eq; if (dd > maxDd) maxDd = dd; });
+    let mW = 0, mL = 0, cW = 0, cL = 0;
+    f.forEach(t => { if (t.isWin) { cW++; cL=0; mW=Math.max(mW,cW); } else { cL++; cW=0; mL=Math.max(mL,cL); } });
+    const fmt = v => (v >= 0 ? '+$' : '-$') + Math.abs(Math.round(v)).toLocaleString();
+    const cls = v => v > 0 ? 'pnl-pos' : v < 0 ? 'pnl-neg' : 'pnl-zero';
+    const row = (l, v, c) => `<div class="d-flex justify-content-between border-bottom border-secondary py-1"><span class="text-muted small">${l}</span><span class="font-monospace small ${c||''}">${v}</span></div>`;
+    grid.innerHTML = `<div class="col-12 col-md-4 col-xl-3"><div class="settings-section h-100">
+        <h6><i class="bi bi-circle-fill me-1"></i>${selected}</h6>
+        ${row('Trades', f.length)}
+        ${row('Win Rate',      wr.toFixed(1)+'%',                  wr>=50?'pnl-pos':'pnl-neg')}
+        ${row('Net P&L',       fmt(net),                           cls(net))}
+        ${row('Profit Factor', pf,                                 pf>=1.5?'pnl-pos':(!((pf*1)>=1)&&f.length?'pnl-neg':''))}
+        ${row('Avg R',         avgR.toFixed(2)+'R',                cls(avgR))}
+        ${row('Max DD',        '-$'+Math.round(maxDd).toLocaleString(), 'pnl-neg')}
+        ${row('Avg Win',       '$'+Math.round(avgW).toLocaleString(),   'pnl-pos')}
+        ${row('Avg Loss',      '$'+Math.round(avgL).toLocaleString(),   'pnl-neg')}
+        ${row('Expectancy',    fmt(exp),                           cls(exp))}
+        ${row('Consec W / L',  mW+' / '+mL)}
+        ${row('Long / Short',  longs+' / '+shorts)}
+        ${row('Tgt / Stp / EOD', tgt+' / '+stp+' / '+eod)}
+        ${row('Commission',    '-$'+Math.round(comm).toLocaleString(), 'pnl-neg')}
+    </div></div>`;
+}
+    </text>
+}
+
+function exportTradesCsv() {
+    const table = document.querySelector('.trade-table');
+    if (!table) return;
+    const lines = [];
+    table.querySelectorAll('tr').forEach(row => {
+        const vals = Array.from(row.querySelectorAll('th, td')).map(c => {
+            return '"' + c.innerText.replace(/"/g, '""').trim() + '"';
+        });
+        lines.push(vals.join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'performance_trades.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+}
