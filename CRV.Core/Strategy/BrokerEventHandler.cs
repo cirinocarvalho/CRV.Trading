@@ -670,11 +670,16 @@ public class BrokerEventHandler
         group.CompletedAt = exitTime;
         strategy.SetInTrade(false);
 
-        // Build trade record
-        if (group.EntryPrice.HasValue)
+        // Build trade record — fall back to entry leg limit price if fill price not yet set
+        var entryLeg = group.GetLeg(LegType.Entry);
+        var tradeEntry = group.EntryPrice ?? entryLeg?.FillPrice ?? entryLeg?.Price;
+        if (tradeEntry.HasValue && tradeEntry.Value > 0)
         {
+            if (!group.EntryPrice.HasValue)
+                _log?.LogWarning("[BEH] EntryPrice null at CompleteGroup — using entry leg price {P} for grp={G}",
+                    tradeEntry.Value, group.GroupOrderId);
             bool isLong = group.Direction == Direction.Long;
-            var entry = group.EntryPrice.Value;
+            var entry = tradeEntry.Value;
             var stopLeg = group.GetLeg(LegType.Stop);
             var initStop = group.InitialStopPrice > 0 ? group.InitialStopPrice : (stopLeg?.Price ?? 0m);
             var tg1 = group.GetLeg(LegType.Tg1);
