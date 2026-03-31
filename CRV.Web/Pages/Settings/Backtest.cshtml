@@ -323,7 +323,9 @@
     const positive  = @(lastEquity >= 0 ? "true" : "false");
     const lineColor = positive ? '#00ff88' : '#ff4466';
     const fillColor = positive ? 'rgba(0,255,136,.07)' : 'rgba(255,68,102,.07)';
-    new Chart(document.getElementById('equity-chart').getContext('2d'), {
+    const _origEqLabels = labels.slice();
+    const _origEqValues = values.slice();
+    window._equityChart = new Chart(document.getElementById('equity-chart').getContext('2d'), {
         type: 'line',
         data: {
             labels,
@@ -363,7 +365,8 @@
             commission = t.Commission,
             rMultiple = t.RMultiple,
             dir = t.EffectiveDirection.ToString(),
-            exitReason = t.ExitReason.ToString()
+            exitReason = t.ExitReason.ToString(),
+            exitedAt   = t.ExitedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
         })
     ));
     const _origMetrics = document.getElementById('metrics-grid')?.innerHTML;
@@ -424,6 +427,29 @@
             ${row('Tgt / Stp / EOD', tgt+' / '+stp+' / '+eod, '')}
             ${row('Commission', '-$'+Math.round(comm).toLocaleString(), 'pnl-neg')}
         </div></div>`;
+
+        // Rebuild equity curve for the filtered subset
+        if (window._equityChart) {
+            let eqLabels, eqValues;
+            if (!selected) {
+                eqLabels = _origEqLabels;
+                eqValues = _origEqValues;
+            } else {
+                let cum = 0;
+                eqValues = f.map(t => { cum += t.netPnl; return cum; });
+                const etFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric' });
+                eqLabels = f.map(t => etFmt.format(new Date(t.exitedAt)));
+            }
+            const lastEq = eqValues.length ? eqValues[eqValues.length - 1] : 0;
+            const lc = lastEq >= 0 ? '#00ff88' : '#ff4466';
+            const fc = lastEq >= 0 ? 'rgba(0,255,136,.07)' : 'rgba(255,68,102,.07)';
+            window._equityChart.data.labels = eqLabels;
+            window._equityChart.data.datasets[0].data = eqValues;
+            window._equityChart.data.datasets[0].borderColor = lc;
+            window._equityChart.data.datasets[0].backgroundColor = fc;
+            window._equityChart.data.datasets[1].data = new Array(eqValues.length).fill(0);
+            window._equityChart.update();
+        }
     }
     </text>
 }
