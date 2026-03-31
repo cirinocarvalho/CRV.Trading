@@ -81,6 +81,9 @@ public interface ISetupStrategy
     /// <summary>Called by BrokerEventHandler to signal trade entry/exit.</summary>
     void SetInTrade(bool active);
 
+    /// <summary>Seed long/short trade counters from DB after engine restart so [X/Max] is correct.</summary>
+    void SeedTradeCount(int longs, int shorts);
+
     int CutoffHour { get; }
     int CutoffMinute { get; }
 

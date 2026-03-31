@@ -65,6 +65,10 @@ public class SessionFakeoutStrategy : ISetupStrategy
         _inTrade = active;
         if (!active) _state = 0;
     }
+    public void SeedTradeCount(int longs, int shorts)
+    {
+        _tradeCount = longs + shorts;
+    }
     public int          CutoffHour   => _cfg.CutoffHour;
     public int          CutoffMinute => _cfg.CutoffMinute;
     public (int Hour, int Minute) GetCutoffForSession(string s) => _cfg.GetCutoffForSession(s);

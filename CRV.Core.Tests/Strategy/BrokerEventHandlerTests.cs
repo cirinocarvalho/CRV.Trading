@@ -66,6 +66,7 @@ public class BrokerEventHandlerTests
         public void ResetCutoff() { }
         public SetupStateSnapshot GetSnapshot() => new();
         public void SetInTrade(bool active) => InTrade = active;
+        public void SeedTradeCount(int l, int s) { }
     }
 
     // ── Helpers ─────────────────────────────────────────────────

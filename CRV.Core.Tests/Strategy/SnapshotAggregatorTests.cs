@@ -21,6 +21,7 @@ public class SnapshotAggregatorTests
         public bool IsArmed { get; init; }
         public bool InTrade { get; set; }
         public void SetInTrade(bool active) => InTrade = active;
+        public void SeedTradeCount(int l, int s) { }
         public int CutoffHour { get; set; } = 23;
         public int CutoffMinute { get; set; } = 59;
 

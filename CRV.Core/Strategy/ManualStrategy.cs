@@ -26,6 +26,7 @@ public class ManualStrategy : ISetupStrategy
     public bool IsArmed => false;
     public bool InTrade => _inTrade;
     public void SetInTrade(bool active) => _inTrade = active;
+    public void SeedTradeCount(int longs, int shorts) { } // no-op for manual trades
 
     public int CutoffHour => 23;
     public int CutoffMinute => 59;
