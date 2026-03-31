@@ -794,6 +794,13 @@ public class LiveEngineOrchestrator : BackgroundService
 
                     foreach (var group in recoveredGroups)
                     {
+                        // Ensure InitialStopPrice is set from stop leg (broker REST doesn't populate it)
+                        if (group.InitialStopPrice == 0)
+                        {
+                            var sl = group.GetLeg(LegType.Stop);
+                            if (sl != null) group.InitialStopPrice = sl.Price;
+                        }
+
                         var strategy = newEngine.GetStrategy(group.SetupId);
                         if (strategy == null)
                         {
@@ -847,6 +854,7 @@ public class LiveEngineOrchestrator : BackgroundService
                                 ? (exitPrice - group.EntryPrice.Value) * group.PointValue * remaining
                                 : (group.EntryPrice.Value - exitPrice) * group.PointValue * remaining;
                             decimal totalPnl = exitPnl + partialPnl;
+                            decimal commission = cfg.CommissionPerSide * 2 * group.TotalContracts;
                             decimal risk = Math.Abs(group.EntryPrice.Value - group.InitialStopPrice) * group.PointValue * group.TotalContracts;
                             decimal rMult = risk > 0 ? totalPnl / risk : 0m;
 
@@ -866,7 +874,8 @@ public class LiveEngineOrchestrator : BackgroundService
                                 PartialFilled = partialFilled,
                                 PartialPrice = tg1FillPrice > 0 ? tg1FillPrice : (tg1Leg?.FillPrice ?? tg1Leg?.Price ?? 0m),
                                 GrossPnl = totalPnl,
-                                NetPnl = totalPnl,
+                                Commission = commission,
+                                NetPnl = totalPnl - commission,
                                 RMultiple = rMult,
                                 EnteredAt = group.CreatedAt,
                                 ExitedAt = group.CompletedAt ?? DateTime.UtcNow,
