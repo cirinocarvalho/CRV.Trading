@@ -588,15 +588,8 @@ public class BrokerEventHandler
         var stopLeg = group.GetLeg(LegType.Stop);
         if (stopLeg != null) stopLeg.Status = OrderLegStatus.Canceled;
 
-        var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2");
-        if (exitPrice == 0)
-        {
-            var tg2Leg = group.GetLeg(LegType.Tg2);
-            exitPrice = tg2Leg?.Price ?? 0m;
-            if (exitPrice > 0)
-                _log?.LogWarning("[BEH] Tg2 fill price unresolved — using target limit price {P} for order {O}",
-                    exitPrice, evt.OrderId);
-        }
+        var tg2Leg = group.GetLeg(LegType.Tg2);
+        var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2", fallbackPrice: tg2Leg?.Price ?? 0m);
         await CompleteGroup(group, strategy, ExitReason.Target, exitPrice, evt.Timestamp);
     }
 
@@ -610,29 +603,25 @@ public class BrokerEventHandler
             l.Status == OrderLegStatus.Working))
             leg.Status = OrderLegStatus.Canceled;
 
-        var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop");
-        // Last resort: use the stop leg's limit price to avoid recording exit @ 0
-        if (exitPrice == 0)
-        {
-            var stopLeg = group.GetLeg(LegType.Stop);
-            exitPrice = stopLeg?.Price ?? 0m;
-            if (exitPrice > 0)
-                _log?.LogWarning("[BEH] Stop fill price unresolved — using stop limit price {P} for order {O}",
-                    exitPrice, evt.OrderId);
-        }
+        // Pass stop leg price as fallback — Tradovate never returns avgFillPrice for
+        // strategy bracket stops, so REST always times out. Use stop price immediately.
+        var stopLeg = group.GetLeg(LegType.Stop);
+        var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop", fallbackPrice: stopLeg?.Price ?? 0m);
         await CompleteGroup(group, strategy, ExitReason.Stop, exitPrice, evt.Timestamp);
     }
 
     /// <summary>
     /// Resolve exit fill price: use WSS event price if available, otherwise fall back to REST API.
+    /// If <paramref name="fallbackPrice"/> is provided (e.g. stop trigger price), it is used
+    /// immediately when REST fails — skipping the full retry loop.
     /// Prevents exit @ 0.00 when WSS messages don't include avgFillPrice.
     /// </summary>
-    private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel)
+    private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel, decimal fallbackPrice = 0m)
     {
         if (evt.FillPrice is > 0)
             return evt.FillPrice.Value;
 
-        // WSS didn't include fill price — fetch from REST
+        // WSS didn't include fill price — try REST once
         _log?.LogWarning("[BEH] {Leg} fill missing price in WSS event for order {O} — fetching via REST",
             legLabel, evt.OrderId);
 
@@ -649,6 +638,14 @@ public class BrokerEventHandler
         catch (Exception ex)
         {
             _log?.LogWarning(ex, "[BEH] REST fill price lookup failed for {Leg} order {O}", legLabel, evt.OrderId);
+        }
+
+        // Use fallback price (stop trigger / target limit) when REST can't resolve
+        if (fallbackPrice > 0)
+        {
+            _log?.LogWarning("[BEH] {Leg} fill price unresolved — using fallback price {P} for order {O}",
+                legLabel, fallbackPrice, evt.OrderId);
+            return fallbackPrice;
         }
 
         _log?.LogError("[BEH] Could not resolve {Leg} fill price for order {O} — using 0", legLabel, evt.OrderId);
