@@ -32,6 +32,9 @@ public abstract class SetupConfigBase
     public string  CustomTicker       { get; set; } = "";
     public decimal CustomPointValue   { get; set; } = 0;
     public decimal CustomTickSize     { get; set; } = 0;
+
+    // Auto trailing stop
+    public AutoTrailConfig? AutoTrail { get; set; }
 }
 
 // ── Setup A — Pullback ──────────────────────────────────────────────────────

@@ -198,14 +198,18 @@ public class RetestStrategy : ISetupStrategy
             bool orbLongOk  = !_cfg.UseOrbClose || orb.BullClose;
             bool orbShortOk = !_cfg.UseOrbClose || orb.BearClose;
 
-            // Arm requires a bar CLOSE outside the ORB range (confirmed breakout)
-            if (longReady && bar.Close > orbHigh && orbLongOk && aboveVwap && !_bullTraded)
+            // Arm when bar is NEAR the ORB boundary (within nearDist).
+            // For Aggressive/SmartAggressive, entry follows immediately or next bar.
+            // For Conservative, breakout must be confirmed separately before retest.
+            if (longReady && bar.Close >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
             {
-                _state = 1; _armEntry = bar.Open; _retestLeftZone = false; _breakoutConfirmed = true;
+                _state = 1; _armEntry = bar.Open; _retestLeftZone = false;
+                _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
             }
-            else if (shortReady && bar.Close < orbLow && orbShortOk && belowVwap && !_bearTraded)
+            else if (shortReady && bar.Close <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
             {
-                _state = -1; _armEntry = bar.Open; _retestLeftZone = false; _breakoutConfirmed = true;
+                _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
+                _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
             }
         }
 
@@ -248,9 +252,9 @@ public class RetestStrategy : ISetupStrategy
                 _breakoutConfirmed = true;
 
             // Step 1: detect when price leaves the zone after arming (AND breakout confirmed)
-            if (_state == 1 && _breakoutConfirmed && !_retestLeftZone && bar.Low < orbHigh - retestW)
+            if (_state == 1 && _breakoutConfirmed && !_retestLeftZone && bar.Low <= orbHigh - retestW)
                 _retestLeftZone = true;
-            if (_state == -1 && _breakoutConfirmed && !_retestLeftZone && bar.High > orbLow + retestW)
+            if (_state == -1 && _breakoutConfirmed && !_retestLeftZone && bar.High >= orbLow + retestW)
                 _retestLeftZone = true;
 
             // Step 2: retest fires only after breakout + left zone + returned to zone
@@ -365,7 +369,10 @@ public class RetestStrategy : ISetupStrategy
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
             PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
-            UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe, Mode: _cfg.Mode);
+            UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe, Mode: _cfg.Mode,
+            AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.StopLoss : null,
+            AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Trigger : null,
+            AutoTrailFreq:     _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Freq : null);
 
         if (isLong) { _longCount++; _bullTraded = true; }
         else        { _shortCount++; _bearTraded = true; }

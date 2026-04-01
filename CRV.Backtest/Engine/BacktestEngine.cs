@@ -329,6 +329,19 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
     private readonly Dictionary<string, Dictionary<string, LegState>> _ordersByGroup = new();
     // groupId → ticker (for filtering EvaluateFills by instrument)
     private readonly Dictionary<string, string> _groupTickers = new(StringComparer.OrdinalIgnoreCase);
+    // Auto-trail simulation state per group
+    private readonly Dictionary<string, TrailSimState> _trailState = new();
+
+    private class TrailSimState
+    {
+        public bool Enabled { get; set; }
+        public decimal StopLoss { get; set; }
+        public decimal Trigger { get; set; }
+        public decimal Freq { get; set; }
+        public decimal EntryPrice { get; set; }
+        public bool Activated { get; set; }
+        public decimal HighWater { get; set; }
+    }
 
     private class LegState
     {
@@ -416,6 +429,24 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             entryLeg.FillTime = sig.Time;
             group.Status = GroupOrderStatus.Active;
             group.EntryPrice = fillPrice;
+        }
+
+        // Copy auto-trail config for backtest simulation
+        if (sig.AutoTrailStopLoss.HasValue)
+        {
+            group.AutoTrailStopLoss = sig.AutoTrailStopLoss;
+            group.AutoTrailFreq = sig.AutoTrailFreq;
+            group.AutoTrailTrigger = sig.AutoTrailTrigger
+                ?? (sig.UsePartial ? Math.Abs(sig.Tg1Price - sig.Entry) : 0m);
+
+            _trailState[groupId] = new TrailSimState
+            {
+                Enabled = true,
+                StopLoss = sig.AutoTrailStopLoss.Value,
+                Trigger = sig.AutoTrailTrigger ?? Math.Abs(sig.Tg1Price - sig.Entry),
+                Freq = sig.AutoTrailFreq!.Value,
+                EntryPrice = fillPrice,
+            };
         }
 
         return Task.FromResult<GroupOrder?>(group);
@@ -525,6 +556,52 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                         OrderLegStatus.Filled, fillPrice, leg.Quantity, null, null, utcNow));
                 break; // one fill per group per tick — let event handler process before next
             }
+
+            // ── Auto-trail simulation ──────────────────────────────────
+            if (!entryFilled) continue;
+
+            var stopLegForTrail = legs.Values.FirstOrDefault(l => l.LegType == LegType.Stop && l.Status == "WORKING");
+            if (stopLegForTrail == null) continue;
+
+            if (!_trailState.TryGetValue(groupId, out var trail) || !trail.Enabled) continue;
+
+            bool trailIsLong = stopLegForTrail.Action == "SELL"; // Stop sells for long positions
+
+            decimal profitDistance = trailIsLong
+                ? price - trail.EntryPrice
+                : trail.EntryPrice - price;
+
+            if (!trail.Activated && profitDistance >= trail.Trigger)
+            {
+                trail.Activated = true;
+                trail.HighWater = price;
+            }
+
+            if (trail.Activated)
+            {
+                // Update high water
+                if ((trailIsLong && price > trail.HighWater) || (!trailIsLong && price < trail.HighWater))
+                    trail.HighWater = price;
+
+                // Compute new trailing stop
+                decimal rawStop = trailIsLong
+                    ? trail.HighWater - trail.StopLoss
+                    : trail.HighWater + trail.StopLoss;
+
+                // Snap to freq grid
+                decimal snappedStop = trailIsLong
+                    ? Math.Floor(rawStop / trail.Freq) * trail.Freq
+                    : Math.Ceiling(rawStop / trail.Freq) * trail.Freq;
+
+                // Ratchet: only move stop in favorable direction
+                decimal currentStop = stopLegForTrail.StopPrice ?? 0m;
+                bool isBetter = trailIsLong ? snappedStop > currentStop : snappedStop < currentStop;
+
+                if (isBetter)
+                {
+                    stopLegForTrail.StopPrice = snappedStop;
+                }
+            }
         }
 
         // Prune completed groups (all legs filled or canceled)
@@ -535,6 +612,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         {
             _ordersByGroup.Remove(gid);
             _groupTickers.Remove(gid);
+            _trailState.Remove(gid);
         }
     }
 

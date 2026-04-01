@@ -40,6 +40,14 @@ public class GroupOrder
     /// the broker OCO should cancel the paired stop — but if it doesn't, we explicitly
     /// cancel the orphaned stop and switch tracking to Stop2.</summary>
     public string? Stop2OrderId { get; set; }
+
+    // ── Auto-trail state (transient — backtest simulation only, not persisted) ──
+    public decimal? AutoTrailStopLoss { get; set; }
+    public decimal? AutoTrailTrigger { get; set; }
+    public decimal? AutoTrailFreq { get; set; }
+    public bool AutoTrailActivated { get; set; }
+    public decimal? AutoTrailHighWater { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
     public List<OrderLeg> Legs { get; set; } = new();

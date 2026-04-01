@@ -1204,5 +1204,15 @@ function updateBasketInstrument(id, base) {
 function syncBasketJson() {
     document.getElementById('basket-json').value = JSON.stringify(_basket);
 }
+
+function toggleSetupAutoTrail(checkbox, index, sl) {
+    var section = document.getElementById('autotrail-setup-' + index + '-' + sl);
+    if (section) section.classList.toggle('d-none', !checkbox.checked);
+    var beField = document.querySelector('[data-session="' + index + '"][data-field="Setup' + sl + '.UseBe"]');
+    if (beField) {
+        if (checkbox.checked) { beField.checked = false; beField.disabled = true; }
+        else { beField.disabled = false; }
+    }
+}
 </script>
 }

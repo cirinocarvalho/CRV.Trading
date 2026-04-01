@@ -70,6 +70,9 @@ public class StrategySetupConfig
     public int PartialCts { get; set; }
     public bool AllowRearmAfterBe { get; set; } = true;
 
+    // Auto Trail (per-ticker, copied from BasketEntry at setup construction)
+    public AutoTrailConfig? AutoTrail { get; set; }
+
     // Session-specific cutoffs (from basket). When empty, uses CutoffHour/CutoffMinute for all sessions.
     public List<SessionSlot>? SessionSlots { get; set; }
 
