@@ -627,6 +627,28 @@ public class BrokerEventHandler
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
+        // If this fill is from Stop2 (BE stop) but Tg1 fill hasn't been processed yet,
+        // force-process Tg1 first so partial P&L accrues and stop tracking switches correctly.
+        // This happens when WSS delivers Stop2 fill before the poll delivers Tg1 fill.
+        var stopLeg = group.GetLeg(LegType.Stop);
+        if (stopLeg != null && evt.OrderId != stopLeg.OrderId)
+        {
+            var tg1Leg = group.GetLeg(LegType.Tg1);
+            if (tg1Leg != null && tg1Leg.Status != OrderLegStatus.Filled)
+            {
+                _log?.LogWarning("[BEH] Stop2 fill arrived before Tg1 fill for grp={G} — force-processing Tg1 at {P}",
+                    group.GroupOrderId, tg1Leg.Price);
+                tg1Leg.Status = OrderLegStatus.Filled;
+                tg1Leg.FillPrice ??= tg1Leg.Price;
+                tg1Leg.FillTime = evt.Timestamp;
+                await HandleTg1EventAsync(group, strategy, new OrderEvent(
+                    group.GroupOrderId, tg1Leg.OrderId, LegType.Tg1,
+                    OrderLegStatus.Filled, tg1Leg.FillPrice, tg1Leg.Quantity, null, null, evt.Timestamp));
+                // Re-read stop leg — HandleTg1EventAsync may have switched it to Stop2
+                stopLeg = group.GetLeg(LegType.Stop);
+            }
+        }
+
         // Mark tg1/tg2 as canceled in memory — broker OCO handles the actual cancel
         foreach (var leg in group.Legs.Where(l =>
             (l.LegType == LegType.Tg1 || l.LegType == LegType.Tg2) &&
@@ -635,7 +657,6 @@ public class BrokerEventHandler
 
         // Pass stop leg price as fallback — Tradovate never returns avgFillPrice for
         // strategy bracket stops, so REST always times out. Use stop price immediately.
-        var stopLeg = group.GetLeg(LegType.Stop);
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop", fallbackPrice: stopLeg?.Price ?? 0m);
         await CompleteGroup(group, strategy, ExitReason.Stop, exitPrice, evt.Timestamp);
     }

@@ -236,7 +236,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 ["qty"] = remainCts, ["profitTarget"] = tg2Offset,
                 ["stopLoss"] = stopOffset, ["trailingStop"] = false
             };
-            if (beOffset > 0) b2["breakeven"] = beOffset;
+            if (beOffset > 0) b2["breakEven"] = beOffset;
             brackets.Add(b2);
         }
         else
@@ -843,13 +843,15 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     }
 
     /// <summary>
-    /// Polls GET /order/item?id={orderId} for the fill price.
-    /// Retries up to 15 times at 200ms intervals. Returns null on timeout or error.
+    /// Fetches fill price for any order by string ID.
+    /// Tries /fill/deps first (reliable for bracket stops), falls back to /order/item.
     /// </summary>
-    /// <summary>Public interface method — fetches fill price for any order by string ID.</summary>
     public async Task<decimal?> GetOrderFillPriceAsync(string orderId)
     {
         if (!long.TryParse(orderId, out var id)) return null;
+        // /fill/deps is more reliable — Tradovate often omits avgFillPrice for bracket stops
+        var price = await GetFillPriceByDepsAsync(id);
+        if (price is > 0) return price;
         return await GetFillPriceAsync(id);
     }
 
