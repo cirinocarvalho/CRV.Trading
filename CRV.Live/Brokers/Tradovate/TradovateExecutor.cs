@@ -583,6 +583,8 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     async Task<List<OrderEvent>> IGroupOrderExecutor.PollOrderStatusesAsync(GroupOrder group)
     {
         var events = new List<OrderEvent>();
+        using var pollCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var ct = pollCts.Token;
         try
         {
             // ── Discover missing bracket legs via strategy link ──
@@ -655,7 +657,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             var legIds = string.Join(",", group.Legs.Select(l => l.OrderId));
             if (string.IsNullOrEmpty(legIds)) return events;
 
-            var json = await GetAsync($"/order/items?ids={legIds}");
+            var json = await GetAsync($"/order/items?ids={legIds}", ct);
             using var doc = JsonDocument.Parse(json);
 
             var brokerOrders = new Dictionary<string, (string status, decimal? fillPrice, int? fillQty)>();
@@ -676,7 +678,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             }
 
             // Also fetch current prices from /orderVersion/items (stop may have been modified by BE)
-            var versionJson = await GetAsync($"/orderVersion/items?ids={legIds}");
+            var versionJson = await GetAsync($"/orderVersion/items?ids={legIds}", ct);
             using var verDoc = JsonDocument.Parse(versionJson);
             var currentPrices = new Dictionary<string, decimal>();
             foreach (var ver in verDoc.RootElement.EnumerateArray())
@@ -1571,15 +1573,15 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     }
 
     /// <summary>GET helper — returns response body as string.</summary>
-    private async Task<string> GetAsync(string path)
+    private async Task<string> GetAsync(string path, CancellationToken ct = default)
     {
         var token = await _auth.GetAccessTokenAsync();
         using var http = CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var url  = path.StartsWith("http") ? path : $"{_auth.ApiBaseUrl}{path}";
-        var resp = await http.GetAsync(url);
-        var body = await resp.Content.ReadAsStringAsync();
+        var resp = await http.GetAsync(url, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
 
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException(
