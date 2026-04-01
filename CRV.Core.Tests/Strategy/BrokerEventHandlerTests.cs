@@ -35,6 +35,13 @@ public class BrokerEventHandlerTests
             MarketCloses.Add((ticker, direction, qty));
             return Task.FromResult(0m);
         }
+
+        public Dictionary<string, decimal> FillPrices { get; } = new();
+
+        public Task<decimal?> GetOrderFillPriceAsync(string orderId)
+        {
+            return Task.FromResult(FillPrices.TryGetValue(orderId, out var p) ? (decimal?)p : null);
+        }
     }
 
     private class FakeSetup : ISetupStrategy
@@ -461,6 +468,53 @@ public class BrokerEventHandlerTests
         await handler.HandleEventAsync(Evt("grp-001", "s1", LegType.Stop, OrderLegStatus.Filled, 19950m, 4));
 
         Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Fact]
+    public async Task StopFilled_UsesRestFillPrice_NotWssPrice()
+    {
+        var executor = new FakeGroupExecutor();
+        executor.FillPrices["s1"] = 20000m; // REST returns BE price
+        var handler = new BrokerEventHandler(executor);
+        TradeRecord? trade = null;
+        handler.OnTradeCompleted += (g, t) => trade = t;
+
+        var group = MakeGroup();
+        group.Status = GroupOrderStatus.Active;
+        group.EntryPrice = 20000m;
+        group.InitialStopPrice = 19950m;
+        group.UseBe = true;
+        handler.RegisterGroup(group, new FakeSetup());
+
+        await handler.HandleEventAsync(Evt("grp-001", "s1", LegType.Stop, OrderLegStatus.Filled, fill: 19960m));
+
+        Assert.NotNull(trade);
+        Assert.Equal(20000m, trade!.Exit); // REST price wins, not WSS
+    }
+
+    [Fact]
+    public async Task StopFilled_RestFails_FallsBackToBePrice()
+    {
+        var executor = new FakeGroupExecutor();
+        // No fill price in REST
+        var handler = new BrokerEventHandler(executor);
+        TradeRecord? trade = null;
+        handler.OnTradeCompleted += (g, t) => trade = t;
+
+        var group = MakeGroup();
+        group.Status = GroupOrderStatus.PartialFilled;
+        group.EntryPrice = 20000m;
+        group.InitialStopPrice = 19950m;
+        group.UseBe = true;
+        handler.RegisterGroup(group, new FakeSetup());
+
+        // Stop leg price was updated to BE
+        group.GetLeg(LegType.Stop)!.Price = 20000m;
+
+        await handler.HandleEventAsync(Evt("grp-001", "s1", LegType.Stop, OrderLegStatus.Filled));
+
+        Assert.NotNull(trade);
+        Assert.Equal(20000m, trade!.Exit); // Falls back to BE price
     }
 
     [Fact]

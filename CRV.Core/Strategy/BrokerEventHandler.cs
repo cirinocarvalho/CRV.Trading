@@ -557,12 +557,28 @@ public class BrokerEventHandler
 
         group.Status = GroupOrderStatus.PartialFilled;
 
-        // Resolve fill price — WSS may not include it
-        var tg1FillPrice = evt.FillPrice;
+        // Always verify Tg1 fill price via REST — never trust WSS
+        decimal? tg1FillPrice = null;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                tg1FillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+                if (tg1FillPrice is > 0) break;
+            }
+            catch (Exception ex)
+            {
+                _log?.LogWarning(ex, "[BEH] Tg1 REST fill price lookup failed (attempt {A}) for order {O}", attempt + 1, evt.OrderId);
+            }
+            if (attempt < 2) await Task.Delay(500);
+        }
+        // Final fallback: WSS price or Tg1 leg price
         if (tg1FillPrice is null or 0)
         {
-            _log?.LogWarning("[BEH] Tg1 fill missing price in WSS event for order {O} — fetching via REST", evt.OrderId);
-            tg1FillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+            var tg1Leg = group.GetLeg(LegType.Tg1);
+            tg1FillPrice = evt.FillPrice ?? tg1Leg?.Price;
+            _log?.LogWarning("[BEH] Tg1 fill price unresolved via REST — using fallback {P} for order {O}",
+                tg1FillPrice, evt.OrderId);
         }
 
         // Accrue partial P&L
@@ -655,48 +671,57 @@ public class BrokerEventHandler
             l.Status == OrderLegStatus.Working))
             leg.Status = OrderLegStatus.Canceled;
 
-        // Pass stop leg price as fallback — Tradovate never returns avgFillPrice for
-        // strategy bracket stops, so REST always times out. Use stop price immediately.
-        var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop", fallbackPrice: stopLeg?.Price ?? 0m);
+        // Contextual fallback: if BE was active, fall back to entry (not initial stop)
+        var contextualFallback = (group.UseBe && group.EntryPrice.HasValue)
+            ? group.EntryPrice.Value
+            : stopLeg?.Price ?? 0m;
+        var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop", fallbackPrice: contextualFallback);
         await CompleteGroup(group, strategy, ExitReason.Stop, exitPrice, evt.Timestamp);
     }
 
     /// <summary>
-    /// Resolve exit fill price: use WSS event price if available, otherwise fall back to REST API.
-    /// If <paramref name="fallbackPrice"/> is provided (e.g. stop trigger price), it is used
-    /// immediately when REST fails — skipping the full retry loop.
-    /// Prevents exit @ 0.00 when WSS messages don't include avgFillPrice.
+    /// Resolve exit fill price: always verify via REST /fill/deps.
+    /// Never trust WSS fill prices — they are unreliable for bracket stops.
+    /// Falls back to contextual price only after retries exhaust.
     /// </summary>
     private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel, decimal fallbackPrice = 0m)
     {
-        if (evt.FillPrice is > 0)
-            return evt.FillPrice.Value;
-
-        // WSS didn't include fill price — try REST once
-        _log?.LogWarning("[BEH] {Leg} fill missing price in WSS event for order {O} — fetching via REST",
-            legLabel, evt.OrderId);
-
-        try
+        // Always try REST first — even if WSS provided a price
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            var restPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
-            if (restPrice is > 0)
+            try
             {
-                _log?.LogInformation("[BEH] {Leg} fill price resolved via REST: {P} for order {O}",
-                    legLabel, restPrice, evt.OrderId);
-                return restPrice.Value;
+                var restPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+                if (restPrice is > 0)
+                {
+                    _log?.LogInformation("[BEH] {Leg} fill price verified via REST: {P} for order {O} (attempt {A})",
+                        legLabel, restPrice, evt.OrderId, attempt + 1);
+                    return restPrice.Value;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _log?.LogWarning(ex, "[BEH] REST fill price lookup failed for {Leg} order {O}", legLabel, evt.OrderId);
+            catch (Exception ex)
+            {
+                _log?.LogWarning(ex, "[BEH] REST fill price lookup failed for {Leg} order {O} (attempt {A})",
+                    legLabel, evt.OrderId, attempt + 1);
+            }
+
+            if (attempt < 2) await Task.Delay(500);
         }
 
-        // Use fallback price (stop trigger / target limit) when REST can't resolve
+        // REST exhausted — use contextual fallback
         if (fallbackPrice > 0)
         {
-            _log?.LogWarning("[BEH] {Leg} fill price unresolved — using fallback price {P} for order {O}",
+            _log?.LogWarning("[BEH] {Leg} fill price unresolved after 3 REST attempts — using fallback {P} for order {O}",
                 legLabel, fallbackPrice, evt.OrderId);
             return fallbackPrice;
+        }
+
+        // Last resort: use WSS price if available
+        if (evt.FillPrice is > 0)
+        {
+            _log?.LogWarning("[BEH] {Leg} fill price using WSS fallback {P} for order {O} (REST exhausted, no contextual fallback)",
+                legLabel, evt.FillPrice.Value, evt.OrderId);
+            return evt.FillPrice.Value;
         }
 
         _log?.LogError("[BEH] Could not resolve {Leg} fill price for order {O} — using 0", legLabel, evt.OrderId);
