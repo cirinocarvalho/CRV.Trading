@@ -115,6 +115,37 @@
             <input type="hidden" name="Order.UseBe" value="false" />
             <label class="form-check-label small fw-bold" for="chk-usebe">Move Stop to BE on Partial Fill</label>
         </div>
+        <!-- Auto Trail -->
+        <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="Order.UseAutoTrail" value="true"
+                   id="chk-autotrail" @(Model.Order.UseAutoTrail ? "checked" : "")
+                   onchange="toggleAutoTrail(this.checked)" />
+            <input type="hidden" name="Order.UseAutoTrail" value="false" />
+            <label class="form-check-label small fw-bold" for="chk-autotrail">Auto Trail Stop</label>
+        </div>
+        <div id="autotrail-section" class="@(Model.Order.UseAutoTrail ? "" : "d-none") ms-3 mt-1">
+            <div class="row g-2">
+                <div class="col-4">
+                    <label class="form-label small">Stop Loss</label>
+                    <input name="Order.AutoTrailStopLoss" id="m-at-stoploss" type="number" step="0.25" min="0"
+                           value="@(Model.Order.AutoTrailStopLoss > 0 ? Model.Order.AutoTrailStopLoss : "")"
+                           class="form-control form-control-sm font-monospace" placeholder="e.g. 4.0" />
+                </div>
+                <div class="col-4">
+                    <label class="form-label small">Trigger</label>
+                    <input name="Order.AutoTrailTrigger" id="m-at-trigger" type="number" step="0.25" min="0"
+                           value="@(Model.Order.AutoTrailTrigger > 0 ? Model.Order.AutoTrailTrigger : "")"
+                           class="form-control form-control-sm font-monospace" placeholder="Tg1 auto" />
+                </div>
+                <div class="col-4">
+                    <label class="form-label small">Freq</label>
+                    <input name="Order.AutoTrailFreq" id="m-at-freq" type="number" step="0.25" min="0"
+                           value="@(Model.Order.AutoTrailFreq > 0 ? Model.Order.AutoTrailFreq : "")"
+                           class="form-control form-control-sm font-monospace" placeholder="e.g. 0.25" />
+                </div>
+            </div>
+            <small class="text-muted">Raw price values. Trigger defaults to Tg1 distance when Partial is on.</small>
+        </div>
     </div>
 </div>
 
@@ -626,6 +657,19 @@ function togglePartial(on) {
     updatePreview();
 }
 
+// ── Auto Trail toggle ─────────────────────────────────────────
+function toggleAutoTrail(on) {
+    document.getElementById('autotrail-section').classList.toggle('d-none', !on);
+    var beCheckbox = document.getElementById('chk-usebe');
+    if (on) {
+        beCheckbox.checked = false;
+        beCheckbox.disabled = true;
+    } else {
+        beCheckbox.disabled = false;
+    }
+    updatePreview();
+}
+
 // ── Helpers ───────────────────────────────────────────────────
 function getDir()  { return document.getElementById('dir-long')?.checked ? 'Long' : 'Short'; }
 function getMode() {
@@ -724,6 +768,7 @@ document.querySelectorAll('input[name="Order.Direction"]').forEach(r =>
     r.addEventListener('change', updatePreview));
 
 updatePreview();
+if (document.getElementById('chk-autotrail')?.checked) toggleAutoTrail(true);
 
 // ── Live Positions ────────────────────────────────────────────
 let _posTimer = null;

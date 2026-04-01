@@ -133,6 +133,14 @@ public class ManualModel : PageModel
                 Errors.Add("Partial contracts must be between 1 and (total contracts − 1).");
         }
 
+        if (Order.UseAutoTrail)
+        {
+            if (Order.AutoTrailStopLoss <= 0) Errors.Add("Auto Trail Stop Loss must be > 0.");
+            if (Order.AutoTrailFreq <= 0) Errors.Add("Auto Trail Freq must be > 0.");
+            if (!Order.UsePartial && Order.AutoTrailTrigger <= 0)
+                Errors.Add("Auto Trail Trigger is required when Partial is off.");
+        }
+
         if (Errors.Count > 0) return Page();
 
         int remainCts = Order.Contracts - Order.PartialContracts;
@@ -174,7 +182,8 @@ public class ManualModel : PageModel
             var sig = BuildEntry(isLong, Order.Contracts, Order.EntryPrice,
                 Order.StopPoints, Order.TargetPoints, Order.PartialPoints,
                 Order.Ticker, Order.PointValue, Order.OrderType,
-                Order.UsePartial, Order.PartialContracts, Order.UseBe);
+                Order.UsePartial, Order.PartialContracts, Order.UseBe,
+                Order.UseAutoTrail, Order.AutoTrailStopLoss, Order.AutoTrailTrigger, Order.AutoTrailFreq);
 
             // Always route through the orchestrator so a GroupOrder is created,
             // registered with BrokerEventHandler, and visible in Group Orders /
@@ -360,7 +369,8 @@ public class ManualModel : PageModel
         decimal entryPrice, decimal stopPts, decimal targetPts,
         decimal partialPts = 0, string ticker = "", decimal pointValue = 0,
         string orderType = "Market", bool usePartial = false, int partialContracts = 0,
-        bool useBe = true)
+        bool useBe = true,
+        bool useAutoTrail = false, decimal autoTrailStopLoss = 0, decimal autoTrailTrigger = 0, decimal autoTrailFreq = 0)
     {
         decimal stop    = isLong ? entryPrice - stopPts   : entryPrice + stopPts;
         decimal target  = isLong ? entryPrice + targetPts : entryPrice - targetPts;
@@ -382,7 +392,10 @@ public class ManualModel : PageModel
             SetupLabel:     $"Manual-{DateTime.UtcNow:HHmmss}",
             PartialContracts: usePartial ? partialContracts : 0,
             UsePartial:       usePartial,
-            UseBe:            useBe
+            UseBe:            useBe,
+            AutoTrailStopLoss: useAutoTrail ? autoTrailStopLoss : null,
+            AutoTrailTrigger:  useAutoTrail ? (autoTrailTrigger > 0 ? autoTrailTrigger : (usePartial ? (decimal?)null : 0m)) : null,
+            AutoTrailFreq:     useAutoTrail ? autoTrailFreq : null
         );
     }
 }
@@ -419,6 +432,12 @@ public class ManualOrder
     [Range(0, double.MaxValue)] public decimal PartialPoints  { get; set; }
     [Range(0, double.MaxValue)] public decimal PartialDollars { get; set; }
     [Range(0, double.MaxValue)] public decimal PartialPrice   { get; set; }
+
+    // Auto Trail
+    public bool UseAutoTrail { get; set; }
+    [Range(0, double.MaxValue)] public decimal AutoTrailStopLoss { get; set; }
+    [Range(0, double.MaxValue)] public decimal AutoTrailTrigger  { get; set; }
+    [Range(0, double.MaxValue)] public decimal AutoTrailFreq     { get; set; }
 }
 
 public class FlatForm
