@@ -158,6 +158,12 @@
                     <label class="form-check-label small">BE</label>
                 </div>
                 <div class="form-check form-check-inline">
+                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AutoTrail.Enabled"
+                           @(setup.AutoTrail?.Enabled == true ? "checked" : "")
+                           onchange="toggleSetupAutoTrail(this, @i, '@sl')" />
+                    <label class="form-check-label small">Trail</label>
+                </div>
+                <div class="form-check form-check-inline">
                     <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AllowRearmAfterBE" @(setup.AllowRearmAfterBE ? "checked" : "") />
                     <label class="form-check-label small">Rearm BE</label>
                 </div>
@@ -185,6 +191,28 @@
                 <div class="form-check form-check-inline">
                     <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).CloseAtRthClose" @(setup.CloseAtRthClose ? "checked" : "") />
                     <label class="form-check-label small">Close RTH</label>
+                </div>
+            </div>
+            <div id="autotrail-setup-@(i)-@sl" class="col-md-12 mt-1 @(setup.AutoTrail?.Enabled == true ? "" : "d-none")">
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-label small text-muted">Trail StopLoss</label>
+                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                               data-session="@i" data-field="@(fieldPfx).AutoTrail.StopLoss"
+                               value="@(setup.AutoTrail?.StopLoss)" placeholder="e.g. 4.0" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small text-muted">Trail Trigger</label>
+                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                               data-session="@i" data-field="@(fieldPfx).AutoTrail.Trigger"
+                               value="@(setup.AutoTrail?.Trigger)" placeholder="Tg1 auto" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small text-muted">Trail Freq</label>
+                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                               data-session="@i" data-field="@(fieldPfx).AutoTrail.Freq"
+                               value="@(setup.AutoTrail?.Freq)" placeholder="e.g. 0.25" />
+                    </div>
                 </div>
             </div>
             <!-- Per-setup instrument override -->
