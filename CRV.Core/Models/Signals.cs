@@ -23,7 +23,10 @@ public record EntrySignal(
     decimal   PointValue = 0,          // Per-setup point value (0 = use global)
     bool      UsePartial = true,       // false = no tg1 leg, tg2 gets full contracts
     bool      UseBe      = true,       // false = stop stays at initial level after tg1 fill
-    string    Mode       = "Conservative"); // "Conservative" | "Aggressive" | "SmartAggressive"
+    string    Mode       = "Conservative", // "Conservative" | "Aggressive" | "SmartAggressive"
+    decimal?  AutoTrailStopLoss = null,
+    decimal?  AutoTrailTrigger  = null,
+    decimal?  AutoTrailFreq     = null);
 
 // ── Completed trade — persisted to SQLite ────────────────────
 public class TradeRecord

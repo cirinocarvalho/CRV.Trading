@@ -39,6 +39,9 @@ public class BasketEntry
 
     /// <summary>Full per-setup configuration.</summary>
     public StrategySetupConfig Config { get; set; } = new();
+
+    /// <summary>Per-ticker auto-trail stop config. Null = no trail.</summary>
+    public AutoTrailConfig? AutoTrail { get; set; }
 }
 
 /// <summary>Per-session enablement and cutoff for a basket entry.</summary>
