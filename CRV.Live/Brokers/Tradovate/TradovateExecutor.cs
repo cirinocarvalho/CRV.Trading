@@ -217,7 +217,9 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         var tg1Offset = sig.Tg1Price - sig.Entry;                  // + for long, − for short
         var tg2Offset = sig.Tg2Price - sig.Entry;                  // + for long, − for short
         var stopOffset = sig.Stop - sig.Entry;                      // − for long (below), + for short (above)
-        var beOffset = sig.UseBe ? Math.Abs(tg1Offset) : 0m;       // BE after Tg1-level profit
+        bool hasAutoTrail = sig.AutoTrailStopLoss.HasValue;
+        // When auto-trail is active, skip breakEven — trail replaces it
+        var beOffset = (!hasAutoTrail && sig.UseBe) ? Math.Abs(tg1Offset) : 0m;
 
         // Build bracket array — each bracket gets its own qty, target, and stop
         // Use Dictionary<string,object> for reliable JSON serialization
@@ -237,16 +239,36 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 ["stopLoss"] = stopOffset, ["trailingStop"] = false
             };
             if (beOffset > 0) b2["breakEven"] = beOffset;
+            if (hasAutoTrail)
+            {
+                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
+                b2["autoTrail"] = new Dictionary<string, object>
+                {
+                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
+                    ["trigger"] = trailTrigger,
+                    ["freq"] = sig.AutoTrailFreq!.Value
+                };
+            }
             brackets.Add(b2);
         }
         else
         {
             // Single bracket: full qty, one target + stop
-            brackets.Add(new Dictionary<string, object>
+            var singleBracket = new Dictionary<string, object>
             {
                 ["qty"] = sig.TotalContracts, ["profitTarget"] = tg2Offset,
                 ["stopLoss"] = stopOffset, ["trailingStop"] = false
-            });
+            };
+            if (hasAutoTrail)
+            {
+                singleBracket["autoTrail"] = new Dictionary<string, object>
+                {
+                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
+                    ["trigger"] = sig.AutoTrailTrigger!.Value,
+                    ["freq"] = sig.AutoTrailFreq!.Value
+                };
+            }
+            brackets.Add(singleBracket);
         }
 
         // Build entry params — params must be a JSON string, not a nested object
