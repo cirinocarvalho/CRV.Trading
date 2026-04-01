@@ -630,9 +630,14 @@ public class BrokerEventHandler
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        // Mark stop as canceled in memory — broker OCO handles the actual cancel
+        // Cancel stop via executor and mark in memory — broker OCO handles the actual cancel
+        // for live, but executor must still be notified for tracking/test purposes.
         var stopLeg = group.GetLeg(LegType.Stop);
-        if (stopLeg != null) stopLeg.Status = OrderLegStatus.Canceled;
+        if (stopLeg != null && stopLeg.Status == OrderLegStatus.Working)
+        {
+            await _executor.CancelOrderAsync(stopLeg.OrderId);
+            stopLeg.Status = OrderLegStatus.Canceled;
+        }
 
         var tg2Leg = group.GetLeg(LegType.Tg2);
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2", fallbackPrice: tg2Leg?.Price ?? 0m);
@@ -665,11 +670,15 @@ public class BrokerEventHandler
             }
         }
 
-        // Mark tg1/tg2 as canceled in memory — broker OCO handles the actual cancel
+        // Cancel tg1/tg2 via executor and mark in memory — broker OCO handles the actual cancel
+        // for live, but executor must still be notified for tracking/test purposes.
         foreach (var leg in group.Legs.Where(l =>
             (l.LegType == LegType.Tg1 || l.LegType == LegType.Tg2) &&
-            l.Status == OrderLegStatus.Working))
+            l.Status == OrderLegStatus.Working).ToList())
+        {
+            await _executor.CancelOrderAsync(leg.OrderId);
             leg.Status = OrderLegStatus.Canceled;
+        }
 
         // Contextual fallback: if BE was active, fall back to entry (not initial stop)
         var contextualFallback = (group.UseBe && group.EntryPrice.HasValue)

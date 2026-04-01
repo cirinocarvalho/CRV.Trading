@@ -126,6 +126,7 @@ public class BrokerEventHandlerTests
     public async Task Tg1Filled_MovesStopToBE_AndReducesQty()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -148,6 +149,7 @@ public class BrokerEventHandlerTests
     public async Task Tg1Filled_AccruesPartialPnl()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -164,6 +166,8 @@ public class BrokerEventHandlerTests
     public async Task Tg2Filled_CancelsStop_CompletesGroup()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
+        exec.FillPrices["t2"] = 20100m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -182,6 +186,7 @@ public class BrokerEventHandlerTests
     public async Task StopFilled_CancelsTg1Tg2_CompletesGroup()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["s1"] = 19950m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -200,6 +205,8 @@ public class BrokerEventHandlerTests
     public async Task StopFilledAfterPartial_CancelsTg2Only()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
+        exec.FillPrices["s1"] = 20000m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -274,6 +281,7 @@ public class BrokerEventHandlerTests
     public async Task ExitGroup_PartialFilled_MarketCloses_RemainingQty()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -366,6 +374,8 @@ public class BrokerEventHandlerTests
     public async Task TradeCompleted_FiresEvent_WithTradeRecord()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
+        exec.FillPrices["t2"] = 20100m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -390,6 +400,8 @@ public class BrokerEventHandlerTests
     public async Task RMultiple_UsesInitialStopPrice_NotModifiedStop()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1"] = 20050m;
+        exec.FillPrices["t2"] = 20100m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -457,6 +469,7 @@ public class BrokerEventHandlerTests
     public async Task HasActiveGroup_ReturnsFalse_AfterCompletion()
     {
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["s1"] = 19950m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
         var group = MakeGroup();
@@ -523,6 +536,8 @@ public class BrokerEventHandlerTests
         // Scenario: group1 is active for setupId "A", then group2 overwrites it.
         // Events for group1 (Tg1, Tg2) should still be processed via _byGroupId.
         var exec = new FakeGroupExecutor();
+        exec.FillPrices["t1-old"] = 5010m;
+        exec.FillPrices["t2-old"] = 5020m;
         var strategy = new FakeSetup();
         var handler = new BrokerEventHandler(exec);
 
