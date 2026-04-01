@@ -982,6 +982,23 @@ function _bCheck(id, field, checked, label) {
         '<label class="form-check-label small">' + label + '</label></div></div>';
 }
 
+function _bAutoTrailToggle(id, at) {
+    var chk = at.Enabled ? ' checked' : '';
+    return '<div class="col-auto d-flex align-items-end pb-1"><div class="form-check form-check-inline mb-0">' +
+        '<input type="checkbox" class="form-check-input"' + chk + ' onchange="toggleBasketAutoTrail(\'' + id + '\',this)">' +
+        '<label class="form-check-label small">Auto Trail</label></div></div>';
+}
+function _bAutoTrailSection(id, at) {
+    if (!at.Enabled) return '';
+    return '<div class="row g-2 mt-1 ps-2 border-start border-warning">' +
+        '<div class="col-auto"><label class="form-label small mb-0">Trail Stop</label>' +
+            '<input type="number" step="0.25" class="form-control form-control-sm" style="width:80px" value="' + (at.StopLoss || '') + '" placeholder="pts" onchange="updateBasketAutoTrail(\'' + id + '\',\'StopLoss\',parseFloat(this.value))"></div>' +
+        '<div class="col-auto"><label class="form-label small mb-0">Trigger</label>' +
+            '<input type="number" step="0.25" class="form-control form-control-sm" style="width:80px" value="' + (at.Trigger || '') + '" placeholder="auto" onchange="updateBasketAutoTrail(\'' + id + '\',\'Trigger\',parseFloat(this.value))"></div>' +
+        '<div class="col-auto"><label class="form-label small mb-0">Freq</label>' +
+            '<input type="number" step="0.25" class="form-control form-control-sm" style="width:80px" value="' + (at.Freq || '') + '" placeholder="pts" onchange="updateBasketAutoTrail(\'' + id + '\',\'Freq\',parseFloat(this.value))"></div>' +
+    '</div>';
+}
 function _calcRR(cfg) {
     var stop = cfg.StopPct || 0.35;
     var target = (cfg.TargetPct || 65) / 100;
@@ -1070,6 +1087,7 @@ function renderBasket() {
             '<optgroup label="Mini">' + _instrOpts(instrData.mini, entry) + '</optgroup>';
 
         var cfg = entry.Config || {};
+        var at = entry.AutoTrail || {};
 
         var collapseId = 'basket-collapse-' + entry.Id;
         var dimStyle = entry.Enabled === false ? ' style="opacity:0.45"' : '';
@@ -1137,7 +1155,9 @@ function renderBasket() {
                 (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
+                _bAutoTrailToggle(entry.Id, at) +
             '</div>' +
+            _bAutoTrailSection(entry.Id, at) +
             '</div>' +  // close collapse
         '</div>';
     }).join('');
@@ -1201,6 +1221,20 @@ function updateBasketInstrument(id, base) {
     renderBasket();
 }
 
+function toggleBasketAutoTrail(id, checkbox) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    if (!entry.AutoTrail) entry.AutoTrail = {};
+    entry.AutoTrail.Enabled = checkbox.checked;
+    renderBasket();
+}
+function updateBasketAutoTrail(id, field, value) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    if (!entry.AutoTrail) entry.AutoTrail = {};
+    entry.AutoTrail[field] = value;
+    syncBasketJson();
+}
 function syncBasketJson() {
     document.getElementById('basket-json').value = JSON.stringify(_basket);
 }
