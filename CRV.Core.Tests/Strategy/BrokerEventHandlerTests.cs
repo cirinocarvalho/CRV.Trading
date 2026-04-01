@@ -30,10 +30,10 @@ public class BrokerEventHandlerTests
             return Task.CompletedTask;
         }
 
-        public Task PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
+        public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty)
         {
             MarketCloses.Add((ticker, direction, qty));
-            return Task.CompletedTask;
+            return Task.FromResult(0m);
         }
     }
 
