@@ -986,7 +986,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
             DateTime lastDailyReset = DateTime.MinValue;
 
-            async Task CheckSessionTransitionAsync(DateTime barTimeUtc)
+            async Task CheckSessionTransitionAsync(DateTime barTimeUtc, bool skipExitAll = false)
             {
                 var tz = TimeZoneInfo.FindSystemTimeZoneById(cfg.Timezone);
                 var local = TimeZoneInfo.ConvertTimeFromUtc(barTimeUtc, tz);
@@ -1049,7 +1049,7 @@ public class LiveEngineOrchestrator : BackgroundService
                         await newEngine.PublishCurrentStateAsync();
                         break;
                     case TransitionType.SessionEnded:
-                        await newEngine.ForceExitAllAsync();
+                        if (!skipExitAll) await newEngine.ForceExitAllAsync();
                         newEngine.SetIdle();
                         await newEngine.PublishCurrentStateAsync();
                         await hub.Clients.All.SendAsync("EngineStatusChanged", "Session Ended");
@@ -1298,7 +1298,7 @@ public class LiveEngineOrchestrator : BackgroundService
                     // an 08:25-08:30 bar), causing entries after the session actually ended.
                     // For warmup bars use bar.Time so historical replay uses correct timestamps.
                     var transitionTime = isWarmup ? bar.Time : DateTime.UtcNow;
-                    await CheckSessionTransitionAsync(transitionTime);
+                    await CheckSessionTransitionAsync(transitionTime, skipExitAll: isWarmup);
                     if (isWarmup)
                         await _engine.WarmupBarAsync(bar, barTicker, ct);
                     else
