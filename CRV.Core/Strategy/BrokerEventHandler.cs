@@ -594,7 +594,8 @@ public class BrokerEventHandler
                 group.Stop2OrderId = null;
             }
             stopLeg.Quantity = remaining;
-            if (group.UseBe && group.EntryPrice.HasValue)
+            bool hasAutoTrail = group.AutoTrailStopLoss.HasValue;
+            if (group.UseBe && group.EntryPrice.HasValue && !hasAutoTrail)
             {
                 stopLeg.Price = group.EntryPrice.Value;
                 // Push the BE price into the executor so that:
@@ -604,7 +605,7 @@ public class BrokerEventHandler
             }
             _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}{BE}",
                 group.GroupOrderId, stopLeg.OrderId, remaining,
-                group.UseBe ? $" BE={group.EntryPrice}" : "");
+                hasAutoTrail ? " AutoTrail active (BE skipped)" : group.UseBe ? $" BE={group.EntryPrice}" : "");
         }
 
         OnGroupStateChanged?.Invoke(group);
