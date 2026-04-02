@@ -695,6 +695,12 @@ public class BrokerEventHandler
     /// </summary>
     private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel, decimal fallbackPrice = 0m)
     {
+        // Skip REST entirely for mock/backtest orders (non-numeric IDs like "abc123-t2")
+        if (!long.TryParse(evt.OrderId?.Split('-')[0], out _) && evt.FillPrice is > 0)
+            return evt.FillPrice.Value;
+        if (!long.TryParse(evt.OrderId?.Split('-')[0], out _) && fallbackPrice > 0)
+            return fallbackPrice;
+
         // Always try REST first — even if WSS provided a price
         for (int attempt = 0; attempt < 3; attempt++)
         {
