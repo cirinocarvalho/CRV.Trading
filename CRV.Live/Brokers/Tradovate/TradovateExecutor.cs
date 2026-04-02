@@ -241,13 +241,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             if (beOffset > 0) b2["breakEven"] = beOffset;
             if (hasAutoTrail)
             {
-                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
-                b2["autoTrail"] = new Dictionary<string, object>
-                {
-                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
-                    ["trigger"] = trailTrigger,
-                    ["freq"] = sig.AutoTrailFreq!.Value
-                };
+                // Tradovate native trailing stop: trailingStop=true, stopLoss = signed trail distance
+                // (negative for long, positive for short — same sign convention as regular stopLoss)
+                var trailDist = sig.Direction == Direction.Long
+                    ? -sig.AutoTrailStopLoss!.Value
+                    :  sig.AutoTrailStopLoss!.Value;
+                b2["trailingStop"] = true;
+                b2["stopLoss"]     = trailDist;
             }
             brackets.Add(b2);
         }
@@ -261,12 +261,11 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             };
             if (hasAutoTrail)
             {
-                singleBracket["autoTrail"] = new Dictionary<string, object>
-                {
-                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
-                    ["trigger"] = sig.AutoTrailTrigger!.Value,
-                    ["freq"] = sig.AutoTrailFreq!.Value
-                };
+                var trailDist = sig.Direction == Direction.Long
+                    ? -sig.AutoTrailStopLoss!.Value
+                    :  sig.AutoTrailStopLoss!.Value;
+                singleBracket["trailingStop"] = true;
+                singleBracket["stopLoss"]     = trailDist;
             }
             brackets.Add(singleBracket);
         }
