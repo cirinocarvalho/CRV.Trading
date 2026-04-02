@@ -241,13 +241,15 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             if (beOffset > 0) b2["breakEven"] = beOffset;
             if (hasAutoTrail)
             {
-                // Tradovate native trailing stop: trailingStop=true, stopLoss = signed trail distance
-                // (negative for long, positive for short — same sign convention as regular stopLoss)
-                var trailDist = sig.Direction == Direction.Long
-                    ? -sig.AutoTrailStopLoss!.Value
-                    :  sig.AutoTrailStopLoss!.Value;
-                b2["trailingStop"] = true;
-                b2["stopLoss"]     = trailDist;
+                // Tradovate autoTrail nested object — confirmed from WSS broker response:
+                // trailingStop stays false; stopLoss/trigger/freq are unsigned point distances
+                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
+                b2["autoTrail"] = new Dictionary<string, object>
+                {
+                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
+                    ["trigger"]  = trailTrigger,
+                    ["freq"]     = sig.AutoTrailFreq!.Value
+                };
             }
             brackets.Add(b2);
         }
@@ -261,11 +263,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             };
             if (hasAutoTrail)
             {
-                var trailDist = sig.Direction == Direction.Long
-                    ? -sig.AutoTrailStopLoss!.Value
-                    :  sig.AutoTrailStopLoss!.Value;
-                singleBracket["trailingStop"] = true;
-                singleBracket["stopLoss"]     = trailDist;
+                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg2Offset);
+                singleBracket["autoTrail"] = new Dictionary<string, object>
+                {
+                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
+                    ["trigger"]  = trailTrigger,
+                    ["freq"]     = sig.AutoTrailFreq!.Value
+                };
             }
             brackets.Add(singleBracket);
         }
