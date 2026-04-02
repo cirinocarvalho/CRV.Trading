@@ -680,8 +680,12 @@ public class BrokerEventHandler
             leg.Status = OrderLegStatus.Canceled;
         }
 
-        // Contextual fallback: if BE was active, fall back to entry (not initial stop)
-        var contextualFallback = (group.UseBe && group.EntryPrice.HasValue)
+        // Contextual fallback: use entry price only if BE was actually activated (partial filled),
+        // not just because UseBe is enabled in config. Without a partial fill, stop is still at
+        // its original price.
+        bool beActivated = group.Status == GroupOrderStatus.PartialFilled
+            || group.AccruedPartialPnl != 0m;
+        var contextualFallback = (beActivated && group.EntryPrice.HasValue)
             ? group.EntryPrice.Value
             : stopLeg?.Price ?? 0m;
         var exitPrice = await ResolveExitFillPriceAsync(evt, "Stop", fallbackPrice: contextualFallback);
