@@ -1,6 +1,7 @@
 namespace CRV.Web.Hubs;
 
 using Microsoft.AspNetCore.SignalR;
+using CRV.Web.Services;
 
 // ─────────────────────────────────────────────────────────────
 // TradingHub — SignalR hub for real-time dashboard updates
@@ -11,8 +12,17 @@ using Microsoft.AspNetCore.SignalR;
 //   await connection.invoke("JoinGroup", "alerts");
 // ─────────────────────────────────────────────────────────────
 
-public class TradingHub : Hub
+public class TradingHub(SnapshotBroadcastService snapshots) : Hub
 {
+    // Push current state immediately to newly connected clients so the dashboard
+    // doesn't require a manual refresh when navigating to it while the engine is running.
+    public override async Task OnConnectedAsync()
+    {
+        if (snapshots.LastSnapshot is not null)
+            await Clients.Caller.SendAsync("Update", snapshots.LastSnapshot);
+        await base.OnConnectedAsync();
+    }
+
     // Client-callable: subscribe to a named group
     public async Task JoinGroup(string groupName)
         => await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
