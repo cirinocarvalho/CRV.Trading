@@ -254,9 +254,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
             _cfg.OrderType, Ticker: _cfg.Ticker,
             PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe,
-            AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.StopLoss : null,
-            AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Trigger : null,
-            AutoTrailFreq:     _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Freq : null);
+            AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.StopLoss * orb.Range : null,
+            AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Trigger * orb.Range : null,
+            AutoTrailFreq:     _cfg.AutoTrail?.Enabled == true ? _cfg.AutoTrail.Freq * orb.Range : null);
 
         _tradeCount++;
         if (isLong) _bullTraded = true; else _bearTraded = true;
