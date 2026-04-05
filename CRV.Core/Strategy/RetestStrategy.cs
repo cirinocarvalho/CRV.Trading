@@ -158,9 +158,9 @@ public class RetestStrategy : ISetupStrategy
         decimal orbMid   = orb.Mid;
         decimal orbRange = orb.Range;
 
-        // Cancel arm if price leaves valid zone
-        if ((_state > 0 && bar.Close < orbLow) ||
-            (_state < 0 && bar.Close > orbHigh))
+        // Cancel arm if price crosses ORB mid (invalidation)
+        if ((_state > 0 && bar.Close < orbMid) ||
+            (_state < 0 && bar.Close > orbMid))
         {
             _state = 0; _armEntry = 0; _retestLeftZone = false; _breakoutConfirmed = false;
         }
@@ -234,10 +234,9 @@ public class RetestStrategy : ISetupStrategy
             if (_state == 1)  _state = 2;
             if (_state == -1) _state = -2;
 
-            // De-arm if price fully crosses to opposite ORB boundary (setup invalidated)
-            // Using orbLow/orbHigh instead of orbMid — allows normal pullbacks within ORB range
-            if (_state == 2  && bar.Close < orbLow)  _state = 0;
-            if (_state == -2 && bar.Close > orbHigh) _state = 0;
+            // De-arm if price crosses ORB mid (setup invalidated)
+            if (_state == 2  && bar.Close < orbMid)  _state = 0;
+            if (_state == -2 && bar.Close > orbMid) _state = 0;
         }
         else
         {
