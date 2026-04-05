@@ -214,12 +214,14 @@ public class RetestStrategy : ISetupStrategy
         }
 
         // Aggressive mode: arm and compute entry on same bar
+        // Limit → entry at ORB boundary; Market → entry at bar.Close (realistic fill)
         if (_cfg.IsAggressive)
         {
+            bool isLimit = _cfg.OrderType == "Limit";
             if (longReady && _state == 1)
-                TryEntry(orbHigh, true, orb, bar.Time);
+                TryEntry(isLimit ? orbHigh : bar.Close, true, orb, bar.Time);
             else if (shortReady && _state == -1)
-                TryEntry(orbLow, false, orb, bar.Time);
+                TryEntry(isLimit ? orbLow : bar.Close, false, orb, bar.Time);
         }
         else if (_cfg.IsSmartAggressive)
         {
