@@ -210,16 +210,16 @@ public class RetestStrategyTests
         var ind = MakeIndicators();
         var mod = EmptyModules();
 
-        // Aggressive: arms (state=1) then immediately enters on same bar.
-        // Entry at orbHigh=5200 (TryEntry(orbHigh, true, ...))
-        var bar = MakeBar(5199m, 5202m, 5198m, 5198m);
+        // Aggressive Market: arms (state=1) then immediately enters on same bar.
+        // Market → entry at bar.Open; must be >= orbHigh to pass hard guard
+        var bar = MakeBar(5201m, 5203m, 5198m, 5200m);
         s.OnBar(bar, orb, ind, mod);
 
         // State already back to 0 after same-bar entry
         Assert.False(s.IsArmed);
         Assert.NotNull(s.PendingEntry);
         Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.Equal(5200m, s.PendingEntry.Entry); // entry at orbHigh
+        Assert.Equal(5201m, s.PendingEntry.Entry); // market entry at bar.Open
     }
 
     [Fact]
