@@ -231,12 +231,14 @@ public class RetestStrategy : ISetupStrategy
         }
         else if (_cfg.IsSmartAggressive)
         {
-            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1.
-            // Only enter if price has actually crossed the ORB boundary.
+            // SmartAggressive: arm on bar N (state ±1), enter on bar N+1 ONLY.
+            // If bar N+1 doesn't qualify, the entry expires — must wait for ORB retest.
             if (longReady && _state == 2 && bar.Open > orbHigh)
                 TryEntry(bar.Open, true, orb, bar.Time);
             else if (shortReady && _state == -2 && bar.Open < orbLow)
                 TryEntry(bar.Open, false, orb, bar.Time);
+            else if (_state == 2 || _state == -2)
+                _state = 0; // entry window expired — missed bar N+1
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             if (_state == 1)  _state = 2;
