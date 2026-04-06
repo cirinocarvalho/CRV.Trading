@@ -183,13 +183,27 @@ else
             <span class="badge bg-secondary font-monospace trade-count">@r.Trades.Count trades</span>
             <span class="small text-muted trade-wl">@r.Trades.Count(t => t.IsWin) W / @r.Trades.Count(t => !t.IsWin) L</span>
             <select id="setup-filter" class="form-select form-select-sm" style="width:auto;"
-                    onchange="filterBySetup(this.value)">
+                    onchange="filterTrades()">
                 <option value="">All Setups</option>
                 @foreach (var sl in r.Trades
                     .Select(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
                     .Distinct().OrderBy(x => x))
                 {
                     <option value="@sl">@sl</option>
+                }
+            </select>
+            <select id="session-filter" class="form-select form-select-sm" style="width:auto;" onchange="filterTrades()">
+                <option value="">All Sessions</option>
+                @foreach (var s in r.Trades.Select(t => t.SessionId ?? "—").Distinct().OrderBy(x => x))
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+            <select id="instr-filter" class="form-select form-select-sm" style="width:auto;" onchange="filterTrades()">
+                <option value="">All Instruments</option>
+                @foreach (var tk in r.Trades.Select(t => t.Ticker).Distinct().OrderBy(x => x))
+                {
+                    <option value="@tk">@tk</option>
                 }
             </select>
             <button type="button" class="btn btn-sm btn-outline-light ms-auto"
@@ -242,7 +256,7 @@ else
                             "NY"     => "bg-warning text-dark",
                             _        => "bg-secondary"
                         };
-                        <tr class="@rowCls" data-setup="@setupLabel">
+                        <tr class="@rowCls" data-setup="@setupLabel" data-session="@(t.SessionId ?? "—")" data-instr="@t.Ticker">
                             <td class="td-dim">@rowNum</td>
                             <td class="td-time">@ToEt(t.EnteredAt)</td>
                             <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
@@ -326,6 +340,8 @@ else
 const _tradesData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
     Model.Result.Trades.OrderBy(t => t.EnteredAt).Select(t => new {
         setup       = !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString(),
+        sessionId   = t.SessionId ?? "—",
+        ticker      = t.Ticker,
         isWin       = t.IsWin,
         netPnl      = t.NetPnl,
         commission  = t.Commission,
@@ -338,12 +354,18 @@ const _tradesData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
 const _origMetrics = document.getElementById('metrics-grid')?.innerHTML;
 const _singleDay   = @(Model.SingleDay ? "true" : "false");
 
-function filterBySetup(selected) {
+function filterTrades() {
+    const selSetup   = document.getElementById('setup-filter')?.value || '';
+    const selSession = document.getElementById('session-filter')?.value || '';
+    const selInstr   = document.getElementById('instr-filter')?.value || '';
     const rows = document.querySelectorAll('.trade-table tbody tr');
     let n = 0, w = 0;
     rows.forEach(row => {
         const s    = row.dataset.setup;
-        const show = !selected || s === selected;
+        if (!s) return;
+        const show = (!selSetup || s === selSetup)
+                  && (!selSession || row.dataset.session === selSession)
+                  && (!selInstr || row.dataset.instr === selInstr);
         row.style.display = show ? '' : 'none';
         if (show) { n++; if (row.classList.contains('table-success')) w++; row.querySelector('td').textContent = n; }
     });
@@ -352,9 +374,12 @@ function filterBySetup(selected) {
 
     const grid = document.getElementById('metrics-grid');
     if (!grid) return;
-    if (!selected) { grid.innerHTML = _origMetrics; return; }
+    if (!selSetup && !selSession && !selInstr) { grid.innerHTML = _origMetrics; return; }
 
-    const f       = _tradesData.filter(t => t.setup === selected);
+    const f = _tradesData.filter(t =>
+        (!selSetup || t.setup === selSetup)
+        && (!selSession || t.sessionId === selSession)
+        && (!selInstr || t.ticker === selInstr));
     const wins    = f.filter(t => t.isWin), losses = f.filter(t => !t.isWin);
     const net     = f.reduce((s, t) => s + t.netPnl, 0);
     const wr      = f.length ? (wins.length / f.length * 100) : 0;
