@@ -262,7 +262,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
             PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe,
             AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? LevelCalculator.RoundToTick(_cfg.AutoTrail.StopLoss * orb.Range, _cfg.TickSize) : null,
-            AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? LevelCalculator.RoundToTick(_cfg.AutoTrail.Trigger * orb.Range, _cfg.TickSize) : null,
+            AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? (_cfg.AutoTrail.Trigger.HasValue ? LevelCalculator.RoundToTick(_cfg.AutoTrail.Trigger.Value * orb.Range, _cfg.TickSize) : null) : null,
             AutoTrailFreq:     _cfg.AutoTrail?.Enabled == true ? LevelCalculator.RoundToTick(_cfg.AutoTrail.Freq * orb.Range, _cfg.TickSize) : null);
 
         _tradeCount++;
