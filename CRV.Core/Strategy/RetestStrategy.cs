@@ -198,15 +198,21 @@ public class RetestStrategy : ISetupStrategy
             bool orbLongOk  = !_cfg.UseOrbClose || orb.BullClose;
             bool orbShortOk = !_cfg.UseOrbClose || orb.BearClose;
 
-            // Arm when bar is NEAR the ORB boundary (within nearDist).
-            // For Aggressive/SmartAggressive, entry follows immediately or next bar.
-            // For Conservative, breakout must be confirmed separately before retest.
-            if (longReady && bar.Close >= orbHigh - nearDist && orbLongOk && aboveVwap && !_bullTraded)
+            // SmartAggressive: arm requires close ABOVE orbHigh / BELOW orbLow (confirmed breakout).
+            // Aggressive/Conservative: arm when NEAR the ORB boundary (within nearDist).
+            bool longArm  = _cfg.IsSmartAggressive
+                ? bar.Close > orbHigh
+                : bar.Close >= orbHigh - nearDist;
+            bool shortArm = _cfg.IsSmartAggressive
+                ? bar.Close < orbLow
+                : bar.Close <= orbLow + nearDist;
+
+            if (longReady && longArm && orbLongOk && aboveVwap && !_bullTraded)
             {
                 _state = 1; _armEntry = bar.Open; _retestLeftZone = false;
                 _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
             }
-            else if (shortReady && bar.Close <= orbLow + nearDist && orbShortOk && belowVwap && !_bearTraded)
+            else if (shortReady && shortArm && orbShortOk && belowVwap && !_bearTraded)
             {
                 _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
                 _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
