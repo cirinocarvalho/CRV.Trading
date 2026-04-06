@@ -436,7 +436,7 @@
             const gL    = Math.abs(fLosses.reduce((s, t) => s + t.netPnl, 0));
             const fPf   = gL > 0 ? (gW / gL).toFixed(2) : (fNet > 0 ? '∞' : '—');
             wrEl.textContent  = 'WR: ' + fWr + '%';
-            netEl.textContent = 'Net: $' + fNet.toFixed(0);
+            netEl.textContent = 'Net: $' + fNet.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
             netEl.style.color = fNet >= 0 ? '#4ade80' : '#f87171';
             pfEl.textContent  = 'PF: ' + fPf;
         } else {
