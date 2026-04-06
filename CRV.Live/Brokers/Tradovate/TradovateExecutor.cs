@@ -429,7 +429,8 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                         if (fullDisc.Stop2 is not null)
                             EventStream?.RegisterOrder(fullDisc.Stop2.Id, groupId, LegType.Stop);
 
-                        // Update entry status if it filled during background polling
+                        // Update entry status if it filled during background polling.
+                        // Fire a synthetic event so BrokerEventHandler calls SetInTrade(true).
                         if (fullDisc.Entry is not null && fullDisc.Entry.Status == "Filled" && group.Status == GroupOrderStatus.Pending)
                         {
                             var entryLeg = group.GetLeg(LegType.Entry);
@@ -441,6 +442,12 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                             }
                             group.Status = GroupOrderStatus.Active;
                             group.EntryPrice = fullDisc.Entry.FillPrice ?? fullDisc.Entry.Price;
+
+                            // Emit synthetic fill event so BEH activates the strategy
+                            EventStream?.EmitSyntheticFill(new OrderEvent(
+                                groupId, fullDisc.Entry.Id.ToString(),
+                                LegType.Entry, OrderLegStatus.Filled,
+                                fullDisc.Entry.FillPrice, null, null, null, DateTime.UtcNow));
                         }
 
                         _log.LogInformation("[TV-GRP] Background discovery completed for group {G}: tg1={T1} tg2={T2} stop={S}",

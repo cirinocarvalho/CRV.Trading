@@ -41,6 +41,13 @@ public class TradovateEventStream : IBrokerEventStream
             _orderMap[tradovateOrderId] = (groupOrderId, legType, tradovateOrderId.ToString());
     }
 
+    /// <summary>Emit a synthetic OrderEvent (e.g. when REST poll detects a fill WSS missed).</summary>
+    public void EmitSyntheticFill(OrderEvent evt)
+    {
+        _log.LogInformation("[TV-WSS] Emitting synthetic fill for group {G} order {O}", evt.GroupOrderId, evt.OrderId);
+        OnOrderUpdate?.Invoke(evt);
+    }
+
     /// <summary>Remove all mappings for a group (on completion/cancel).</summary>
     public void UnregisterGroup(string groupOrderId)
     {
