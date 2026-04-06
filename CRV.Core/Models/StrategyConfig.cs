@@ -142,6 +142,7 @@ public class StrategyConfig
     public int     PartialCtsA      { get; set; } = 0;
     /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
     public int     MaxAdverseMinutesA { get; set; } = 0;
+    public decimal MaxTradeRiskA      { get; set; } = 0m;
 
     // Per-setup filters / sizing (A)
     public int     ContractsA       { get; set; } = 2;
@@ -189,6 +190,7 @@ public class StrategyConfig
     public int     PartialCtsB      { get; set; } = 0;
     /// <summary>Exit if trade is underwater after N minutes. 0 = disabled.</summary>
     public int     MaxAdverseMinutesB { get; set; } = 0;
+    public decimal MaxTradeRiskB      { get; set; } = 0m;
 
     /// <summary>
     /// Stop distance for Setup B as a fraction of ORB range (default 0.50 = 50%).
@@ -229,6 +231,7 @@ public class StrategyConfig
     public string  OrderTypeC         { get; set; } = "Market";
     public int     PartialCtsC        { get; set; } = 0;
     public int     MaxAdverseMinutesC { get; set; } = 0;
+    public decimal MaxTradeRiskC      { get; set; } = 0m;
     public int     ContractsC         { get; set; } = 2;
     public decimal HiVolMultC         { get; set; } = 1.0m;
     public int     MaxContractsC      { get; set; } = 2;
@@ -257,6 +260,7 @@ public class StrategyConfig
     public string  OrderTypeD         { get; set; } = "Market";
     public int     PartialCtsD        { get; set; } = 0;
     public int     MaxAdverseMinutesD { get; set; } = 0;
+    public decimal MaxTradeRiskD      { get; set; } = 0m;
     public int     ContractsD         { get; set; } = 2;
     public decimal HiVolMultD         { get; set; } = 1.0m;
     public int     MaxContractsD      { get; set; } = 2;
@@ -483,6 +487,7 @@ public class StrategyConfig
         MaxLongTrades = b.Config.MaxLongTrades,
         MaxShortTrades = b.Config.MaxShortTrades,
         MaxAdverseMinutes = b.Config.MaxAdverseMinutes,
+        MaxTradeRisk = b.Config.MaxTradeRisk,
         UsePartial = b.Config.UsePartial,
         UseBe = b.Config.UseBe,
         PartialCts = b.Config.PartialCts,
@@ -508,6 +513,7 @@ public class StrategyConfig
         CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
         MaxLongTrades = MaxLongTradesA, MaxShortTrades = MaxShortTradesA,
         MaxAdverseMinutes = MaxAdverseMinutesA,
+        MaxTradeRisk = MaxTradeRiskA,
         UsePartial = UsePartialA, UseBe = UseBeA,
         PartialCts = PartialCtsA, AllowRearmAfterBe = AllowRearmAfterBeA,
     };
@@ -529,6 +535,7 @@ public class StrategyConfig
         CloseAtRthClose = CloseAtRthCloseB, MaxTrades = MaxTradesB,
         MaxLongTrades = MaxLongTradesB, MaxShortTrades = MaxShortTradesB,
         MaxAdverseMinutes = MaxAdverseMinutesB,
+        MaxTradeRisk = MaxTradeRiskB,
         UsePartial = UsePartialB, UseBe = UseBeB,
         PartialCts = PartialCtsB, AllowRearmAfterBe = AllowRearmAfterBeB,
     };
@@ -549,6 +556,7 @@ public class StrategyConfig
         CutoffHour = CutoffHourC, CutoffMinute = CutoffMinuteC,
         CloseAtRthClose = CloseAtRthCloseC, MaxTrades = MaxTradesC,
         MaxAdverseMinutes = MaxAdverseMinutesC,
+        MaxTradeRisk = MaxTradeRiskC,
         UsePartial = UsePartialC, UseBe = UseBeC,
         PartialCts = PartialCtsC, AllowRearmAfterBe = AllowRearmAfterBeC,
     };
@@ -569,6 +577,7 @@ public class StrategyConfig
         CutoffHour = CutoffHourD, CutoffMinute = CutoffMinuteD,
         CloseAtRthClose = CloseAtRthCloseD, MaxTrades = MaxTradesD,
         MaxAdverseMinutes = MaxAdverseMinutesD,
+        MaxTradeRisk = MaxTradeRiskD,
         UsePartial = UsePartialD, UseBe = UseBeD,
         PartialCts = PartialCtsD, AllowRearmAfterBe = AllowRearmAfterBeD,
     };

@@ -24,6 +24,7 @@ public abstract class SetupConfigBase
     public bool    UseBe              { get; set; } = true;
     public bool    AllowRearmAfterBE  { get; set; } = true;
     public int     MaxAdverseMinutes  { get; set; } = 0;
+    public decimal MaxTradeRisk       { get; set; } = 0m;
     public decimal HiVolMult          { get; set; } = 1.0m;
     public int     MaxContracts       { get; set; } = 2;
 
@@ -154,6 +155,7 @@ public class SessionConfig
         c.UseBeA            = SetupA.UseBe;
         c.AllowRearmAfterBeA = SetupA.AllowRearmAfterBE;
         c.MaxAdverseMinutesA = SetupA.MaxAdverseMinutes;
+        c.MaxTradeRiskA     = SetupA.MaxTradeRisk;
         c.HiVolMultA        = SetupA.HiVolMult;
         c.MaxContractsA     = SetupA.MaxContracts;
         // A-specific
@@ -189,6 +191,7 @@ public class SessionConfig
         c.UseBeB            = SetupB.UseBe;
         c.AllowRearmAfterBeB = SetupB.AllowRearmAfterBE;
         c.MaxAdverseMinutesB = SetupB.MaxAdverseMinutes;
+        c.MaxTradeRiskB     = SetupB.MaxTradeRisk;
         c.HiVolMultB        = SetupB.HiVolMult;
         c.MaxContractsB     = SetupB.MaxContracts;
         // B-specific
@@ -220,6 +223,7 @@ public class SessionConfig
         c.UseBeC            = SetupC.UseBe;
         c.AllowRearmAfterBeC = SetupC.AllowRearmAfterBE;
         c.MaxAdverseMinutesC = SetupC.MaxAdverseMinutes;
+        c.MaxTradeRiskC     = SetupC.MaxTradeRisk;
         c.HiVolMultC        = SetupC.HiVolMult;
         c.MaxContractsC     = SetupC.MaxContracts;
         c.NearPctC          = SetupC.NearPct;
@@ -246,6 +250,7 @@ public class SessionConfig
         c.UseBeD            = SetupD.UseBe;
         c.AllowRearmAfterBeD = SetupD.AllowRearmAfterBE;
         c.MaxAdverseMinutesD = SetupD.MaxAdverseMinutes;
+        c.MaxTradeRiskD     = SetupD.MaxTradeRisk;
         c.HiVolMultD        = SetupD.HiVolMult;
         c.MaxContractsD     = SetupD.MaxContracts;
         c.NearPctD          = SetupD.NearPct;
@@ -299,6 +304,7 @@ public class SessionConfig
             UseBe             = cfg.UseBeA,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeA,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesA,
+            MaxTradeRisk      = cfg.MaxTradeRiskA,
             HiVolMult         = cfg.HiVolMultA,
             MaxContracts      = cfg.MaxContractsA,
             Mode              = cfg.ModeA,
@@ -334,6 +340,7 @@ public class SessionConfig
             UseBe             = cfg.UseBeB,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeB,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesB,
+            MaxTradeRisk      = cfg.MaxTradeRiskB,
             HiVolMult         = cfg.HiVolMultB,
             MaxContracts      = cfg.MaxContractsB,
             Mode              = cfg.ModeB,
@@ -366,6 +373,7 @@ public class SessionConfig
             UseBe             = cfg.UseBeC,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeC,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesC,
+            MaxTradeRisk      = cfg.MaxTradeRiskC,
             HiVolMult         = cfg.HiVolMultC,
             MaxContracts      = cfg.MaxContractsC,
             NearPct           = cfg.NearPctC,
@@ -394,6 +402,7 @@ public class SessionConfig
             UseBe             = cfg.UseBeD,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeD,
             MaxAdverseMinutes = cfg.MaxAdverseMinutesD,
+            MaxTradeRisk      = cfg.MaxTradeRiskD,
             HiVolMult         = cfg.HiVolMultD,
             MaxContracts      = cfg.MaxContractsD,
             NearPct           = cfg.NearPctD,

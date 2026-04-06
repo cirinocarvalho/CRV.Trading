@@ -63,6 +63,8 @@ public class StrategySetupConfig
     public int EffectiveMaxShort => MaxShortTrades > 0 ? MaxShortTrades : MaxTrades;
 
     public int MaxAdverseMinutes { get; set; }
+    /// <summary>Max dollar risk per trade. 0 = no limit. Risk = |entry-stop| * pointValue * contracts.</summary>
+    public decimal MaxTradeRisk { get; set; }
 
     // Exit
     public bool UsePartial { get; set; } = true;
