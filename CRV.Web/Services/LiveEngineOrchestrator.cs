@@ -1080,28 +1080,10 @@ public class LiveEngineOrchestrator : BackgroundService
                     Interlocked.Increment(ref _ticksDropped);
             };
 
-            // Single consumer drains the tick channel sequentially — no Task.Run per tick
-            var tickTask = Task.Run(async () =>
-            {
-                await foreach (var (price, time, tickTicker) in tickCh.Reader.ReadAllAsync(ct))
-                {
-                    ComposableEngine? engine;
-                    lock (_lifecycleLock) { engine = _engine; }
-                    if (engine == null) break;
-                    await engineLock.WaitAsync(ct);
-                    try
-                    {
-                        // Use the later of tick time and wall-clock for session transition
-                        // (ticks may queue in the channel and arrive slightly stale)
-                        var tickTransitionTime = time > DateTime.UtcNow ? time : DateTime.UtcNow;
-                        await CheckSessionTransitionAsync(tickTransitionTime);
-                        await engine.ProcessPriceTickAsync(price, time, tickTicker);
-                    }
-                    catch (OperationCanceledException) { break; }
-                    catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
-                    finally { engineLock.Release(); }
-                }
-            }, ct);
+            // Tick consumer is started AFTER pre-init (below) so SessionManager is seeded
+            // before any tick triggers CheckSessionTransitionAsync. Ticks queue in the channel
+            // in the meantime — no data loss.
+            Task tickTask = null!;
 
             // If the executor is MockBrokerExecutor, evaluate fills on every L1 tick
             // (MockBrokerExecutor is internally thread-safe — no engineLock needed here)
@@ -1213,6 +1195,31 @@ public class LiveEngineOrchestrator : BackgroundService
                     }
                 }
             }
+
+            // ── Start tick consumer NOW that SessionManager is seeded ────────────
+            // Ticks that arrived during pre-init are queued in the channel and will
+            // be drained immediately. No stale-session race possible.
+            tickTask = Task.Run(async () =>
+            {
+                await foreach (var (price, time, tickTicker) in tickCh.Reader.ReadAllAsync(ct))
+                {
+                    ComposableEngine? engine;
+                    lock (_lifecycleLock) { engine = _engine; }
+                    if (engine == null) break;
+                    await engineLock.WaitAsync(ct);
+                    try
+                    {
+                        // Use the later of tick time and wall-clock for session transition
+                        // (ticks may queue in the channel and arrive slightly stale)
+                        var tickTransitionTime = time > DateTime.UtcNow ? time : DateTime.UtcNow;
+                        await CheckSessionTransitionAsync(tickTransitionTime);
+                        await engine.ProcessPriceTickAsync(price, time, tickTicker);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex) { _log.LogWarning(ex, "[tick] ProcessPriceTickAsync failed @ {P}", price); }
+                    finally { engineLock.Release(); }
+                }
+            }, ct);
 
             // Schwab CHART_FUTURES has no barsback replay — we must REST-backfill historical
             // bars so ORB/ATR/VWAP are warm before the streaming loop starts.
