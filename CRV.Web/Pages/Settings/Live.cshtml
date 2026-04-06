@@ -956,7 +956,7 @@ function addBasketEntry() {
         Ticker: '',
         PointValue: 20,
         TickSize: 0.25,
-        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxAdverseMinutes: 0 }
+        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxAdverseMinutes: 0, MaxTradeRisk: 0 }
     });
     renderBasket();
 }
@@ -1148,6 +1148,7 @@ function renderBasket() {
                 _bField(entry.Id, 'EntryTickOffset', 'number', cfg.EntryTickOffset || 0, 70, 'Tick Offset', 'int') +
                 _bField(entry.Id, 'MaxEntrySlippage', 'number', cfg.MaxEntrySlippage || 0, 80, 'Max Slip %', 'float', '0.01') +
                 _bField(entry.Id, 'MaxAdverseMinutes', 'number', cfg.MaxAdverseMinutes || 0, 70, 'Max Adv Min', 'int') +
+                _bField(entry.Id, 'MaxTradeRisk', 'number', cfg.MaxTradeRisk || 0, 80, 'Max Risk $', 'int') +
                 _bField(entry.Id, 'PartialCts', 'number', cfg.PartialCts || 0, 70, 'Partial Cts', 'int') +
                 _bCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
                 _bCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +

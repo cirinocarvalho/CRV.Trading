@@ -148,6 +148,11 @@
                     { <option value="@v" selected="@(setup.MaxAdverseMinutes == v ? "selected" : null)">@(v == 0 ? "Off" : $"{v}m")</option> }
                 </select>
             </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Max Risk $</label>
+                <input type="number" class="form-control form-control-sm session-field" min="0" step="10"
+                       data-session="@i" data-field="@(fieldPfx).MaxTradeRisk" value="@setup.MaxTradeRisk" />
+            </div>
             <div class="col-md-12 d-flex flex-wrap gap-3 mt-1">
                 <div class="form-check form-check-inline">
                     <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UsePartial" @(setup.UsePartial ? "checked" : "") />
