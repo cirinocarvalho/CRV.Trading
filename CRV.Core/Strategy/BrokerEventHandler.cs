@@ -714,7 +714,7 @@ public class BrokerEventHandler
         {
             try
             {
-                var restPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+                var restPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId!);
                 if (restPrice is > 0)
                 {
                     _log?.LogInformation("[BEH] {Leg} fill price verified via REST: {P} for order {O} (attempt {A})",
