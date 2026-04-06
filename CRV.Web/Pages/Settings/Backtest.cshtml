@@ -256,6 +256,11 @@
                     <option value="@tk">@tk</option>
                 }
             </select>
+            <span class="ms-3 small text-muted filter-stats">
+                <span class="filter-wr"></span>
+                <span class="filter-net ms-2"></span>
+                <span class="filter-pf ms-2"></span>
+            </span>
             <button type="button" class="btn btn-sm btn-outline-light ms-auto" onclick="exportTradesCsv()"><i class="bi bi-download me-1"></i>CSV</button>
         </div>
         <div class="table-responsive" style="max-height:460px;overflow-y:auto;">
@@ -413,14 +418,34 @@
         document.querySelector('.trade-count').textContent = n + ' trades';
         document.querySelector('.trade-wl').textContent = w + ' W / ' + (n - w) + ' L';
 
-        const grid = document.getElementById('metrics-grid');
-        if (!grid) return;
-        if (!selSetup && !selSession && !selInstr) { grid.innerHTML = _origMetrics; return; }
-
-        const f = _tradesData.filter(t =>
+        const hasFilter = selSetup || selSession || selInstr;
+        const f = hasFilter ? _tradesData.filter(t =>
             (!selSetup || t.setup === selSetup)
             && (!selSession || t.sessionId === selSession)
-            && (!selInstr || t.ticker === selInstr));
+            && (!selInstr || t.ticker === selInstr)) : _tradesData;
+
+        // Inline stats next to filters
+        const wrEl  = document.querySelector('.filter-wr');
+        const netEl = document.querySelector('.filter-net');
+        const pfEl  = document.querySelector('.filter-pf');
+        if (hasFilter && f.length > 0) {
+            const fWins = f.filter(t => t.isWin), fLosses = f.filter(t => !t.isWin);
+            const fNet  = f.reduce((s, t) => s + t.netPnl, 0);
+            const fWr   = (fWins.length / f.length * 100).toFixed(1);
+            const gW    = fWins.reduce((s, t) => s + t.netPnl, 0);
+            const gL    = Math.abs(fLosses.reduce((s, t) => s + t.netPnl, 0));
+            const fPf   = gL > 0 ? (gW / gL).toFixed(2) : (fNet > 0 ? '∞' : '—');
+            wrEl.textContent  = 'WR: ' + fWr + '%';
+            netEl.textContent = 'Net: $' + fNet.toFixed(0);
+            netEl.style.color = fNet >= 0 ? '#4ade80' : '#f87171';
+            pfEl.textContent  = 'PF: ' + fPf;
+        } else {
+            wrEl.textContent = ''; netEl.textContent = ''; pfEl.textContent = '';
+        }
+
+        const grid = document.getElementById('metrics-grid');
+        if (!grid) return;
+        if (!hasFilter) { grid.innerHTML = _origMetrics; return; }
         const wins = f.filter(t => t.isWin), losses = f.filter(t => !t.isWin);
         const net = f.reduce((s, t) => s + t.netPnl, 0);
         const wr = f.length ? (wins.length / f.length * 100) : 0;
