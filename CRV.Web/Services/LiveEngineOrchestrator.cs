@@ -1292,6 +1292,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 : DateTime.UtcNow)
                 .AddMinutes(-cfg.ExecutionTFMinutes);
 
+            bool streamWarmupDone = false;
             await foreach (var (bar, barTicker) in mux.StreamAsync(ct))
             {
                 if (ct.IsCancellationRequested) break;
@@ -1307,9 +1308,42 @@ public class LiveEngineOrchestrator : BackgroundService
                     var transitionTime = isWarmup ? bar.Time : DateTime.UtcNow;
                     await CheckSessionTransitionAsync(transitionTime, skipExitAll: isWarmup);
                     if (isWarmup)
+                    {
                         await _engine.WarmupBarAsync(bar, barTicker, ct);
+                    }
                     else
+                    {
+                        // First live bar after stream warmup: reset trade counters accumulated
+                        // during barsback replay and re-seed from DB for current session only.
+                        // (Schwab does this via ResetWarmupCounters after BackfillAsync; Tradovate
+                        // warmup comes through the stream so needs this transition point.)
+                        if (!streamWarmupDone)
+                        {
+                            streamWarmupDone = true;
+                            newEngine.ResetWarmupCounters();
+                            try
+                            {
+                                using var seedScope2 = _sp.CreateScope();
+                                var seedDb2 = seedScope2.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+                                var curSess = DetectSessionName(DateTime.UtcNow, cfg.Timezone);
+                                var todayUtc2 = DateTime.UtcNow.Date;
+                                var sessTrades = await seedDb2.Trades
+                                    .Where(t => t.Source == "live" && t.EnteredAt >= todayUtc2 && t.SessionId == curSess)
+                                    .ToListAsync(ct);
+                                var cts = sessTrades
+                                    .GroupBy(t => t.SetupLabel ?? t.Setup.ToString())
+                                    .ToDictionary(g => g.Key,
+                                        g => (longs: g.Count(t => t.Direction == CRV.Core.Models.Direction.Long),
+                                              shorts: g.Count(t => t.Direction == CRV.Core.Models.Direction.Short)));
+                                foreach (var strategy in newEngine.GetStrategies())
+                                    if (cts.TryGetValue(strategy.Id, out var c))
+                                        strategy.SeedTradeCount(c.longs, c.shorts);
+                                _log.LogInformation("[STREAM-WARMUP] Trade counters re-seeded after barsback warmup for session {S}", curSess);
+                            }
+                            catch (Exception ex) { _log.LogWarning(ex, "[STREAM-WARMUP] Failed to re-seed trade counts"); }
+                        }
                         await _engine.ProcessBarAsync(bar, barTicker, ct);
+                    }
                 }
                 finally { engineLock.Release(); }
             }
