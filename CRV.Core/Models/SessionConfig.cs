@@ -19,6 +19,7 @@ public abstract class SetupConfigBase
     public int     MaxShortTrades     { get; set; } = 0;
     public string  OrderType          { get; set; } = "Market";
     public string  StopMode           { get; set; } = "OrbPct";
+    public int     StopVwapTicks      { get; set; } = 4;
     public decimal MinRr              { get; set; } = 1.5m;
     public bool    CloseAtRthClose    { get; set; } = true;
     public bool    UsePartial         { get; set; } = true;
@@ -151,6 +152,7 @@ public class SessionConfig
         c.MaxShortTradesA   = SetupA.MaxShortTrades;
         c.OrderTypeA        = SetupA.OrderType;
         c.StopModeA         = SetupA.StopMode;
+        c.StopVwapTicksA    = SetupA.StopVwapTicks;
         c.MinRrA            = SetupA.MinRr;
         c.CloseAtRthCloseA  = SetupA.CloseAtRthClose;
         c.UsePartialA       = SetupA.UsePartial;
@@ -188,6 +190,7 @@ public class SessionConfig
         c.MaxShortTradesB   = SetupB.MaxShortTrades;
         c.OrderTypeB        = SetupB.OrderType;
         c.StopModeB         = SetupB.StopMode;
+        c.StopVwapTicksB    = SetupB.StopVwapTicks;
         c.MinRrB            = SetupB.MinRr;
         c.CloseAtRthCloseB  = SetupB.CloseAtRthClose;
         c.UsePartialB       = SetupB.UsePartial;
@@ -221,6 +224,7 @@ public class SessionConfig
         c.MaxTradesC        = SetupC.MaxTrades;
         c.OrderTypeC        = SetupC.OrderType;
         c.StopModeC         = SetupC.StopMode;
+        c.StopVwapTicksC    = SetupC.StopVwapTicks;
         c.MinRrC            = SetupC.MinRr;
         c.CloseAtRthCloseC  = SetupC.CloseAtRthClose;
         c.UsePartialC       = SetupC.UsePartial;
@@ -249,6 +253,7 @@ public class SessionConfig
         c.MaxTradesD        = SetupD.MaxTrades;
         c.OrderTypeD        = SetupD.OrderType;
         c.StopModeD         = SetupD.StopMode;
+        c.StopVwapTicksD    = SetupD.StopVwapTicks;
         c.MinRrD            = SetupD.MinRr;
         c.CloseAtRthCloseD  = SetupD.CloseAtRthClose;
         c.UsePartialD       = SetupD.UsePartial;
@@ -304,6 +309,7 @@ public class SessionConfig
             MaxShortTrades    = cfg.MaxShortTradesA,
             OrderType         = cfg.OrderTypeA,
             StopMode          = cfg.StopModeA,
+            StopVwapTicks     = cfg.StopVwapTicksA,
             MinRr             = cfg.MinRrA,
             CloseAtRthClose   = cfg.CloseAtRthCloseA,
             UsePartial        = cfg.UsePartialA,
@@ -341,6 +347,7 @@ public class SessionConfig
             MaxShortTrades    = cfg.MaxShortTradesB,
             OrderType         = cfg.OrderTypeB,
             StopMode          = cfg.StopModeB,
+            StopVwapTicks     = cfg.StopVwapTicksB,
             MinRr             = cfg.MinRrB,
             CloseAtRthClose   = cfg.CloseAtRthCloseB,
             UsePartial        = cfg.UsePartialB,
@@ -375,6 +382,7 @@ public class SessionConfig
             MaxTrades         = cfg.MaxTradesC,
             OrderType         = cfg.OrderTypeC,
             StopMode          = cfg.StopModeC,
+            StopVwapTicks     = cfg.StopVwapTicksC,
             MinRr             = cfg.MinRrC,
             CloseAtRthClose   = cfg.CloseAtRthCloseC,
             UsePartial        = cfg.UsePartialC,
@@ -405,6 +413,7 @@ public class SessionConfig
             MaxTrades         = cfg.MaxTradesD,
             OrderType         = cfg.OrderTypeD,
             StopMode          = cfg.StopModeD,
+            StopVwapTicks     = cfg.StopVwapTicksD,
             MinRr             = cfg.MinRrD,
             CloseAtRthClose   = cfg.CloseAtRthCloseD,
             UsePartial        = cfg.UsePartialD,

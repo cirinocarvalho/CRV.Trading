@@ -37,8 +37,10 @@ public class StrategySetupConfig
     public decimal MaxEntrySlippage { get; set; } = 0;  // max % of ORB range; 0 = no limit (use NearPct as natural bound)
     public bool UseTickConfirmation { get; set; } = true;  // false = bar-level entry (backtest)
     public string OrderType { get; set; } = "Market";
-    /// <summary>Stop placement mode: "OrbPct" (default, % of ORB range) or "BarHL" (high/low of bar before entry ± 1 tick).</summary>
+    /// <summary>Stop placement mode: "OrbPct" (default, % of ORB range), "BarHL" (high/low of bar before entry ± 1 tick), or "Vwap" (VWAP ± ticks).</summary>
     public string StopMode { get; set; } = "OrbPct";
+    /// <summary>Number of ticks offset from VWAP for Vwap stop mode. Default 4.</summary>
+    public int StopVwapTicks { get; set; } = 4;
 
     // Filters
     public bool UseVwap { get; set; } = true;

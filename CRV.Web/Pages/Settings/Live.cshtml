@@ -956,7 +956,7 @@ function addBasketEntry() {
         Ticker: '',
         PointValue: 20,
         TickSize: 0.25,
-        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxAdverseMinutes: 0, MaxTradeRisk: 0, StopMode: 'OrbPct' }
+        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxAdverseMinutes: 0, MaxTradeRisk: 0, StopMode: 'OrbPct', StopVwapTicks: 4 }
     });
     renderBasket();
 }
@@ -1149,7 +1149,9 @@ function renderBasket() {
                     '<select class="form-select form-select-sm" style="width:100px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'StopMode\',this.value)">' +
                         '<option value="OrbPct" ' + ((cfg.StopMode||'OrbPct')==='OrbPct'?'selected':'') + '>% ORB</option>' +
                         '<option value="BarHL" ' + ((cfg.StopMode||'')==='BarHL'?'selected':'') + '>Bar H/L</option>' +
+                        '<option value="Vwap" ' + ((cfg.StopMode||'')==='Vwap'?'selected':'') + '>VWAP</option>' +
                     '</select></div>' +
+                _bField(entry.Id, 'StopVwapTicks', 'number', cfg.StopVwapTicks || 4, 70, 'VWAP Ticks', 'int') +
                 _bField(entry.Id, 'EntryTickOffset', 'number', cfg.EntryTickOffset || 0, 70, 'Tick Offset', 'int') +
                 _bField(entry.Id, 'MaxEntrySlippage', 'number', cfg.MaxEntrySlippage || 0, 80, 'Max Slip %', 'float', '0.01') +
                 _bField(entry.Id, 'MaxAdverseMinutes', 'number', cfg.MaxAdverseMinutes || 0, 70, 'Max Adv Min', 'int') +
