@@ -487,6 +487,7 @@ let _lwcVwapSeries = null;  // VWAP line series
 let _lwcCurrentGroup = null;
 let _lwcPriceLines = {};   // { orbHigh, orbLow }
 let _lwcMarkers = [];      // trade entry/exit markers
+let _lwcPendingMarkers = []; // markers buffered before chart ready
 let _lwcLastBarTime = 0;   // track bar transitions
 let _lwcDataReady = false; // prevent updates before initial setData
 let _lwcHasData = false;   // series has at least one data point
@@ -596,6 +597,7 @@ async function _lwcLoadGroup(groupKey) {
     if (!_lwcSeries) { console.warn("[LWC] no series"); return; }
     _lwcCurrentGroup = groupKey;
     _lwcMarkers = [];
+    _lwcPendingMarkers = [];
     _prevSetupStates = {};
     _lwcLastBarTime = 0;
     _lwcLastVolMa = 0;
@@ -673,6 +675,13 @@ async function _lwcLoadGroup(groupKey) {
             /* placeholder already removed */
         }
         _lwcDataReady = true;  // allow live updates now
+        // Flush any markers that arrived before chart was ready
+        if (_lwcPendingMarkers.length > 0) {
+            _lwcPendingMarkers.forEach(function(m) {
+                _lwcAddTradeMarker(m.time, m.isEntry, m.isLong);
+            });
+            _lwcPendingMarkers = [];
+        }
         // Show visible range — fitContent for small datasets, 8-hour window otherwise
         if (bars.length > 20) {
             var lastBarTime = bars[bars.length - 1].time;
@@ -718,8 +727,12 @@ function _lwcUpdateCandle(gs) {
 }
 
 function _lwcAddTradeMarker(time, isEntry, isLong) {
-    // Snap to nearest bar time; fallback to current unix time if no bars yet
-    var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : (time > 0 ? time : Math.floor(Date.now() / 1000) + _getEtOffsetSec());
+    // Buffer if chart not ready — will be flushed after bars load
+    if (!_lwcDataReady || _lwcLastBarTime === 0) {
+        _lwcPendingMarkers.push({ time: time, isEntry: isEntry, isLong: isLong });
+        return;
+    }
+    var markerTime = _lwcLastBarTime;
     if (isEntry) {
         _lwcMarkers.push({
             time: markerTime,
@@ -737,7 +750,6 @@ function _lwcAddTradeMarker(time, isEntry, isLong) {
             text: 'X',
         });
     }
-    // Markers must be sorted by time
     _lwcMarkers.sort(function(a, b) { return a.time - b.time; });
     try { _lwcSeries.setMarkers(_lwcMarkers); } catch(e) {}
 }
