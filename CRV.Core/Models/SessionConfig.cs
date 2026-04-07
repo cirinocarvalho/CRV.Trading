@@ -18,6 +18,7 @@ public abstract class SetupConfigBase
     public int     MaxLongTrades      { get; set; } = 0;
     public int     MaxShortTrades     { get; set; } = 0;
     public string  OrderType          { get; set; } = "Market";
+    public string  StopMode           { get; set; } = "OrbPct";
     public decimal MinRr              { get; set; } = 1.5m;
     public bool    CloseAtRthClose    { get; set; } = true;
     public bool    UsePartial         { get; set; } = true;
@@ -149,6 +150,7 @@ public class SessionConfig
         c.MaxLongTradesA    = SetupA.MaxLongTrades;
         c.MaxShortTradesA   = SetupA.MaxShortTrades;
         c.OrderTypeA        = SetupA.OrderType;
+        c.StopModeA         = SetupA.StopMode;
         c.MinRrA            = SetupA.MinRr;
         c.CloseAtRthCloseA  = SetupA.CloseAtRthClose;
         c.UsePartialA       = SetupA.UsePartial;
@@ -185,6 +187,7 @@ public class SessionConfig
         c.MaxLongTradesB    = SetupB.MaxLongTrades;
         c.MaxShortTradesB   = SetupB.MaxShortTrades;
         c.OrderTypeB        = SetupB.OrderType;
+        c.StopModeB         = SetupB.StopMode;
         c.MinRrB            = SetupB.MinRr;
         c.CloseAtRthCloseB  = SetupB.CloseAtRthClose;
         c.UsePartialB       = SetupB.UsePartial;
@@ -217,6 +220,7 @@ public class SessionConfig
         c.CutoffMinuteC     = SetupC.CutoffMinute;
         c.MaxTradesC        = SetupC.MaxTrades;
         c.OrderTypeC        = SetupC.OrderType;
+        c.StopModeC         = SetupC.StopMode;
         c.MinRrC            = SetupC.MinRr;
         c.CloseAtRthCloseC  = SetupC.CloseAtRthClose;
         c.UsePartialC       = SetupC.UsePartial;
@@ -244,6 +248,7 @@ public class SessionConfig
         c.CutoffMinuteD     = SetupD.CutoffMinute;
         c.MaxTradesD        = SetupD.MaxTrades;
         c.OrderTypeD        = SetupD.OrderType;
+        c.StopModeD         = SetupD.StopMode;
         c.MinRrD            = SetupD.MinRr;
         c.CloseAtRthCloseD  = SetupD.CloseAtRthClose;
         c.UsePartialD       = SetupD.UsePartial;
@@ -298,6 +303,7 @@ public class SessionConfig
             MaxLongTrades     = cfg.MaxLongTradesA,
             MaxShortTrades    = cfg.MaxShortTradesA,
             OrderType         = cfg.OrderTypeA,
+            StopMode          = cfg.StopModeA,
             MinRr             = cfg.MinRrA,
             CloseAtRthClose   = cfg.CloseAtRthCloseA,
             UsePartial        = cfg.UsePartialA,
@@ -334,6 +340,7 @@ public class SessionConfig
             MaxLongTrades     = cfg.MaxLongTradesB,
             MaxShortTrades    = cfg.MaxShortTradesB,
             OrderType         = cfg.OrderTypeB,
+            StopMode          = cfg.StopModeB,
             MinRr             = cfg.MinRrB,
             CloseAtRthClose   = cfg.CloseAtRthCloseB,
             UsePartial        = cfg.UsePartialB,
@@ -367,6 +374,7 @@ public class SessionConfig
             CutoffMinute      = cfg.CutoffMinuteC,
             MaxTrades         = cfg.MaxTradesC,
             OrderType         = cfg.OrderTypeC,
+            StopMode          = cfg.StopModeC,
             MinRr             = cfg.MinRrC,
             CloseAtRthClose   = cfg.CloseAtRthCloseC,
             UsePartial        = cfg.UsePartialC,
@@ -396,6 +404,7 @@ public class SessionConfig
             CutoffMinute      = cfg.CutoffMinuteD,
             MaxTrades         = cfg.MaxTradesD,
             OrderType         = cfg.OrderTypeD,
+            StopMode          = cfg.StopModeD,
             MinRr             = cfg.MinRrD,
             CloseAtRthClose   = cfg.CloseAtRthCloseD,
             UsePartial        = cfg.UsePartialD,

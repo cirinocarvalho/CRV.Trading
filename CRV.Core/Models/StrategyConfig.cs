@@ -137,6 +137,7 @@ public class StrategyConfig
 
     /// <summary>Order type for Setup A entries: "Market" or "Limit". Default "Market".</summary>
     public string  OrderTypeA      { get; set; } = "Market";
+    public string  StopModeA       { get; set; } = "OrbPct";
 
     /// <summary>Fixed partial exit contracts for Setup A. 0 = auto (50% floor).</summary>
     public int     PartialCtsA      { get; set; } = 0;
@@ -185,6 +186,7 @@ public class StrategyConfig
 
     /// <summary>Order type for Setup B entries: "Market" or "Limit". Default "Market".</summary>
     public string  OrderTypeB      { get; set; } = "Market";
+    public string  StopModeB       { get; set; } = "OrbPct";
 
     /// <summary>Fixed partial exit contracts for Setup B. 0 = auto (50% floor).</summary>
     public int     PartialCtsB      { get; set; } = 0;
@@ -229,6 +231,7 @@ public class StrategyConfig
     public bool    AllowRearmAfterBeC { get; set; } = true;
     public int     EntryTickOffsetC   { get; set; } = 0;
     public string  OrderTypeC         { get; set; } = "Market";
+    public string  StopModeC          { get; set; } = "OrbPct";
     public int     PartialCtsC        { get; set; } = 0;
     public int     MaxAdverseMinutesC { get; set; } = 0;
     public decimal MaxTradeRiskC      { get; set; } = 0m;
@@ -258,6 +261,7 @@ public class StrategyConfig
     public bool    AllowRearmAfterBeD { get; set; } = true;
     public int     EntryTickOffsetD   { get; set; } = 0;
     public string  OrderTypeD         { get; set; } = "Market";
+    public string  StopModeD          { get; set; } = "OrbPct";
     public int     PartialCtsD        { get; set; } = 0;
     public int     MaxAdverseMinutesD { get; set; } = 0;
     public decimal MaxTradeRiskD      { get; set; } = 0m;
@@ -476,6 +480,7 @@ public class StrategyConfig
         RetestPct = b.Config.RetestPct,
         EntryTickOffset = b.Config.EntryTickOffset,
         OrderType = b.Config.OrderType,
+        StopMode = b.Config.StopMode,
         MaxEntrySlippage = b.Config.MaxEntrySlippage,
         UseTickConfirmation = b.Config.UseTickConfirmation,
         UseVwap = b.Config.UseVwap,
@@ -508,6 +513,7 @@ public class StrategyConfig
         NearPct = NearPctA, MinRr = MinRrA, Mode = ModeA,
         PullbackPct = PullbackPct, EntryTickOffset = EntryTickOffsetA,
         OrderType = OrderTypeA,
+        StopMode = StopModeA,
         UseVwap = UseVwapA, UseOrbClose = UseOrbCloseA, UseCloseConfirmation = UseCloseConfirmationA,
         CutoffHour = CutoffHourA, CutoffMinute = CutoffMinuteA,
         CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
@@ -530,6 +536,7 @@ public class StrategyConfig
         NearPct = NearPctB, MinRr = MinRrB, Mode = ModeB,
         RetestPct = RetestPct, EntryTickOffset = EntryTickOffsetB,
         OrderType = OrderTypeB,
+        StopMode = StopModeB,
         UseVwap = UseVwapB, UseOrbClose = UseOrbCloseB,
         CutoffHour = CutoffHourB, CutoffMinute = CutoffMinuteB,
         CloseAtRthClose = CloseAtRthCloseB, MaxTrades = MaxTradesB,
@@ -552,6 +559,7 @@ public class StrategyConfig
         NearPct = NearPctC, MinRr = MinRrC, Mode = "Conservative",
         EntryTickOffset = EntryTickOffsetC,
         OrderType = OrderTypeC,
+        StopMode = StopModeC,
         UseVwap = false, UseOrbClose = false,
         CutoffHour = CutoffHourC, CutoffMinute = CutoffMinuteC,
         CloseAtRthClose = CloseAtRthCloseC, MaxTrades = MaxTradesC,
@@ -573,6 +581,7 @@ public class StrategyConfig
         NearPct = NearPctD, MinRr = MinRrD, Mode = "Conservative",
         EntryTickOffset = EntryTickOffsetD,
         OrderType = OrderTypeD,
+        StopMode = StopModeD,
         UseVwap = false, UseOrbClose = false,
         CutoffHour = CutoffHourD, CutoffMinute = CutoffMinuteD,
         CloseAtRthClose = CloseAtRthCloseD, MaxTrades = MaxTradesD,
