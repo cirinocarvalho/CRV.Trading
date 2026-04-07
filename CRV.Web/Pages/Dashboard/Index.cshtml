@@ -596,6 +596,7 @@ async function _lwcLoadGroup(groupKey) {
     if (!_lwcSeries) { console.warn("[LWC] no series"); return; }
     _lwcCurrentGroup = groupKey;
     _lwcMarkers = [];
+    _prevSetupStates = {};
     _lwcLastBarTime = 0;
     _lwcLastVolMa = 0;
     _lwcDataReady = false;  // block live updates until setData completes
@@ -739,6 +740,45 @@ function _lwcAddTradeMarker(time, isEntry, isLong) {
     // Markers must be sorted by time
     _lwcMarkers.sort(function(a, b) { return a.time - b.time; });
     try { _lwcSeries.setMarkers(_lwcMarkers); } catch(e) {}
+}
+
+// ── Setup State Markers (triangles on arm/retest) ────────────
+var _prevSetupStates = {};  // track previous state per setup to detect transitions
+var _setupColors = {
+    Pullback:        '#3b82f6',  // blue
+    Retest:          '#f59e0b',  // amber
+    OrbFakeout:      '#a855f7',  // purple
+    SessionFakeout:  '#06b6d4',  // cyan
+};
+
+function _lwcCheckSetupMarkers(setups) {
+    if (!_lwcDataReady || !_lwcSeries || !setups) return;
+    var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : Math.floor(Date.now() / 1000) + _getEtOffsetSec();
+    var added = false;
+    setups.forEach(function(s) {
+        var prev = _prevSetupStates[s.id] || 0;
+        var cur  = s.state || 0;
+        _prevSetupStates[s.id] = cur;
+        if (prev === cur) return;  // no transition
+        // Detect arm (0 → ±1) or retest (±1 → ±2)
+        if (cur !== 0 && (prev === 0 || (Math.abs(prev) === 1 && Math.abs(cur) === 2))) {
+            var isLong = cur > 0;
+            var color  = _setupColors[s.strategyType] || '#9ca3af';
+            var label  = (s.id || '').split('-').pop() || s.strategyType;
+            _lwcMarkers.push({
+                time: markerTime,
+                position: isLong ? 'belowBar' : 'aboveBar',
+                shape: isLong ? 'arrowUp' : 'arrowDown',
+                color: color,
+                text: label.toUpperCase(),
+            });
+            added = true;
+        }
+    });
+    if (added) {
+        _lwcMarkers.sort(function(a, b) { return a.time - b.time; });
+        try { _lwcSeries.setMarkers(_lwcMarkers); } catch(e) {}
+    }
 }
 
 // ── Ticker Group Selector ─────────────────────────────────────
@@ -1083,6 +1123,8 @@ function updateDashboard(d) {
             var id = s.id.toLowerCase().replace(/[^a-z0-9]/g, '-');
             updateSetup(id, s, d.sessionEnded);
         });
+        // Add triangle markers when setup state transitions (arm/retest)
+        _lwcCheckSetupMarkers(d.setups);
     }
 
     // ── ORB window (dynamic per session) ─────────────────────
