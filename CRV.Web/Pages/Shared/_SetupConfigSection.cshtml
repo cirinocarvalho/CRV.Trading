@@ -99,6 +99,13 @@
                 </div>
             }
             <div class="col-md-2">
+                <label class="form-label small mb-0">Stop Mode</label>
+                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).StopMode">
+                    <option value="OrbPct" selected="@(setup.StopMode == "OrbPct" ? "selected" : null)">% ORB</option>
+                    <option value="BarHL"  selected="@(setup.StopMode == "BarHL"  ? "selected" : null)">Bar H/L</option>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label small mb-0">Stop Dist (% ORB)</label>
                 <input type="number" class="form-control form-control-sm session-field" step="any"
                        data-session="@i" data-field="@(fieldPfx).StopPct" value="@Model.StopPct" />
