@@ -195,7 +195,8 @@ public class BacktestEngine
             switch (transition)
             {
                 case TransitionType.SessionStarted:
-                    engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
+                    Console.Error.WriteLine($"[BT-SESSION] {session!.SessionId} STARTED at {localTime} tfBarsOut={tfBarsOut}");
+                    engine.Reconfigure(session.ToLegacyConfig(_cfg), session.SessionId);
                     betweenSessions = false;
                     break;
                 case TransitionType.SessionEnded:
@@ -259,6 +260,8 @@ public class BacktestEngine
         }
         else
         {
+            if (bkt.Pending.Count == 0)
+                Console.Error.WriteLine($"[BT-EMIT] {ticker} bar {tfBar.Time:HH:mm} LIVE but 0 pending ticks!");
             // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
             foreach (var (o, h, l, c, t) in bkt.Pending)
             {
