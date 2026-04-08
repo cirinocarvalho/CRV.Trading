@@ -143,7 +143,7 @@ public class EngineController : ControllerBase
                     vwap  = bi.Vwap,
                     ema21 = ema21.IsReady ? ema21.Value : 0m
                 };
-            });
+            }).ToList();
             return Ok(result);
         }
 
@@ -201,7 +201,20 @@ public class EngineController : ControllerBase
                 }
             }
 
-            return Ok(result);
+            // Recompute EMA21 from the fetched bars
+            var fallbackEma = new CRV.Core.Indicators.Ema21Indicator();
+            var enriched = result.Cast<dynamic>().Select(b =>
+            {
+                fallbackEma.Update((decimal)b.close);
+                return new
+                {
+                    time = (long)b.time, open = (decimal)b.open, high = (decimal)b.high,
+                    low = (decimal)b.low, close = (decimal)b.close, volume = (long)b.volume,
+                    vwap = 0m,
+                    ema21 = fallbackEma.IsReady ? fallbackEma.Value : 0m
+                };
+            }).ToList();
+            return Ok(enriched);
         }
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
         {
