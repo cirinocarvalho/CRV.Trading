@@ -448,7 +448,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("EmailRecipients")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Ema21BasketJson")
