@@ -576,6 +576,173 @@
     </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- ── EMA21 Strategy ─────────────────────────────────────── -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="card bg-dark border-secondary mb-3">
+  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#ema21Body" aria-expanded="false" aria-controls="ema21Body">
+    <i class="bi bi-graph-up me-2 text-warning"></i>
+    <strong>EMA21 Strategy <i class="bi bi-chevron-down ms-2 small"></i></strong>
+    <div class="form-check form-switch ms-auto" onclick="event.stopPropagation()">
+      <input class="form-check-input" type="checkbox" id="enableEma21"
+             name="Config.EnableEma21" value="true" @(Model.Config.EnableEma21 ? "checked" : "") />
+      <input type="hidden" name="Config.EnableEma21" value="false" />
+      <label class="form-check-label" for="enableEma21">Enable</label>
+    </div>
+  </div>
+  <div class="card-body collapse" id="ema21Body">
+
+    <div class="row g-3 mb-3">
+      <!-- ── Sizing & Limits ──────────────────────────────── -->
+      <div class="col-12 col-xl-4">
+        <div class="settings-section">
+          <h6><i class="bi bi-boxes me-1"></i>Sizing & Limits</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">Contracts</label>
+              <input name="Config.ContractsEma21" type="number" min="1" step="1"
+                     value="@Model.Config.ContractsEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Max Contracts</label>
+              <input name="Config.MaxContractsEma21" type="number" min="1" step="1"
+                     value="@Model.Config.MaxContractsEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Max Trades</label>
+              <input name="Config.MaxTradesEma21" type="number" min="1" step="1"
+                     value="@Model.Config.MaxTradesEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Min R:R</label>
+              <input name="Config.MinRrEma21" type="number" step="0.1" min="0"
+                     value="@Model.Config.MinRrEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Order Type</label>
+              <select name="Config.OrderTypeEma21" class="form-select form-select-sm">
+                <option value="Market" selected="@(Model.Config.OrderTypeEma21=="Market" ? "selected" : null)">Market</option>
+                <option value="Limit"  selected="@(Model.Config.OrderTypeEma21=="Limit"  ? "selected" : null)">Limit</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Partial Cts</label>
+              <input name="Config.PartialCtsEma21" type="number" min="0" step="1"
+                     value="@Model.Config.PartialCtsEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">0 = auto (50%)</div>
+            </div>
+          </div>
+          <div class="mt-2 d-flex flex-column gap-2">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="Config.UsePartialEma21" value="true" id="chk-ema21-partial" @(Model.Config.UsePartialEma21 ? "checked" : "") />
+              <input type="hidden" name="Config.UsePartialEma21" value="false" />
+              <label class="form-check-label small" for="chk-ema21-partial">Partial Exit</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="Config.UseBeEma21" value="true" id="chk-ema21-be" @(Model.Config.UseBeEma21 ? "checked" : "") />
+              <input type="hidden" name="Config.UseBeEma21" value="false" />
+              <label class="form-check-label small" for="chk-ema21-be">Breakeven Stop</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── EMA21 Signal Parameters ─────────────────────── -->
+      <div class="col-12 col-xl-4">
+        <div class="settings-section">
+          <h6><i class="bi bi-activity me-1"></i>Signal Parameters</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">Slope Lookback</label>
+              <input name="Config.SlopeLenEma21" type="number" min="1" step="1"
+                     value="@Model.Config.SlopeLenEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Bars for EMA slope</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Min Slope %</label>
+              <input name="Config.MinSlopePctEma21" type="number" step="0.01" min="0"
+                     value="@Model.Config.MinSlopePctEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Filter flat EMA noise</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">ATR Touch Mult</label>
+              <input name="Config.AtrTouchMultEma21" type="number" step="0.1" min="0"
+                     value="@Model.Config.AtrTouchMultEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Touch zone = ATR * mult</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Open Ticks to EMA</label>
+              <input name="Config.OpenTicksToEmaEma21" type="number" min="0" step="1"
+                     value="@Model.Config.OpenTicksToEmaEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Max ticks from EMA at open</div>
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="Config.UseVolumeFilterEma21" value="true" id="chk-ema21-vol" @(Model.Config.UseVolumeFilterEma21 ? "checked" : "") />
+              <input type="hidden" name="Config.UseVolumeFilterEma21" value="false" />
+              <label class="form-check-label small" for="chk-ema21-vol">Volume Filter (vol > 20-bar SMA)</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Targets & Cutoff ────────────────────────────── -->
+      <div class="col-12 col-xl-4">
+        <div class="settings-section">
+          <h6><i class="bi bi-bullseye me-1"></i>Targets & Cutoff</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">ATR TP1 Mult</label>
+              <input name="Config.AtrTp1MultEma21" type="number" step="0.1" min="0"
+                     value="@Model.Config.AtrTp1MultEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Partial target = ATR * mult</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">ATR TP2 Mult</label>
+              <input name="Config.AtrTp2MultEma21" type="number" step="0.1" min="0"
+                     value="@Model.Config.AtrTp2MultEma21" class="form-control form-control-sm" />
+              <div class="form-text text-muted" style="font-size:.65rem">Full target = ATR * mult</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Cutoff Hour</label>
+              <input name="Config.CutoffHourEma21" type="number" min="0" max="23" step="1"
+                     value="@Model.Config.CutoffHourEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Cutoff Minute</label>
+              <input name="Config.CutoffMinuteEma21" type="number" min="0" max="59" step="1"
+                     value="@Model.Config.CutoffMinuteEma21" class="form-control form-control-sm" />
+            </div>
+          </div>
+          <!-- Per-setup instrument override -->
+          <h6 class="mt-3"><i class="bi bi-currency-exchange me-1"></i>Instrument Override</h6>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="Config.UseCustomTickerEma21" value="true" id="chk-ema21-ticker" @(Model.Config.UseCustomTickerEma21 ? "checked" : "") />
+            <input type="hidden" name="Config.UseCustomTickerEma21" value="false" />
+            <label class="form-check-label small" for="chk-ema21-ticker">Custom Ticker</label>
+          </div>
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label small">Ticker</label>
+              <input name="Config.TickerEma21" type="text" value="@Model.Config.TickerEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+              <label class="form-label small">Point Value</label>
+              <input name="Config.PointValueEma21" type="number" step="any" value="@Model.Config.PointValueEma21" class="form-control form-control-sm" />
+            </div>
+            <div class="col-4">
+              <label class="form-label small">Tick Size</label>
+              <input name="Config.TickSizeEma21" type="number" step="any" value="@Model.Config.TickSizeEma21" class="form-control form-control-sm" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- ── Email Alerts ─────────────────────────────────────────── -->
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#emailBody" aria-expanded="false" aria-controls="emailBody">

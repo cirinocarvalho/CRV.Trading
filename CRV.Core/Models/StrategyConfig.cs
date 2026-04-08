@@ -282,6 +282,46 @@ public class StrategyConfig
     public decimal PointValueD       { get; set; } = 0;
     public decimal TickSizeD         { get; set; } = 0;
 
+    // ── EMA21 Strategy ─────────────────────────────────────────────────
+    public bool    EnableEma21        { get; set; } = false;
+    public int     ContractsEma21     { get; set; } = 2;
+    public int     MaxContractsEma21  { get; set; } = 2;
+    public decimal MinRrEma21         { get; set; } = 1.5m;
+    public int     MaxTradesEma21     { get; set; } = 5;
+    public bool    UsePartialEma21    { get; set; } = true;
+    public bool    UseBeEma21         { get; set; } = true;
+    public int     PartialCtsEma21    { get; set; } = 0;
+    public int     CutoffHourEma21    { get; set; } = 14;
+    public int     CutoffMinuteEma21  { get; set; } = 30;
+    public string  OrderTypeEma21     { get; set; } = "Market";
+    /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
+    public int     SlopeLenEma21      { get; set; } = 5;
+    /// <summary>ATR multiplier for EMA touch detection zone. Default 0.5.</summary>
+    public decimal AtrTouchMultEma21  { get; set; } = 0.5m;
+    /// <summary>Minimum slope as % of EMA price to filter flat EMA noise. Default 0.05.</summary>
+    public decimal MinSlopePctEma21   { get; set; } = 0.05m;
+    /// <summary>Max ticks the signal bar open may be from EMA. Default 4.</summary>
+    public int     OpenTicksToEmaEma21 { get; set; } = 4;
+    /// <summary>Require volume > 20-bar SMA on signal bar. Default false.</summary>
+    public bool    UseVolumeFilterEma21 { get; set; } = false;
+    /// <summary>ATR multiplier for partial target (TP1). Default 1.0.</summary>
+    public decimal AtrTp1MultEma21    { get; set; } = 1.0m;
+    /// <summary>ATR multiplier for full target (TP2). Default 2.0.</summary>
+    public decimal AtrTp2MultEma21    { get; set; } = 2.0m;
+    // Per-setup instrument override (EMA21)
+    public bool    UseCustomTickerEma21  { get; set; } = false;
+    public string  TickerEma21           { get; set; } = "";
+    public decimal PointValueEma21       { get; set; } = 0;
+    public decimal TickSizeEma21         { get; set; } = 0;
+
+    // ── EMA21 computed helpers ──────────────────────────────────────
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string  EffectiveTickerEma21     => UseCustomTickerEma21 && !string.IsNullOrEmpty(TickerEma21) ? TickerEma21 : Ticker;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectivePointValueEma21 => UseCustomTickerEma21 && PointValueEma21 > 0 ? PointValueEma21 : PointValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal EffectiveTickSizeEma21   => UseCustomTickerEma21 && TickSizeEma21 > 0 ? TickSizeEma21 : TickSize;
+
     // ── False Breakout Module Params ──────────────────────────────────────
     public int     FBMaxTimeOutsideMinutesOrb { get; set; } = 15;
     public int     FBMaxTimeOutsideMinutesSR  { get; set; } = 60;
