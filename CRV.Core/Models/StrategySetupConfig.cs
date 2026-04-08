@@ -42,6 +42,22 @@ public class StrategySetupConfig
     /// <summary>Number of ticks offset from VWAP for Vwap stop mode. Default 4.</summary>
     public int StopVwapTicks { get; set; } = 4;
 
+    // ── EMA21 strategy parameters (ignored by ORB strategies) ─────
+    /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
+    public int SlopeLen { get; set; } = 5;
+    /// <summary>ATR multiplier for EMA touch detection zone. Default 0.5.</summary>
+    public decimal AtrTouchMult { get; set; } = 0.5m;
+    /// <summary>Minimum slope as % of EMA price to filter flat EMA noise. Default 0.05.</summary>
+    public decimal MinSlopePct { get; set; } = 0.05m;
+    /// <summary>Max ticks the signal bar open may be from EMA. Default 4.</summary>
+    public int OpenTicksToEma { get; set; } = 4;
+    /// <summary>Require volume > 20-bar SMA on signal bar. Default false.</summary>
+    public bool UseVolumeFilter { get; set; }
+    /// <summary>ATR multiplier for partial target (TP1). Default 1.0.</summary>
+    public decimal AtrTp1Mult { get; set; } = 1.0m;
+    /// <summary>ATR multiplier for full target (TP2). Default 2.0.</summary>
+    public decimal AtrTp2Mult { get; set; } = 2.0m;
+
     // Filters
     public bool UseVwap { get; set; } = true;
     public bool UseOrbClose { get; set; }

@@ -5,7 +5,7 @@ using CRV.Core.Modules;
 namespace CRV.Core.Strategy;
 
 // ── Strategy type enum ──────────────────────────────────────────
-public enum StrategyType { Pullback, Retest, OrbFakeout, SessionFakeout }
+public enum StrategyType { Pullback, Retest, OrbFakeout, SessionFakeout, Ema21 }
 
 // ── Readonly state snapshots passed to strategies ───────────────
 public readonly record struct OrbState(
