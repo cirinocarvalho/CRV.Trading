@@ -321,13 +321,30 @@
 const maxDailyLoss = @Model.Config.MaxDailyLoss.ToString(System.Globalization.CultureInfo.InvariantCulture);
 let _lastAlertTime = null;  // track latest alert timestamp to detect new ones
 
+// Map broker ticker to group key (e.g. "/MNQM26" → "NQ")
+function _tickerToGroup(t) {
+    t = (t || "").replace(/^\//, "");
+    if (t.startsWith("NQ") || t.startsWith("MNQ")) return "NQ";
+    if (t.startsWith("ES") || t.startsWith("MES")) return "ES";
+    if (t.startsWith("GC") || t.startsWith("MGC")) return "GC";
+    if (t.startsWith("CL") || t.startsWith("MCL")) return "CL";
+    if (t.startsWith("YM") || t.startsWith("MYM")) return "YM";
+    if (t.startsWith("RTY") || t.startsWith("M2K")) return "RTY";
+    if (t.startsWith("BTC") || t.startsWith("MBT")) return "BTC";
+    return t;
+}
+
 // Seed ON/OFF badges — deferred until cards are created dynamically
 
 document.addEventListener("crv:update", e => updateDashboard(e.detail));
 document.addEventListener("crv:alert",  e => {
     addAlert(e.detail);
-    // Add trade markers to Lightweight Charts
+    // Add trade markers to Lightweight Charts (only for current chart group)
     var al = e.detail;
+    if (al && _lwcCurrentGroup && al.ticker) {
+        var alertGroup = _tickerToGroup(al.ticker);
+        if (alertGroup !== _lwcCurrentGroup) return;  // skip markers for other groups
+    }
     if (al && al.type === "ENTRY") {
         var isLong = al.message && al.message.startsWith("LONG");
         _lwcAddTradeMarker(0, true, isLong);
@@ -798,19 +815,39 @@ function _lwcCheckSetupMarkers(setups) {
     var markerTime = _lwcLastBarTime > 0 ? _lwcLastBarTime : Math.floor(Date.now() / 1000) + _getEtOffsetSec();
     var added = false;
     setups.forEach(function(s) {
+        // Only show markers for the currently displayed chart group
+        if (_lwcCurrentGroup && s.ticker) {
+            var setupGroup = _tickerToGroup(s.ticker);
+            if (setupGroup !== _lwcCurrentGroup) return;
+        }
         var prev = _prevSetupStates[s.id] || 0;
         var cur  = s.state || 0;
         _prevSetupStates[s.id] = cur;
         if (prev === cur) return;  // no transition
-        // Detect arm (0 → ±1) or retest (±1 → ±2)
-        if (cur !== 0 && (prev === 0 || (Math.abs(prev) === 1 && Math.abs(cur) === 2))) {
+        // Detect arm (0 → ±1): small circle
+        if (prev === 0 && Math.abs(cur) === 1) {
             var isLong = cur > 0;
+            var color  = _setupColors[s.strategyType] || '#9ca3af';
+            _lwcMarkers.push({
+                time: markerTime,
+                position: isLong ? 'belowBar' : 'aboveBar',
+                shape: 'circle',
+                size: 0.5,
+                color: color,
+                text: '',
+            });
+            added = true;
+        }
+        // Detect entry (has pending entry — trade fired): small triangle
+        if (s.trade && prev !== 0 && (s.trade.entry || 0) > 0) {
+            var isLong = cur > 0 || (s.trade && s.trade.direction === 0);
             var color  = _setupColors[s.strategyType] || '#9ca3af';
             var label  = (s.id || '').split('-').pop() || s.strategyType;
             _lwcMarkers.push({
                 time: markerTime,
                 position: isLong ? 'belowBar' : 'aboveBar',
                 shape: isLong ? 'arrowUp' : 'arrowDown',
+                size: 0.5,
                 color: color,
                 text: label.toUpperCase(),
             });
@@ -1180,17 +1217,7 @@ function updateDashboard(d) {
     var activeSetups = [];
     var signalsList = [];
 
-    function _tickerToGroup(t) {
-        t = (t || "").replace(/^\//, "");
-        if (t.startsWith("NQ") || t.startsWith("MNQ")) return "NQ";
-        if (t.startsWith("ES") || t.startsWith("MES")) return "ES";
-        if (t.startsWith("GC") || t.startsWith("MGC")) return "GC";
-        if (t.startsWith("CL") || t.startsWith("MCL")) return "CL";
-        if (t.startsWith("YM") || t.startsWith("MYM")) return "YM";
-        if (t.startsWith("RTY") || t.startsWith("M2K")) return "RTY";
-        if (t.startsWith("BTC") || t.startsWith("MBT")) return "BTC";
-        return t;
-    }
+    // _tickerToGroup defined at global scope (above)
 
     if (d.setups) {
         d.setups.forEach(s => {

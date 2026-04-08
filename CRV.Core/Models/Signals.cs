@@ -341,6 +341,7 @@ public class AlertEvent
     public string   Type    { get; set; } = "";
     public SetupId  Setup   { get; set; }
     public string   SetupLabel { get; set; } = "";
+    public string   Ticker  { get; set; } = "";
     public string   Message { get; set; } = "";
     public string   Color   { get; set; } = "gray";
 }

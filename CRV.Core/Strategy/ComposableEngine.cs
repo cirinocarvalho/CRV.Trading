@@ -194,7 +194,7 @@ public class ComposableEngine
             bool isLong = esig.Direction == Direction.Long;
             AddAlert("ENTRY", setup,
                 $"{(isLong ? "LONG" : "SHORT")} {esig.TotalContracts}ct @ {esig.Entry:F2} | Stop {esig.Stop:F2} | Tgt {esig.Tg2Price:F2}",
-                isLong ? "green" : "red", label);
+                isLong ? "green" : "red", label, esig.Ticker);
         }
     }
 
@@ -626,7 +626,7 @@ public class ComposableEngine
     }
 
     /// <summary>Add an alert to the ring buffer (visible in dashboard Alerts Feed).</summary>
-    public void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "")
+    public void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "", string ticker = "")
     {
         _alertRing[_alertHead] = new AlertEvent
         {
@@ -634,6 +634,7 @@ public class ComposableEngine
             Type = type,
             Setup = setup,
             SetupLabel = setupLabel,
+            Ticker = ticker,
             Message = message,
             Color = color,
         };
