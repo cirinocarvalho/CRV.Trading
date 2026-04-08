@@ -129,14 +129,22 @@ public class EngineController : ControllerBase
         // If engine has bars in buffer, use them
         if (barsWithIndicators.Count > 0)
         {
-            return Ok(barsWithIndicators.Select(bi => new
+            // Recompute EMA21 from bar closes so the full history gets the curve
+            // (stored per-bar values may be 0 for bars that were backfilled before the indicator existed)
+            var ema21 = new CRV.Core.Indicators.Ema21Indicator();
+            var result = barsWithIndicators.Select(bi =>
             {
-                time  = new DateTimeOffset(bi.Bar.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
-                open  = bi.Bar.Open, high = bi.Bar.High, low = bi.Bar.Low, close = bi.Bar.Close,
-                volume = bi.Bar.Volume,
-                vwap  = bi.Vwap,
-                ema21 = bi.Ema21
-            }));
+                ema21.Update(bi.Bar.Close);
+                return new
+                {
+                    time  = new DateTimeOffset(bi.Bar.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
+                    open  = bi.Bar.Open, high = bi.Bar.High, low = bi.Bar.Low, close = bi.Bar.Close,
+                    volume = bi.Bar.Volume,
+                    vwap  = bi.Vwap,
+                    ema21 = ema21.IsReady ? ema21.Value : 0m
+                };
+            });
+            return Ok(result);
         }
 
         // Fallback: fetch historical bars from broker REST/WS API
