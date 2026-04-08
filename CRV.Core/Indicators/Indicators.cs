@@ -13,8 +13,11 @@ public class AtrIndicator
     private bool _seeded;
 
     public AtrIndicator(int period = 14) => _period = period;
-    public decimal Value   => _atr;
+    /// <summary>Returns running average of TRs during warmup, then Wilder ATR once seeded.</summary>
+    public decimal Value   => _trs.Count > 0 && _trs.Count < _period ? _trs.Average() : _atr;
     public bool    IsReady => _trs.Count >= _period;
+    /// <summary>True after at least one bar (returns partial ATR from running TR average).</summary>
+    public bool    HasValue => _trs.Count > 0;
 
     public decimal Update(Bar bar)
     {
@@ -28,7 +31,7 @@ public class AtrIndicator
         _seeded    = true;
         _trs.Enqueue(tr);
 
-        if (_trs.Count < _period) return 0m;
+        if (_trs.Count < _period) return Value;
         if (_trs.Count == _period) { _atr = _trs.Average(); return _atr; }
         _atr = (_atr * (_period - 1) + tr) / _period;
         _trs.Dequeue();

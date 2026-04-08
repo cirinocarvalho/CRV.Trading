@@ -307,8 +307,8 @@ public sealed class Ema21Strategy : ISetupStrategy
     private bool VolumeOk(long volume)
     {
         if (!_cfg.UseVolumeFilter) return true;
-        if (_volHistCount < VolSmaPeriod) return false;
-        decimal avgVol = (decimal)_volSum / VolSmaPeriod;
+        if (_volHistCount == 0) return false;
+        decimal avgVol = (decimal)_volSum / _volHistCount;
         return volume > avgVol;
     }
 

@@ -16,7 +16,8 @@ public class AtrIndicatorTests
         for (int i = 0; i < 13; i++)
             atr.Update(MakeBar(100 + i, 90 + i, 95 + i));
         Assert.False(atr.IsReady);
-        Assert.Equal(0m, atr.Value);
+        Assert.True(atr.HasValue);       // partial value available from bar 1
+        Assert.True(atr.Value > 0);      // running average of TRs
     }
 
     [Fact]
