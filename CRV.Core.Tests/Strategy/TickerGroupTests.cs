@@ -35,6 +35,7 @@ public class TickerGroupTests
         public string Name => $"Fake{SetupId}";
         public string Ticker { get; set; } = "/NQH2026";
         public decimal PointValue { get; set; } = 20m;
+        public bool UseEmaFilter => false;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }

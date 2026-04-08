@@ -35,6 +35,7 @@ public class ManualStrategy : ISetupStrategy
 
     public string Ticker => _signal.Ticker;
     public decimal PointValue { get; set; }
+    public bool    UseEmaFilter => false;
 
     // No-op: manual trades don't process bars/ticks
     public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules) { }

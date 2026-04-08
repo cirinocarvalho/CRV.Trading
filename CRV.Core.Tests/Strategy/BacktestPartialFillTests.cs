@@ -29,6 +29,7 @@ public class BacktestPartialFillTests
         public int CutoffMinute => 0;
         public string Ticker => "MGCM26";
         public decimal PointValue => 10m;
+        public bool UseEmaFilter => false;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
         public void OnBar(Bar b, OrbState o, IndicatorState i, ModuleState m) { }

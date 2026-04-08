@@ -57,6 +57,7 @@ public class BrokerEventHandlerTests
         public int CutoffMinute => 0;
         public string Ticker => "/NQH2026";
         public decimal PointValue => 20m;
+        public bool UseEmaFilter => false;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
         public void OnBar(Bar b, OrbState o, IndicatorState i, ModuleState m) { }

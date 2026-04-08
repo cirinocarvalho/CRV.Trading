@@ -296,9 +296,14 @@ public class TickerGroup
                 {
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
+                    // EMA21 directional filter: long only above EMA, short only below
+                    if (IsEmaFiltered(strategy, isLong, indState.Ema21))
+                    {
+                        strategy.RevertEntry();
+                    }
                     // Opposing position guard: block entry if another strategy has an active trade
                     // in the opposite direction on the same instrument
-                    if (HasOpposingPosition(strategy, isLong))
+                    else if (HasOpposingPosition(strategy, isLong))
                     {
                         strategy.RevertEntry();
                     }
@@ -381,9 +386,14 @@ public class TickerGroup
                 {
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
+                    // EMA21 directional filter: long only above EMA, short only below
+                    if (IsEmaFiltered(strategy, isLong, indState.Ema21))
+                    {
+                        strategy.RevertEntry();
+                    }
                     // Opposing position guard: block entry if another strategy has an active trade
                     // in the opposite direction on the same instrument
-                    if (HasOpposingPosition(strategy, isLong))
+                    else if (HasOpposingPosition(strategy, isLong))
                     {
                         strategy.RevertEntry();
                     }
@@ -663,6 +673,16 @@ public class TickerGroup
 
     // ── Private helpers ──────────────────────────────────────────
 
+    /// <summary>Returns true when <paramref name="strategy"/> has the EMA filter enabled and
+    /// the pending entry direction is blocked by the EMA21 level (long requires price above EMA,
+    /// short requires price below EMA). When the EMA is not yet ready (zero) the filter passes.</summary>
+    private static bool IsEmaFiltered(ISetupStrategy strategy, bool isLong, decimal ema21)
+    {
+        if (!strategy.UseEmaFilter || ema21 == 0 || strategy.PendingEntry == null) return false;
+        decimal entryPrice = strategy.PendingEntry.Entry;
+        return isLong ? entryPrice <= ema21 : entryPrice >= ema21;
+    }
+
     /// <summary>
     /// Returns true if any OTHER active strategy in this group holds a trade in the
     /// direction opposite to <paramref name="isLong"/>. Used to prevent opposing
@@ -755,7 +775,8 @@ public class TickerGroup
         _vwap.Value,
         _vwapModel.Upper1, _vwapModel.Lower1,
         _vwapModel.Upper2, _vwapModel.Lower2,
-        _lastBarClose);
+        _lastBarClose,
+        _ema21.Value);
 
     private ModuleState BuildModuleState() => new(
         SessionHigh: _sessionEngine.SessionHigh,

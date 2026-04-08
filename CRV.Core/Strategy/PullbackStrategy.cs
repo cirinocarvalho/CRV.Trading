@@ -53,6 +53,7 @@ public class PullbackStrategy : ISetupStrategy
     public string       Name         => _cfg.Name;
     public string       Ticker       => _cfg.Ticker;
     public decimal      PointValue   => _cfg.PointValue;
+    public bool         UseEmaFilter => _cfg.UseEmaFilter;
     public bool         IsActive     => _inTrade;
     public bool         IsArmed      => _state == 1 || _state == -1;
     private bool        _inTrade;

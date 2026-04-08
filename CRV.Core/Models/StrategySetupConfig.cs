@@ -42,6 +42,10 @@ public class StrategySetupConfig
     /// <summary>Number of ticks offset from VWAP for Vwap stop mode. Default 4.</summary>
     public int StopVwapTicks { get; set; } = 4;
 
+    // ── EMA21 filter (usable by any strategy) ──────────────────────
+    /// <summary>When true, only allow long if price > EMA21, short if price &lt; EMA21.</summary>
+    public bool UseEmaFilter { get; set; }
+
     // ── EMA21 strategy parameters (ignored by ORB strategies) ─────
     /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
     public int SlopeLen { get; set; } = 5;

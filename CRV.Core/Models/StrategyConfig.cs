@@ -529,6 +529,8 @@ public class StrategyConfig
         AllowRearmAfterBe = b.Config.AllowRearmAfterBe,
         AutoTrail = b.AutoTrail,
         SessionSlots = b.Sessions,
+        // EMA filter (any strategy)
+        UseEmaFilter = b.Config.UseEmaFilter,
         // EMA21-specific
         SlopeLen = b.Config.SlopeLen,
         AtrTouchMult = b.Config.AtrTouchMult,

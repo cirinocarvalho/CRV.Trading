@@ -1181,6 +1181,7 @@ function renderBasket() {
                 _bCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
                 _bCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
                 _bCheck(entry.Id, 'UseVwap', cfg.UseVwap !== false, 'VWAP') +
+                _bCheck(entry.Id, 'UseEmaFilter', cfg.UseEmaFilter === true, 'EMA Filter') +
                 (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +

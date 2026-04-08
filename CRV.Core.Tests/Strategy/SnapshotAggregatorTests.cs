@@ -17,6 +17,7 @@ public class SnapshotAggregatorTests
         public string Name { get; init; } = "Stub";
         public string Ticker { get; init; } = "/NQH2026";
         public decimal PointValue { get; init; } = 20m;
+        public bool UseEmaFilter => false;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
         public bool InTrade { get; set; }

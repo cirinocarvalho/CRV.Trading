@@ -15,7 +15,8 @@ public readonly record struct OrbState(
 
 public readonly record struct IndicatorState(
     decimal Atr, decimal Vwap, decimal VwapUpper1, decimal VwapLower1,
-    decimal VwapUpper2, decimal VwapLower2, decimal LastClose);
+    decimal VwapUpper2, decimal VwapLower2, decimal LastClose,
+    decimal Ema21 = 0);
 
 public readonly record struct ModuleState(
     // SessionEngine
@@ -98,6 +99,9 @@ public interface ISetupStrategy
 
     /// <summary>The point value for this setup's instrument (e.g. 20 for NQ, 50 for ES).</summary>
     decimal PointValue { get; }
+
+    /// <summary>When true, long entries require price > EMA21, short entries require price &lt; EMA21.</summary>
+    bool UseEmaFilter { get; }
 
     /// <summary>Process a confirmed bar. May produce pending signals.</summary>
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
