@@ -208,12 +208,16 @@ public sealed class Ema21Strategy : ISetupStrategy
         if (_state != 0 && !_inTrade)
         {
             TryEntry(bar);
+            if (_pendingEntry != null)
+                Console.Error.WriteLine($"[EMA21] ENTRY {_pendingEntry.Direction} @ {bar.Open} stop={_pendingEntry.Stop} tp2={_pendingEntry.Tg2Price}");
         }
 
         // 3. Detect new signals (only when indicators are ready and flat)
         if (_emaReady && _atrReady && _hasPrevBar && _state == 0 && !_inTrade)
         {
             DetectSignals(bar);
+            if (_state != 0)
+                Console.Error.WriteLine($"[EMA21] ARMED {(_state > 0 ? "LONG" : "SHORT")} bar={bar.Time:HH:mm} ema={_ema:F2} atr={_atr:F2} close={bar.Close}");
         }
 
         // 4. Save current bar data for next bar's cross/touch detection
