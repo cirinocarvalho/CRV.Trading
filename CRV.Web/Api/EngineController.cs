@@ -304,4 +304,136 @@ public class EngineController : ControllerBase
         long StrategyId, string Ticker, string Direction,
         int TotalContracts, int PartialContracts = 0, bool UseBe = false,
         string? SetupId = null, decimal PointValue = 0);
+
+    // ── Webhook — external order entry ──────────────────────────
+
+    /// <summary>
+    /// POST /api/engine/webhook/order
+    /// Accepts an external order and places it through the live engine.
+    /// Use from TradingView alerts, scripts, or any HTTP client.
+    /// </summary>
+    [HttpPost("webhook/order")]
+    public async Task<IActionResult> WebhookOrder([FromBody] WebhookOrderRequest req)
+    {
+        var cfg = _cfgSvc.Current;
+
+        // Resolve direction
+        var dirStr = (req.Direction ?? "").Trim().ToLowerInvariant();
+        if (dirStr is not ("long" or "short" or "buy" or "sell"))
+            return BadRequest(new { status = "error", message = "Direction must be 'long', 'short', 'buy', or 'sell'." });
+        var direction = dirStr is "long" or "buy"
+            ? CRV.Core.Models.Direction.Long
+            : CRV.Core.Models.Direction.Short;
+
+        // Resolve ticker — use request ticker or fall back to global config
+        var ticker = !string.IsNullOrEmpty(req.Ticker) ? req.Ticker : cfg.Ticker;
+        var pointValue = req.PointValue > 0 ? req.PointValue : cfg.PointValue;
+        var tickSize = req.TickSize > 0 ? req.TickSize : cfg.TickSize;
+
+        // Validate required fields
+        if (req.Entry <= 0) return BadRequest(new { status = "error", message = "Entry price is required." });
+        if (req.Stop <= 0) return BadRequest(new { status = "error", message = "Stop price is required." });
+        if (req.Qty <= 0) return BadRequest(new { status = "error", message = "Qty must be > 0." });
+
+        // Compute targets — use explicit tgt1/tgt2 or fall back to entry ± distance
+        decimal tgt1 = req.Tgt1 > 0 ? req.Tgt1 : req.Entry; // no partial if not specified
+        decimal tgt2 = req.Tgt2 > 0 ? req.Tgt2 : req.Entry;
+        bool usePartial = req.WithPartial && tgt1 > 0 && tgt1 != req.Entry;
+        int partialCts = usePartial ? Math.Max(1, req.Qty / 2) : 0;
+
+        // Build auto-trail if requested
+        decimal? trailSL = null, trailTrigger = null, trailFreq = null;
+        if (req.AutoTrail && req.TrailStopLoss > 0)
+        {
+            trailSL = req.TrailStopLoss;
+            trailTrigger = req.TrailTrigger > 0 ? req.TrailTrigger : null;
+            trailFreq = req.TrailFreq > 0 ? req.TrailFreq : req.TrailStopLoss;
+        }
+
+        var label = !string.IsNullOrEmpty(req.Label) ? req.Label : $"webhook-{DateTime.UtcNow:HHmmss}";
+
+        var signal = new CRV.Core.Models.EntrySignal(
+            Setup: CRV.Core.Models.SetupId.F,
+            Direction: direction,
+            Entry: req.Entry,
+            Stop: req.Stop,
+            Tg2Price: tgt2,
+            Tg1Price: tgt1,
+            TotalContracts: req.Qty,
+            Time: DateTime.UtcNow,
+            OrderType: req.OrderType ?? "Market",
+            Ticker: ticker,
+            SetupLabel: label,
+            PartialContracts: partialCts,
+            PointValue: pointValue,
+            UsePartial: usePartial,
+            UseBe: req.MoveBe,
+            AutoTrailStopLoss: trailSL,
+            AutoTrailTrigger: trailTrigger,
+            AutoTrailFreq: trailFreq);
+
+        var (ok, message, group) = await _engine.PlaceManualEntryAsync(signal, pointValue);
+
+        if (!ok)
+            return BadRequest(new { status = "error", message });
+
+        _loggerFactory.CreateLogger<EngineController>()
+            .LogInformation("[WEBHOOK] Order placed: {Dir} {Qty}× {Ticker} @ {Entry} | Stop {Stop} | Tgt1 {Tgt1} | Tgt2 {Tgt2} | Label {Label}",
+                direction, req.Qty, ticker, req.Entry, req.Stop, tgt1, tgt2, label);
+
+        return Ok(new
+        {
+            status = "ok",
+            message,
+            groupOrderId = group?.GroupOrderId,
+            direction = direction.ToString(),
+            entry = req.Entry,
+            stop = req.Stop,
+            tgt1,
+            tgt2,
+            qty = req.Qty,
+            usePartial,
+            moveBe = req.MoveBe,
+            autoTrail = req.AutoTrail,
+            label,
+        });
+    }
+
+    public record WebhookOrderRequest
+    {
+        /// <summary>"long", "short", "buy", or "sell"</summary>
+        public string? Direction { get; init; }
+        /// <summary>Entry price</summary>
+        public decimal Entry { get; init; }
+        /// <summary>Stop loss price</summary>
+        public decimal Stop { get; init; }
+        /// <summary>Number of contracts</summary>
+        public int Qty { get; init; }
+        /// <summary>Target 1 (partial exit) price. 0 = no partial.</summary>
+        public decimal Tgt1 { get; init; }
+        /// <summary>Target 2 (full exit) price</summary>
+        public decimal Tgt2 { get; init; }
+        /// <summary>Enable partial exit at Tgt1</summary>
+        public bool WithPartial { get; init; } = true;
+        /// <summary>Move stop to breakeven after partial fill</summary>
+        public bool MoveBe { get; init; } = true;
+        /// <summary>Enable auto-trail stop</summary>
+        public bool AutoTrail { get; init; }
+        /// <summary>Trail stop distance (points). Required when AutoTrail=true.</summary>
+        public decimal TrailStopLoss { get; init; }
+        /// <summary>Trail activation trigger (points from entry). 0 = activate immediately.</summary>
+        public decimal TrailTrigger { get; init; }
+        /// <summary>Trail ratchet frequency (points). 0 = use TrailStopLoss.</summary>
+        public decimal TrailFreq { get; init; }
+        /// <summary>Broker ticker (e.g. "/MNQM26"). Empty = use global config ticker.</summary>
+        public string? Ticker { get; init; }
+        /// <summary>Point value override. 0 = use global config.</summary>
+        public decimal PointValue { get; init; }
+        /// <summary>Tick size override. 0 = use global config.</summary>
+        public decimal TickSize { get; init; }
+        /// <summary>"Market" or "Limit". Default: Market.</summary>
+        public string? OrderType { get; init; }
+        /// <summary>Custom label for the order (appears in dashboard). Auto-generated if empty.</summary>
+        public string? Label { get; init; }
+    }
 }
