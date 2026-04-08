@@ -296,14 +296,9 @@ public class TickerGroup
                 {
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
-                    // EMA21 directional filter: long only above EMA, short only below
-                    if (IsEmaFiltered(strategy, isLong, indState.Ema21))
-                    {
-                        strategy.RevertEntry();
-                    }
                     // Opposing position guard: block entry if another strategy has an active trade
                     // in the opposite direction on the same instrument
-                    else if (HasOpposingPosition(strategy, isLong))
+                    if (HasOpposingPosition(strategy, isLong))
                     {
                         strategy.RevertEntry();
                     }
@@ -386,14 +381,9 @@ public class TickerGroup
                 {
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
-                    // EMA21 directional filter: long only above EMA, short only below
-                    if (IsEmaFiltered(strategy, isLong, indState.Ema21))
-                    {
-                        strategy.RevertEntry();
-                    }
                     // Opposing position guard: block entry if another strategy has an active trade
                     // in the opposite direction on the same instrument
-                    else if (HasOpposingPosition(strategy, isLong))
+                    if (HasOpposingPosition(strategy, isLong))
                     {
                         strategy.RevertEntry();
                     }
