@@ -314,15 +314,6 @@ namespace CRV.Core.Migrations
                     b.Property<decimal>("AtrFilterPct")
                         .HasColumnType("TEXT");
 
-                    b.Property<decimal>("AtrTouchMultEma21")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("AtrTp1MultEma21")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("AtrTp2MultEma21")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("BasketJson")
                         .HasColumnType("TEXT");
 
@@ -363,9 +354,6 @@ namespace CRV.Core.Migrations
                     b.Property<int>("ContractsD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("ContractsEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int>("CutoffHour")
                         .HasColumnType("INTEGER");
 
@@ -381,9 +369,6 @@ namespace CRV.Core.Migrations
                     b.Property<int>("CutoffHourD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("CutoffHourEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int>("CutoffMinute")
                         .HasColumnType("INTEGER");
 
@@ -397,9 +382,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("CutoffMinuteD")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CutoffMinuteEma21")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("DailyLossMode")
@@ -469,6 +451,9 @@ namespace CRV.Core.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Ema21BasketJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("EnableA")
                         .HasColumnType("INTEGER");
 
@@ -479,9 +464,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("EnableD")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("EnableEma21")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("EntryTickOffsetA")
@@ -573,9 +555,6 @@ namespace CRV.Core.Migrations
                     b.Property<int>("MaxContractsD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("MaxContractsEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<decimal>("MaxDailyLoss")
                         .HasColumnType("TEXT");
 
@@ -615,9 +594,6 @@ namespace CRV.Core.Migrations
                     b.Property<int>("MaxTradesD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("MaxTradesEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<decimal>("MinRrA")
                         .HasColumnType("TEXT");
 
@@ -628,12 +604,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("MinRrD")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("MinRrEma21")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("MinSlopePctEma21")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ModeA")
@@ -663,9 +633,6 @@ namespace CRV.Core.Migrations
                     b.Property<decimal>("NearPctD")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("OpenTicksToEmaEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<TimeOnly>("OrbEnd")
                         .HasColumnType("TEXT");
 
@@ -688,10 +655,6 @@ namespace CRV.Core.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("OrderTypeEma21")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("PartialCtsA")
                         .HasColumnType("INTEGER");
 
@@ -702,9 +665,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("PartialCtsD")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("PartialCtsEma21")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("PartialPctA")
@@ -732,9 +692,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("PointValueD")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("PointValueEma21")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("PullbackPct")
@@ -766,9 +723,6 @@ namespace CRV.Core.Migrations
 
                     b.Property<decimal>("ShallowPullbackMax")
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("SlopeLenEma21")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("StopModeA")
                         .IsRequired()
@@ -849,9 +803,6 @@ namespace CRV.Core.Migrations
                     b.Property<decimal>("TickSizeD")
                         .HasColumnType("TEXT");
 
-                    b.Property<decimal>("TickSizeEma21")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Ticker")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -869,10 +820,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TickerD")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TickerEma21")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -898,9 +845,6 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("UseBeD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("UseBeEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<bool>("UseCloseConfirmationA")
                         .HasColumnType("INTEGER");
 
@@ -914,9 +858,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UseCustomTickerD")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("UseCustomTickerEma21")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UseDailyLossLimit")
@@ -943,13 +884,7 @@ namespace CRV.Core.Migrations
                     b.Property<bool>("UsePartialD")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("UsePartialEma21")
-                        .HasColumnType("INTEGER");
-
                     b.Property<bool>("UseTimeFilter")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("UseVolumeFilterEma21")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("UseVwap")

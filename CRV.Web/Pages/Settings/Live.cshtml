@@ -557,10 +557,10 @@
     .basket-chevron { transition: transform 0.2s; display: inline-block; }
     [aria-expanded="true"] .basket-chevron { transform: rotate(90deg); }
 </style>
-<!-- ── Setup Basket ────────────────────────────────────────── -->
+<!-- ── Setup Basket ORB ─────────────────────────────────────── -->
 <div class="card crv-card mb-3 mt-4">
     <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#basketBody" aria-expanded="false" aria-controls="basketBody">
-        <h6 class="mb-0"><i class="bi bi-basket me-2 text-warning"></i>Setup Basket <i class="bi bi-chevron-down ms-2 small"></i></h6>
+        <h6 class="mb-0"><i class="bi bi-basket me-2 text-warning"></i>Setup Basket ORB <i class="bi bi-chevron-down ms-2 small"></i></h6>
         <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="event.stopPropagation(); addBasketEntry()">
             <i class="bi bi-plus-lg me-1"></i>Add Setup
         </button>
@@ -577,170 +577,24 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════ -->
-<!-- ── EMA21 Strategy ─────────────────────────────────────── -->
+<!-- ── Setup Basket EMA21 ─────────────────────────────────── -->
 <!-- ════════════════════════════════════════════════════════════ -->
-<div class="card bg-dark border-secondary mb-3">
-  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#ema21Body" aria-expanded="false" aria-controls="ema21Body">
-    <i class="bi bi-graph-up me-2 text-warning"></i>
-    <strong>EMA21 Strategy <i class="bi bi-chevron-down ms-2 small"></i></strong>
-    <div class="form-check form-switch ms-auto" onclick="event.stopPropagation()">
-      <input class="form-check-input" type="checkbox" id="enableEma21"
-             name="Config.EnableEma21" value="true" @(Model.Config.EnableEma21 ? "checked" : "") />
-      <input type="hidden" name="Config.EnableEma21" value="false" />
-      <label class="form-check-label" for="enableEma21">Enable</label>
+<input type="hidden" name="Config.Ema21BasketJson" id="ema21-basket-json" value="@(Model.Config.Ema21BasketJson ?? "")" />
+<div class="card crv-card mb-3">
+    <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#ema21BasketBody" aria-expanded="false" aria-controls="ema21BasketBody">
+        <h6 class="mb-0"><i class="bi bi-graph-up me-2 text-warning"></i>Setup Basket EMA21 <i class="bi bi-chevron-down ms-2 small"></i></h6>
+        <button type="button" class="btn btn-sm btn-outline-warning ms-auto" onclick="event.stopPropagation(); addEma21Entry()">
+            <i class="bi bi-plus-lg me-1"></i>Add Setup
+        </button>
     </div>
-  </div>
-  <div class="card-body collapse" id="ema21Body">
-
-    <div class="row g-3 mb-3">
-      <!-- ── Sizing & Limits ──────────────────────────────── -->
-      <div class="col-12 col-xl-4">
-        <div class="settings-section">
-          <h6><i class="bi bi-boxes me-1"></i>Sizing & Limits</h6>
-          <div class="row g-2">
-            <div class="col-6">
-              <label class="form-label small">Contracts</label>
-              <input name="Config.ContractsEma21" type="number" min="1" step="1"
-                     value="@Model.Config.ContractsEma21" class="form-control form-control-sm" />
+    <div class="collapse" id="ema21BasketBody">
+        <div class="card-body py-2">
+            <div id="ema21-basket-entries"></div>
+            <div id="ema21-basket-empty" class="text-muted small text-center py-2">
+                No EMA21 setups. Click "Add Setup" to create one.
             </div>
-            <div class="col-6">
-              <label class="form-label small">Max Contracts</label>
-              <input name="Config.MaxContractsEma21" type="number" min="1" step="1"
-                     value="@Model.Config.MaxContractsEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Max Trades</label>
-              <input name="Config.MaxTradesEma21" type="number" min="1" step="1"
-                     value="@Model.Config.MaxTradesEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Min R:R</label>
-              <input name="Config.MinRrEma21" type="number" step="0.1" min="0"
-                     value="@Model.Config.MinRrEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Order Type</label>
-              <select name="Config.OrderTypeEma21" class="form-select form-select-sm">
-                <option value="Market" selected="@(Model.Config.OrderTypeEma21=="Market" ? "selected" : null)">Market</option>
-                <option value="Limit"  selected="@(Model.Config.OrderTypeEma21=="Limit"  ? "selected" : null)">Limit</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Partial Cts</label>
-              <input name="Config.PartialCtsEma21" type="number" min="0" step="1"
-                     value="@Model.Config.PartialCtsEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">0 = auto (50%)</div>
-            </div>
-          </div>
-          <div class="mt-2 d-flex flex-column gap-2">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="Config.UsePartialEma21" value="true" id="chk-ema21-partial" @(Model.Config.UsePartialEma21 ? "checked" : "") />
-              <input type="hidden" name="Config.UsePartialEma21" value="false" />
-              <label class="form-check-label small" for="chk-ema21-partial">Partial Exit</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="Config.UseBeEma21" value="true" id="chk-ema21-be" @(Model.Config.UseBeEma21 ? "checked" : "") />
-              <input type="hidden" name="Config.UseBeEma21" value="false" />
-              <label class="form-check-label small" for="chk-ema21-be">Breakeven Stop</label>
-            </div>
-          </div>
         </div>
-      </div>
-
-      <!-- ── EMA21 Signal Parameters ─────────────────────── -->
-      <div class="col-12 col-xl-4">
-        <div class="settings-section">
-          <h6><i class="bi bi-activity me-1"></i>Signal Parameters</h6>
-          <div class="row g-2">
-            <div class="col-6">
-              <label class="form-label small">Slope Lookback</label>
-              <input name="Config.SlopeLenEma21" type="number" min="1" step="1"
-                     value="@Model.Config.SlopeLenEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Bars for EMA slope</div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Min Slope %</label>
-              <input name="Config.MinSlopePctEma21" type="number" step="0.01" min="0"
-                     value="@Model.Config.MinSlopePctEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Filter flat EMA noise</div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">ATR Touch Mult</label>
-              <input name="Config.AtrTouchMultEma21" type="number" step="0.1" min="0"
-                     value="@Model.Config.AtrTouchMultEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Touch zone = ATR * mult</div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Open Ticks to EMA</label>
-              <input name="Config.OpenTicksToEmaEma21" type="number" min="0" step="1"
-                     value="@Model.Config.OpenTicksToEmaEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Max ticks from EMA at open</div>
-            </div>
-          </div>
-          <div class="mt-2">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="Config.UseVolumeFilterEma21" value="true" id="chk-ema21-vol" @(Model.Config.UseVolumeFilterEma21 ? "checked" : "") />
-              <input type="hidden" name="Config.UseVolumeFilterEma21" value="false" />
-              <label class="form-check-label small" for="chk-ema21-vol">Volume Filter (vol > 20-bar SMA)</label>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── Targets & Cutoff ────────────────────────────── -->
-      <div class="col-12 col-xl-4">
-        <div class="settings-section">
-          <h6><i class="bi bi-bullseye me-1"></i>Targets & Cutoff</h6>
-          <div class="row g-2">
-            <div class="col-6">
-              <label class="form-label small">ATR TP1 Mult</label>
-              <input name="Config.AtrTp1MultEma21" type="number" step="0.1" min="0"
-                     value="@Model.Config.AtrTp1MultEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Partial target = ATR * mult</div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">ATR TP2 Mult</label>
-              <input name="Config.AtrTp2MultEma21" type="number" step="0.1" min="0"
-                     value="@Model.Config.AtrTp2MultEma21" class="form-control form-control-sm" />
-              <div class="form-text text-muted" style="font-size:.65rem">Full target = ATR * mult</div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Cutoff Hour</label>
-              <input name="Config.CutoffHourEma21" type="number" min="0" max="23" step="1"
-                     value="@Model.Config.CutoffHourEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-6">
-              <label class="form-label small">Cutoff Minute</label>
-              <input name="Config.CutoffMinuteEma21" type="number" min="0" max="59" step="1"
-                     value="@Model.Config.CutoffMinuteEma21" class="form-control form-control-sm" />
-            </div>
-          </div>
-          <!-- Per-setup instrument override -->
-          <h6 class="mt-3"><i class="bi bi-currency-exchange me-1"></i>Instrument Override</h6>
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="Config.UseCustomTickerEma21" value="true" id="chk-ema21-ticker" @(Model.Config.UseCustomTickerEma21 ? "checked" : "") />
-            <input type="hidden" name="Config.UseCustomTickerEma21" value="false" />
-            <label class="form-check-label small" for="chk-ema21-ticker">Custom Ticker</label>
-          </div>
-          <div class="row g-2">
-            <div class="col-4">
-              <label class="form-label small">Ticker</label>
-              <input name="Config.TickerEma21" type="text" value="@Model.Config.TickerEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-4">
-              <label class="form-label small">Point Value</label>
-              <input name="Config.PointValueEma21" type="number" step="any" value="@Model.Config.PointValueEma21" class="form-control form-control-sm" />
-            </div>
-            <div class="col-4">
-              <label class="form-label small">Tick Size</label>
-              <input name="Config.TickSizeEma21" type="number" step="any" value="@Model.Config.TickSizeEma21" class="form-control form-control-sm" />
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
-
-  </div>
 </div>
 
 <!-- ── Email Alerts ─────────────────────────────────────────── -->
@@ -1103,7 +957,7 @@ function instrOnChange() {
     });
 })();
 
-// ── Setup Basket editor ─────────────────────────────────────
+// ── Setup Basket ORB editor ──────────────────────────────────
 var _basket = [];
 
 (function() {
@@ -1422,6 +1276,200 @@ function toggleSetupAutoTrail(checkbox, index, sl) {
         if (checkbox.checked) { beField.checked = false; beField.disabled = true; }
         else { beField.disabled = false; }
     }
+}
+
+// ── Setup Basket EMA21 editor ───────────────────────────────
+var _ema21Basket = [];
+(function() {
+    var raw = document.getElementById('ema21-basket-json').value;
+    if (raw) { try { _ema21Basket = JSON.parse(raw); } catch(e) { _ema21Basket = []; } }
+    renderEma21Basket();
+})();
+
+function addEma21Entry() {
+    var id = 'ema21-' + Date.now();
+    _ema21Basket.push({
+        Id: id, Label: '', StrategyType: 4, Enabled: true,
+        Ticker: '', PointValue: 20, TickSize: 0.25,
+        Sessions: [
+            { SessionId: 'Asia', Enabled: false, CutoffHour: 1, CutoffMinute: 30 },
+            { SessionId: 'London', Enabled: false, CutoffHour: 8, CutoffMinute: 0 },
+            { SessionId: 'NY', Enabled: true, CutoffHour: 14, CutoffMinute: 0 }
+        ],
+        Config: {
+            Contracts: 2, MaxContracts: 2, MaxTrades: 5, MinRr: 1.0,
+            UsePartial: true, UseBe: true, PartialCts: 1, OrderType: 'Market',
+            CutoffHour: 14, CutoffMinute: 0, CloseAtRthClose: true,
+            SlopeLen: 5, AtrTouchMult: 0.5, MinSlopePct: 0.05, OpenTicksToEma: 4,
+            UseVolumeFilter: false, AtrTp1Mult: 1.0, AtrTp2Mult: 2.0,
+            EntryTickOffset: 0, MaxTradeRisk: 0
+        }
+    });
+    renderEma21Basket();
+}
+
+function removeEma21Entry(id) {
+    _ema21Basket = _ema21Basket.filter(function(b) { return b.Id !== id; });
+    renderEma21Basket();
+}
+
+function updateEma21Field(id, field, value) {
+    var entry = _ema21Basket.find(function(b) { return b.Id === id; });
+    if (entry) { entry[field] = value; if (field === 'Enabled') { renderEma21Basket(); return; } syncEma21Json(); }
+}
+
+function updateEma21Config(id, field, value) {
+    var entry = _ema21Basket.find(function(b) { return b.Id === id; });
+    if (entry) { if (!entry.Config) entry.Config = {}; entry.Config[field] = value; syncEma21Json(); }
+}
+
+function updateEma21Instrument(id, base) {
+    var entry = _ema21Basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    var info = window.CRV_findInstrument ? window.CRV_findInstrument(base) : null;
+    var front = window.CRV_activeContract ? window.CRV_activeContract(base) : '/' + base;
+    entry.Ticker = front;
+    entry.PointValue = info ? info.pointValue : 20;
+    entry.TickSize = info ? info.tickSize : 0.25;
+    var count = _ema21Basket.filter(function(b) { return b.Ticker === front; }).length;
+    entry.Id = 'ema21-' + base.toLowerCase() + (count > 1 ? '-' + count : '');
+    entry.Label = 'EMA21 [' + base + ']';
+    renderEma21Basket();
+}
+
+function updateEma21Session(entryId, sessionId, field, value) {
+    var entry = _ema21Basket.find(function(b) { return b.Id === entryId; });
+    if (!entry) return;
+    if (!entry.Sessions) entry.Sessions = [];
+    var slot = entry.Sessions.find(function(s) { return s.SessionId === sessionId; });
+    if (!slot) { slot = { SessionId: sessionId, Enabled: false, CutoffHour: 14, CutoffMinute: 0 }; entry.Sessions.push(slot); }
+    slot[field] = value;
+    if (field === 'Enabled') renderEma21Basket();
+    syncEma21Json();
+}
+
+// EMA21-specific field helpers (delegate to ORB helpers with ema21 update functions)
+function _eField(id, field, type, val, w, label, parse, step) {
+    var onChange = parse === 'float'
+        ? "updateEma21Config('" + id + "','" + field + "',parseFloat(this.value))"
+        : "updateEma21Config('" + id + "','" + field + "',parseInt(this.value))";
+    var stepAttr = step ? ' step="' + step + '"' : '';
+    return '<div class="col-auto"><label class="form-label small mb-0">' + label + '</label>' +
+        '<input type="' + type + '"' + stepAttr + ' class="form-control form-control-sm" style="width:' + w + 'px" value="' + val + '" onchange="' + onChange + '"></div>';
+}
+function _eCheck(id, field, checked, label) {
+    var chk = checked ? ' checked' : '';
+    return '<div class="col-auto d-flex align-items-end pb-1"><div class="form-check form-check-inline mb-0">' +
+        '<input type="checkbox" class="form-check-input"' + chk + ' onchange="updateEma21Config(\'' + id + '\',\'' + field + '\',this.checked)">' +
+        '<label class="form-check-label small">' + label + '</label></div></div>';
+}
+function _eSessionSlot(entry, sessionId) {
+    var slots = entry.Sessions || [];
+    var slot = slots.find(function(s) { return s.SessionId === sessionId; });
+    var enabled = slot ? slot.Enabled : (sessionId === 'NY');
+    var h = slot ? slot.CutoffHour : 14;
+    var m = slot ? slot.CutoffMinute : 0;
+    var chk = enabled ? ' checked' : '';
+    return '<div class="col-auto d-flex align-items-end gap-1 pb-1">' +
+        '<div class="form-check form-check-inline mb-0">' +
+            '<input type="checkbox" class="form-check-input"' + chk + ' onchange="updateEma21Session(\'' + entry.Id + '\',\'' + sessionId + '\',\'Enabled\',this.checked)">' +
+            '<label class="form-check-label small">' + sessionId + '</label>' +
+        '</div>' +
+        '<input type="time" class="form-control form-control-sm" style="width:95px;' + (enabled ? '' : 'opacity:0.4') + '" value="' +
+            String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + '" ' +
+            (enabled ? '' : 'disabled') +
+            ' onchange="var p=this.value.split(\':\'); updateEma21Session(\'' + entry.Id + '\',\'' + sessionId + '\',\'CutoffHour\',parseInt(p[0])); updateEma21Session(\'' + entry.Id + '\',\'' + sessionId + '\',\'CutoffMinute\',parseInt(p[1]));">' +
+    '</div>';
+}
+
+function renderEma21Basket() {
+    var container = document.getElementById('ema21-basket-entries');
+    var empty = document.getElementById('ema21-basket-empty');
+    if (_ema21Basket.length === 0) {
+        container.innerHTML = ''; empty.style.display = '';
+        document.getElementById('ema21-basket-json').value = '';
+        return;
+    }
+    empty.style.display = 'none';
+
+    var instrData = window.CRV_INSTRUMENTS || { mini: [], micro: [] };
+    function _instrOpts(list, entry) {
+        return list.map(function(instr) {
+            var front = window.CRV_activeContract ? window.CRV_activeContract(instr.code) : instr.code;
+            var ticker = (entry.Ticker || '').replace(/^\//, '');
+            var selected = ticker === front || ticker.indexOf(instr.code) === 0 ? 'selected' : '';
+            return '<option value="' + instr.code + '" ' + selected + '>' + instr.label + ' ($' + instr.pointValue + '/pt)</option>';
+        }).join('');
+    }
+
+    container.innerHTML = _ema21Basket.map(function(entry, i) {
+        var instrOptions = '<option value="">— Select —</option>' +
+            '<optgroup label="Micro">' + _instrOpts(instrData.micro, entry) + '</optgroup>' +
+            '<optgroup label="Mini">' + _instrOpts(instrData.mini, entry) + '</optgroup>';
+        var cfg = entry.Config || {};
+        var collapseId = 'ema21-collapse-' + entry.Id;
+        var dimStyle = entry.Enabled === false ? ' style="opacity:0.45"' : '';
+        return '<div class="basket-entry border rounded p-2 mb-2" data-id="' + entry.Id + '"' + dimStyle + '>' +
+            '<div class="d-flex gap-2 align-items-center">' +
+                '<button type="button" class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" style="width:20px">' +
+                    '<i class="bi bi-chevron-right basket-chevron"></i>' +
+                '</button>' +
+                '<span class="badge bg-warning text-dark">#' + (i+1) + '</span>' +
+                '<span class="badge bg-info">EMA21</span>' +
+                '<select class="form-select form-select-sm" style="width:220px" onchange="updateEma21Instrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
+                '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateEma21Field(\'' + entry.Id + '\',\'Label\',this.value)">' +
+                '<div class="form-check form-switch ms-auto mb-0">' +
+                    '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled !== false ? 'checked' : '') +
+                    ' onchange="updateEma21Field(\'' + entry.Id + '\',\'Enabled\',this.checked)">' +
+                '</div>' +
+                '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEma21Entry(\'' + entry.Id + '\')">' +
+                    '<i class="bi bi-trash"></i>' +
+                '</button>' +
+            '</div>' +
+            '<div class="collapse mt-2" id="' + collapseId + '">' +
+            '<div class="row g-2">' +
+                _eField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
+                _eField(entry.Id, 'MaxContracts', 'number', cfg.MaxContracts || 2, 80, 'Max Cts', 'int') +
+                _eField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
+                _eField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.0, 65, 'Min R:R', 'float', '0.1') +
+                _eField(entry.Id, 'PartialCts', 'number', cfg.PartialCts || 0, 70, 'Partial Cts', 'int') +
+                _eField(entry.Id, 'EntryTickOffset', 'number', cfg.EntryTickOffset || 0, 70, 'Tick Offset', 'int') +
+                _eField(entry.Id, 'MaxTradeRisk', 'number', cfg.MaxTradeRisk || 0, 80, 'Max Risk $', 'int') +
+            '</div>' +
+            '<div class="row g-2 mt-1">' +
+                '<div class="col-auto"><label class="form-label small mb-0 text-info">Signal</label></div>' +
+                _eField(entry.Id, 'SlopeLen', 'number', cfg.SlopeLen || 5, 65, 'Slope Len', 'int') +
+                _eField(entry.Id, 'AtrTouchMult', 'number', cfg.AtrTouchMult || 0.5, 80, 'Touch ATR×', 'float', '0.1') +
+                _eField(entry.Id, 'MinSlopePct', 'number', cfg.MinSlopePct || 0.05, 80, 'Min Slope%', 'float', '0.01') +
+                _eField(entry.Id, 'OpenTicksToEma', 'number', cfg.OpenTicksToEma || 4, 70, 'Ticks EMA', 'int') +
+                _eField(entry.Id, 'AtrTp1Mult', 'number', cfg.AtrTp1Mult || 1.0, 70, 'TP1 ATR×', 'float', '0.1') +
+                _eField(entry.Id, 'AtrTp2Mult', 'number', cfg.AtrTp2Mult || 2.0, 70, 'TP2 ATR×', 'float', '0.1') +
+            '</div>' +
+            '<div class="row g-2 mt-1">' +
+                '<div class="col-auto"><label class="form-label small mb-0">Sessions</label></div>' +
+                _eSessionSlot(entry, 'Asia') +
+                _eSessionSlot(entry, 'London') +
+                _eSessionSlot(entry, 'NY') +
+            '</div>' +
+            '<div class="row g-2 mt-1">' +
+                '<div class="col-auto"><label class="form-label small mb-0">Order</label>' +
+                    '<select class="form-select form-select-sm" style="width:100px" onchange="updateEma21Config(\'' + entry.Id + '\',\'OrderType\',this.value)">' +
+                        '<option ' + ((cfg.OrderType||'Market')==='Market'?'selected':'') + '>Market</option>' +
+                        '<option ' + ((cfg.OrderType||'')==='Limit'?'selected':'') + '>Limit</option>' +
+                    '</select></div>' +
+                _eCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
+                _eCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
+                _eCheck(entry.Id, 'UseVolumeFilter', cfg.UseVolumeFilter === true, 'Vol Filter') +
+                _eCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
+            '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+    syncEma21Json();
+}
+
+function syncEma21Json() {
+    document.getElementById('ema21-basket-json').value = JSON.stringify(_ema21Basket);
 }
 </script>
 }
