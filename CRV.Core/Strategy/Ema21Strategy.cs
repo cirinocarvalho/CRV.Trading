@@ -195,14 +195,25 @@ public sealed class Ema21Strategy : ISetupStrategy
     }
 
     // ── OnBar — main processing ──────────────────────────────────
+    private int _barCount;
+    private bool _loggedReady;
     public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules)
     {
         if (!_cfg.Enabled || !bar.IsConfirmed) return;
+
+        _barCount++;
 
         // 1. Update indicators
         UpdateEma(bar.Close);
         UpdateAtr(bar);
         UpdateVolSma(bar.Volume);
+
+        // Debug: log when indicators become ready (once)
+        if (_emaReady && _atrReady && !_loggedReady)
+        {
+            _loggedReady = true;
+            Console.Error.WriteLine($"[EMA21] indicators READY at bar #{_barCount} {bar.Time:HH:mm} ema={_ema:F2} atr={_atr:F2} close={bar.Close} prevClose={_prevBarClose} prevEma={_prevEma} hasPrev={_hasPrevBar}");
+        }
 
         // 2. If armed from previous bar, try entry at this bar's open
         if (_state != 0 && !_inTrade)
