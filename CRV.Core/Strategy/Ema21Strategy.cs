@@ -199,9 +199,10 @@ public sealed class Ema21Strategy : ISetupStrategy
     private bool _loggedReady;
     public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules)
     {
-        if (!_cfg.Enabled || !bar.IsConfirmed) return;
-
         _barCount++;
+        if (_barCount <= 3)
+            Console.Error.WriteLine($"[EMA21] OnBar #{_barCount} enabled={_cfg.Enabled} confirmed={bar.IsConfirmed} close={bar.Close} time={bar.Time:HH:mm}");
+        if (!_cfg.Enabled || !bar.IsConfirmed) return;
 
         // 1. Update indicators
         UpdateEma(bar.Close);
