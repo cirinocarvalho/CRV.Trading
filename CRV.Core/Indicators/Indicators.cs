@@ -38,6 +38,35 @@ public class AtrIndicator
     public void Reset() { _trs.Clear(); _seeded = false; _atr = 0; }
 }
 
+// ── EMA(21) — incremental with SMA seed ─────────────────────
+public class Ema21Indicator
+{
+    private const int Period = 21;
+    private decimal _ema;
+    private decimal _sum;
+    private int _count;
+
+    public decimal Value   => _ema;
+    public bool    IsReady => _count >= Period;
+
+    public decimal Update(decimal close)
+    {
+        _count++;
+        if (_count <= Period)
+        {
+            _sum += close;
+            if (_count == Period)
+                _ema = _sum / Period;
+            return _ema;
+        }
+        decimal k = 2m / (Period + 1);
+        _ema = (close - _ema) * k + _ema;
+        return _ema;
+    }
+
+    public void Reset() { _ema = 0; _sum = 0; _count = 0; }
+}
+
 // ── VWAP — resets per trading session ─────────────────────────
 public class VwapIndicator
 {

@@ -115,6 +115,7 @@ public class EngineSnapshot
     // Indicators
     public decimal    Vwap           { get; set; }
     public decimal    Atr            { get; set; }
+    public decimal    Ema21          { get; set; }
 
     // ORB levels
     public decimal    OrbHigh        { get; set; }
@@ -304,8 +305,9 @@ public class TickerGroupSnapshot
     public decimal OrbAtrRatio     { get; set; }
     public bool    OrbFormed       { get; set; }
 
-    // ATR
+    // ATR & EMA21
     public decimal Atr             { get; set; }
+    public decimal Ema21           { get; set; }
 
     // Current bar (for live chart updates)
     public long    BarTime         { get; set; }  // UTC unix seconds

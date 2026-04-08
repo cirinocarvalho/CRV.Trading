@@ -31,6 +31,7 @@ public class TickerGroup
     // ── Indicators (shared across all strategies in this group) ──
     private readonly AtrIndicator _atr;
     private readonly VwapIndicator _vwap;
+    private readonly Ema21Indicator _ema21 = new();
     private readonly OrbCalculator _orb;
     private readonly TimeZoneInfo _tz;
     private decimal _lastBarClose;
@@ -149,6 +150,7 @@ public class TickerGroup
             _barBuffer.Add(bar);
 
             _atr.Update(bar);
+            _ema21.Update(bar.Close);
             _vwap.Update(bar, tradingDate);
 
             // Store VWAP value alongside the last added bar
@@ -550,8 +552,9 @@ public class TickerGroup
         OrbBearClose = _orb.OrbBearClose,
         OrbAtrRatio = _orbAtrRatio,
         OrbFormed = _orb.IsSet,
-        // ATR
+        // ATR & EMA21
         Atr = _atr.Value,
+        Ema21 = _ema21.Value,
         // False Breakout
         FBOrbBreakoutActive = _falseBreakout.OrbTracker.BreakoutActive,
         FBSessionBreakoutActive = _falseBreakout.SessionRangeTracker.BreakoutActive,

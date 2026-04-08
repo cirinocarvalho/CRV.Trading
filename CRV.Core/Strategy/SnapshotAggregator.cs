@@ -124,6 +124,7 @@ public static class SnapshotAggregator
             // Indicators
             Vwap = inputs.Indicators.Vwap,
             Atr  = inputs.Indicators.Atr,
+            Ema21 = inputs.GroupSnapshots.Values.FirstOrDefault()?.Ema21 ?? 0,
 
             // ORB levels
             OrbHigh      = inputs.Orb.High,

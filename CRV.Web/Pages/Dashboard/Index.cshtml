@@ -222,6 +222,10 @@
                                 <span class="small text-muted ms-2" id="stat-orb-atr-ratio">vs ORB —</span>
                             </td>
                         </tr>
+                        <tr>
+                            <td class="text-muted">EMA(21)</td>
+                            <td><span class="font-monospace" id="stat-ema21">—</span></td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -491,7 +495,7 @@ let _lwcPendingMarkers = []; // markers buffered before chart ready
 let _lwcLastBarTime = 0;   // track bar transitions
 let _lwcDataReady = false; // prevent updates before initial setData
 let _lwcHasData = false;   // series has at least one data point
-let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 }; // cache to avoid re-creating
+let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0, ema21: 0 }; // cache to avoid re-creating
 
 // Compute ET offset in seconds (handles EDT/EST automatically)
 function _getEtOffsetSec() {
@@ -579,14 +583,19 @@ function _lwcUpdatePriceLines(gs) {
         var h = wantOrb ? gs.orbHigh : 0;
         var l = wantOrb ? gs.orbLow  : 0;
         var m = wantOrb ? gs.orbMid  : 0;
+        var e21 = gs.ema21 > 0 ? gs.ema21 : 0;
         // Skip if nothing changed (avoids remove+recreate race with LWC render cycle)
-        if (h === _lwcPriceLineValues.orbHigh && l === _lwcPriceLineValues.orbLow && m === _lwcPriceLineValues.orbMid) return;
+        if (h === _lwcPriceLineValues.orbHigh && l === _lwcPriceLineValues.orbLow
+            && m === _lwcPriceLineValues.orbMid && e21 === _lwcPriceLineValues.ema21) return;
         _lwcRemovePriceLines();
-        _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m };
+        _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m, ema21: e21 };
         if (wantOrb) {
             _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: h, color: '#2a6f6f', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
             _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: l, color: '#7f1d1d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
             _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: m, color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
+        }
+        if (e21 > 0) {
+            _lwcPriceLines.ema21 = _lwcSeries.createPriceLine({ price: e21, color: '#3b82f6', lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'EMA21' });
         }
     } catch(e) { /* suppress during group switch */ }
 }
@@ -603,7 +612,7 @@ async function _lwcLoadGroup(groupKey) {
     _lwcLastVolMa = 0;
     _lwcDataReady = false;  // block live updates until setData completes
     _lwcHasData = false;
-    _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 };
+    _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0, ema21: 0 };
     // Remove old price lines BEFORE loading new data (avoids "Value is null")
     _lwcRemovePriceLines();
     var seq = ++_lwcLoadSeq;
@@ -926,6 +935,7 @@ function _applyGroupContext(g) {
 
     setText("stat-vwap", g.vwap > 0 ? g.vwap.toFixed(2) : "—");
     setText("stat-atr",  g.atr  > 0 ? g.atr.toFixed(2)  : "—");
+    setText("stat-ema21", g.ema21 > 0 ? g.ema21.toFixed(2) : "—");
     if (g.orbAtrRatio > 0)
         setText("stat-orb-atr-ratio", "vs ORB " + g.orbAtrRatio.toFixed(2) + "x");
     else
@@ -1211,6 +1221,7 @@ function updateDashboard(d) {
         setText("orb-range", d.orbRange > 0 ? d.orbRange.toFixed(2) + " pts" : "—");
         setText("stat-vwap", d.vwap > 0 ? d.vwap.toFixed(2) : "—");
         setText("stat-atr",  d.atr  > 0 ? d.atr.toFixed(2)  : "—");
+        setText("stat-ema21", d.ema21 > 0 ? d.ema21.toFixed(2) : "—");
         if (d.orbAtrRatio > 0)
             setText("stat-orb-atr-ratio", "vs ORB " + d.orbAtrRatio.toFixed(2) + "x");
         setText("stat-session", d.currentSession || "—");
