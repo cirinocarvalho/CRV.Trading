@@ -339,7 +339,9 @@ public class EngineController : ControllerBase
         decimal tgt1 = req.Tgt1 > 0 ? req.Tgt1 : req.Entry; // no partial if not specified
         decimal tgt2 = req.Tgt2 > 0 ? req.Tgt2 : req.Entry;
         bool usePartial = req.WithPartial && tgt1 > 0 && tgt1 != req.Entry;
-        int partialCts = usePartial ? Math.Max(1, req.Qty / 2) : 0;
+        int partialCts = usePartial
+            ? (req.PartialQty > 0 ? Math.Min(req.PartialQty, req.Qty - 1) : Math.Max(1, req.Qty / 2))
+            : 0;
 
         // Build auto-trail if requested
         decimal? trailSL = null, trailTrigger = null, trailFreq = null;
@@ -413,6 +415,8 @@ public class EngineController : ControllerBase
         public decimal Tgt1 { get; init; }
         /// <summary>Target 2 (full exit) price</summary>
         public decimal Tgt2 { get; init; }
+        /// <summary>Contracts to exit at Tgt1. 0 = auto (qty/2). Rest exits at Tgt2/stop.</summary>
+        public int PartialQty { get; init; }
         /// <summary>Enable partial exit at Tgt1</summary>
         public bool WithPartial { get; init; } = true;
         /// <summary>Move stop to breakeven after partial fill</summary>
