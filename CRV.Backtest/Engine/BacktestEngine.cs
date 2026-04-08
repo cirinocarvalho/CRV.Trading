@@ -109,10 +109,6 @@ public class BacktestEngine
             }
         }
 
-        _log.LogInformation("Backtest: {Count} setups registered. UseEmaFilter: {Filters}",
-            engine.GetStrategies().Count,
-            string.Join(", ", engine.GetStrategies().Select(s => $"{s.Id}={s.UseEmaFilter}")));
-
         // Enable tick mode: bar-level entry/exit skipped in ProcessBarAsync;
         // instead, four OHLC ticks per input bar drive entries and exits.
         engine.EnableTickMode();
@@ -297,13 +293,6 @@ public class BacktestEngine
             prices.UpdatePrice(ticker, bkt.Close);
             await engine.ProcessBarAsync(tfBar, ticker, ct);
 
-            // Debug: log armed/entry state after each bar
-            foreach (var strat in engine.GetStrategies())
-            {
-                if (strat.IsArmed || strat.PendingEntry != null)
-                    _log.LogInformation("BT [{Ticker}] bar {Time}: {Id} armed={Armed} pendingEntry={HasEntry}",
-                        ticker, tfBar.Time.ToString("HH:mm"), strat.Id, strat.IsArmed, strat.PendingEntry != null);
-            }
         }
     }
 
