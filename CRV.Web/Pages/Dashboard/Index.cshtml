@@ -670,14 +670,14 @@ async function _lwcLoadGroup(groupKey) {
         });
         _lwcVolSeries.setData(volData);
 
-        // Volume MA(21)
-        var maLen = 21;
+        // Volume SMA(20) — matches EMA21 strategy's VolSmaPeriod
+        var maLen = 20;
         var maData = [];
         for (var i = 0; i < bars.length; i++) {
-            if (i < maLen - 1) continue;
+            var lookback = Math.min(i + 1, maLen);
             var sum = 0;
-            for (var j = i - maLen + 1; j <= i; j++) sum += (bars[j].volume || 0);
-            maData.push({ time: bars[i].time, value: sum / maLen });
+            for (var j = i - lookback + 1; j <= i; j++) sum += (bars[j].volume || 0);
+            maData.push({ time: bars[i].time, value: sum / lookback });
         }
         _lwcVolMaSeries.setData(maData);
         if (maData.length > 0) _lwcLastVolMa = maData[maData.length - 1].value;
