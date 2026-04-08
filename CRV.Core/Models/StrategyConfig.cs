@@ -311,7 +311,7 @@ public class StrategyConfig
 
     // ── Email Alerts ──────────────────────────────────────────────
     public bool    EmailEnabled              { get; set; } = false;
-    public string  EmailRecipients           { get; set; } = "";
+    public string? EmailRecipients           { get; set; } = "";
     public int     EmailBatchIntervalMinutes { get; set; } = 5;
 
     // Per alert type: enabled + mode ("instant" or "batched")
