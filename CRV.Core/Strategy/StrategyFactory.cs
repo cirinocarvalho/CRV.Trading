@@ -14,6 +14,7 @@ public static class StrategyFactory
         StrategyType.Retest         => new RetestStrategy(config),
         StrategyType.OrbFakeout     => new OrbFakeoutStrategy(config),
         StrategyType.SessionFakeout => new SessionFakeoutStrategy(config),
+        StrategyType.Ema21          => new Ema21Strategy(config),
         _ => throw new ArgumentException($"Unknown strategy type: {config.StrategyType}")
     };
 }
