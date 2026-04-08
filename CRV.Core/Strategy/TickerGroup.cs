@@ -566,8 +566,8 @@ public class TickerGroup
         OrbBearClose = _orb.OrbBearClose,
         OrbAtrRatio = _orbAtrRatio,
         OrbFormed = _orb.IsSet,
-        // ATR & EMA21
-        Atr = _atr.Value,
+        // ATR & EMA21 (use PartialValue for display — shows running avg from bar 1)
+        Atr = _atr.IsReady ? _atr.Value : _atr.PartialValue,
         Ema21 = _ema21.Value,
         // False Breakout
         FBOrbBreakoutActive = _falseBreakout.OrbTracker.BreakoutActive,
