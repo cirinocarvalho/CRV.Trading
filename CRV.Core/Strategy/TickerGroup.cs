@@ -375,27 +375,36 @@ public class TickerGroup
                     strategy.ResetCutoff();
                 }
 
+                bool wasArmedTick = strategy.IsArmed;
                 strategy.OnTick(price, utc, orbState, indState, modState);
 
                 if (strategy.PendingEntry != null)
                 {
+                    Console.Error.WriteLine($"[TG-TICK] {strategy.Id} ENTRY at {price} dir={strategy.PendingEntry.Direction} orb.IsSet={orbState.IsSet}");
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
                     // Opposing position guard: block entry if another strategy has an active trade
                     // in the opposite direction on the same instrument
                     if (HasOpposingPosition(strategy, isLong))
                     {
+                        Console.Error.WriteLine($"[TG-TICK] {strategy.Id} REVERTED: opposing position");
                         strategy.RevertEntry();
                     }
                     // Cross-setup coordination: suppress entry if another already entered this bar
                     else if (!_cfg.AllowBothSameBar && _enteredThisBar)
                     {
+                        Console.Error.WriteLine($"[TG-TICK] {strategy.Id} REVERTED: same bar");
                         strategy.RevertEntry();
                     }
                     else
                     {
                         _enteredThisBar = true;
                     }
+                }
+                else if (wasArmedTick && !strategy.IsArmed)
+                {
+                    // Strategy was armed but disarmed during OnTick without producing entry
+                    Console.Error.WriteLine($"[TG-TICK] {strategy.Id} DISARMED on tick {price} without entry");
                 }
             }
         }
@@ -556,8 +565,8 @@ public class TickerGroup
         OrbBearClose = _orb.OrbBearClose,
         OrbAtrRatio = _orbAtrRatio,
         OrbFormed = _orb.IsSet,
-        // ATR & EMA21 (use PartialValue for display — shows running avg from bar 1)
-        Atr = _atr.IsReady ? _atr.Value : _atr.PartialValue,
+        // ATR & EMA21
+        Atr = _atr.Value,
         Ema21 = _ema21.Value,
         // False Breakout
         FBOrbBreakoutActive = _falseBreakout.OrbTracker.BreakoutActive,

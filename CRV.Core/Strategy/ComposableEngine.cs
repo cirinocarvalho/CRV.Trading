@@ -144,15 +144,16 @@ public class ComposableEngine
     /// Process a price tick (L1 data) for real-time entry/exit evaluation.
     /// Only active after <see cref="EnableTickMode"/> has been called.
     /// </summary>
+    private int _tickDebugCounter;
     public async Task ProcessPriceTickAsync(decimal price, DateTime utcTime, string ticker)
     {
-        if (_idle) return;  // prices still update via ILastPriceProvider (bar feed level)
-        if (!_tickModeEnabled) return;
+        if (_idle) { if (_tickDebugCounter++ < 3) Console.Error.WriteLine($"[CE-TICK] SKIP idle=true ticker={ticker}"); return; }
+        if (!_tickModeEnabled) { if (_tickDebugCounter++ < 3) Console.Error.WriteLine($"[CE-TICK] SKIP tickMode=false"); return; }
         if (price <= 0) return;
-        if (Risk.DdBreached) return;
+        if (Risk.DdBreached) { if (_tickDebugCounter++ < 3) Console.Error.WriteLine($"[CE-TICK] SKIP ddBreached"); return; }
 
         var groupKey = TickerGroup.GetGroupKey(ticker);
-        if (!_groups.TryGetValue(groupKey, out var group)) return;
+        if (!_groups.TryGetValue(groupKey, out var group)) { if (_tickDebugCounter++ < 3) Console.Error.WriteLine($"[CE-TICK] SKIP no group for {ticker} key={groupKey}"); return; }
 
         await group.ProcessTickAsync(price, utcTime);
 
