@@ -380,12 +380,10 @@ public class TickerGroup
                     strategy.ResetCutoff();
                 }
 
-                bool wasArmedTick = strategy.IsArmed;
                 strategy.OnTick(price, utc, orbState, indState, modState);
 
                 if (strategy.PendingEntry != null)
                 {
-                    Console.Error.WriteLine($"[TG-TICK] {strategy.Id} ENTRY at {price} dir={strategy.PendingEntry.Direction} orb.IsSet={orbState.IsSet}");
                     bool isLong = strategy.PendingEntry.Direction == Direction.Long;
 
                     // EMA21 directional filter: long only above EMA, short only below
@@ -397,24 +395,17 @@ public class TickerGroup
                     // in the opposite direction on the same instrument
                     else if (HasOpposingPosition(strategy, isLong))
                     {
-                        Console.Error.WriteLine($"[TG-TICK] {strategy.Id} REVERTED: opposing position");
                         strategy.RevertEntry();
                     }
                     // Cross-setup coordination: suppress entry if another already entered this bar
                     else if (!_cfg.AllowBothSameBar && _enteredThisBar)
                     {
-                        Console.Error.WriteLine($"[TG-TICK] {strategy.Id} REVERTED: same bar");
                         strategy.RevertEntry();
                     }
                     else
                     {
                         _enteredThisBar = true;
                     }
-                }
-                else if (wasArmedTick && !strategy.IsArmed)
-                {
-                    // Strategy was armed but disarmed during OnTick without producing entry
-                    Console.Error.WriteLine($"[TG-TICK] {strategy.Id} DISARMED on tick {price} without entry");
                 }
             }
         }

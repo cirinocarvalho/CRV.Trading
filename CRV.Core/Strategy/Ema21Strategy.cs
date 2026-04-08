@@ -111,7 +111,10 @@ public sealed class Ema21Strategy : ISetupStrategy
         _pendingEntry = null;
     }
 
-    // ── Reset (new trading day) — clears everything including indicators ──
+    // ── Reset (new trading day) — clears trade state but preserves indicators ──
+    // EMA21/ATR/VolSMA are rolling indicators that should persist across days
+    // (same as shared TickerGroup indicators). Resetting them forces a 21-bar
+    // warmup gap at the start of each day where the strategy can't fire.
     public void Reset()
     {
         _state = 0; _bullTraded = false; _bearTraded = false;
@@ -120,19 +123,8 @@ public sealed class Ema21Strategy : ISetupStrategy
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _inTrade = false;
         _pendingEntry = null;
-
-        // Reset indicators
-        _ema = 0; _emaSum = 0; _emaBarCount = 0; _emaReady = false;
-        _emaHistIdx = 0; _emaHistCount = 0;
-        Array.Clear(_emaHistory);
-
-        _atr = 0; _prevClose = 0; _atrBarCount = 0; _atrSum = 0;
-        _atrReady = false; _atrSeeded = false;
-        Array.Clear(_volHistory);
-        _volHistIdx = 0; _volHistCount = 0; _volSum = 0;
-
-        _prevBarClose = 0; _prevBarHigh = 0; _prevBarLow = 0;
-        _prevEma = 0; _hasPrevBar = false;
+        // NOTE: indicators (_ema, _atr, _volHistory, _prevBar*) are NOT reset.
+        // They persist across days just like TickerGroup's shared ATR/EMA21.
     }
 
     // ── ResetSession — clears trade state, preserves indicators ──
@@ -195,13 +187,8 @@ public sealed class Ema21Strategy : ISetupStrategy
     }
 
     // ── OnBar — main processing ──────────────────────────────────
-    private int _barCount;
-    private bool _loggedReady;
     public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules)
     {
-        _barCount++;
-        if (_barCount <= 3)
-            Console.Error.WriteLine($"[EMA21] OnBar #{_barCount} enabled={_cfg.Enabled} confirmed={bar.IsConfirmed} close={bar.Close} time={bar.Time:HH:mm}");
         if (!_cfg.Enabled || !bar.IsConfirmed) return;
 
         // 1. Update indicators
@@ -209,27 +196,16 @@ public sealed class Ema21Strategy : ISetupStrategy
         UpdateAtr(bar);
         UpdateVolSma(bar.Volume);
 
-        // Debug: log when indicators become ready (once)
-        if (_emaReady && _atrReady && !_loggedReady)
-        {
-            _loggedReady = true;
-            Console.Error.WriteLine($"[EMA21] indicators READY at bar #{_barCount} {bar.Time:HH:mm} ema={_ema:F2} atr={_atr:F2} close={bar.Close} prevClose={_prevBarClose} prevEma={_prevEma} hasPrev={_hasPrevBar}");
-        }
-
         // 2. If armed from previous bar, try entry at this bar's open
         if (_state != 0 && !_inTrade)
         {
             TryEntry(bar);
-            if (_pendingEntry != null)
-                Console.Error.WriteLine($"[EMA21] ENTRY {_pendingEntry.Direction} @ {bar.Open} stop={_pendingEntry.Stop} tp2={_pendingEntry.Tg2Price}");
         }
 
         // 3. Detect new signals (only when indicators are ready and flat)
         if (_emaReady && _atrReady && _hasPrevBar && _state == 0 && !_inTrade)
         {
             DetectSignals(bar);
-            if (_state != 0)
-                Console.Error.WriteLine($"[EMA21] ARMED {(_state > 0 ? "LONG" : "SHORT")} bar={bar.Time:HH:mm} ema={_ema:F2} atr={_atr:F2} close={bar.Close}");
         }
 
         // 4. Save current bar data for next bar's cross/touch detection
