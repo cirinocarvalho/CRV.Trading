@@ -124,17 +124,18 @@ public class EngineController : ControllerBase
     [HttpGet("bars/{groupKey}")]
     public async Task<IActionResult> Bars(string groupKey, CancellationToken ct)
     {
-        var barsWithVwap = _engine.GetBarHistoryWithVwap(groupKey);
+        var barsWithIndicators = _engine.GetBarHistoryWithIndicators(groupKey);
 
         // If engine has bars in buffer, use them
-        if (barsWithVwap.Count > 0)
+        if (barsWithIndicators.Count > 0)
         {
-            return Ok(barsWithVwap.Select(bv => new
+            return Ok(barsWithIndicators.Select(bi => new
             {
-                time  = new DateTimeOffset(bv.Bar.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
-                open  = bv.Bar.Open, high = bv.Bar.High, low = bv.Bar.Low, close = bv.Bar.Close,
-                volume = bv.Bar.Volume,
-                vwap  = bv.Vwap
+                time  = new DateTimeOffset(bi.Bar.Time, TimeSpan.Zero).ToUnixTimeSeconds(),
+                open  = bi.Bar.Open, high = bi.Bar.High, low = bi.Bar.Low, close = bi.Bar.Close,
+                volume = bi.Bar.Volume,
+                vwap  = bi.Vwap,
+                ema21 = bi.Ema21
             }));
         }
 

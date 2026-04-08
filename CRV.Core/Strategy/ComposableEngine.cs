@@ -510,6 +510,14 @@ public class ComposableEngine
         return new List<(Bar, decimal)>();
     }
 
+    /// <summary>Get bar history with VWAP and EMA21 for a specific ticker group.</summary>
+    public List<(Bar Bar, decimal Vwap, decimal Ema21)> GetBarHistoryWithIndicators(string groupKey)
+    {
+        if (_groups.TryGetValue(groupKey, out var group))
+            return group.GetBarHistoryWithIndicators();
+        return new List<(Bar, decimal, decimal)>();
+    }
+
     /// <summary>Get active trade view for a specific setup, or null.</summary>
     public ActiveTradeView? GetActiveTrade(string setupId)
     {

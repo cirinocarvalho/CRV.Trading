@@ -495,7 +495,8 @@ let _lwcPendingMarkers = []; // markers buffered before chart ready
 let _lwcLastBarTime = 0;   // track bar transitions
 let _lwcDataReady = false; // prevent updates before initial setData
 let _lwcHasData = false;   // series has at least one data point
-let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0, ema21: 0 }; // cache to avoid re-creating
+let _lwcEma21Series = null;  // EMA21 line series overlay
+let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 }; // cache to avoid re-creating
 
 // Compute ET offset in seconds (handles EDT/EST automatically)
 function _getEtOffsetSec() {
@@ -556,6 +557,16 @@ function _initLwcChart() {
         crosshairMarkerVisible: false,
     });
 
+    // EMA21 overlay line
+    _lwcEma21Series = _lwcChart.addLineSeries({
+        color:          '#ffffff',
+        lineWidth:      1,
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: 'EMA21',
+    });
+
     // VWAP line — disabled (data still available in Key Levels card)
     // _lwcVwapSeries = _lwcChart.addLineSeries({ ... });
 
@@ -583,19 +594,14 @@ function _lwcUpdatePriceLines(gs) {
         var h = wantOrb ? gs.orbHigh : 0;
         var l = wantOrb ? gs.orbLow  : 0;
         var m = wantOrb ? gs.orbMid  : 0;
-        var e21 = gs.ema21 > 0 ? gs.ema21 : 0;
         // Skip if nothing changed (avoids remove+recreate race with LWC render cycle)
-        if (h === _lwcPriceLineValues.orbHigh && l === _lwcPriceLineValues.orbLow
-            && m === _lwcPriceLineValues.orbMid && e21 === _lwcPriceLineValues.ema21) return;
+        if (h === _lwcPriceLineValues.orbHigh && l === _lwcPriceLineValues.orbLow && m === _lwcPriceLineValues.orbMid) return;
         _lwcRemovePriceLines();
-        _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m, ema21: e21 };
+        _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m };
         if (wantOrb) {
             _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: h, color: '#2a6f6f', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
             _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: l, color: '#7f1d1d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
             _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: m, color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
-        }
-        if (e21 > 0) {
-            _lwcPriceLines.ema21 = _lwcSeries.createPriceLine({ price: e21, color: '#3b82f6', lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'EMA21' });
         }
     } catch(e) { /* suppress during group switch */ }
 }
@@ -652,6 +658,7 @@ async function _lwcLoadGroup(groupKey) {
         _lwcSeries.setData([]);
         _lwcVolSeries.setData([]);
         _lwcVolMaSeries.setData([]);
+        if (_lwcEma21Series) _lwcEma21Series.setData([]);
         // Now set new data
         _lwcSeries.setData(bars);
         _lwcSeries.setMarkers([]);
@@ -674,6 +681,13 @@ async function _lwcLoadGroup(groupKey) {
         }
         _lwcVolMaSeries.setData(maData);
         if (maData.length > 0) _lwcLastVolMa = maData[maData.length - 1].value;
+
+        // EMA21 line overlay
+        if (_lwcEma21Series) {
+            var ema21Data = bars.filter(function(b) { return b.ema21 > 0; })
+                .map(function(b) { return { time: b.time, value: b.ema21 }; });
+            _lwcEma21Series.setData(ema21Data);
+        }
 
         // VWAP line disabled — data still available in Key Levels card
 
@@ -728,6 +742,10 @@ function _lwcUpdateCandle(gs) {
     // when the line series has fewer data points than the candle series.
     if (_lwcVolMaSeries) {
         _lwcVolMaSeries.update({ time: t, value: _lwcLastVolMa || 0 });
+    }
+    // Update EMA21 overlay with latest value
+    if (_lwcEma21Series && gs.ema21 > 0) {
+        _lwcEma21Series.update({ time: t, value: gs.ema21 });
     }
     _lwcLastBarTime = t;
     var ph = document.getElementById("tv-chart-placeholder");

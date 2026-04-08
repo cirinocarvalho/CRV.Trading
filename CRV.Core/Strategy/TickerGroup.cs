@@ -153,8 +153,9 @@ public class TickerGroup
             _ema21.Update(bar.Close);
             _vwap.Update(bar, tradingDate);
 
-            // Store VWAP value alongside the last added bar
+            // Store VWAP and EMA21 values alongside the last added bar
             _barBuffer.SetVwap(_vwap.Value);
+            _barBuffer.SetEma21(_ema21.Value);
             if (bar.Close > 0) _lastBarClose = bar.Close;
 
             // Always keep OpeningDrive's ATR/VWAP current — they are used by
@@ -488,6 +489,9 @@ public class TickerGroup
 
     /// <summary>Return bar history with VWAP values for the REST chart endpoint.</summary>
     public List<(Bar Bar, decimal Vwap)> GetBarHistoryWithVwap() => _barBuffer.ToListWithVwap();
+
+    /// <summary>Return bar history with VWAP and EMA21 values.</summary>
+    public List<(Bar Bar, decimal Vwap, decimal Ema21)> GetBarHistoryWithIndicators() => _barBuffer.ToListWithIndicators();
 
     /// <summary>
     /// Build a complete snapshot of this group's module/indicator state

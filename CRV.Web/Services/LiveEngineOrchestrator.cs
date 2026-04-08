@@ -56,6 +56,14 @@ public class LiveEngineOrchestrator : BackgroundService
         return eng?.GetBarHistoryWithVwap(groupKey) ?? new List<(CRV.Core.Models.Bar, decimal)>();
     }
 
+    /// <summary>Get bar history with VWAP and EMA21 for a specific ticker group.</summary>
+    public List<(CRV.Core.Models.Bar Bar, decimal Vwap, decimal Ema21)> GetBarHistoryWithIndicators(string groupKey)
+    {
+        ComposableEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        return eng?.GetBarHistoryWithIndicators(groupKey) ?? new List<(CRV.Core.Models.Bar, decimal, decimal)>();
+    }
+
     /// <summary>Force-exit a specific setup immediately at current market price.</summary>
     public async Task ForceExitSetup(string setupId)
     {
