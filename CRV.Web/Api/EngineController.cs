@@ -141,7 +141,7 @@ public class EngineController : ControllerBase
                     open  = bi.Bar.Open, high = bi.Bar.High, low = bi.Bar.Low, close = bi.Bar.Close,
                     volume = bi.Bar.Volume,
                     vwap  = bi.Vwap,
-                    ema21 = ema21.IsReady ? ema21.Value : 0m
+                    ema21 = ema21.HasValue ? ema21.Value : 0m
                 };
             }).ToList();
             return Ok(result);

@@ -46,8 +46,11 @@ public class Ema21Indicator
     private decimal _sum;
     private int _count;
 
-    public decimal Value   => _ema;
+    public decimal Value   => _count > 0 && _count < Period ? _sum / _count : _ema;
     public bool    IsReady => _count >= Period;
+
+    /// <summary>True after at least one bar has been fed (returns running SMA before full EMA).</summary>
+    public bool    HasValue => _count > 0;
 
     public decimal Update(decimal close)
     {
@@ -57,7 +60,7 @@ public class Ema21Indicator
             _sum += close;
             if (_count == Period)
                 _ema = _sum / Period;
-            return _ema;
+            return Value;
         }
         decimal k = 2m / (Period + 1);
         _ema = (close - _ema) * k + _ema;
