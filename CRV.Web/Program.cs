@@ -207,6 +207,25 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
+
+// ── Webhook Content-Type coercion ─────────────────────────────
+// TradingView alerts send JSON bodies with Content-Type: text/plain by default.
+// Rewrite to application/json on the webhook path so [FromBody] binds correctly.
+app.Use(async (ctx, next) =>
+{
+    if (HttpMethods.IsPost(ctx.Request.Method) &&
+        ctx.Request.Path.StartsWithSegments("/api/engine/webhook"))
+    {
+        var ct = ctx.Request.ContentType ?? "";
+        if (ct.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrEmpty(ct))
+        {
+            ctx.Request.ContentType = "application/json";
+        }
+    }
+    await next();
+});
+
 app.UseRouting();
 app.UseRateLimiter();
 app.MapRazorPages();
