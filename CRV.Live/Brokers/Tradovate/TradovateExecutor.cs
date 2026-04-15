@@ -779,7 +779,16 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             }
 
             // ── Poll existing legs for status changes ──
-            var legIds = string.Join(",", group.Legs.Select(l => l.OrderId));
+            // Include queued bracket stops (Stop2OrderId + PendingStopIds) so we observe
+            // their fills even if the trade completes between polls — otherwise the handler
+            // never sees the terminal stop event and CompleteGroup is never called.
+            var allLegIds = new List<string>(group.Legs.Select(l => l.OrderId));
+            if (!string.IsNullOrEmpty(group.Stop2OrderId))
+                allLegIds.Add(group.Stop2OrderId);
+            foreach (var pendingId in group.PendingStopIds)
+                if (!string.IsNullOrEmpty(pendingId))
+                    allLegIds.Add(pendingId);
+            var legIds = string.Join(",", allLegIds.Distinct());
             if (string.IsNullOrEmpty(legIds)) return events;
 
             var json = await GetAsync($"/order/items?ids={legIds}", ct);
@@ -852,6 +861,31 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                     _log.LogInformation("[TV-POLL] Leg {Leg} {OrderId} status changed: {Old} → {New} @ {Price}",
                         leg.LegType, leg.OrderId, leg.Status, brokerStatus, broker.fillPrice);
                 }
+            }
+
+            // ── Queued bracket stops (Stop2OrderId + PendingStopIds) ──
+            // These are NOT in group.Legs but may fire before the handler has a chance
+            // to promote them. Emit synthetic Stop events so CompleteGroup is triggered.
+            var queuedStopIds = new List<string>();
+            if (!string.IsNullOrEmpty(group.Stop2OrderId))
+                queuedStopIds.Add(group.Stop2OrderId);
+            queuedStopIds.AddRange(group.PendingStopIds);
+
+            foreach (var stopId in queuedStopIds.Distinct())
+            {
+                if (!brokerOrders.TryGetValue(stopId, out var broker)) continue;
+                if (broker.status != "Filled") continue;
+
+                // Already reported for an in-Legs leg? Skip.
+                if (group.Legs.Any(l => l.OrderId == stopId)) continue;
+
+                events.Add(new OrderEvent(
+                    group.GroupOrderId, stopId, LegType.Stop,
+                    OrderLegStatus.Filled, broker.fillPrice, broker.fillQty,
+                    null, null, DateTime.UtcNow));
+
+                _log.LogInformation("[TV-POLL] Queued stop {OrderId} observed as Filled @ {Price} (promoted from Stop2/PendingStopIds)",
+                    stopId, broker.fillPrice);
             }
         }
         catch (Exception ex)
