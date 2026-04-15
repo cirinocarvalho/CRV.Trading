@@ -238,6 +238,21 @@
     <!-- Right column: Lightweight Charts (same width as Today's Trades below) -->
     <div class="col-12 col-lg-7 d-flex">
         <div class="card flex-fill d-flex flex-column">
+            <div class="card-header py-1 px-2 d-flex align-items-center gap-3" style="font-size:.78rem">
+                <span class="text-muted">Overlays:</span>
+                <div class="form-check form-check-inline m-0">
+                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-ema21" data-overlay="ema21" />
+                    <label class="form-check-label" for="chart-toggle-ema21">EMA21</label>
+                </div>
+                <div class="form-check form-check-inline m-0">
+                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-vwap" data-overlay="vwap" />
+                    <label class="form-check-label" for="chart-toggle-vwap">VWAP</label>
+                </div>
+                <div class="form-check form-check-inline m-0">
+                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-orb" data-overlay="orb" />
+                    <label class="form-check-label" for="chart-toggle-orb">ORB Lines</label>
+                </div>
+            </div>
             <div class="card-body p-0 position-relative flex-fill" id="tv-chart-container" style="min-height:460px">
                 <div id="tv-chart-placeholder" class="d-flex align-items-center justify-content-center h-100 text-muted" style="position:absolute;inset:0;z-index:2;pointer-events:none;background:#000">
                     <div class="text-center">
@@ -518,6 +533,51 @@ let _lwcHasData = false;   // series has at least one data point
 let _lwcEma21Series = null;  // EMA21 line series overlay
 let _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 }; // cache to avoid re-creating
 
+// ── Chart overlay visibility (persisted per-browser) ─────────────
+let _chartOverlays = (function() {
+    try {
+        var raw = localStorage.getItem('crv.chartOverlays');
+        if (raw) return Object.assign({ ema21: true, vwap: false, orb: true }, JSON.parse(raw));
+    } catch(e) {}
+    return { ema21: true, vwap: false, orb: true };
+})();
+function _saveChartOverlays() {
+    try { localStorage.setItem('crv.chartOverlays', JSON.stringify(_chartOverlays)); } catch(e) {}
+}
+function _applyChartOverlayVisibility() {
+    try { if (_lwcEma21Series) _lwcEma21Series.applyOptions({ visible: !!_chartOverlays.ema21 }); } catch(e) {}
+    try { if (_lwcVwapSeries)  _lwcVwapSeries.applyOptions({ visible: !!_chartOverlays.vwap }); } catch(e) {}
+    // ORB lines are price-line objects; toggle by forcing a price-line refresh
+    // using the current snapshot for the selected group.
+    try {
+        var gs = (typeof _groupSnapshots !== 'undefined' && _selectedGroup)
+            ? _groupSnapshots[_selectedGroup] : null;
+        if (gs) {
+            // Force re-creation: clear cache so _lwcUpdatePriceLines doesn't short-circuit
+            _lwcPriceLineValues = { orbHigh: 0, orbLow: 0, orbMid: 0 };
+            if (!_chartOverlays.orb) {
+                _lwcRemovePriceLines();
+            } else {
+                _lwcUpdatePriceLines(gs);
+            }
+        } else if (!_chartOverlays.orb) {
+            _lwcRemovePriceLines();
+        }
+    } catch(e) {}
+}
+// Hook up the overlay checkboxes on page load (DOM is ready — script is at bottom)
+(function _initChartOverlayToggles() {
+    document.querySelectorAll('.chart-overlay-toggle').forEach(function(cb) {
+        var key = cb.getAttribute('data-overlay');
+        if (key && _chartOverlays[key] != null) cb.checked = !!_chartOverlays[key];
+        cb.addEventListener('change', function() {
+            _chartOverlays[key] = cb.checked;
+            _saveChartOverlays();
+            _applyChartOverlayVisibility();
+        });
+    });
+})();
+
 // Compute ET offset in seconds (handles EDT/EST automatically)
 function _getEtOffsetSec() {
     var now = new Date();
@@ -585,10 +645,20 @@ function _initLwcChart() {
         priceLineVisible: false,
         crosshairMarkerVisible: false,
         title: 'EMA21',
+        visible: !!_chartOverlays.ema21,
     });
 
-    // VWAP line — disabled (data still available in Key Levels card)
-    // _lwcVwapSeries = _lwcChart.addLineSeries({ ... });
+    // VWAP overlay line
+    _lwcVwapSeries = _lwcChart.addLineSeries({
+        color:          '#f59e0b',
+        lineWidth:      1,
+        lineStyle:      LightweightCharts.LineStyle.Dotted,
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: 'VWAP',
+        visible: !!_chartOverlays.vwap,
+    });
 
     // Responsive resize
     var ro = new ResizeObserver(function(entries) {
@@ -610,7 +680,7 @@ function _lwcUpdatePriceLines(gs) {
     // Never create price lines on a series with no data — LWC throws "Value is null"
     if (!_lwcHasData) return;
     try {
-        var wantOrb = gs.orbHigh > 0 && gs.orbFormed;
+        var wantOrb = _chartOverlays.orb && gs.orbHigh > 0 && gs.orbFormed;
         var h = wantOrb ? gs.orbHigh : 0;
         var l = wantOrb ? gs.orbLow  : 0;
         var m = wantOrb ? gs.orbMid  : 0;
@@ -709,7 +779,12 @@ async function _lwcLoadGroup(groupKey) {
             _lwcEma21Series.setData(ema21Data);
         }
 
-        // VWAP line disabled — data still available in Key Levels card
+        // VWAP line overlay
+        if (_lwcVwapSeries) {
+            var vwapData = bars.filter(function(b) { return b.vwap > 0; })
+                .map(function(b) { return { time: b.time, value: b.vwap }; });
+            _lwcVwapSeries.setData(vwapData);
+        }
 
         if (bars.length > 0) {
             _lwcLastBarTime = bars[bars.length - 1].time;
@@ -766,6 +841,10 @@ function _lwcUpdateCandle(gs) {
     // Update EMA21 overlay with latest value
     if (_lwcEma21Series && gs.ema21 > 0) {
         _lwcEma21Series.update({ time: t, value: gs.ema21 });
+    }
+    // Update VWAP overlay with latest value
+    if (_lwcVwapSeries && gs.vwap > 0) {
+        _lwcVwapSeries.update({ time: t, value: gs.vwap });
     }
     _lwcLastBarTime = t;
     var ph = document.getElementById("tv-chart-placeholder");
