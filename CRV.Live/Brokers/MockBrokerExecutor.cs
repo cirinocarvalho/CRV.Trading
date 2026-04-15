@@ -386,11 +386,17 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         var entryAction = isLong ? "BUY" : "SELL";
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
-        var usePartial = sig.UsePartial;
-        var partialCts = usePartial
-            ? (sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2)
-            : 0;
-        var remainCts = sig.TotalContracts - partialCts;
+
+        // Resolve the effective N-bracket list (falls back to Tg1/Tg2 for legacy signals)
+        var bracketList = sig.ResolveBrackets();
+        if (bracketList.Count == 0)
+            bracketList = new[] { new BracketLeg(sig.Tg2Price, sig.TotalContracts, MoveBe: false) };
+        if (bracketList.Count > 4) bracketList = bracketList.Take(4).ToList();
+
+        // Legacy counters
+        bool usePartial = bracketList.Count >= 2;
+        var partialCts  = usePartial ? bracketList[0].Qty : 0;
+        var remainCts   = sig.TotalContracts - partialCts;
 
         var group = new GroupOrder
         {
@@ -406,27 +412,49 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
             Broker = "Mock",
         };
 
-        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
-        var tg2Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Tg2Price };
-        var stopLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
-        group.Legs.AddRange(new[] { entryLeg, tg2Leg, stopLeg });
+        static LegType TargetLegTypeForIndex(int i) => i switch
+        {
+            0 => LegType.Tg1,
+            1 => LegType.Tg2,
+            2 => LegType.Tg3,
+            3 => LegType.Tg4,
+            _ => LegType.Tg4,
+        };
 
-        // Register in internal order book
+        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
+        var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop,  OrderType = "Stop",   Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
+        group.Legs.Add(entryLeg);
+
+        // Register entry + stop in internal order book
         var legs = new Dictionary<string, MockLegState>
         {
             [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.TotalContracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
-            [tg2Leg.OrderId] = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Tg2Price },
-            [stopLeg.OrderId] = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
+            [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId,  GroupOrderId = groupId, LegType = LegType.Stop,  Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
 
-        // Only add tg1 leg when UsePartial is enabled AND partialCts > 0
-        // (with 1 contract, integer division gives 0 — no meaningful partial)
-        if (usePartial && partialCts > 0)
+        // Add one Tg leg per bracket
+        for (int i = 0; i < bracketList.Count; i++)
         {
-            var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
-            group.Legs.Add(tg1Leg);
-            legs[tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price };
+            var bl = bracketList[i];
+            if (bl.Qty <= 0) continue;
+            var legType = TargetLegTypeForIndex(i);
+            var legId = $"{groupId}-t{i + 1}";
+            var tgLeg = new OrderLeg
+            {
+                GroupOrderId = groupId, OrderId = legId, LegType = legType,
+                OrderType = "Limit", Action = exitAction,
+                Quantity = bl.Qty, Price = bl.TargetPrice
+            };
+            group.Legs.Add(tgLeg);
+            legs[legId] = new()
+            {
+                OrderId = legId, GroupOrderId = groupId, LegType = legType,
+                Action = exitAction, Quantity = bl.Qty, LimitPrice = bl.TargetPrice
+            };
         }
+
+        // Stop leg added last so GetLeg(LegType.Stop) works correctly after targets
+        group.Legs.Add(stopLeg);
 
         lock (_lock)
         {

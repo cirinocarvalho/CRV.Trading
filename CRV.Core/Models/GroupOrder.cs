@@ -1,7 +1,10 @@
 namespace CRV.Core.Models;
 
 // ── Group Order enums ────────────────────────────────────────
-public enum LegType { Entry, Tg1, Tg2, Stop }
+// Tg1..Tg4 are target legs, indexed in sequence. Handlers treat them
+// as an ordered list; fills of non-terminal targets move the stop (BE)
+// and fill of the terminal target completes the group.
+public enum LegType { Entry, Tg1, Tg2, Tg3, Tg4, Stop }
 public enum OrderLegStatus { Working, Filled, Modified, Canceled, Rejected }
 public enum GroupOrderStatus { Pending, Active, PartialFilled, Completed, Canceled }
 
@@ -38,8 +41,25 @@ public class GroupOrder
     public string? SessionId { get; set; }
     /// <summary>Second stop order ID from the other partial bracket. When Tg1 fills,
     /// the broker OCO should cancel the paired stop — but if it doesn't, we explicitly
-    /// cancel the orphaned stop and switch tracking to Stop2.</summary>
+    /// cancel the orphaned stop and switch tracking to Stop2. Legacy 2-bracket field.</summary>
     public string? Stop2OrderId { get; set; }
+
+    /// <summary>Queue of remaining stop-order IDs for brackets beyond the first
+    /// (3..N-bracket orders). Stored as a comma-separated list on the row and
+    /// manipulated as a list via <see cref="PendingStopIds"/>. On each non-terminal
+    /// target fill, the head is popped and becomes the new active stop.</summary>
+    public string? PendingStopIdsCsv { get; set; }
+
+    /// <summary>Convenience accessor for <see cref="PendingStopIdsCsv"/>.
+    /// Not persisted directly — backed by the CSV column.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public List<string> PendingStopIds
+    {
+        get => string.IsNullOrEmpty(PendingStopIdsCsv)
+            ? new List<string>()
+            : PendingStopIdsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+        set => PendingStopIdsCsv = value is { Count: > 0 } ? string.Join(',', value) : null;
+    }
 
     // ── Auto-trail state (transient — backtest simulation only, not persisted) ──
     public decimal? AutoTrailStopLoss { get; set; }
@@ -60,7 +80,29 @@ public class GroupOrder
 
     /// <summary>Remaining contracts after partial fill.</summary>
     public int RemainingContracts => TotalContracts - PartialContracts;
+
+    /// <summary>Target legs ordered by LegType ordinal (Tg1, Tg2, Tg3, Tg4).
+    /// Used by handlers to iterate targets generically instead of hardcoding Tg1/Tg2.
+    /// NotMapped — computed from <see cref="Legs"/>, which itself is ignored in the
+    /// DbContext mapping. Without this attribute, EF picks up the return type as a
+    /// second collection navigation to OrderLeg and creates a shadow FK (GroupOrderId2).</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public IReadOnlyList<OrderLeg> TargetLegs =>
+        Legs.Where(l => IsTargetLeg(l.LegType)).OrderBy(l => (int)l.LegType).ToList();
+
+    /// <summary>True if the given LegType is any of Tg1..Tg4.</summary>
+    public static bool IsTargetLeg(LegType t) =>
+        t == LegType.Tg1 || t == LegType.Tg2 || t == LegType.Tg3 || t == LegType.Tg4;
 }
+
+// ── Bracket leg — one independent target within a multi-bracket order ──
+/// <summary>
+/// Describes one target leg in a multi-bracket order. Each bracket
+/// carries its own quantity, profit target, and whether the stop should
+/// move to break-even after this target fills (only relevant for
+/// non-terminal brackets).
+/// </summary>
+public record BracketLeg(decimal TargetPrice, int Qty, bool MoveBe = false);
 
 // ── Order Leg — individual order within a group ─────────────
 public class OrderLeg

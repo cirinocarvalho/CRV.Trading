@@ -335,13 +335,56 @@ public class EngineController : ControllerBase
         if (req.Stop <= 0) return BadRequest(new { status = "error", message = "Stop price is required." });
         if (req.Qty <= 0) return BadRequest(new { status = "error", message = "Qty must be > 0." });
 
-        // Compute targets — use explicit tgt1/tgt2 or fall back to entry ± distance
-        decimal tgt1 = req.Tgt1 > 0 ? req.Tgt1 : req.Entry; // no partial if not specified
-        decimal tgt2 = req.Tgt2 > 0 ? req.Tgt2 : req.Entry;
-        bool usePartial = req.WithPartial && tgt1 > 0 && tgt1 != req.Entry;
-        int partialCts = usePartial
-            ? (req.PartialQty > 0 ? Math.Min(req.PartialQty, req.Qty - 1) : Math.Max(1, req.Qty / 2))
-            : 0;
+        // Build the bracket list. Two modes:
+        //   1. Explicit N-bracket list via req.Brackets (new — up to 4 brackets)
+        //   2. Legacy Tgt1/Tgt2/PartialQty fields (backcompat)
+        IReadOnlyList<CRV.Core.Models.BracketLeg>? brackets = null;
+        decimal tgt1 = 0, tgt2 = 0;
+        bool usePartial;
+        int partialCts = 0;
+
+        if (req.Brackets is { Length: > 0 })
+        {
+            // Explicit N-bracket path. Validate and normalize.
+            if (req.Brackets.Length > 4)
+                return BadRequest(new { status = "error", message = "Maximum 4 brackets supported." });
+            if (req.Brackets.Any(b => b.Target <= 0))
+                return BadRequest(new { status = "error", message = "Every bracket must specify a positive Target price." });
+
+            var sum = req.Brackets.Sum(b => b.Qty);
+            if (sum != req.Qty)
+                return BadRequest(new { status = "error", message =
+                    $"Sum of bracket quantities ({sum}) must equal Qty ({req.Qty})." });
+
+            brackets = req.Brackets
+                .Select(b => new CRV.Core.Models.BracketLeg(b.Target, b.Qty, b.MoveBe))
+                .ToArray();
+
+            // Populate legacy fields so downstream (non-Tradovate) brokers still work
+            tgt1 = brackets[0].TargetPrice;
+            tgt2 = brackets[^1].TargetPrice;
+            usePartial = brackets.Count >= 2;
+            partialCts = usePartial ? brackets[0].Qty : 0;
+        }
+        else
+        {
+            // Legacy Tgt1/Tgt2 path
+            tgt1 = req.Tgt1 > 0 ? req.Tgt1 : req.Entry;
+            tgt2 = req.Tgt2 > 0 ? req.Tgt2 : req.Entry;
+            usePartial = req.WithPartial && tgt1 > 0 && tgt1 != req.Entry;
+            partialCts = usePartial
+                ? (req.PartialQty > 0 ? Math.Min(req.PartialQty, req.Qty - 1) : Math.Max(1, req.Qty / 2))
+                : 0;
+        }
+
+        // Warn when N>2 and the live broker can't honor it (Schwab/TradeStation only see Tg1/Tg2).
+        if (brackets is { Count: > 2 }
+            && cfg.Broker is "Schwab" or "TradeStation")
+        {
+            _loggerFactory.CreateLogger<EngineController>()
+                .LogWarning("[WEBHOOK] {Broker} does not support N-bracket signals — only Tg1 and Tg{Last} will be used, brackets 2..{Last2} will be dropped",
+                    cfg.Broker, brackets.Count, brackets.Count - 1);
+        }
 
         // Build auto-trail if requested
         decimal? trailSL = null, trailTrigger = null, trailFreq = null;
@@ -372,7 +415,8 @@ public class EngineController : ControllerBase
             UseBe: req.MoveBe,
             AutoTrailStopLoss: trailSL,
             AutoTrailTrigger: trailTrigger,
-            AutoTrailFreq: trailFreq);
+            AutoTrailFreq: trailFreq,
+            Brackets: brackets);
 
         var (ok, message, group) = await _engine.PlaceManualEntryAsync(signal, pointValue);
 
@@ -380,8 +424,9 @@ public class EngineController : ControllerBase
             return BadRequest(new { status = "error", message });
 
         _loggerFactory.CreateLogger<EngineController>()
-            .LogInformation("[WEBHOOK] Order placed: {Dir} {Qty}× {Ticker} @ {Entry} | Stop {Stop} | Tgt1 {Tgt1} | Tgt2 {Tgt2} | Label {Label}",
-                direction, req.Qty, ticker, req.Entry, req.Stop, tgt1, tgt2, label);
+            .LogInformation("[WEBHOOK] Order placed: {Dir} {Qty}× {Ticker} @ {Entry} | Stop {Stop} | Brackets {N} | Label {Label}",
+                direction, req.Qty, ticker, req.Entry, req.Stop,
+                brackets?.Count ?? (usePartial ? 2 : 1), label);
 
         return Ok(new
         {
@@ -393,12 +438,23 @@ public class EngineController : ControllerBase
             stop = req.Stop,
             tgt1,
             tgt2,
+            brackets = brackets?.Select(b => new { target = b.TargetPrice, qty = b.Qty, moveBe = b.MoveBe }).ToArray(),
             qty = req.Qty,
             usePartial,
             moveBe = req.MoveBe,
             autoTrail = req.AutoTrail,
             label,
         });
+    }
+
+    public record WebhookBracketSpec
+    {
+        /// <summary>Target price for this bracket leg.</summary>
+        public decimal Target { get; init; }
+        /// <summary>Quantity for this bracket leg. Sum across all brackets must equal Qty.</summary>
+        public int Qty { get; init; }
+        /// <summary>Move stop to breakeven after this bracket fills (only meaningful for non-terminal brackets).</summary>
+        public bool MoveBe { get; init; }
     }
 
     public record WebhookOrderRequest
@@ -411,14 +467,20 @@ public class EngineController : ControllerBase
         public decimal Stop { get; init; }
         /// <summary>Number of contracts</summary>
         public int Qty { get; init; }
-        /// <summary>Target 1 (partial exit) price. 0 = no partial.</summary>
+        /// <summary>Target 1 (partial exit) price. 0 = no partial. Ignored if <see cref="Brackets"/> is supplied.</summary>
         public decimal Tgt1 { get; init; }
-        /// <summary>Target 2 (full exit) price</summary>
+        /// <summary>Target 2 (full exit) price. Ignored if <see cref="Brackets"/> is supplied.</summary>
         public decimal Tgt2 { get; init; }
-        /// <summary>Contracts to exit at Tgt1. 0 = auto (qty/2). Rest exits at Tgt2/stop.</summary>
+        /// <summary>Contracts to exit at Tgt1. 0 = auto (qty/2). Rest exits at Tgt2/stop. Ignored if <see cref="Brackets"/> is supplied.</summary>
         public int PartialQty { get; init; }
-        /// <summary>Enable partial exit at Tgt1</summary>
+        /// <summary>Enable partial exit at Tgt1. Ignored if <see cref="Brackets"/> is supplied.</summary>
         public bool WithPartial { get; init; } = true;
+        /// <summary>
+        /// Optional N-bracket specification (up to 4). When supplied, overrides the
+        /// legacy Tgt1/Tgt2/PartialQty/WithPartial fields. Quantities must sum to Qty.
+        /// Brackets are filled in order: first = Tg1 (partial), last = final target.
+        /// </summary>
+        public WebhookBracketSpec[]? Brackets { get; init; }
         /// <summary>Move stop to breakeven after partial fill</summary>
         public bool MoveBe { get; init; } = true;
         /// <summary>Enable auto-trail stop</summary>

@@ -1,0 +1,28 @@
+﻿using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace CRV.Core.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddPendingStopIdsCsv : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<string>(
+                name: "PendingStopIdsCsv",
+                table: "GroupOrders",
+                type: "TEXT",
+                nullable: true);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: "PendingStopIdsCsv",
+                table: "GroupOrders");
+        }
+    }
+}

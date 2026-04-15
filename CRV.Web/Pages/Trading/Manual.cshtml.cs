@@ -125,6 +125,12 @@ public class ManualModel : PageModel
         if (Order.Contracts < 1)
             Errors.Add("Contracts must be at least 1.");
 
+        // ── Multi-bracket path (price-based, N up to 4) ──────────
+        if (Order.UseMultiBracket)
+        {
+            return await HandleMultiBracketAsync(isLong);
+        }
+
         if (Order.UsePartial)
         {
             if (Order.Contracts < 2)
@@ -197,6 +203,93 @@ public class ManualModel : PageModel
         catch (Exception ex)
         {
             _log.LogError(ex, "Manual order placement failed");
+            Errors.Add($"Order placement error: {ex.Message}");
+        }
+
+        return Page();
+    }
+
+    // ── Multi-bracket path (price-based, N up to 4) ──────────────
+    private async Task<IActionResult> HandleMultiBracketAsync(bool isLong)
+    {
+        // Multi-bracket mode requires Price input with a real entry price
+        if (Order.EntryPrice <= 0) Errors.Add("Entry price is required for multi-bracket mode.");
+        if (Order.StopPrice  <= 0) Errors.Add("Stop price is required for multi-bracket mode.");
+
+        // Filter out empty rows; require at least 1 populated bracket
+        var populated = Order.Brackets
+            .Where(b => b.Target > 0 && b.Qty > 0)
+            .Take(4)
+            .ToList();
+        if (populated.Count == 0)
+            Errors.Add("At least one bracket row with Target > 0 and Qty > 0 is required.");
+        else if (populated.Count > 4)
+            Errors.Add("Maximum 4 brackets supported.");
+
+        // Quantities must sum to Contracts
+        var qtySum = populated.Sum(b => b.Qty);
+        if (populated.Count > 0 && qtySum != Order.Contracts)
+            Errors.Add($"Sum of bracket quantities ({qtySum}) must equal total Contracts ({Order.Contracts}).");
+
+        // Directional sanity: every target must be on the profit side of entry
+        foreach (var b in populated)
+        {
+            var profitable = isLong ? b.Target > Order.EntryPrice : b.Target < Order.EntryPrice;
+            if (!profitable)
+                Errors.Add($"Bracket target {b.Target} is not on the profit side of entry {Order.EntryPrice}.");
+        }
+
+        // Directional sanity on stop
+        if (Order.StopPrice > 0)
+        {
+            var validStop = isLong ? Order.StopPrice < Order.EntryPrice : Order.StopPrice > Order.EntryPrice;
+            if (!validStop)
+                Errors.Add($"Stop price {Order.StopPrice} is on the wrong side of entry {Order.EntryPrice}.");
+        }
+
+        if (Order.UseAutoTrail)
+        {
+            if (Order.AutoTrailStopLoss <= 0) Errors.Add("Auto Trail Stop Loss must be > 0.");
+            if (Order.AutoTrailFreq <= 0) Errors.Add("Auto Trail Freq must be > 0.");
+        }
+
+        if (Errors.Count > 0) return Page();
+
+        try
+        {
+            // Build the bracket list for the signal
+            var brackets = populated
+                .Select(b => new BracketLeg(b.Target, b.Qty, b.MoveBe))
+                .ToList();
+
+            var sig = new EntrySignal(
+                Setup:             SetupId.F,
+                Direction:         isLong ? Direction.Long : Direction.Short,
+                Entry:             Order.EntryPrice,
+                Stop:              Order.StopPrice,
+                // Legacy Tg1/Tg2 fields populated for non-Tradovate brokers
+                Tg2Price:          brackets[^1].TargetPrice,
+                Tg1Price:          brackets[0].TargetPrice,
+                TotalContracts:    Order.Contracts,
+                Time:              DateTime.UtcNow,
+                OrderType:         Order.OrderType,
+                Ticker:            Order.Ticker,
+                SetupLabel:        $"Manual-{DateTime.UtcNow:HHmmss}",
+                PartialContracts:  brackets.Count >= 2 ? brackets[0].Qty : 0,
+                UsePartial:        brackets.Count >= 2,
+                UseBe:             Order.UseBe,
+                AutoTrailStopLoss: Order.UseAutoTrail ? Order.AutoTrailStopLoss : null,
+                AutoTrailTrigger:  Order.UseAutoTrail && Order.AutoTrailTrigger > 0 ? Order.AutoTrailTrigger : null,
+                AutoTrailFreq:     Order.UseAutoTrail ? Order.AutoTrailFreq : null,
+                Brackets:          brackets);
+
+            var (ok, msg, _) = await _orchestrator.PlaceManualEntryAsync(sig, Order.PointValue);
+            if (ok) Placed.Add(msg);
+            else    Errors.Add(msg);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Manual multi-bracket order placement failed");
             Errors.Add($"Order placement error: {ex.Message}");
         }
 
@@ -433,11 +526,29 @@ public class ManualOrder
     [Range(0, double.MaxValue)] public decimal PartialDollars { get; set; }
     [Range(0, double.MaxValue)] public decimal PartialPrice   { get; set; }
 
+    // ── Multi-bracket (N brackets, up to 4) ──────────────────────
+    /// <summary>When true, <see cref="Brackets"/> is used instead of
+    /// the single Partial+Target fields. Price mode only.</summary>
+    public bool UseMultiBracket { get; set; }
+    /// <summary>Up to 4 bracket rows. Only rows with Qty > 0 and Target > 0
+    /// are included in the final signal.</summary>
+    public List<ManualBracketRow> Brackets { get; set; } = new()
+    {
+        new(), new(), new(), new()
+    };
+
     // Auto Trail
     public bool UseAutoTrail { get; set; }
     [Range(0, double.MaxValue)] public decimal AutoTrailStopLoss { get; set; }
     [Range(0, double.MaxValue)] public decimal AutoTrailTrigger  { get; set; }
     [Range(0, double.MaxValue)] public decimal AutoTrailFreq     { get; set; }
+}
+
+public class ManualBracketRow
+{
+    [Range(0, double.MaxValue)] public decimal Target { get; set; }
+    [Range(0, 100)]             public int     Qty    { get; set; }
+    public bool MoveBe { get; set; }
 }
 
 public class FlatForm

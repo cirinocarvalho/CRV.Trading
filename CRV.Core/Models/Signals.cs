@@ -26,7 +26,38 @@ public record EntrySignal(
     string    Mode       = "Conservative", // "Conservative" | "Aggressive" | "SmartAggressive"
     decimal?  AutoTrailStopLoss = null,
     decimal?  AutoTrailTrigger  = null,
-    decimal?  AutoTrailFreq     = null);
+    decimal?  AutoTrailFreq     = null,
+    // Optional explicit N-bracket list (Tg1..Tg4). If null, brackets are
+    // built from Tg1Price/Tg2Price/PartialContracts for backcompat.
+    IReadOnlyList<BracketLeg>? Brackets = null)
+{
+    /// <summary>
+    /// Resolves the effective bracket list for this signal. Returns the explicit
+    /// <see cref="Brackets"/> list if set; otherwise builds a 1- or 2-bracket list
+    /// from the legacy Tg1Price / Tg2Price / PartialContracts / UsePartial fields.
+    /// The result is always non-empty and the quantities always sum to TotalContracts.
+    /// </summary>
+    public IReadOnlyList<BracketLeg> ResolveBrackets()
+    {
+        if (Brackets is { Count: > 0 }) return Brackets;
+
+        // Legacy builder: 1 or 2 brackets from Tg1/Tg2
+        if (UsePartial && Tg1Price > 0)
+        {
+            var partialCts = PartialContracts > 0 ? PartialContracts : TotalContracts / 2;
+            if (partialCts < 1) partialCts = 1;
+            if (partialCts >= TotalContracts) partialCts = TotalContracts - 1;
+            var remainCts = TotalContracts - partialCts;
+            return new[]
+            {
+                new BracketLeg(Tg1Price, partialCts, MoveBe: false),
+                new BracketLeg(Tg2Price, remainCts, MoveBe: UseBe),
+            };
+        }
+        // Single bracket: full qty to Tg2
+        return new[] { new BracketLeg(Tg2Price, TotalContracts, MoveBe: false) };
+    }
+}
 
 // ── Completed trade — persisted to SQLite ────────────────────
 public class TradeRecord

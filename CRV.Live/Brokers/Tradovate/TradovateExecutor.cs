@@ -206,72 +206,89 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         bool isLimit = sig.OrderType == "Limit";
 
         var groupId = Guid.NewGuid().ToString("N")[..8];
-        var usePartial = sig.UsePartial;
-        var partialCts = usePartial
-            ? (sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2)
-            : 0;
-        var remainCts = sig.TotalContracts - partialCts;
 
-        // Compute signed point offsets from entry price
-        // Both profitTarget and stopLoss are directional: + = above entry, − = below entry
-        var tg1Offset = sig.Tg1Price - sig.Entry;                  // + for long, − for short
-        var tg2Offset = sig.Tg2Price - sig.Entry;                  // + for long, − for short
-        var stopOffset = sig.Stop - sig.Entry;                      // − for long (below), + for short (above)
-        bool hasAutoTrail = sig.AutoTrailStopLoss.HasValue;
-        // When auto-trail is active, skip breakEven — trail replaces it
-        var beOffset = (!hasAutoTrail && sig.UseBe) ? Math.Abs(tg1Offset) : 0m;
-
-        // Build bracket array — each bracket gets its own qty, target, and stop
-        // Use Dictionary<string,object> for reliable JSON serialization
-        var brackets = new List<Dictionary<string, object>>();
-        if (usePartial && partialCts > 0)
+        // Resolve the effective N-bracket list (falls back to Tg1/Tg2 for legacy signals)
+        var bracketList = sig.ResolveBrackets();
+        if (bracketList.Count == 0)
         {
-            // Bracket 1: partial target (Tg1), no BE on this bracket
-            brackets.Add(new Dictionary<string, object>
-            {
-                ["qty"] = partialCts, ["profitTarget"] = tg1Offset,
-                ["stopLoss"] = stopOffset, ["trailingStop"] = false
-            });
-            // Bracket 2: full target (Tg2), with BE after Tg1-level profit
-            var b2 = new Dictionary<string, object>
-            {
-                ["qty"] = remainCts, ["profitTarget"] = tg2Offset,
-                ["stopLoss"] = stopOffset, ["trailingStop"] = false
-            };
-            if (beOffset > 0) b2["breakEven"] = beOffset;
-            if (hasAutoTrail)
-            {
-                // Tradovate autoTrail nested object — confirmed from WSS broker response:
-                // trailingStop stays false; stopLoss/trigger/freq are unsigned point distances
-                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
-                b2["autoTrail"] = new Dictionary<string, object>
-                {
-                    ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
-                    ["trigger"]  = trailTrigger,
-                    ["freq"]     = sig.AutoTrailFreq!.Value
-                };
-            }
-            brackets.Add(b2);
+            _log.LogError("[TV-GRP] No brackets in signal — aborting");
+            return null;
         }
-        else
+        if (bracketList.Count > 4)
         {
-            // Single bracket: full qty, one target + stop
-            var singleBracket = new Dictionary<string, object>
+            _log.LogWarning("[TV-GRP] Signal has {N} brackets — capped at 4, extras dropped", bracketList.Count);
+            bracketList = bracketList.Take(4).ToList();
+        }
+
+        // Normalize quantities — ensure they sum to TotalContracts
+        var totalCts = sig.TotalContracts;
+        var qtySum = bracketList.Sum(b => b.Qty);
+        if (qtySum != totalCts)
+        {
+            _log.LogWarning("[TV-GRP] Bracket qty sum {S} != TotalContracts {T} — adjusting last bracket",
+                qtySum, totalCts);
+            var adjusted = bracketList.ToList();
+            var lastIdx = adjusted.Count - 1;
+            var lastQty = adjusted[lastIdx].Qty + (totalCts - qtySum);
+            if (lastQty < 1) lastQty = 1;
+            adjusted[lastIdx] = adjusted[lastIdx] with { Qty = lastQty };
+            bracketList = adjusted;
+        }
+
+        // Legacy counters for downstream code that still thinks in Tg1/Tg2 terms
+        bool usePartial = bracketList.Count >= 2;
+        var partialCts  = usePartial ? bracketList[0].Qty : 0;
+        var remainCts   = totalCts - partialCts;
+
+        // Compute signed stop offset from entry price
+        // stopLoss is directional: − for long (below), + for short (above)
+        var stopOffset   = sig.Stop - sig.Entry;
+        var tg1Offset    = bracketList[0].TargetPrice - sig.Entry;
+        bool hasAutoTrail = sig.AutoTrailStopLoss.HasValue;
+        // BE activates on the FIRST target level — used by brackets 2..N when
+        // autoTrail is off and the bracket's MoveBe flag is set.
+        var beOffset = (!hasAutoTrail) ? Math.Abs(tg1Offset) : 0m;
+
+        // Build bracket array — one Dictionary per bracket leg.
+        // Rule for autoTrail: if enabled, every bracket EXCEPT the first gets
+        // autoTrail (trigger = |tg1Offset|). First bracket keeps the plain stop
+        // so partial-exit mechanics still work.
+        var brackets = new List<Dictionary<string, object>>();
+        for (int i = 0; i < bracketList.Count; i++)
+        {
+            var bl = bracketList[i];
+            var targetOffset = bl.TargetPrice - sig.Entry;
+            var dict = new Dictionary<string, object>
             {
-                ["qty"] = sig.TotalContracts, ["profitTarget"] = tg2Offset,
-                ["stopLoss"] = stopOffset, ["trailingStop"] = false
+                ["qty"]          = bl.Qty,
+                ["profitTarget"] = targetOffset,
+                ["stopLoss"]     = stopOffset,
+                ["trailingStop"] = false
             };
+
+            // First bracket never gets BE/autoTrail — it's the "partial" leg
+            if (i == 0)
+            {
+                brackets.Add(dict);
+                continue;
+            }
+
+            // Non-first brackets: autoTrail takes precedence over breakEven
             if (hasAutoTrail)
             {
-                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg2Offset);
-                singleBracket["autoTrail"] = new Dictionary<string, object>
+                var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
+                dict["autoTrail"] = new Dictionary<string, object>
                 {
                     ["stopLoss"] = sig.AutoTrailStopLoss!.Value,
                     ["trigger"]  = trailTrigger,
                     ["freq"]     = sig.AutoTrailFreq!.Value
                 };
             }
-            brackets.Add(singleBracket);
+            else if (bl.MoveBe && beOffset > 0)
+            {
+                dict["breakEven"] = beOffset;
+            }
+            brackets.Add(dict);
         }
 
         // Build entry params — params must be a JSON string, not a nested object
@@ -326,16 +343,6 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             return null;
         }
 
-        // For single bracket, map Tg1 discovery to Tg2
-        var tg2Disc = disc.Tg2 ?? (usePartial ? null : disc.Tg1);
-
-        // Register all legs with WSS (best-effort — REST is primary)
-        if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
-        if (disc.Tg1 is not null && usePartial) EventStream?.RegisterOrder(disc.Tg1.Id, groupId, LegType.Tg1);
-        if (tg2Disc is not null) EventStream?.RegisterOrder(tg2Disc.Id, groupId, LegType.Tg2);
-        if (disc.Stop is not null) EventStream?.RegisterOrder(disc.Stop.Id, groupId, LegType.Stop);
-        if (disc.Stop2 is not null) EventStream?.RegisterOrder(disc.Stop2.Id, groupId, LegType.Stop);
-
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
         var buyAction = entryAction == "Buy" ? "BUY" : "SELL";
         var sellAction = entryAction == "Buy" ? "SELL" : "BUY";
@@ -349,6 +356,29 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             "Suspended" => OrderLegStatus.Working, // Bracket legs start Suspended, activate on entry fill
             _ => OrderLegStatus.Working
         };
+
+        // Helper to map bracket index → Tg1/Tg2/Tg3/Tg4
+        static LegType TargetLegTypeForIndex(int i) => i switch
+        {
+            0 => LegType.Tg1,
+            1 => LegType.Tg2,
+            2 => LegType.Tg3,
+            3 => LegType.Tg4,
+            _ => LegType.Tg4,
+        };
+
+        // Register discovered legs with WSS (best-effort — REST is primary)
+        if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
+        for (int i = 0; i < disc.Targets.Count; i++)
+        {
+            var t = disc.Targets[i];
+            if (t is not null) EventStream?.RegisterOrder(t.Id, groupId, TargetLegTypeForIndex(i));
+        }
+        for (int i = 0; i < disc.Stops.Count; i++)
+        {
+            var s = disc.Stops[i];
+            if (s is not null) EventStream?.RegisterOrder(s.Id, groupId, LegType.Stop);
+        }
 
         var group = new GroupOrder
         {
@@ -364,7 +394,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             BrokerStrategyId = strategyId?.ToString(),
         };
 
-        // Build legs from REST-discovered data (real prices from Tradovate, not our requested prices)
+        // Build legs from REST-discovered data (real prices from Tradovate)
         if (disc.Entry is not null)
         {
             var leg = new OrderLeg { GroupOrderId = groupId, OrderId = disc.Entry.Id.ToString(), LegType = LegType.Entry, OrderType = sig.OrderType, Action = buyAction, Quantity = disc.Entry.Qty > 0 ? disc.Entry.Qty : sig.TotalContracts, Price = disc.Entry.Price, Status = MapStatus(disc.Entry.Status) };
@@ -379,22 +409,57 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 group.EntryPrice = disc.Entry.FillPrice ?? disc.Entry.Price;
             }
         }
-        if (disc.Tg1 is not null && usePartial)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = disc.Tg1.Qty > 0 ? disc.Tg1.Qty : partialCts, Price = disc.Tg1.Price, Status = MapStatus(disc.Tg1.Status) });
-        if (tg2Disc is not null)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2Disc.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2Disc.Qty > 0 ? tg2Disc.Qty : remainCts, Price = tg2Disc.Price, Status = MapStatus(tg2Disc.Status) });
-        if (disc.Stop is not null)
-            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = disc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = disc.Stop.Qty > 0 ? disc.Stop.Qty : sig.TotalContracts, Price = disc.Stop.Price, Status = MapStatus(disc.Stop.Status) });
-        // Track the second stop (from Tg2 bracket) for safety-cancel on Tg1 fill
-        if (disc.Stop2 is not null && disc.Stop2.Status is not "Canceled" and not "Cancelled")
-            group.Stop2OrderId = disc.Stop2.Id.ToString();
 
-        _log.LogInformation("[TV-GRP] Bracket strategy {Strat} group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S} stop2={S2}",
-            strategyId, groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, disc.Stop?.Id, disc.Stop2?.Id);
+        // Add target legs (Tg1..TgN)
+        for (int i = 0; i < disc.Targets.Count; i++)
+        {
+            var t = disc.Targets[i];
+            if (t is null) continue;
+            var expectedQty = i < bracketList.Count ? bracketList[i].Qty : 0;
+            group.Legs.Add(new OrderLeg
+            {
+                GroupOrderId = groupId,
+                OrderId = t.Id.ToString(),
+                LegType = TargetLegTypeForIndex(i),
+                OrderType = "Limit",
+                Action = sellAction,
+                Quantity = t.Qty > 0 ? t.Qty : expectedQty,
+                Price = t.Price,
+                Status = MapStatus(t.Status)
+            });
+        }
+
+        // Add the primary stop leg (first bracket's stop) and queue the rest
+        if (disc.Stops.Count > 0 && disc.Stops[0] is { } primaryStop)
+        {
+            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = primaryStop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = primaryStop.Qty > 0 ? primaryStop.Qty : sig.TotalContracts, Price = primaryStop.Price, Status = MapStatus(primaryStop.Status) });
+        }
+        // Legacy 2-bracket: Stop2 goes into Stop2OrderId. 3+ brackets: extras go into PendingStopIds.
+        if (disc.Stops.Count == 2 && disc.Stops[1] is { } stop2
+            && stop2.Status is not "Canceled" and not "Cancelled")
+        {
+            group.Stop2OrderId = stop2.Id.ToString();
+        }
+        else if (disc.Stops.Count > 2)
+        {
+            // Bracket 2..N-1 stops — queued for sequential advancement on partial fills
+            var queue = new List<string>();
+            for (int i = 1; i < disc.Stops.Count; i++)
+            {
+                var s = disc.Stops[i];
+                if (s is null || s.Status is "Canceled" or "Cancelled") continue;
+                queue.Add(s.Id.ToString());
+            }
+            group.PendingStopIds = queue;
+        }
+
+        _log.LogInformation("[TV-GRP] Bracket strategy {Strat} group {G}: entry={E}({ES}) brackets={N} pendingStops={PS}",
+            strategyId, groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Targets.Count,
+            group.PendingStopIds.Count);
 
         // If bracket legs are missing (entry not filled yet), discover them in background
         // when the entry eventually fills. Poll until bracket legs appear.
-        if (disc.Tg1 is null && disc.Tg2 is null && disc.Stop is null)
+        if (disc.Targets.Count == 0 && disc.Stop is null)
         {
             _ = Task.Run(async () =>
             {
@@ -406,28 +471,56 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                     var fullDisc = await DiscoverBracketLegsAsync(
                         strategyId!.Value, symbol, entryAction, exitAction, usePartial);
 
-                    if (fullDisc.Tg1 is not null || fullDisc.Tg2 is not null || fullDisc.Stop is not null)
+                    if (fullDisc.Targets.Count > 0 || fullDisc.Stop is not null)
                     {
-                        // Update GroupOrder legs in place
-                        var tg2d = fullDisc.Tg2 ?? (usePartial ? null : fullDisc.Tg1);
-
-                        if (fullDisc.Tg1 is not null && usePartial)
+                        // Add discovered target legs
+                        for (int k = 0; k < fullDisc.Targets.Count; k++)
                         {
-                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = fullDisc.Tg1.Id.ToString(), LegType = LegType.Tg1, OrderType = "Limit", Action = sellAction, Quantity = fullDisc.Tg1.Qty > 0 ? fullDisc.Tg1.Qty : partialCts, Price = fullDisc.Tg1.Price, Status = MapStatus(fullDisc.Tg1.Status) });
-                            EventStream?.RegisterOrder(fullDisc.Tg1.Id, groupId, LegType.Tg1);
+                            var t = fullDisc.Targets[k];
+                            if (t is null) continue;
+                            var legType = TargetLegTypeForIndex(k);
+                            if (group.GetLeg(legType) != null) continue; // already added
+                            var expectedQty = k < bracketList.Count ? bracketList[k].Qty : 0;
+                            group.Legs.Add(new OrderLeg
+                            {
+                                GroupOrderId = groupId, OrderId = t.Id.ToString(), LegType = legType,
+                                OrderType = "Limit", Action = sellAction,
+                                Quantity = t.Qty > 0 ? t.Qty : expectedQty,
+                                Price = t.Price, Status = MapStatus(t.Status)
+                            });
+                            EventStream?.RegisterOrder(t.Id, groupId, legType);
                         }
-                        if (tg2d is not null)
+                        // Add primary stop + queue the rest
+                        if (fullDisc.Stops.Count > 0 && fullDisc.Stops[0] is { } primary && group.GetLeg(LegType.Stop) is null)
                         {
-                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = tg2d.Id.ToString(), LegType = LegType.Tg2, OrderType = "Limit", Action = sellAction, Quantity = tg2d.Qty > 0 ? tg2d.Qty : remainCts, Price = tg2d.Price, Status = MapStatus(tg2d.Status) });
-                            EventStream?.RegisterOrder(tg2d.Id, groupId, LegType.Tg2);
+                            group.Legs.Add(new OrderLeg
+                            {
+                                GroupOrderId = groupId, OrderId = primary.Id.ToString(),
+                                LegType = LegType.Stop, OrderType = "Stop", Action = sellAction,
+                                Quantity = primary.Qty > 0 ? primary.Qty : sig.TotalContracts,
+                                Price = primary.Price, Status = MapStatus(primary.Status)
+                            });
+                            EventStream?.RegisterOrder(primary.Id, groupId, LegType.Stop);
                         }
-                        if (fullDisc.Stop is not null)
+                        if (fullDisc.Stops.Count == 2 && fullDisc.Stops[1] is { } fs2
+                            && fs2.Status is not "Canceled" and not "Cancelled"
+                            && string.IsNullOrEmpty(group.Stop2OrderId))
                         {
-                            group.Legs.Add(new OrderLeg { GroupOrderId = groupId, OrderId = fullDisc.Stop.Id.ToString(), LegType = LegType.Stop, OrderType = "Stop", Action = sellAction, Quantity = fullDisc.Stop.Qty > 0 ? fullDisc.Stop.Qty : sig.TotalContracts, Price = fullDisc.Stop.Price, Status = MapStatus(fullDisc.Stop.Status) });
-                            EventStream?.RegisterOrder(fullDisc.Stop.Id, groupId, LegType.Stop);
+                            group.Stop2OrderId = fs2.Id.ToString();
+                            EventStream?.RegisterOrder(fs2.Id, groupId, LegType.Stop);
                         }
-                        if (fullDisc.Stop2 is not null)
-                            EventStream?.RegisterOrder(fullDisc.Stop2.Id, groupId, LegType.Stop);
+                        else if (fullDisc.Stops.Count > 2 && group.PendingStopIds.Count == 0)
+                        {
+                            var queue = new List<string>();
+                            for (int k = 1; k < fullDisc.Stops.Count; k++)
+                            {
+                                var s = fullDisc.Stops[k];
+                                if (s is null || s.Status is "Canceled" or "Cancelled") continue;
+                                queue.Add(s.Id.ToString());
+                                EventStream?.RegisterOrder(s.Id, groupId, LegType.Stop);
+                            }
+                            group.PendingStopIds = queue;
+                        }
 
                         // Update entry status if it filled during background polling.
                         // Fire a synthetic event so BrokerEventHandler calls SetInTrade(true).
@@ -450,8 +543,8 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                                 fullDisc.Entry.FillPrice, null, null, null, DateTime.UtcNow));
                         }
 
-                        _log.LogInformation("[TV-GRP] Background discovery completed for group {G}: tg1={T1} tg2={T2} stop={S}",
-                            groupId, fullDisc.Tg1?.Id, tg2d?.Id, fullDisc.Stop?.Id);
+                        _log.LogInformation("[TV-GRP] Background discovery completed for group {G}: brackets={N} stop={S}",
+                            groupId, fullDisc.Targets.Count, fullDisc.Stop?.Id);
                         return;
                     }
                 }
@@ -1294,10 +1387,19 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     /// <summary>Info about a discovered order leg from REST.</summary>
     private record DiscoveredLeg(long Id, string OrderType, string Action, decimal Price, int Qty, string Status, decimal? FillPrice);
 
-    /// <summary>Result of bracket leg discovery — includes full order info for REST-based state sync.</summary>
+    /// <summary>Result of bracket leg discovery — includes full order info for REST-based state sync.
+    /// Targets and Stops are indexed by bracket position (0 = first bracket).
+    /// For 1..2 bracket backcompat, Tg1/Tg2/Stop/Stop2 properties map to Targets[0..1] / Stops[0..1].</summary>
     private record BracketDiscovery(
-        DiscoveredLeg? Entry, DiscoveredLeg? Tg1, DiscoveredLeg? Tg2,
-        DiscoveredLeg? Stop, DiscoveredLeg? Stop2);
+        DiscoveredLeg? Entry,
+        IReadOnlyList<DiscoveredLeg?> Targets,
+        IReadOnlyList<DiscoveredLeg?> Stops)
+    {
+        public DiscoveredLeg? Tg1   => Targets.Count > 0 ? Targets[0] : null;
+        public DiscoveredLeg? Tg2   => Targets.Count > 1 ? Targets[1] : null;
+        public DiscoveredLeg? Stop  => Stops.Count   > 0 ? Stops[0]   : null;
+        public DiscoveredLeg? Stop2 => Stops.Count   > 1 ? Stops[1]   : null;
+    }
 
     /// <summary>
     /// Discovers bracket leg orders via /orderStrategyLink/deps + /order/items.
@@ -1431,39 +1533,30 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                     _log.LogDebug("[TV] DiscoverBracketLegs attempt {A}: entry={E}({ES}) brackets={B}",
                         attempt + 1, entryLeg?.Id, entryLeg?.Status, bracketLegs.Count);
 
-                // Map bracket labels to Tg1/Tg2/Stop based on bracket index
+                // Map bracket labels to Targets[k] / Stops[k] based on bracket index
                 var sortedLabels = bracketLegs.Keys.OrderBy(k => k).ToList();
                 int expectedBrackets = usePartial ? 2 : 1;
 
                 if (sortedLabels.Count >= expectedBrackets)
                 {
-                    DiscoveredLeg? tg1 = null, tg2 = null, stop1 = null, stop2 = null;
-
-                    if (usePartial && sortedLabels.Count >= 2)
+                    // Build target + stop arrays in bracket order
+                    var targets = new List<DiscoveredLeg?>();
+                    var stops   = new List<DiscoveredLeg?>();
+                    foreach (var label in sortedLabels)
                     {
-                        // Bracket "0" = partial (Tg1 + Stop1), bracket "1" = remainder (Tg2 + Stop2)
-                        tg1 = bracketLegs[sortedLabels[0]].limit;
-                        stop1 = bracketLegs[sortedLabels[0]].stop;
-                        tg2 = bracketLegs[sortedLabels[1]].limit;
-                        stop2 = bracketLegs[sortedLabels[1]].stop;
-                    }
-                    else
-                    {
-                        // Single bracket — Tg2 + Stop
-                        tg2 = bracketLegs[sortedLabels[0]].limit;
-                        stop1 = bracketLegs[sortedLabels[0]].stop;
+                        targets.Add(bracketLegs[label].limit);
+                        stops.Add(bracketLegs[label].stop);
                     }
 
                     _log.LogInformation(
-                        "[TV] Bracket legs discovered on attempt {A}: entry={E}({ES}) tg1={T1}({T1S}) tg2={T2}({T2S}) stop={S}({SS}) stop2={S2}",
+                        "[TV] Bracket legs discovered on attempt {A}: entry={E}({ES}) brackets={N} targets=[{TS}] stops=[{SS}]",
                         attempt + 1,
                         entryLeg?.Id, entryLeg?.Status,
-                        tg1?.Id, tg1?.Status,
-                        tg2?.Id, tg2?.Status,
-                        stop1?.Id, stop1?.Status,
-                        stop2?.Id);
+                        sortedLabels.Count,
+                        string.Join(",", targets.Select(t => t?.Id.ToString() ?? "-")),
+                        string.Join(",", stops.Select(s => s?.Id.ToString() ?? "-")));
 
-                    return new BracketDiscovery(entryLeg, tg1, tg2, stop1, stop2);
+                    return new BracketDiscovery(entryLeg, targets, stops);
                 }
 
                 // Entry found but bracket legs not yet visible — give a few attempts
@@ -1471,7 +1564,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 {
                     _log.LogInformation("[TV] Entry {E} ({S}) found but no bracket legs after {A} attempts — returning entry-only",
                         entryLeg.Id, entryLeg.Status, attempt + 1);
-                    return new BracketDiscovery(entryLeg, null, null, null, null);
+                    return new BracketDiscovery(entryLeg, Array.Empty<DiscoveredLeg?>(), Array.Empty<DiscoveredLeg?>());
                 }
             }
 
@@ -1482,7 +1575,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             _log.LogError(ex, "[TV] DiscoverBracketLegsAsync failed");
         }
 
-        return new BracketDiscovery(null, null, null, null, null);
+        return new BracketDiscovery(null, Array.Empty<DiscoveredLeg?>(), Array.Empty<DiscoveredLeg?>());
     }
 
     /// <summary>Cancels an order via POST /order/cancelOrder.</summary>

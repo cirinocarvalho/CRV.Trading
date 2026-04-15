@@ -367,11 +367,16 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         var entryAction = isLong ? "BUY" : "SELL";
         var ticker = !string.IsNullOrEmpty(sig.Ticker) ? sig.Ticker : sig.Setup.ToString();
         var setupId = !string.IsNullOrEmpty(sig.SetupLabel) ? sig.SetupLabel : sig.Setup.ToString();
-        var usePartial = sig.UsePartial;
-        var partialCts = usePartial
-            ? (sig.PartialContracts > 0 ? sig.PartialContracts : sig.TotalContracts / 2)
-            : 0;
-        var remainCts = sig.TotalContracts - partialCts;
+
+        // Resolve effective N-bracket list (legacy Tg1/Tg2 auto-build applies for null Brackets)
+        var bracketList = sig.ResolveBrackets();
+        if (bracketList.Count == 0)
+            bracketList = new[] { new BracketLeg(sig.Tg2Price, sig.TotalContracts, MoveBe: false) };
+        if (bracketList.Count > 4) bracketList = bracketList.Take(4).ToList();
+
+        bool usePartial = bracketList.Count >= 2;
+        var partialCts = usePartial ? bracketList[0].Qty : 0;
+        var remainCts  = sig.TotalContracts - partialCts;
 
         var group = new GroupOrder
         {
@@ -390,27 +395,47 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
             SessionId = sig.SessionId,
         };
 
-        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
-        var tg2Leg   = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t2", LegType = LegType.Tg2, OrderType = "Limit", Action = exitAction, Quantity = remainCts, Price = sig.Tg2Price };
-        var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop, OrderType = "Stop", Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
-        group.Legs.AddRange(new[] { entryLeg, tg2Leg, stopLeg });
+        static LegType TargetLegTypeForIndex(int i) => i switch
+        {
+            0 => LegType.Tg1,
+            1 => LegType.Tg2,
+            2 => LegType.Tg3,
+            3 => LegType.Tg4,
+            _ => LegType.Tg4,
+        };
 
-        // Register in internal order book
+        var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
+        var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop,  OrderType = "Stop",   Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
+        group.Legs.Add(entryLeg);
+
         var legs = new Dictionary<string, LegState>
         {
             [entryLeg.OrderId] = new() { OrderId = entryLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Entry, Action = entryAction, Quantity = sig.TotalContracts, LimitPrice = sig.OrderType == "Limit" ? sig.Entry : null },
-            [tg2Leg.OrderId]   = new() { OrderId = tg2Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg2, Action = exitAction, Quantity = remainCts, LimitPrice = sig.Tg2Price },
-            [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId, GroupOrderId = groupId, LegType = LegType.Stop, Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
+            [stopLeg.OrderId]  = new() { OrderId = stopLeg.OrderId,  GroupOrderId = groupId, LegType = LegType.Stop,  Action = exitAction, Quantity = sig.TotalContracts, StopPrice = sig.Stop },
         };
 
-        // Only add tg1 leg when UsePartial is enabled AND partialCts > 0
-        // (with 1 contract, integer division gives 0 — no meaningful partial)
-        if (usePartial && partialCts > 0)
+        // Add a target leg per bracket
+        for (int i = 0; i < bracketList.Count; i++)
         {
-            var tg1Leg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-t1", LegType = LegType.Tg1, OrderType = "Limit", Action = exitAction, Quantity = partialCts, Price = sig.Tg1Price };
-            group.Legs.Add(tg1Leg);
-            legs[tg1Leg.OrderId] = new() { OrderId = tg1Leg.OrderId, GroupOrderId = groupId, LegType = LegType.Tg1, Action = exitAction, Quantity = partialCts, LimitPrice = sig.Tg1Price };
+            var bl = bracketList[i];
+            if (bl.Qty <= 0) continue;
+            var legType = TargetLegTypeForIndex(i);
+            var legId = $"{groupId}-t{i + 1}";
+            var tgLeg = new OrderLeg
+            {
+                GroupOrderId = groupId, OrderId = legId, LegType = legType,
+                OrderType = "Limit", Action = exitAction,
+                Quantity = bl.Qty, Price = bl.TargetPrice
+            };
+            group.Legs.Add(tgLeg);
+            legs[legId] = new()
+            {
+                OrderId = legId, GroupOrderId = groupId, LegType = legType,
+                Action = exitAction, Quantity = bl.Qty, LimitPrice = bl.TargetPrice
+            };
         }
+
+        group.Legs.Add(stopLeg);
         _ordersByGroup[groupId] = legs;
         _groupTickers[groupId] = ticker;
 
@@ -497,10 +522,15 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
     {
         if (price <= 0) return;
 
-        // Evaluate legs in priority order: Entry → Tg1 → Stop/Tg2.
-        // Process one fill per group per tick so that Tg1 partial always
-        // resolves before Tg2 when both levels are crossed in the same bar.
-        var legOrder = new[] { LegType.Entry, LegType.Tg1, LegType.Stop, LegType.Tg2 };
+        // Evaluate legs in priority order: Entry → Tg1 → Tg2 → Tg3 → Stop → Tg4.
+        // Process one fill per group per tick so that earlier partials always
+        // resolve before later targets when multiple levels cross in the same bar.
+        // Stop sits between the penultimate and final target — the safety net below
+        // still forces earlier targets to fill first if the tick skips them.
+        var legOrder = new[]
+        {
+            LegType.Entry, LegType.Tg1, LegType.Tg2, LegType.Tg3, LegType.Stop, LegType.Tg4
+        };
 
         foreach (var (groupId, legs) in _ordersByGroup)
         {
@@ -534,21 +564,23 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                 // Fill at the order level (not tick price) for realistic backtest P&L
                 var fillPrice = leg.LimitPrice ?? leg.StopPrice ?? price;
 
-                // Safety net: if Tg2 is about to fill but Tg1 hasn't filled yet,
-                // force-fill Tg1 first so partial P&L accrues correctly.
-                // The priority order (Entry→Tg1→Stop→Tg2) should prevent this,
-                // but this guards against any edge case in the tick sequence.
-                if (lt == LegType.Tg2)
+                // Safety net: if a later target is about to fill but an earlier
+                // target in the sequence is still WORKING, force-fill the earlier
+                // target first so partial P&L accrues correctly.
+                if (GroupOrder.IsTargetLeg(lt))
                 {
-                    var tg1 = legs.Values.FirstOrDefault(l => l.LegType == LegType.Tg1 && l.Status == "WORKING");
-                    if (tg1 != null)
+                    var earlierTargets = new[] { LegType.Tg1, LegType.Tg2, LegType.Tg3 }
+                        .TakeWhile(e => e != lt);
+                    foreach (var earlier in earlierTargets)
                     {
-                        Console.WriteLine($"[BT-SAFETY] Tg2 fill for grp={groupId} but Tg1 still WORKING (limit={tg1.LimitPrice}, price={price}) — forcing Tg1 fill first");
-                        tg1.Status = "FILLED";
-                        var tg1Fill = tg1.LimitPrice ?? price;
+                        var eLeg = legs.Values.FirstOrDefault(l => l.LegType == earlier && l.Status == "WORKING");
+                        if (eLeg == null) continue;
+                        Console.WriteLine($"[BT-SAFETY] {lt} fill for grp={groupId} but {earlier} still WORKING (limit={eLeg.LimitPrice}, price={price}) — forcing {earlier} fill first");
+                        eLeg.Status = "FILLED";
+                        var eFill = eLeg.LimitPrice ?? price;
                         if (OnEvent != null)
-                            await OnEvent(new OrderEvent(groupId, tg1.OrderId, LegType.Tg1,
-                                OrderLegStatus.Filled, tg1Fill, tg1.Quantity, null, null, utcNow));
+                            await OnEvent(new OrderEvent(groupId, eLeg.OrderId, earlier,
+                                OrderLegStatus.Filled, eFill, eLeg.Quantity, null, null, utcNow));
                     }
                 }
 

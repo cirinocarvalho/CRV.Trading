@@ -347,10 +347,10 @@ public class BrokerEventHandler
                 await HandleEntryEventAsync(group, strategy!, evt);
                 break;
             case LegType.Tg1:
-                await HandleTg1EventAsync(group, strategy!, evt);
-                break;
             case LegType.Tg2:
-                await HandleTg2EventAsync(group, strategy!, evt);
+            case LegType.Tg3:
+            case LegType.Tg4:
+                await HandleTargetEventAsync(group, strategy!, evt);
                 break;
             case LegType.Stop:
                 await HandleStopEventAsync(group, strategy!, evt);
@@ -551,98 +551,151 @@ public class BrokerEventHandler
         }
     }
 
-    private async Task HandleTg1EventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
+    /// <summary>
+    /// Unified handler for any target leg (Tg1..Tg4). Determines whether the
+    /// filled target is terminal (last in the target-leg list) and either
+    /// completes the group (terminal) or accrues partial P&L and adjusts
+    /// the stop (non-terminal).
+    /// </summary>
+    private async Task HandleTargetEventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
     {
         if (evt.Status != OrderLegStatus.Filled) return;
 
-        group.Status = GroupOrderStatus.PartialFilled;
+        var targets = group.TargetLegs;
+        if (targets.Count == 0) return;
 
-        // Always verify Tg1 fill price via REST — never trust WSS
-        decimal? tg1FillPrice = null;
+        // Locate the filled target in the ordered target list
+        int idx = -1;
+        for (int i = 0; i < targets.Count; i++)
+            if (targets[i].LegType == evt.LegType) { idx = i; break; }
+        if (idx < 0)
+        {
+            _log?.LogWarning("[BEH] Target fill received for {T} but no matching leg found in group {G}",
+                evt.LegType, group.GroupOrderId);
+            return;
+        }
+
+        var filledLeg  = targets[idx];
+        var legLabel   = evt.LegType.ToString();
+        bool isTerminal = idx == targets.Count - 1;
+
+        // Always verify fill price via REST — never trust WSS
+        decimal? fillPrice = null;
         for (int attempt = 0; attempt < 3; attempt++)
         {
             try
             {
-                tg1FillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
-                if (tg1FillPrice is > 0) break;
+                fillPrice = await _executor.GetOrderFillPriceAsync(evt.OrderId);
+                if (fillPrice is > 0) break;
             }
             catch (Exception ex)
             {
-                _log?.LogWarning(ex, "[BEH] Tg1 REST fill price lookup failed (attempt {A}) for order {O}", attempt + 1, evt.OrderId);
+                _log?.LogWarning(ex, "[BEH] {L} REST fill price lookup failed (attempt {A}) for order {O}",
+                    legLabel, attempt + 1, evt.OrderId);
             }
             if (attempt < 2) await Task.Delay(500);
         }
-        // Final fallback: WSS price or Tg1 leg price
-        if (tg1FillPrice is null or 0)
+        if (fillPrice is null or 0)
         {
-            var tg1Leg = group.GetLeg(LegType.Tg1);
-            tg1FillPrice = evt.FillPrice ?? tg1Leg?.Price;
-            _log?.LogWarning("[BEH] Tg1 fill price unresolved via REST — using fallback {P} for order {O}",
-                tg1FillPrice, evt.OrderId);
+            fillPrice = evt.FillPrice ?? filledLeg.Price;
+            _log?.LogWarning("[BEH] {L} fill price unresolved via REST — using fallback {P} for order {O}",
+                legLabel, fillPrice, evt.OrderId);
         }
 
-        // Accrue partial P&L
-        if (group.EntryPrice.HasValue && tg1FillPrice is > 0)
+        // ── Terminal target: complete the group ──────────────
+        if (isTerminal)
+        {
+            // Cancel stop via executor and mark in memory — broker OCO handles the actual cancel
+            // for live, but executor must still be notified for tracking/test purposes.
+            var stopLegTerm = group.GetLeg(LegType.Stop);
+            if (stopLegTerm != null && stopLegTerm.Status == OrderLegStatus.Working)
+            {
+                await _executor.CancelOrderAsync(stopLegTerm.OrderId);
+                stopLegTerm.Status = OrderLegStatus.Canceled;
+            }
+
+            var exitPrice = await ResolveExitFillPriceAsync(evt, legLabel, fallbackPrice: fillPrice ?? 0m);
+            await CompleteGroup(group, strategy, ExitReason.Target, exitPrice, evt.Timestamp);
+            return;
+        }
+
+        // ── Non-terminal target: accrue partial, adjust stop ──
+        group.Status = GroupOrderStatus.PartialFilled;
+
+        // Accrue this bracket's P&L into the cumulative partial total
+        if (group.EntryPrice.HasValue && fillPrice is > 0)
         {
             bool isLong = group.Direction == Direction.Long;
-            var partialPnl = isLong
-                ? (tg1FillPrice.Value - group.EntryPrice.Value) * group.PointValue * group.PartialContracts
-                : (group.EntryPrice.Value - tg1FillPrice.Value) * group.PointValue * group.PartialContracts;
-            group.AccruedPartialPnl = partialPnl;
+            var legPnl = isLong
+                ? (fillPrice.Value - group.EntryPrice.Value) * group.PointValue * filledLeg.Quantity
+                : (group.EntryPrice.Value - fillPrice.Value) * group.PointValue * filledLeg.Quantity;
+            group.AccruedPartialPnl += legPnl;
         }
         else
         {
-            _log?.LogWarning("[BEH] Tg1 FILLED grp={G} but cannot accrue: entryPrice={E} fillPrice={F}",
-                group.GroupOrderId, group.EntryPrice, tg1FillPrice);
+            _log?.LogWarning("[BEH] {L} FILLED grp={G} but cannot accrue: entryPrice={E} fillPrice={F}",
+                legLabel, group.GroupOrderId, group.EntryPrice, fillPrice);
         }
 
-        // Update stop tracking and move to BE at broker if needed.
-        var stopLeg = group.GetLeg(LegType.Stop);
-        if (stopLeg != null)
-        {
-            var remaining = group.TotalContracts - group.PartialContracts;
+        // Compute remaining = total minus sum of all filled target quantities
+        int filledTargetQty = group.TargetLegs
+            .Where(l => l.Status == OrderLegStatus.Filled)
+            .Sum(l => l.Quantity);
+        // Include this leg if its in-memory status hasn't flipped to Filled yet
+        if (filledLeg.Status != OrderLegStatus.Filled) filledTargetQty += filledLeg.Quantity;
+        int remaining = group.TotalContracts - filledTargetQty;
 
-            if (!string.IsNullOrEmpty(group.Stop2OrderId))
+        // Backcompat: group.PartialContracts tracks qty exited via the FIRST partial
+        // (Tg1). Some downstream code (trade records, backtest P&L) keys off this.
+        if (idx == 0 && group.PartialContracts == 0)
+            group.PartialContracts = filledLeg.Quantity;
+
+        // Update the stop leg — reduce qty, advance to next bracket's stop, apply BE
+        var stopLeg = group.GetLeg(LegType.Stop);
+        if (stopLeg != null && remaining > 0)
+        {
+            // Legacy 2-bracket switch (first partial only)
+            if (idx == 0 && !string.IsNullOrEmpty(group.Stop2OrderId))
             {
-                // Dual-stop bracket: switch tracking to Stop2 (broker handles Stop1 cancel + Stop2 BE)
                 stopLeg.OrderId = group.Stop2OrderId;
-                stopLeg.Status = OrderLegStatus.Working;
+                stopLeg.Status  = OrderLegStatus.Working;
                 group.Stop2OrderId = null;
             }
+            // N-bracket stop advancement: each non-terminal fill advances to the next
+            // bracket's stop (broker OCO has already canceled the previous one).
+            else
+            {
+                var pending = group.PendingStopIds;
+                if (pending.Count > 0)
+                {
+                    stopLeg.OrderId = pending[0];
+                    stopLeg.Status  = OrderLegStatus.Working;
+                    pending.RemoveAt(0);
+                    group.PendingStopIds = pending;
+                }
+            }
             stopLeg.Quantity = remaining;
+
             bool hasAutoTrail = group.AutoTrailStopLoss.HasValue;
+            // Move to BE if: group flag says so (UseBe), not overridden by AutoTrail,
+            // entry price is known. This mirrors the prior 2-bracket behavior.
             if (group.UseBe && group.EntryPrice.HasValue && !hasAutoTrail)
             {
                 stopLeg.Price = group.EntryPrice.Value;
-                // Push the BE price into the executor so that:
-                //   - Backtest: EvaluateFillsAsync uses the new StopPrice (not original stop)
-                //   - Live (dual-stop bracket): Stop2 is already at BE — this is a harmless no-op
                 await _executor.ModifyOrderAsync(stopLeg.OrderId, group.EntryPrice.Value, remaining);
             }
-            _log?.LogInformation("[BEH] Tg1 FILLED grp={G} — tracking Stop {O}, qty={Q}{BE}",
-                group.GroupOrderId, stopLeg.OrderId, remaining,
+            else
+            {
+                // Still need to push the new qty to the executor even when price doesn't change
+                await _executor.ModifyOrderAsync(stopLeg.OrderId, stopLeg.Price, remaining);
+            }
+
+            _log?.LogInformation("[BEH] {L} FILLED grp={G} — tracking Stop {O}, qty={Q}{BE}",
+                legLabel, group.GroupOrderId, stopLeg.OrderId, remaining,
                 hasAutoTrail ? " AutoTrail active (BE skipped)" : group.UseBe ? $" BE={group.EntryPrice}" : "");
         }
 
         OnGroupStateChanged?.Invoke(group);
-    }
-
-    private async Task HandleTg2EventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
-    {
-        if (evt.Status != OrderLegStatus.Filled) return;
-
-        // Cancel stop via executor and mark in memory — broker OCO handles the actual cancel
-        // for live, but executor must still be notified for tracking/test purposes.
-        var stopLeg = group.GetLeg(LegType.Stop);
-        if (stopLeg != null && stopLeg.Status == OrderLegStatus.Working)
-        {
-            await _executor.CancelOrderAsync(stopLeg.OrderId);
-            stopLeg.Status = OrderLegStatus.Canceled;
-        }
-
-        var tg2Leg = group.GetLeg(LegType.Tg2);
-        var exitPrice = await ResolveExitFillPriceAsync(evt, "Tg2", fallbackPrice: tg2Leg?.Price ?? 0m);
-        await CompleteGroup(group, strategy, ExitReason.Target, exitPrice, evt.Timestamp);
     }
 
     private async Task HandleStopEventAsync(GroupOrder group, ISetupStrategy strategy, OrderEvent evt)
@@ -663,18 +716,18 @@ public class BrokerEventHandler
                 tg1Leg.Status = OrderLegStatus.Filled;
                 tg1Leg.FillPrice ??= tg1Leg.Price;
                 tg1Leg.FillTime = evt.Timestamp;
-                await HandleTg1EventAsync(group, strategy, new OrderEvent(
+                await HandleTargetEventAsync(group, strategy, new OrderEvent(
                     group.GroupOrderId, tg1Leg.OrderId, LegType.Tg1,
                     OrderLegStatus.Filled, tg1Leg.FillPrice, tg1Leg.Quantity, null, null, evt.Timestamp));
-                // Re-read stop leg — HandleTg1EventAsync may have switched it to Stop2
+                // Re-read stop leg — HandleTargetEventAsync may have switched it to Stop2
                 stopLeg = group.GetLeg(LegType.Stop);
             }
         }
 
-        // Cancel tg1/tg2 via executor and mark in memory — broker OCO handles the actual cancel
-        // for live, but executor must still be notified for tracking/test purposes.
+        // Cancel all working target legs (Tg1..Tg4) — broker OCO handles the actual
+        // cancel for live, but the executor must still be notified for tracking/tests.
         foreach (var leg in group.Legs.Where(l =>
-            (l.LegType == LegType.Tg1 || l.LegType == LegType.Tg2) &&
+            GroupOrder.IsTargetLeg(l.LegType) &&
             l.Status == OrderLegStatus.Working).ToList())
         {
             await _executor.CancelOrderAsync(leg.OrderId);
