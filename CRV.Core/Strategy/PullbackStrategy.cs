@@ -38,6 +38,10 @@ public class PullbackStrategy : ISetupStrategy
     // ── Last ATR ratio (cached from OrbState.AtrRatio when trade enters) ──
     private decimal _lastAtrRatio = 0;
 
+    // ── Stop-mode state ──────────────────────────────────────────
+    private Bar?    _prevBar  = null;  // previous bar for BarHL stop mode
+    private decimal _lastVwap = 0;     // latest VWAP for Vwap stop mode
+
     // ── Pending signals ───────────────────────────────────────────
     private EntrySignal? _pendingEntry = null;
 
@@ -106,6 +110,7 @@ public class PullbackStrategy : ISetupStrategy
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
+        _prevBar = null; _lastVwap = 0;
         ClearPendingSignals();
     }
 
@@ -123,6 +128,7 @@ public class PullbackStrategy : ISetupStrategy
         _pastCutoff = false;
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
+        _prevBar = null; _lastVwap = 0;
         ClearPendingSignals();
     }
 
@@ -140,6 +146,10 @@ public class PullbackStrategy : ISetupStrategy
         if (!orb.IsSet || orb.Range <= 0) return;
 
         _lastAtrRatio = orb.AtrRatio;
+        _lastVwap     = indicators.Vwap;
+        // Set before ProcessArm so BarHL stops reference the SIGNAL bar
+        // (the bar triggering the entry), not the bar preceding it.
+        _prevBar      = bar;
 
         ProcessArm(bar, orb, indicators);
     }
@@ -304,6 +314,40 @@ public class PullbackStrategy : ISetupStrategy
 
         var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.TickSize);
+
+        // Keep OrbPct stop as an upper-risk cap for alternative stop modes.
+        decimal orbPctSl   = sl;
+        decimal orbPctRisk = Math.Abs(ep - orbPctSl);
+
+        // BarHL stop mode: use high/low of bar before entry ± 1 tick
+        if (_cfg.StopMode == "BarHL" && _prevBar != null)
+        {
+            sl = isLong
+                ? LevelCalculator.RoundToTick(_prevBar.Low  - _cfg.TickSize, _cfg.TickSize)
+                : LevelCalculator.RoundToTick(_prevBar.High + _cfg.TickSize, _cfg.TickSize);
+            // Sanity: stop must be on the protective side of entry.
+            // Long → sl < ep, Short → sl > ep. Otherwise fall back to OrbPct.
+            if ((isLong && sl >= ep) || (!isLong && sl <= ep)) sl = orbPctSl;
+            // Cap: if BarHL would be wider than OrbPct, fall back to OrbPct
+            else if (Math.Abs(ep - sl) > orbPctRisk) sl = orbPctSl;
+            decimal risk   = Math.Abs(ep - sl);
+            decimal reward = Math.Abs(tp - ep);
+            rr = risk > 0 ? reward / risk : 0;
+        }
+        // Vwap stop mode: stop at VWAP ± N ticks
+        else if (_cfg.StopMode == "Vwap" && _lastVwap > 0)
+        {
+            sl = isLong
+                ? LevelCalculator.RoundToTick(_lastVwap - _cfg.StopVwapTicks * _cfg.TickSize, _cfg.TickSize)
+                : LevelCalculator.RoundToTick(_lastVwap + _cfg.StopVwapTicks * _cfg.TickSize, _cfg.TickSize);
+            // Sanity: stop must be on the protective side of entry.
+            if ((isLong && sl >= ep) || (!isLong && sl <= ep)) sl = orbPctSl;
+            // Cap: if Vwap would be wider than OrbPct, fall back to OrbPct
+            else if (Math.Abs(ep - sl) > orbPctRisk) sl = orbPctSl;
+            decimal risk   = Math.Abs(ep - sl);
+            decimal reward = Math.Abs(tp - ep);
+            rr = risk > 0 ? reward / risk : 0;
+        }
 
         if (rr < _cfg.MinRr) return;
 
