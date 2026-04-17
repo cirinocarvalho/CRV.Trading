@@ -598,6 +598,15 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
 
             if (!_trailState.TryGetValue(groupId, out var trail) || !trail.Enabled) continue;
 
+            // Auto-trail only applies to non-first brackets (Tg2+). On Tradovate,
+            // bracket 0 (Tg1) has a plain stop — no trail. The trail should only
+            // start modifying the stop AFTER Tg1 has filled and the handler has
+            // moved the stop to BE. For single-bracket orders (no Tg1), trail
+            // applies from the start.
+            var tg1ForTrail = legs.Values.FirstOrDefault(l => l.LegType == LegType.Tg1);
+            if (tg1ForTrail != null && tg1ForTrail.Status != "FILLED")
+                continue;  // Tg1 exists but hasn't filled yet — don't trail
+
             bool trailIsLong = stopLegForTrail.Action == "SELL"; // Stop sells for long positions
 
             decimal profitDistance = trailIsLong
