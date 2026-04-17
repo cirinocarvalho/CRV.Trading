@@ -22,15 +22,51 @@ public class ProspectusModel : PageModel
     public decimal TotalRiskToday { get; set; }
     public decimal TotalProfitAvg { get; set; }
     public decimal TotalRiskAvg { get; set; }
+    /// <summary>The date being viewed. null = today (live ORB from engine).</summary>
+    public string SelectedDate { get; set; } = "";
+    /// <summary>Display label for the selected date column header.</summary>
+    public string SelectedDateLabel { get; set; } = "Today";
+    /// <summary>True when using live engine snapshot (today, no date param).</summary>
+    public bool IsLive { get; set; }
 
-    public void OnGet()
+    public void OnGet(string? date)
     {
         var cfg = _cfgSvc.Current;
         var setups = cfg.ToSetupConfigs();
-        var snapshot = _orchestrator.LastSnapshot;
+
+        // Parse selected date — null/empty = today (live)
+        DateTime? selectedDateUtc = null;
+        if (!string.IsNullOrEmpty(date) && DateTime.TryParse(date, out var parsed))
+        {
+            selectedDateUtc = parsed.Date;
+            SelectedDate = parsed.ToString("yyyy-MM-dd");
+            SelectedDateLabel = parsed.ToString("MMM d, yyyy");
+            IsLive = false;
+        }
+        else
+        {
+            SelectedDate = DateTime.Now.ToString("yyyy-MM-dd");
+            SelectedDateLabel = "Today (Live)";
+            IsLive = true;
+        }
+
+        var snapshot = IsLive ? _orchestrator.LastSnapshot : null;
+
+        // Load ALL orb_cache entries once — used for both selected-date lookup and monthly avg
+        var allOrbEntries = LoadAllOrbEntries();
+
+        // Build ORB lookup for the selected date from cache
+        var selectedDateOrb = new Dictionary<(string ticker, string sessionId), decimal>();
+        if (selectedDateUtc.HasValue)
+        {
+            selectedDateOrb = allOrbEntries
+                .Where(e => e.TradingDate.Date == selectedDateUtc.Value.Date && (e.OrbHigh - e.OrbLow) > 0)
+                .GroupBy(e => (FuturesSymbol.Normalize(e.Symbol), e.SessionId))
+                .ToDictionary(g => g.Key, g => Math.Round(g.First().OrbHigh - g.First().OrbLow, 4));
+        }
 
         // Build monthly average ORB ranges from orb_cache.json
-        var monthlyAvgOrb = ComputeMonthlyAverageOrb();
+        var monthlyAvgOrb = ComputeMonthlyAverageOrb(allOrbEntries);
 
         // Identify active sessions from the config
         var sessionIds = new[] { "Asia", "London", "NY" };
@@ -52,15 +88,21 @@ public class ProspectusModel : PageModel
                 var pointValue = setup.PointValue > 0 ? setup.PointValue : cfg.PointValue;
                 var tickSize = setup.TickSize > 0 ? setup.TickSize : cfg.TickSize;
 
-                // Today's ORB from live engine snapshot
+                // Selected-date ORB: live engine snapshot (today) or orb_cache (historical)
                 decimal todayOrb = 0;
-                if (snapshot?.GroupSnapshots != null)
+                if (IsLive && snapshot?.GroupSnapshots != null)
                 {
-                    // Try exact ticker match, then normalized
                     var gs = snapshot.GroupSnapshots.Values.FirstOrDefault(g =>
                         FuturesSymbol.Normalize(g.Ticker) == normTicker);
                     if (gs != null && gs.OrbRange > 0)
                         todayOrb = gs.OrbRange;
+                }
+                else if (!IsLive)
+                {
+                    if (selectedDateOrb.TryGetValue((normTicker, sessionId), out var cached))
+                        todayOrb = cached;
+                    else if (selectedDateOrb.TryGetValue((normTicker, ""), out var cachedLegacy))
+                        todayOrb = cachedLegacy;
                 }
 
                 // Monthly average ORB
@@ -165,17 +207,30 @@ public class ProspectusModel : PageModel
         TotalRiskAvg = Sessions.Sum(s => s.TotalRiskAvg);
     }
 
-    // ── Monthly average ORB from orb_cache.json ──────────────────
-    private Dictionary<(string ticker, string sessionId), decimal> ComputeMonthlyAverageOrb()
+    // ── ORB cache helpers ──────────────────────────────────────────
+
+    private static List<OrbStateCache> LoadAllOrbEntries()
+    {
+        try
+        {
+            const string cacheFile = "orb_cache.json";
+            if (!System.IO.File.Exists(cacheFile)) return new();
+            var json = System.IO.File.ReadAllText(cacheFile);
+            json = json.TrimStart();
+            if (json.StartsWith('['))
+                return System.Text.Json.JsonSerializer.Deserialize<List<OrbStateCache>>(json) ?? new();
+            var single = System.Text.Json.JsonSerializer.Deserialize<OrbStateCache>(json);
+            return single != null ? new() { single } : new();
+        }
+        catch { return new(); }
+    }
+
+    private static Dictionary<(string ticker, string sessionId), decimal> ComputeMonthlyAverageOrb(
+        List<OrbStateCache> entries)
     {
         var result = new Dictionary<(string, string), decimal>();
         try
         {
-            var cacheFile = "orb_cache.json";
-            if (!System.IO.File.Exists(cacheFile)) return result;
-            var json = System.IO.File.ReadAllText(cacheFile);
-            var entries = System.Text.Json.JsonSerializer.Deserialize<List<OrbStateCache>>(json) ?? new();
-
             var now = DateTime.UtcNow;
             var monthStart = new DateTime(now.Year, now.Month, 1);
 

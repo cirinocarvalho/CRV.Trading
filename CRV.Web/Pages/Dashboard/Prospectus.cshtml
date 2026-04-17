@@ -14,13 +14,27 @@
 <div class="d-flex align-items-center gap-3 mb-3">
     <h4 class="mb-0"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Trade Prospectus</h4>
     <span class="badge bg-secondary">@DateTime.Now.ToString("MMM yyyy")</span>
+    <div class="d-flex align-items-center gap-2 ms-3">
+        <label class="form-label small mb-0 text-muted">Date</label>
+        <input type="date" id="prospectus-date" class="form-control form-control-sm" style="width:160px"
+               value="@Model.SelectedDate"
+               onchange="window.location.href='/dashboard/prospectus?date=' + this.value" />
+        @if (!Model.IsLive)
+        {
+            <a href="/dashboard/prospectus" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-broadcast me-1"></i>Today (Live)
+            </a>
+        }
+    </div>
     <a href="/dashboard" class="btn btn-outline-secondary btn-sm ms-auto">
         <i class="bi bi-speedometer2 me-1"></i>Dashboard
     </a>
 </div>
 
 <p class="text-muted small mb-3">
-    Expected profit and risk per setup based on today's ORB range (live) and monthly average.
+    Expected profit and risk per setup based on ORB range and monthly average.
+    <strong>@Model.SelectedDateLabel</strong> column shows
+    @(Model.IsLive ? "the live ORB from the running engine." : $"the cached ORB from {Model.SelectedDateLabel}.")
     Data reads from your live session/basket configuration.
 </p>
 
@@ -53,7 +67,7 @@ else
                                 <th rowspan="2" class="text-center">CTS</th>
                                 <th rowspan="2" class="text-center">Tgt%</th>
                                 <th rowspan="2" class="text-center">Stp%</th>
-                                <th colspan="5" class="text-center border-start" style="background:#1a3a2a">Today's ORB</th>
+                                <th colspan="5" class="text-center border-start" style="background:#1a3a2a">@Model.SelectedDateLabel</th>
                                 <th colspan="5" class="text-center border-start" style="background:#2a2a3a">Monthly Avg ORB</th>
                             </tr>
                             <tr>
@@ -129,11 +143,11 @@ else
         <div class="card-body py-2">
             <div class="row text-center font-monospace">
                 <div class="col">
-                    <div class="small text-muted">Today Max Profit</div>
+                    <div class="small text-muted">@Model.SelectedDateLabel Profit</div>
                     <div class="fw-bold fs-5 pnl-pos">@Dol(Model.TotalProfitToday)</div>
                 </div>
                 <div class="col">
-                    <div class="small text-muted">Today Max Risk</div>
+                    <div class="small text-muted">@Model.SelectedDateLabel Risk</div>
                     <div class="fw-bold fs-5 text-danger">@Dol(Model.TotalRiskToday)</div>
                 </div>
                 <div class="col">
