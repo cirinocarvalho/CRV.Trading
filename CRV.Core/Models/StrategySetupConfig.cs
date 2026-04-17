@@ -95,6 +95,11 @@ public class StrategySetupConfig
     public bool UseBe { get; set; } = true;
     public int PartialCts { get; set; }
     public bool AllowRearmAfterBe { get; set; } = true;
+    /// <summary>Conservative Retest only: after the first trade on a side stops out,
+    /// skip the full retest cycle (breakout confirm → leave zone → return → close above ORB)
+    /// and re-enter immediately when price reaches ORB High/Low again.
+    /// Default false = always require full retest cycle.</summary>
+    public bool QuickReentry { get; set; }
 
     // Auto Trail (per-ticker, copied from BasketEntry at setup construction)
     public AutoTrailConfig? AutoTrail { get; set; }

@@ -264,34 +264,54 @@ public class RetestStrategy : ISetupStrategy
             // Conservative — retest-zone state transitions
             decimal retestW = orbRange * _cfg.RetestPct;
 
-            // Step 0: breakout confirmation — price must actually break through the ORB level
-            // Long: bar must trade above ORB High. Short: bar must trade below ORB Low.
-            if (_state == 1 && !_breakoutConfirmed && bar.High > orbHigh)
-                _breakoutConfirmed = true;
-            if (_state == -1 && !_breakoutConfirmed && bar.Low < orbLow)
-                _breakoutConfirmed = true;
+            // QuickReentry: after a previous trade on this side, skip the full
+            // retest cycle (breakout confirm → leave zone → return → close above ORB).
+            // Instead, enter immediately when price reaches ORB boundary — like
+            // Aggressive mode but only for re-entries (tradeCount > 0 on that side).
+            bool quickLong  = _cfg.QuickReentry && _longCount > 0;
+            bool quickShort = _cfg.QuickReentry && _shortCount > 0;
 
-            // Step 1: detect when price leaves the zone after arming (AND breakout confirmed)
-            if (_state == 1 && _breakoutConfirmed && !_retestLeftZone && bar.Low <= orbHigh - retestW)
-                _retestLeftZone = true;
-            if (_state == -1 && _breakoutConfirmed && !_retestLeftZone && bar.High >= orbLow + retestW)
-                _retestLeftZone = true;
-
-            // Step 2: retest fires only after breakout + left zone + returned to zone
-            bool zoneOk = _breakoutConfirmed && _retestLeftZone;
-            if (zoneOk)
+            if (quickLong && longReady && _state == 1)
             {
-                if (_state == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW)
-                    _state = 2;
-                if (_state == -1 && bar.High >= orbLow - retestW && bar.Low <= orbLow + retestW)
-                    _state = -2;
-            }
-
-            // Entry from retest state
-            if (isReady && _state == 2 && bar.Close > orbHigh)
                 TryEntry(orbHigh, true, orb, bar.Time);
-            else if (isReady && _state == -2 && bar.Close < orbLow)
+            }
+            else if (quickShort && shortReady && _state == -1)
+            {
                 TryEntry(orbLow, false, orb, bar.Time);
+            }
+            else
+            {
+                // Full Conservative retest cycle (first trade, or QuickReentry off)
+
+                // Step 0: breakout confirmation — price must actually break through the ORB level
+                // Long: bar must trade above ORB High. Short: bar must trade below ORB Low.
+                if (_state == 1 && !_breakoutConfirmed && bar.High > orbHigh)
+                    _breakoutConfirmed = true;
+                if (_state == -1 && !_breakoutConfirmed && bar.Low < orbLow)
+                    _breakoutConfirmed = true;
+
+                // Step 1: detect when price leaves the zone after arming (AND breakout confirmed)
+                if (_state == 1 && _breakoutConfirmed && !_retestLeftZone && bar.Low <= orbHigh - retestW)
+                    _retestLeftZone = true;
+                if (_state == -1 && _breakoutConfirmed && !_retestLeftZone && bar.High >= orbLow + retestW)
+                    _retestLeftZone = true;
+
+                // Step 2: retest fires only after breakout + left zone + returned to zone
+                bool zoneOk = _breakoutConfirmed && _retestLeftZone;
+                if (zoneOk)
+                {
+                    if (_state == 1 && bar.Low <= orbHigh + retestW && bar.High >= orbHigh - retestW)
+                        _state = 2;
+                    if (_state == -1 && bar.High >= orbLow - retestW && bar.Low <= orbLow + retestW)
+                        _state = -2;
+                }
+
+                // Entry from retest state
+                if (isReady && _state == 2 && bar.Close > orbHigh)
+                    TryEntry(orbHigh, true, orb, bar.Time);
+                else if (isReady && _state == -2 && bar.Close < orbLow)
+                    TryEntry(orbLow, false, orb, bar.Time);
+            }
 
             // De-arm if price crosses OrbMid (retest failed)
             if (_state == 2  && bar.Close < orbMid) _state = 0;
