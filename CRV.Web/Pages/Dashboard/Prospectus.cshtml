@@ -1,0 +1,164 @@
+@page "/dashboard/prospectus"
+@model CRV.Web.Pages.Dashboard.ProspectusModel
+@{
+    ViewData["Title"] = "Trade Prospectus";
+    ViewData["Page"]  = "prospectus";
+    Layout = "~/Pages/Shared/_Layout.cshtml";
+
+    string Dol(decimal v) => v == 0 ? "\u2014" : "$" + v.ToString("N2");
+    string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "";
+    string Pct(decimal v) => v == 0 ? "\u2014" : (v * 100).ToString("F0") + "%";
+    string OrbFmt(decimal v) => v == 0 ? "\u2014" : v.ToString("F2");
+}
+
+<div class="d-flex align-items-center gap-3 mb-3">
+    <h4 class="mb-0"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Trade Prospectus</h4>
+    <span class="badge bg-secondary">@DateTime.Now.ToString("MMM yyyy")</span>
+    <a href="/dashboard" class="btn btn-outline-secondary btn-sm ms-auto">
+        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+    </a>
+</div>
+
+<p class="text-muted small mb-3">
+    Expected profit and risk per setup based on today's ORB range (live) and monthly average.
+    Data reads from your live session/basket configuration.
+</p>
+
+@if (Model.Sessions.Count == 0)
+{
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>No enabled setups found in your configuration.
+        Configure sessions and basket entries in <a href="/settings/live">Settings</a>.
+    </div>
+}
+else
+{
+    @foreach (var session in Model.Sessions)
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center">
+                <i class="bi bi-clock me-2"></i>
+                <span class="fw-bold">@session.SessionId Session</span>
+                <span class="badge bg-primary ms-2">@session.Rows.Count setups</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover trade-table font-monospace mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th rowspan="2">Setup</th>
+                                <th rowspan="2">Type</th>
+                                <th rowspan="2">Ticker</th>
+                                <th rowspan="2" class="text-end">PV</th>
+                                <th rowspan="2" class="text-center">CTS</th>
+                                <th rowspan="2" class="text-center">Tgt%</th>
+                                <th rowspan="2" class="text-center">Stp%</th>
+                                <th colspan="5" class="text-center border-start" style="background:#1a3a2a">Today's ORB</th>
+                                <th colspan="5" class="text-center border-start" style="background:#2a2a3a">Monthly Avg ORB</th>
+                            </tr>
+                            <tr>
+                                <th class="text-end border-start" style="background:#1a3a2a">ORB</th>
+                                <th class="text-end" style="background:#1a3a2a">Tg1 $</th>
+                                <th class="text-end" style="background:#1a3a2a">Tg2 $</th>
+                                <th class="text-end" style="background:#1a3a2a">Profit $</th>
+                                <th class="text-end" style="background:#1a3a2a">Risk $</th>
+                                <th class="text-end border-start" style="background:#2a2a3a">ORB</th>
+                                <th class="text-end" style="background:#2a2a3a">Tg1 $</th>
+                                <th class="text-end" style="background:#2a2a3a">Tg2 $</th>
+                                <th class="text-end" style="background:#2a2a3a">Profit $</th>
+                                <th class="text-end" style="background:#2a2a3a">Risk $</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in session.Rows)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="badge bg-warning text-dark">@r.SetupLabel</span>
+                                    </td>
+                                    <td class="small text-muted">@r.StrategyType</td>
+                                    <td>@r.Ticker</td>
+                                    <td class="text-end">@r.PointValue</td>
+                                    <td class="text-center">
+                                        @r.Contracts
+                                        @if (r.UsePartial)
+                                        {
+                                            <span class="text-muted small">(@r.PartialCts+@r.RemainCts)</span>
+                                        }
+                                    </td>
+                                    <td class="text-center">@((r.TargetPct * 100).ToString("F0"))%</td>
+                                    <td class="text-center">@((r.StopPct * 100).ToString("F0"))%</td>
+                                    <!-- Today's ORB -->
+                                    <td class="text-end border-start">@OrbFmt(r.OrbRange)</td>
+                                    <td class="text-end @PnlCls(r.Tgt1Usd)">@Dol(r.Tgt1Usd)</td>
+                                    <td class="text-end @PnlCls(r.Tgt2Usd)">@Dol(r.Tgt2Usd)</td>
+                                    <td class="text-end fw-bold @PnlCls(r.ProfitUsd)">@Dol(r.ProfitUsd)</td>
+                                    <td class="text-end text-danger">@Dol(r.RiskUsd)</td>
+                                    <!-- Monthly Avg ORB -->
+                                    <td class="text-end border-start">@OrbFmt(r.AvgOrbRange)</td>
+                                    <td class="text-end @PnlCls(r.AvgTgt1Usd)">@Dol(r.AvgTgt1Usd)</td>
+                                    <td class="text-end @PnlCls(r.AvgTgt2Usd)">@Dol(r.AvgTgt2Usd)</td>
+                                    <td class="text-end fw-bold @PnlCls(r.AvgProfitUsd)">@Dol(r.AvgProfitUsd)</td>
+                                    <td class="text-end text-danger">@Dol(r.AvgRiskUsd)</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="table-dark">
+                            <tr>
+                                <td colspan="7" class="fw-bold">@session.SessionId Total</td>
+                                <td class="border-start"></td>
+                                <td></td>
+                                <td></td>
+                                <td class="text-end fw-bold pnl-pos">@Dol(session.TotalProfitToday)</td>
+                                <td class="text-end fw-bold text-danger">@Dol(session.TotalRiskToday)</td>
+                                <td class="border-start"></td>
+                                <td></td>
+                                <td></td>
+                                <td class="text-end fw-bold pnl-pos">@Dol(session.TotalProfitAvg)</td>
+                                <td class="text-end fw-bold text-danger">@Dol(session.TotalRiskAvg)</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Grand Total -->
+    <div class="card border-success">
+        <div class="card-body py-2">
+            <div class="row text-center font-monospace">
+                <div class="col">
+                    <div class="small text-muted">Today Max Profit</div>
+                    <div class="fw-bold fs-5 pnl-pos">@Dol(Model.TotalProfitToday)</div>
+                </div>
+                <div class="col">
+                    <div class="small text-muted">Today Max Risk</div>
+                    <div class="fw-bold fs-5 text-danger">@Dol(Model.TotalRiskToday)</div>
+                </div>
+                <div class="col">
+                    <div class="small text-muted">Monthly Avg Profit</div>
+                    <div class="fw-bold fs-5 pnl-pos">@Dol(Model.TotalProfitAvg)</div>
+                </div>
+                <div class="col">
+                    <div class="small text-muted">Monthly Avg Risk</div>
+                    <div class="fw-bold fs-5 text-danger">@Dol(Model.TotalRiskAvg)</div>
+                </div>
+                <div class="col">
+                    <div class="small text-muted">Profit / Risk (Avg)</div>
+                    <div class="fw-bold fs-5">
+                        @(Model.TotalRiskAvg > 0 ? (Model.TotalProfitAvg / Model.TotalRiskAvg).ToString("F2") + "x" : "\u2014")
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="small text-muted mt-3">
+        <i class="bi bi-info-circle me-1"></i>
+        <strong>Assumptions:</strong> All enabled setups fire exactly once per session.
+        Profit = Tg1 partial ($) + Tg2 runner ($). Risk = stop distance &times; PV &times; total contracts.
+        Today's ORB shows live range (updates after ORB formation). Monthly average uses orb_cache.json entries from
+        @DateTime.UtcNow.ToString("MMM yyyy").
+    </div>
+}

@@ -19,6 +19,8 @@
                href="/dashboard"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="sessions"?"active text-warning":"")"
                href="/dashboard/sessions"><i class="bi bi-clock-history me-1"></i>Sessions</a>
+            <a class="nav-link @(ViewData["Page"]?.ToString()=="prospectus"?"active text-warning":"")"
+               href="/dashboard/prospectus"><i class="bi bi-graph-up-arrow me-1"></i>Prospectus</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="manual-trade"?"active text-warning":"")"
                href="/trading/manual"><i class="bi bi-lightning-charge-fill me-1"></i>Manual</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="orders"?"active text-warning":"")"
