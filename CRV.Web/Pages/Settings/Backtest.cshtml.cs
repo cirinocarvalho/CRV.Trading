@@ -119,7 +119,9 @@ public class BacktestSettingsModel : PageModel
         catch (Exception ex)
         {
             _log.LogError(ex, "Backtest run failed.");
-            ModelState.AddModelError("", $"Backtest failed: {ex.Message}");
+            // Show full stack trace so divide-by-zero and similar bugs can be pinpointed
+            var inner = ex.InnerException != null ? $"\nInner: {ex.InnerException.Message}" : "";
+            ModelState.AddModelError("", $"Backtest failed: {ex.Message}{inner}\n{ex.StackTrace}");
             return Page();
         }
 
