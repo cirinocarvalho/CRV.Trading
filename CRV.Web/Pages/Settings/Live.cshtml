@@ -1185,6 +1185,7 @@ function renderBasket() {
                 (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
+                (entry.StrategyType === 1 ? _bCheck(entry.Id, 'QuickReentry', cfg.QuickReentry === true, 'Quick Re-entry') : '') +
                 _bAutoTrailToggle(entry.Id, at) +
             '</div>' +
             _bAutoTrailSection(entry.Id, at) +
