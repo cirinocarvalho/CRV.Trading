@@ -627,10 +627,18 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                     ? trail.HighWater - trail.StopLoss
                     : trail.HighWater + trail.StopLoss;
 
-                // Snap to freq grid
-                decimal snappedStop = trailIsLong
-                    ? Math.Floor(rawStop / trail.Freq) * trail.Freq
-                    : Math.Ceiling(rawStop / trail.Freq) * trail.Freq;
+                // Snap to freq grid (if Freq is 0, skip snapping — use raw stop)
+                decimal snappedStop;
+                if (trail.Freq > 0)
+                {
+                    snappedStop = trailIsLong
+                        ? Math.Floor(rawStop / trail.Freq) * trail.Freq
+                        : Math.Ceiling(rawStop / trail.Freq) * trail.Freq;
+                }
+                else
+                {
+                    snappedStop = rawStop;
+                }
 
                 // Ratchet: only move stop in favorable direction
                 decimal currentStop = stopLegForTrail.StopPrice ?? 0m;
