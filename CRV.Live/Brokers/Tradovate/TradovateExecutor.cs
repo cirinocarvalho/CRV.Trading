@@ -266,14 +266,9 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                 ["trailingStop"] = false
             };
 
-            // First bracket never gets BE/autoTrail — it's the "partial" leg
-            if (i == 0)
-            {
-                brackets.Add(dict);
-                continue;
-            }
-
-            // Non-first brackets: autoTrail takes precedence over breakEven
+            // AutoTrail on EVERY bracket — Tradovate handles each independently.
+            // Each bracket's stop trails with the same params; trigger controls
+            // when each bracket's trail arms (distance from entry in points).
             if (hasAutoTrail)
             {
                 var trailTrigger = sig.AutoTrailTrigger ?? Math.Abs(tg1Offset);
@@ -284,8 +279,9 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                     ["freq"]     = sig.AutoTrailFreq!.Value
                 };
             }
-            else if (bl.MoveBe && beOffset > 0)
+            else if (i > 0 && bl.MoveBe && beOffset > 0)
             {
+                // breakEven only on non-first brackets (bracket 0 has no BE trigger)
                 dict["breakEven"] = beOffset;
             }
             brackets.Add(dict);
