@@ -12,11 +12,19 @@ public static class OrbStateCacheService
     {
         try
         {
-            // Load existing entries, upsert by symbol+sessionId, write back
+            // Load existing entries, upsert by symbol+sessionId+tradingDate, write back.
+            // This accumulates one entry per symbol/session/day instead of overwriting.
             var entries = LoadAll();
             var idx = entries.FindIndex(e =>
-                e.Symbol == cache.Symbol && e.SessionId == cache.SessionId);
+                e.Symbol == cache.Symbol
+                && e.SessionId == cache.SessionId
+                && e.TradingDate.Date == cache.TradingDate.Date);
             if (idx >= 0) entries[idx] = cache; else entries.Add(cache);
+
+            // Prune entries older than 90 days to keep the file from growing unbounded
+            var cutoff = DateTime.UtcNow.AddDays(-90);
+            entries.RemoveAll(e => e.TradingDate < cutoff);
+
             var json = JsonSerializer.Serialize(entries, _opts);
             File.WriteAllText(FileName, json);
         }

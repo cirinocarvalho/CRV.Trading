@@ -1,18 +1,22 @@
 namespace CRV.Web.Pages.Dashboard;
 
+using CRV.Core.Data;
 using CRV.Core.Models;
 using CRV.Live;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.EntityFrameworkCore;
 
 public class ProspectusModel : PageModel
 {
     private readonly StrategyConfigService _cfgSvc;
     private readonly LiveEngineOrchestrator _orchestrator;
+    private readonly TradingDbContext _db;
 
-    public ProspectusModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator orchestrator)
+    public ProspectusModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator orchestrator, TradingDbContext db)
     {
         _cfgSvc = cfgSvc;
+        _db = db;
         _orchestrator = orchestrator;
     }
 
@@ -63,6 +67,13 @@ public class ProspectusModel : PageModel
                 .Where(e => e.TradingDate.Date == selectedDateUtc.Value.Date && (e.OrbHigh - e.OrbLow) > 0)
                 .GroupBy(e => (FuturesSymbol.Normalize(e.Symbol), e.SessionId))
                 .ToDictionary(g => g.Key, g => Math.Round(g.First().OrbHigh - g.First().OrbLow, 4));
+        }
+
+        // Fallback: if orb_cache has no entries for the selected date,
+        // back-compute ORB ranges from the Trades table
+        if (!IsLive && selectedDateOrb.Count == 0 && selectedDateUtc.HasValue)
+        {
+            selectedDateOrb = ComputeOrbFromTrades(selectedDateUtc.Value, setups);
         }
 
         // Build monthly average ORB ranges from orb_cache.json
@@ -242,6 +253,57 @@ public class ProspectusModel : PageModel
             {
                 var avgRange = g.Average(e => e.OrbHigh - e.OrbLow);
                 result[g.Key] = Math.Round(avgRange, 4);
+            }
+        }
+        catch { /* best effort */ }
+        return result;
+    }
+
+    /// <summary>
+    /// Back-compute ORB range from Trades table for a given date.
+    /// Uses the formula: orbRange = |entry - initialStop| / stopPct.
+    /// Groups by ticker+session and averages across trades on that date.
+    /// Returns one ORB range per (ticker, sessionId) pair.
+    /// </summary>
+    private Dictionary<(string ticker, string sessionId), decimal> ComputeOrbFromTrades(
+        DateTime date, List<StrategySetupConfig> setups)
+    {
+        var result = new Dictionary<(string, string), decimal>();
+        try
+        {
+            // Fetch trades for that date
+            var dayStart = date.Date;
+            var dayEnd = dayStart.AddDays(1);
+            var trades = _db.Set<TradeRecord>()
+                .Where(t => t.Source == "live" && t.EnteredAt >= dayStart && t.EnteredAt < dayEnd
+                            && t.InitialStop > 0 && t.Entry > 0)
+                .ToList();
+
+            if (trades.Count == 0) return result;
+
+            // Build a stopPct lookup from setups (by SetupLabel → StopPct)
+            var stopPctByLabel = setups
+                .Where(s => s.StopPct > 0)
+                .ToDictionary(s => s.Id, s => s.StopPct, StringComparer.OrdinalIgnoreCase);
+
+            // Group trades by ticker+session, back-compute ORB per trade
+            var grouped = trades.GroupBy(t => (FuturesSymbol.Normalize(t.Ticker), t.SessionId));
+            foreach (var g in grouped)
+            {
+                var orbRanges = new List<decimal>();
+                foreach (var t in g)
+                {
+                    // Find the matching setup's stopPct; fall back to 0.5 if unknown
+                    var stopPct = stopPctByLabel.TryGetValue(t.SetupLabel, out var sp) ? sp : 0.5m;
+                    if (stopPct <= 0) stopPct = 0.5m;
+
+                    var stopDist = Math.Abs(t.Entry - t.InitialStop);
+                    if (stopDist <= 0) continue;
+                    var orbRange = stopDist / stopPct;
+                    orbRanges.Add(orbRange);
+                }
+                if (orbRanges.Count > 0)
+                    result[g.Key] = Math.Round(orbRanges.Average(), 4);
             }
         }
         catch { /* best effort */ }
