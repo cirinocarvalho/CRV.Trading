@@ -55,19 +55,20 @@ public class ProspectusModel : PageModel
         }
 
         var snapshot = IsLive ? _orchestrator.LastSnapshot : null;
+        var activeSessionId = snapshot?.ActiveSessionId ?? "";
 
         // Load ALL orb_cache entries once — used for both selected-date lookup and monthly avg
         var allOrbEntries = LoadAllOrbEntries();
 
-        // Build ORB lookup for the selected date from cache
-        var selectedDateOrb = new Dictionary<(string ticker, string sessionId), decimal>();
-        if (selectedDateUtc.HasValue)
-        {
-            selectedDateOrb = allOrbEntries
-                .Where(e => e.TradingDate.Date == selectedDateUtc.Value.Date && (e.OrbHigh - e.OrbLow) > 0)
-                .GroupBy(e => (FuturesSymbol.Normalize(e.Symbol), e.SessionId))
-                .ToDictionary(g => g.Key, g => Math.Round(g.First().OrbHigh - g.First().OrbLow, 4));
-        }
+        // Build ORB lookup for the selected date from cache.
+        // For "today (live)" mode, we also load today's cache entries because the engine
+        // only holds the ORB for the CURRENTLY ACTIVE session — earlier sessions (e.g.
+        // Asia/London when NY is active) are only in the cache.
+        var lookupDate = selectedDateUtc?.Date ?? DateTime.UtcNow.Date;
+        var selectedDateOrb = allOrbEntries
+            .Where(e => e.TradingDate.Date == lookupDate && (e.OrbHigh - e.OrbLow) > 0)
+            .GroupBy(e => (FuturesSymbol.Normalize(e.Symbol), e.SessionId))
+            .ToDictionary(g => g.Key, g => Math.Round(g.First().OrbHigh - g.First().OrbLow, 4));
 
         // Fallback: if orb_cache has no entries for the selected date,
         // back-compute ORB ranges from the Trades table
@@ -99,21 +100,24 @@ public class ProspectusModel : PageModel
                 var pointValue = setup.PointValue > 0 ? setup.PointValue : cfg.PointValue;
                 var tickSize = setup.TickSize > 0 ? setup.TickSize : cfg.TickSize;
 
-                // Selected-date ORB: live engine snapshot (today) or orb_cache (historical)
+                // Selected-date ORB: prefer orb_cache per session+date, fall back to live
+                // snapshot only for the currently active session (earlier sessions'
+                // ORBs are only in the cache, not in the engine snapshot).
                 decimal todayOrb = 0;
-                if (IsLive && snapshot?.GroupSnapshots != null)
+                if (selectedDateOrb.TryGetValue((normTicker, sessionId), out var cached))
+                    todayOrb = cached;
+                else if (selectedDateOrb.TryGetValue((normTicker, ""), out var cachedLegacy))
+                    todayOrb = cachedLegacy;
+                // Fall back to live engine snapshot for the active session if cache miss
+                // (ORB may have just formed and not been saved to cache yet)
+                if (todayOrb == 0 && IsLive
+                    && string.Equals(sessionId, activeSessionId, StringComparison.OrdinalIgnoreCase)
+                    && snapshot?.GroupSnapshots != null)
                 {
                     var gs = snapshot.GroupSnapshots.Values.FirstOrDefault(g =>
                         FuturesSymbol.Normalize(g.Ticker) == normTicker);
                     if (gs != null && gs.OrbRange > 0)
                         todayOrb = gs.OrbRange;
-                }
-                else if (!IsLive)
-                {
-                    if (selectedDateOrb.TryGetValue((normTicker, sessionId), out var cached))
-                        todayOrb = cached;
-                    else if (selectedDateOrb.TryGetValue((normTicker, ""), out var cachedLegacy))
-                        todayOrb = cachedLegacy;
                 }
 
                 // Monthly average ORB
