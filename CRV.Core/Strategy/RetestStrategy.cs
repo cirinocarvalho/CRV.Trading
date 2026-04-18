@@ -29,6 +29,7 @@ public class RetestStrategy : ISetupStrategy
     private bool _pastCutoff = false;
     private bool _retestLeftZone = false;  // Conservative: price must leave the ORB level zone before retest can fire
     private bool _breakoutConfirmed = false; // Price must break through ORB level before retest can fire
+    private bool _retestCloseConfirmed = false; // Conservative: bar must CLOSE above/below ORB before tick entry is allowed
 
     // ── Counters (per-direction to avoid longs eating short slots) ─
     private int     _longCount   = 0;
@@ -131,7 +132,7 @@ public class RetestStrategy : ISetupStrategy
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
-        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false;
+        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false;
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         _prevBar = null; _lastVwap = 0;
@@ -173,7 +174,7 @@ public class RetestStrategy : ISetupStrategy
         if ((_state > 0 && bar.Close < orbMid) ||
             (_state < 0 && bar.Close > orbMid))
         {
-            _state = 0; _armEntry = 0; _retestLeftZone = false; _breakoutConfirmed = false;
+            _state = 0; _armEntry = 0; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false;
         }
 
         bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
@@ -220,12 +221,12 @@ public class RetestStrategy : ISetupStrategy
 
             if (longReady && longArm && orbLongOk && aboveVwap && !_bullTraded)
             {
-                _state = 1; _armEntry = bar.Open; _retestLeftZone = false;
+                _state = 1; _armEntry = bar.Open; _retestLeftZone = false; _retestCloseConfirmed = false;
                 _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
             }
             else if (shortReady && shortArm && orbShortOk && belowVwap && !_bearTraded)
             {
-                _state = -1; _armEntry = bar.Open; _retestLeftZone = false;
+                _state = -1; _armEntry = bar.Open; _retestLeftZone = false; _retestCloseConfirmed = false;
                 _breakoutConfirmed = _cfg.IsAggressive || _cfg.IsSmartAggressive;
             }
         }
@@ -306,10 +307,18 @@ public class RetestStrategy : ISetupStrategy
                         _state = -2;
                 }
 
-                // Entry from retest state
-                if (isReady && _state == 2 && bar.Close > orbHigh)
+                // Close confirmation: a bar CLOSED above/below ORB boundary.
+                // This is a market fact — set unconditionally so the tick path
+                // can fire even if the bar-level entry was blocked by readiness.
+                if (_state == 2 && bar.Close > orbHigh)
+                    _retestCloseConfirmed = true;
+                if (_state == -2 && bar.Close < orbLow)
+                    _retestCloseConfirmed = true;
+
+                // Entry from retest state (bar-level)
+                if (isReady && _state == 2 && _retestCloseConfirmed)
                     TryEntry(orbHigh, true, orb, bar.Time);
-                else if (isReady && _state == -2 && bar.Close < orbLow)
+                else if (isReady && _state == -2 && _retestCloseConfirmed)
                     TryEntry(orbLow, false, orb, bar.Time);
             }
 
@@ -329,11 +338,16 @@ public class RetestStrategy : ISetupStrategy
         decimal tickTol  = _cfg.TickSize * 2;
 
         // Conservative tick entry: only fire after full retest cycle (state ±2)
+        // AND after a bar has CLOSED above/below ORB High/Low (_retestCloseConfirmed).
         // State ±1 = armed but hasn't left/returned to zone yet — must NOT enter.
+        // Without _retestCloseConfirmed, a wick that briefly touches ORB High could
+        // trigger entry even though no bar confirmed the close — producing false
+        // entries in downtrends.
         bool isLongArm = _state > 0;
         bool tickReady = isLongArm ? _longCount < _cfg.EffectiveMaxLong : _shortCount < _cfg.EffectiveMaxShort;
         bool retestConfirmed = _state == 2 || _state == -2;
-        if (!_inTrade && retestConfirmed && tickReady && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
+        if (!_inTrade && retestConfirmed && _retestCloseConfirmed && tickReady
+            && !_cfg.IsAggressive && !_cfg.IsSmartAggressive)
         {
             decimal retestDist = orbRange * _cfg.RetestPct;
             decimal orbHigh    = orb.High;

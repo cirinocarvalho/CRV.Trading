@@ -225,6 +225,33 @@ public class RetestStrategyTests
     [Fact]
     public void OnTick_Enters_WhenArmedAndRetesting()
     {
+        // Conservative tick entry now requires _retestCloseConfirmed (a bar must
+        // have CLOSED above orbHigh while in state=2). The bar-level entry fires
+        // at the same time as the confirm, so the canonical Conservative flow is:
+        //   state=2 → bar closes above orbHigh → bar-level TryEntry fires.
+        // Tick-level entry is a secondary path for when bar-level was blocked.
+        //
+        // Simulate: reach state=2, then bar close above orbHigh confirms + enters.
+        var s = new RetestStrategy(DefaultConfig());
+        RetestLong(s);
+        s.ClearPendingSignals();
+        Assert.Equal(2, s.GetSnapshot().State);
+
+        var orb = MakeOrb();
+        // Confirming bar: close 5201 > orbHigh 5200 → _retestCloseConfirmed + bar entry
+        var confirmBar = MakeBar(5199m, 5206m, 5199m, 5201m);
+        s.OnBar(confirmBar, orb, MakeIndicators(), EmptyModules());
+
+        Assert.NotNull(s.PendingEntry);
+        Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
+        Assert.Equal(5200m, s.PendingEntry.Entry); // entry at orbHigh
+    }
+
+    [Fact]
+    public void OnTick_Blocked_WhenNoCloseConfirmation()
+    {
+        // Tick-level entry should NOT fire without a prior bar close above orbHigh.
+        // This prevents wick-only entries in downtrends.
         var s = new RetestStrategy(DefaultConfig());
         RetestLong(s);
         s.ClearPendingSignals();
@@ -232,12 +259,10 @@ public class RetestStrategyTests
 
         var orb = MakeOrb();
         var utc = new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc);
-        // OnTick calls TryEntry(orbHigh=5200, true, ...) — entry at orbHigh, not tick price
+        // Price touches orbHigh but no bar has closed above it → blocked
         s.OnTick(5201m, utc, orb, MakeIndicators(), EmptyModules());
 
-        Assert.NotNull(s.PendingEntry);
-        Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.Equal(5200m, s.PendingEntry.Entry); // entry at orbHigh
+        Assert.Null(s.PendingEntry); // must NOT enter without close confirmation
     }
 
     [Fact]
