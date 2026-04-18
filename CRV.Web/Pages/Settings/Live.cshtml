@@ -1139,7 +1139,7 @@ function renderBasket() {
                 _bField(entry.Id, 'MaxShortTrades', 'number', cfg.MaxShortTrades || 0, 70, 'Max Short', 'int') +
                 _bField(entry.Id, 'StopPct', 'number', cfg.StopPct || 0.35, 75, 'Stop %', 'float', '0.01') +
                 _bSelect(entry.Id, 'TargetPct', cfg.TargetPct || 65, 90, 'Target %',
-                    [25,50,65,75,100,125,150,200,250,300,350,400,450,500].map(function(v) { return {value:v, text:v+'%'}; })) +
+                    [25,50,65,75,100,125,150,175,200,250,300,350,400,450,500].map(function(v) { return {value:v, text:v+'%'}; })) +
                 _bSelect(entry.Id, 'PartialPct', cfg.PartialPct || 50, 80, 'Partial %',
                     [{value:25,text:'25%'},{value:50,text:'50%'},{value:75,text:'75%'}]) +
                 _bField(entry.Id, 'NearPct', 'number', cfg.NearPct || 0.15, 75, 'Near %', 'float', '0.01') +
