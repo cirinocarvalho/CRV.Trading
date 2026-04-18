@@ -30,6 +30,7 @@ public class RetestStrategy : ISetupStrategy
     private bool _retestLeftZone = false;  // Conservative: price must leave the ORB level zone before retest can fire
     private bool _breakoutConfirmed = false; // Price must break through ORB level before retest can fire
     private bool _retestCloseConfirmed = false; // Conservative: bar must CLOSE above/below ORB before tick entry is allowed
+    private bool _quickReentryNeedsLeave = false; // QuickReentry: price must leave ORB zone before next re-entry
 
     // ── Counters (per-direction to avoid longs eating short slots) ─
     private int     _longCount   = 0;
@@ -75,15 +76,18 @@ public class RetestStrategy : ISetupStrategy
         if (!active)
         {
             _state = 0;
-            // QuickReentry: auto-clear the directional trade guard on trade
-            // completion so the strategy can re-arm immediately. Without this,
-            // the guard requires price to bounce above orbLow+nearDist (shorts)
-            // or below orbHigh-nearDist (longs) before re-arming — which may
-            // never happen in a strong trend, preventing valid re-entries.
+            // QuickReentry: auto-clear the directional trade guard so the
+            // strategy can re-arm without waiting for the full nearDist bounce.
+            // The arm logic + leave/return requirement (below) still ensures
+            // each entry is a distinct retest, not a repeated entry on hovering price.
             if (_cfg.QuickReentry)
             {
                 _bullTraded = false;
                 _bearTraded = false;
+                // Require price to leave the zone and return before next entry.
+                // This prevents back-to-back entries on the same bar when price
+                // is hovering near the ORB level.
+                _quickReentryNeedsLeave = true;
             }
         }
     }
@@ -145,7 +149,7 @@ public class RetestStrategy : ISetupStrategy
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
-        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false;
+        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false; _quickReentryNeedsLeave = false;
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         _prevBar = null; _lastVwap = 0;
@@ -278,18 +282,36 @@ public class RetestStrategy : ISetupStrategy
             // Conservative — retest-zone state transitions
             decimal retestW = orbRange * _cfg.RetestPct;
 
-            // QuickReentry: after a previous trade on this side, skip the full
-            // retest cycle (breakout confirm → leave zone → return → close above ORB).
-            // Instead, enter immediately when price reaches ORB boundary — like
-            // Aggressive mode but only for re-entries (tradeCount > 0 on that side).
+            // QuickReentry: after a previous trade on this side, skip breakout
+            // confirmation and close confirmation, but still require price to
+            // LEAVE the ORB zone and RETURN — ensuring each entry is a distinct
+            // retest, not a repeated entry while price hovers at the level.
             bool quickLong  = _cfg.QuickReentry && _longCount > 0;
             bool quickShort = _cfg.QuickReentry && _shortCount > 0;
 
-            if (quickLong && longReady && _state == 1)
+            // Detect "left zone" for quick re-entry: price moved away from ORB level
+            if (_quickReentryNeedsLeave)
+            {
+                decimal retestDist = orbRange * _cfg.RetestPct;
+                // Long: price dropped below orbHigh - retestDist
+                if (_state == 1 && bar.Close < orbHigh - retestDist)
+                    _quickReentryNeedsLeave = false;
+                // Short: price rose above orbLow + retestDist
+                if (_state == -1 && bar.Close > orbLow + retestDist)
+                    _quickReentryNeedsLeave = false;
+                // Not armed yet: check raw price vs ORB zone
+                if (_state == 0)
+                {
+                    if (bar.Close < orbHigh - retestDist && bar.Close > orbLow + retestDist)
+                        _quickReentryNeedsLeave = false;
+                }
+            }
+
+            if (quickLong && longReady && _state == 1 && !_quickReentryNeedsLeave)
             {
                 TryEntry(orbHigh, true, orb, bar.Time);
             }
-            else if (quickShort && shortReady && _state == -1)
+            else if (quickShort && shortReady && _state == -1 && !_quickReentryNeedsLeave)
             {
                 TryEntry(orbLow, false, orb, bar.Time);
             }
