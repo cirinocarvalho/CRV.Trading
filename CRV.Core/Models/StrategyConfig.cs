@@ -527,6 +527,7 @@ public class StrategyConfig
         UseBe = b.Config.UseBe,
         PartialCts = b.Config.PartialCts,
         AllowRearmAfterBe = b.Config.AllowRearmAfterBe,
+        QuickReentry = b.Config.QuickReentry,
         AutoTrail = b.AutoTrail,
         SessionSlots = b.Sessions,
         // EMA filter (any strategy)
