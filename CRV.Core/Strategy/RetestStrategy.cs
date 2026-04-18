@@ -72,7 +72,20 @@ public class RetestStrategy : ISetupStrategy
     public void SetInTrade(bool active)
     {
         _inTrade = active;
-        if (!active) _state = 0;
+        if (!active)
+        {
+            _state = 0;
+            // QuickReentry: auto-clear the directional trade guard on trade
+            // completion so the strategy can re-arm immediately. Without this,
+            // the guard requires price to bounce above orbLow+nearDist (shorts)
+            // or below orbHigh-nearDist (longs) before re-arming — which may
+            // never happen in a strong trend, preventing valid re-entries.
+            if (_cfg.QuickReentry)
+            {
+                _bullTraded = false;
+                _bearTraded = false;
+            }
+        }
     }
     public void SeedTradeCount(int longs, int shorts)
     {
