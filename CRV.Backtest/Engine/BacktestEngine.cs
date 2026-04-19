@@ -442,11 +442,13 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         // Apply slippage to entry fill price
         var fillPrice = ApplySlip(sig.Entry, isLong);
 
-        // Market OR Conservative Limit: fill immediately at sig.Entry.
-        // Conservative signals fire when price is already at the ORB level,
-        // so both Market and Limit should fill at the same price.
-        // Only non-conservative Limit entries stay pending for EvaluateFills.
-        bool fillNow = sig.OrderType != "Limit" || sig.Mode == "Conservative";
+        // Market: fill immediately at sig.Entry.
+        // Limit (all modes including Conservative): stay pending until
+        // EvaluateFills detects price touching the entry level on a
+        // subsequent tick. This is more realistic — with large TF bars
+        // (15/30 min), the bar close can be well past the entry level,
+        // and in live the limit would only fill if price returns to it.
+        bool fillNow = sig.OrderType != "Limit";
         if (fillNow)
         {
             legs[entryLeg.OrderId].Status = "FILLED";
