@@ -171,6 +171,7 @@ public class PullbackStrategy : ISetupStrategy
 
         bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
         bool shortReady = _shortCount < _cfg.EffectiveMaxShort;
+        if (_tradeCount >= _cfg.MaxTrades) { longReady = false; shortReady = false; }
         bool isReady    = longReady || shortReady;
 
         // Arm logic (only when idle)

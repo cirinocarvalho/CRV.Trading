@@ -196,6 +196,9 @@ public class RetestStrategy : ISetupStrategy
 
         bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
         bool shortReady = _shortCount < _cfg.EffectiveMaxShort;
+        // Enforce the combined MaxTrades cap on top of per-direction limits.
+        // MaxTrades=1 with MaxLong=0/MaxShort=0 means 1 trade TOTAL, not 1 per side.
+        if (_tradeCount >= _cfg.MaxTrades) { longReady = false; shortReady = false; }
         bool isReady    = longReady || shortReady;
 
         // Arm logic (only when idle)
