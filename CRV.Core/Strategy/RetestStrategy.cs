@@ -469,7 +469,12 @@ public class RetestStrategy : ISetupStrategy
     {
         if (_inTrade) return;
 
-        // Apply entry tick offset
+        // Calculate levels from ORIGINAL entry (before offset) so partial/target are based
+        // on the true signal price, not the artificially nudged entry.
+        var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
+            _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
+
+        // Apply entry tick offset to entry price only
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
         {
             decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
@@ -480,9 +485,6 @@ public class RetestStrategy : ISetupStrategy
         // (prevents entries that haven't crossed the boundary, regardless of mode/offset)
         if (isLong && ep < orb.High) return;
         if (!isLong && ep > orb.Low) return;
-
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
-            _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
         // Keep OrbPct stop as an upper-risk cap for alternative stop modes.
         decimal orbPctSl   = sl;

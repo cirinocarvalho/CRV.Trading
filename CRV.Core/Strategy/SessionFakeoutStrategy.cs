@@ -250,15 +250,16 @@ public class SessionFakeoutStrategy : ISetupStrategy
         decimal rangeSize = modules.SessionRangeHigh - modules.SessionRangeLow;
         if (rangeSize <= 0) rangeSize = orb.Range;
 
-        // Apply entry tick offset
+        // Calculate levels from ORIGINAL entry (offset applied to entry only, below)
+        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
+            _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
+
+        // Apply entry tick offset to entry price only (levels already computed from true signal price)
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
         {
             decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
-
-        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
-            _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, rangeSize, _cfg.TickSize);
 
         // Keep OrbPct (session-range-pct) stop as an upper-risk cap for alternative modes.
         decimal orbPctSl   = sl;

@@ -373,23 +373,23 @@ public sealed class Ema21Strategy : ISetupStrategy
         bool isLong = _state == 1;
         decimal ep = bar.Open;
 
-        // Apply entry tick offset
-        if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
-        {
-            decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
-            ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
-        }
-
         // Stop = EMA21 at entry bar
         decimal sl = LevelCalculator.RoundToTick(_ema, _cfg.TickSize);
 
-        // Targets = ATR-based
+        // Targets = ATR-based, calculated from ORIGINAL entry (before offset)
         decimal tp1 = LevelCalculator.RoundToTick(
             isLong ? ep + _atr * _cfg.AtrTp1Mult : ep - _atr * _cfg.AtrTp1Mult,
             _cfg.TickSize);
         decimal tp2 = LevelCalculator.RoundToTick(
             isLong ? ep + _atr * _cfg.AtrTp2Mult : ep - _atr * _cfg.AtrTp2Mult,
             _cfg.TickSize);
+
+        // Apply entry tick offset to entry price only (levels already computed from true signal price)
+        if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
+        {
+            decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
+            ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
+        }
 
         // R:R check
         decimal risk = Math.Abs(ep - sl);
