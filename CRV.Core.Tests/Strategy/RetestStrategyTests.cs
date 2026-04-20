@@ -223,28 +223,49 @@ public class RetestStrategyTests
     }
 
     [Fact]
-    public void OnTick_Enters_WhenArmedAndRetesting()
+    public void Conservative_Market_EntersAtNextBarOpen()
     {
-        // Conservative tick entry now requires _retestCloseConfirmed (a bar must
-        // have CLOSED above orbHigh while in state=2). The bar-level entry fires
-        // at the same time as the confirm, so the canonical Conservative flow is:
-        //   state=2 → bar closes above orbHigh → bar-level TryEntry fires.
-        // Tick-level entry is a secondary path for when bar-level was blocked.
-        //
-        // Simulate: reach state=2, then bar close above orbHigh confirms + enters.
-        var s = new RetestStrategy(DefaultConfig());
+        // Conservative + Market: confirming bar defers entry to the NEXT bar's Open.
+        // This produces a realistic fill price instead of filling at orbHigh on the
+        // signal bar (which might be far from price by bar close).
+        var s = new RetestStrategy(DefaultConfig()); // OrderType = "Market"
         RetestLong(s);
         s.ClearPendingSignals();
         Assert.Equal(2, s.GetSnapshot().State);
 
         var orb = MakeOrb();
-        // Confirming bar: close 5201 > orbHigh 5200 → _retestCloseConfirmed + bar entry
+        // Confirming bar: close 5201 > orbHigh 5200 → sets _enterNextBarOpen
+        var confirmBar = MakeBar(5199m, 5206m, 5199m, 5201m);
+        s.OnBar(confirmBar, orb, MakeIndicators(), EmptyModules());
+
+        // No entry yet — deferred to next bar
+        Assert.Null(s.PendingEntry);
+
+        // Next bar: entry at bar.Open
+        var nextBar = MakeBar(5203m, 5210m, 5200m, 5208m);
+        s.OnBar(nextBar, orb, MakeIndicators(), EmptyModules());
+
+        Assert.NotNull(s.PendingEntry);
+        Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
+        Assert.Equal(5203m, s.PendingEntry.Entry); // entry at next bar's Open
+    }
+
+    [Fact]
+    public void Conservative_Limit_EntersAtOrbHigh()
+    {
+        // Conservative + Limit: enters at orbHigh on the confirming bar.
+        var cfg = DefaultConfig();
+        cfg.OrderType = "Limit";
+        var s = new RetestStrategy(cfg);
+        RetestLong(s);
+        s.ClearPendingSignals();
+
+        var orb = MakeOrb();
         var confirmBar = MakeBar(5199m, 5206m, 5199m, 5201m);
         s.OnBar(confirmBar, orb, MakeIndicators(), EmptyModules());
 
         Assert.NotNull(s.PendingEntry);
-        Assert.Equal(Direction.Long, s.PendingEntry!.Direction);
-        Assert.Equal(5200m, s.PendingEntry.Entry); // entry at orbHigh
+        Assert.Equal(5200m, s.PendingEntry!.Entry); // entry at orbHigh
     }
 
     [Fact]

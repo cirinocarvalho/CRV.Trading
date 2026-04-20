@@ -31,6 +31,8 @@ public class RetestStrategy : ISetupStrategy
     private bool _breakoutConfirmed = false; // Price must break through ORB level before retest can fire
     private bool _retestCloseConfirmed = false; // Conservative: bar must CLOSE above/below ORB before tick entry is allowed
     private bool _quickReentryNeedsLeave = false; // QuickReentry: price must leave ORB zone before next re-entry
+    private bool _enterNextBarOpen = false; // Conservative Market: confirmed, enter at next bar's Open
+    private bool _enterNextBarDirection = false; // true = long, false = short
 
     // ── Counters (per-direction to avoid longs eating short slots) ─
     private int     _longCount   = 0;
@@ -149,7 +151,7 @@ public class RetestStrategy : ISetupStrategy
         _state     = 0; _armEntry  = 0;
         _bullTraded = false; _bearTraded = false;
         _bullLeftZone = false; _bearLeftZone = false;
-        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false; _quickReentryNeedsLeave = false;
+        _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false; _quickReentryNeedsLeave = false; _enterNextBarOpen = false;
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         _prevBar = null; _lastVwap = 0;
@@ -181,6 +183,19 @@ public class RetestStrategy : ISetupStrategy
     private void ProcessArm(Bar bar, OrbState orb, IndicatorState ind)
     {
         if (_inTrade) return;
+
+        // Deferred entry: Conservative confirmed on the previous bar,
+        // now enter at THIS bar's Open for a realistic fill price.
+        if (_enterNextBarOpen)
+        {
+            _enterNextBarOpen = false;
+            bool isLong = _enterNextBarDirection;
+            bool ready = isLong
+                ? _longCount < _cfg.EffectiveMaxLong
+                : _shortCount < _cfg.EffectiveMaxShort;
+            if (ready && _tradeCount < _cfg.MaxTrades)
+                TryEntry(bar.Open, isLong, orb, bar.Time);
+        }
 
         decimal orbHigh  = orb.High;
         decimal orbLow   = orb.Low;
@@ -355,9 +370,27 @@ public class RetestStrategy : ISetupStrategy
 
                 // Entry from retest state (bar-level)
                 if (isReady && _state == 2 && _retestCloseConfirmed)
-                    TryEntry(orbHigh, true, orb, bar.Time);
+                {
+                    if (_cfg.OrderType == "Market")
+                    {
+                        // Defer entry to the next bar's Open for a realistic fill.
+                        // Limit orders still enter at orbHigh (fill via EvaluateFills).
+                        _enterNextBarOpen = true;
+                        _enterNextBarDirection = true;
+                    }
+                    else
+                        TryEntry(orbHigh, true, orb, bar.Time);
+                }
                 else if (isReady && _state == -2 && _retestCloseConfirmed)
-                    TryEntry(orbLow, false, orb, bar.Time);
+                {
+                    if (_cfg.OrderType == "Market")
+                    {
+                        _enterNextBarOpen = true;
+                        _enterNextBarDirection = false;
+                    }
+                    else
+                        TryEntry(orbLow, false, orb, bar.Time);
+                }
             }
 
             // De-arm if price crosses OrbMid (retest failed)
