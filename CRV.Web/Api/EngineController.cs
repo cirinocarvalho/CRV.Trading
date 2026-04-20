@@ -7,6 +7,7 @@ using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 
 namespace CRV.Web.Api;
 
@@ -304,6 +305,161 @@ public class EngineController : ControllerBase
         long StrategyId, string Ticker, string Direction,
         int TotalContracts, int PartialContracts = 0, bool UseBe = false,
         string? SetupId = null, decimal PointValue = 0);
+
+    // ── Trade reconciliation against broker fills ──────────────────
+
+    /// <summary>
+    /// POST /api/engine/trades/reconcile
+    /// Fetches recent fills from Tradovate and updates trade records with actual fill prices,
+    /// then recalculates GrossPnl, NetPnl, and RMultiple.
+    /// </summary>
+    [HttpPost("trades/reconcile")]
+    public async Task<IActionResult> ReconcileTrades([FromBody] ReconcileTradesRequest req)
+    {
+        var cfg = _cfgSvc.Current;
+        if (cfg.Broker != "Tradovate" && cfg.ExecBroker != "Tradovate")
+            return BadRequest(new { status = "error", message = "Reconciliation currently only supports Tradovate." });
+
+        // Fetch all fills from Tradovate
+        var auth = _sp.GetRequiredService<TradovateAuthService>();
+        var token = await auth.GetAccessTokenAsync();
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var fillRes = await http.GetAsync($"{auth.ApiBaseUrl}/fill/list");
+        if (!fillRes.IsSuccessStatusCode)
+            return BadRequest(new { status = "error", message = $"Tradovate /fill/list failed: {fillRes.StatusCode}" });
+
+        var fillBody = await fillRes.Content.ReadAsStringAsync();
+        var fills = new List<FillRow>();
+        using (var doc = System.Text.Json.JsonDocument.Parse(fillBody))
+        {
+            foreach (var f in doc.RootElement.EnumerateArray())
+            {
+                try
+                {
+                    var action = f.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
+                    var qty    = f.TryGetProperty("qty",    out var q) && q.ValueKind == System.Text.Json.JsonValueKind.Number ? q.GetDecimal() : 0m;
+                    var price  = f.TryGetProperty("price",  out var p) && p.ValueKind == System.Text.Json.JsonValueKind.Number ? p.GetDecimal() : 0m;
+                    var ts     = f.TryGetProperty("timestamp", out var tProp) ? tProp.GetString() ?? "" : "";
+                    var contractId = f.TryGetProperty("contractId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number ? cid.GetInt64() : 0L;
+                    if (qty <= 0 || price <= 0 || !DateTime.TryParse(ts, null, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var utc)) continue;
+                    fills.Add(new FillRow(action, qty, price, utc, contractId));
+                }
+                catch { /* skip malformed */ }
+            }
+        }
+
+        // Filter fills to the requested window
+        DateTime fromUtc = req.FromUtc ?? DateTime.UtcNow.AddDays(-7);
+        DateTime toUtc   = req.ToUtc   ?? DateTime.UtcNow;
+        fills = fills.Where(f => f.Time >= fromUtc && f.Time <= toUtc).OrderBy(f => f.Time).ToList();
+
+        if (fills.Count == 0)
+            return Ok(new { status = "ok", message = "No fills returned from Tradovate for the requested window.", updated = 0 });
+
+        // Load trades in the same window
+        using var scope = _sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
+        var trades = await db.Trades
+            .Where(t => t.EnteredAt >= fromUtc && t.EnteredAt <= toUtc && t.Source == "live")
+            .OrderBy(t => t.EnteredAt)
+            .ToListAsync();
+
+        var results = new List<object>();
+        int updated = 0;
+
+        foreach (var t in trades)
+        {
+            // Find entry fill: matches direction + qty, timestamp closest to (and >=) t.EnteredAt - 5 min window
+            var wantedAction = t.Direction == CRV.Core.Models.Direction.Long ? "Buy" : "Sell";
+            var exitAction   = t.Direction == CRV.Core.Models.Direction.Long ? "Sell" : "Buy";
+
+            var entryWindow = fills.Where(f =>
+                f.Action == wantedAction &&
+                f.Qty == t.Contracts &&
+                Math.Abs((f.Time - t.EnteredAt).TotalMinutes) <= 5)
+                .OrderBy(f => Math.Abs((f.Time - t.EnteredAt).TotalMinutes))
+                .FirstOrDefault();
+
+            // Find exit fills: opposite direction, total qty == t.Contracts, after entry time, before exit+5 min
+            var exitFills = fills.Where(f =>
+                f.Action == exitAction &&
+                f.Time >= t.EnteredAt &&
+                f.Time <= t.ExitedAt.AddMinutes(5))
+                .ToList();
+            decimal exitQty = 0;
+            decimal exitWeighted = 0;
+            foreach (var f in exitFills)
+            {
+                if (exitQty + f.Qty > t.Contracts) break;
+                exitQty += f.Qty;
+                exitWeighted += f.Qty * f.Price;
+            }
+
+            var before = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl };
+            bool changed = false;
+
+            if (entryWindow != null && Math.Abs(entryWindow.Price - t.Entry) > 0.01m)
+            {
+                t.Entry = entryWindow.Price;
+                changed = true;
+            }
+
+            if (exitQty == t.Contracts && exitWeighted > 0)
+            {
+                var avgExit = exitWeighted / exitQty;
+                if (Math.Abs(avgExit - t.Exit) > 0.01m)
+                {
+                    t.Exit = avgExit;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                // Recalculate P&L
+                decimal pv = cfg.PointValue;
+                decimal direction = t.Direction == CRV.Core.Models.Direction.Long ? 1m : -1m;
+                t.GrossPnl = direction * (t.Exit - t.Entry) * t.Contracts * pv;
+                t.NetPnl   = t.GrossPnl - t.Commission;
+                decimal risk = Math.Abs(t.Entry - t.InitialStop) * t.Contracts * pv;
+                t.RMultiple = risk > 0 ? t.NetPnl / risk : 0m;
+                updated++;
+                results.Add(new
+                {
+                    id = t.Id, setup = t.SetupLabel, direction = t.Direction.ToString(),
+                    before, after = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl }
+                });
+            }
+        }
+
+        if (updated > 0 && !req.DryRun)
+            await db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            status = "ok",
+            dryRun = req.DryRun,
+            fromUtc, toUtc,
+            totalFills = fills.Count,
+            totalTrades = trades.Count,
+            updated,
+            changes = results
+        });
+    }
+
+    public record ReconcileTradesRequest
+    {
+        /// <summary>Start of reconciliation window (UTC). Defaults to 7 days ago.</summary>
+        public DateTime? FromUtc { get; init; }
+        /// <summary>End of reconciliation window (UTC). Defaults to now.</summary>
+        public DateTime? ToUtc { get; init; }
+        /// <summary>If true, return proposed changes without saving. Default false.</summary>
+        public bool DryRun { get; init; }
+    }
+
+    private record FillRow(string Action, decimal Qty, decimal Price, DateTime Time, long ContractId);
 
     // ── Webhook — external order entry ──────────────────────────
 
