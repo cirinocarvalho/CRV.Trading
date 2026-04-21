@@ -261,6 +261,15 @@ public class SessionFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
+        // MaxEntrySlippage: reject if recovery went too far past the session range boundary.
+        // Long fades bear fakeout (entry at sessionLow on recovery); short fades bull fakeout (at sessionHigh).
+        if (_cfg.MaxEntrySlippage > 0 && rangeSize > 0)
+        {
+            decimal maxSlip = rangeSize * _cfg.MaxEntrySlippage;
+            decimal slip = isLong ? ep - modules.SessionRangeLow : modules.SessionRangeHigh - ep;
+            if (slip > maxSlip) return;
+        }
+
         // Keep OrbPct (session-range-pct) stop as an upper-risk cap for alternative modes.
         decimal orbPctSl   = sl;
         decimal orbPctRisk = Math.Abs(ep - orbPctSl);

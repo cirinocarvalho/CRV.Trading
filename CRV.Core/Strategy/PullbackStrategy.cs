@@ -306,6 +306,15 @@ public class PullbackStrategy : ISetupStrategy
         if (isLong && (ep <= orb.Low || ep >= orb.High)) return;
         if (!isLong && (ep <= orb.Low || ep >= orb.High)) return;
 
+        // MaxEntrySlippage: reject if pullback dipped too deep inside ORB from its boundary.
+        // Long pulls back from orb.High (ideal = at orb.High); short from orb.Low.
+        if (_cfg.MaxEntrySlippage > 0 && orb.Range > 0)
+        {
+            decimal maxSlip = orb.Range * _cfg.MaxEntrySlippage;
+            decimal slip = isLong ? orb.High - ep : ep - orb.Low;
+            if (slip > maxSlip) return;
+        }
+
         // Calculate levels from ORIGINAL entry (offset applied to entry only, below)
         var (sl, tp, pp, rr) = LevelCalculator.CalcLevels(ep, isLong,
             _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.TickSize);

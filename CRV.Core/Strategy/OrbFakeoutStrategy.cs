@@ -252,6 +252,15 @@ public class OrbFakeoutStrategy : ISetupStrategy
             ep = LevelCalculator.RoundToTick(isLong ? ep + offset : ep - offset, _cfg.TickSize);
         }
 
+        // MaxEntrySlippage: reject if recovery went too far past the ORB boundary.
+        // Long fades bear fakeout (entry at orb.Low on recovery); short fades bull fakeout (at orb.High).
+        if (_cfg.MaxEntrySlippage > 0 && orb.Range > 0)
+        {
+            decimal maxSlip = orb.Range * _cfg.MaxEntrySlippage;
+            decimal slip = isLong ? ep - orb.Low : orb.High - ep;
+            if (slip > maxSlip) return;
+        }
+
         // Keep OrbPct stop as an upper-risk cap for alternative stop modes.
         decimal orbPctSl   = sl;
         decimal orbPctRisk = Math.Abs(ep - orbPctSl);

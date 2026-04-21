@@ -486,6 +486,15 @@ public class RetestStrategy : ISetupStrategy
         if (isLong && ep < orb.High) return;
         if (!isLong && ep > orb.Low) return;
 
+        // MaxEntrySlippage: reject if entry price is too far past the ORB boundary
+        // (e.g. gap-open beyond the retest zone). Measured as % of ORB range.
+        if (_cfg.MaxEntrySlippage > 0 && orb.Range > 0)
+        {
+            decimal maxSlip = orb.Range * _cfg.MaxEntrySlippage;
+            decimal slip = isLong ? ep - orb.High : orb.Low - ep;
+            if (slip > maxSlip) return;
+        }
+
         // Keep OrbPct stop as an upper-risk cap for alternative stop modes.
         decimal orbPctSl   = sl;
         decimal orbPctRisk = Math.Abs(ep - orbPctSl);
