@@ -49,7 +49,8 @@ public class RetestStrategy : ISetupStrategy
     private decimal _lastAtrRatio = 0;
 
     // ── Stop-mode state ──────────────────────────────────────────
-    private Bar?    _prevBar  = null;  // previous bar for BarHL stop mode
+    private Bar?    _prevBar  = null;  // current bar (set at OnBar start) — for same-bar BarHL stop
+    private Bar?    _signalBar = null; // bar that fired the arm/confirmation — for deferred-entry BarHL stop
     private decimal _lastVwap = 0;     // latest VWAP for Vwap stop mode
 
     // ── Pending signals ───────────────────────────────────────────
@@ -135,7 +136,7 @@ public class RetestStrategy : ISetupStrategy
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
-        _prevBar = null; _lastVwap = 0;
+        _prevBar = null; _signalBar = null; _lastVwap = 0;
         ClearPendingSignals();
     }
 
@@ -154,7 +155,7 @@ public class RetestStrategy : ISetupStrategy
         _pastCutoff = false; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false; _quickReentryNeedsLeave = false; _enterNextBarOpen = false;
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
-        _prevBar = null; _lastVwap = 0;
+        _prevBar = null; _signalBar = null; _lastVwap = 0;
         ClearPendingSignals();
     }
 
@@ -288,8 +289,9 @@ public class RetestStrategy : ISetupStrategy
                 _state = 0; // entry window expired — missed bar N+1
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
-            if (_state == 1)  _state = 2;
-            if (_state == -1) _state = -2;
+            // Snapshot this (signal) bar so next-bar BarHL stop references it, not bar N+1.
+            if (_state == 1)  { _state = 2;  _signalBar = bar; }
+            if (_state == -1) { _state = -2; _signalBar = bar; }
 
             // De-arm if price crosses ORB mid (setup invalidated)
             if (_state == 2  && bar.Close < orbMid)  _state = 0;
@@ -377,6 +379,7 @@ public class RetestStrategy : ISetupStrategy
                         // Limit orders still enter at orbHigh (fill via EvaluateFills).
                         _enterNextBarOpen = true;
                         _enterNextBarDirection = true;
+                        _signalBar = bar;  // snapshot signal bar for deferred BarHL stop
                     }
                     else
                         TryEntry(orbHigh, true, orb, bar.Time);
@@ -387,6 +390,7 @@ public class RetestStrategy : ISetupStrategy
                     {
                         _enterNextBarOpen = true;
                         _enterNextBarDirection = false;
+                        _signalBar = bar;  // snapshot signal bar for deferred BarHL stop
                     }
                     else
                         TryEntry(orbLow, false, orb, bar.Time);
@@ -499,12 +503,16 @@ public class RetestStrategy : ISetupStrategy
         decimal orbPctSl   = sl;
         decimal orbPctRisk = Math.Abs(ep - orbPctSl);
 
-        // BarHL stop mode: use high/low of bar before entry ± 1 tick
-        if (_cfg.StopMode == "BarHL" && _prevBar != null)
+        // BarHL stop mode: use high/low of the SIGNAL bar ± 1 tick.
+        // For same-bar entries (Aggressive, Limit), _signalBar is null and _prevBar = current bar.
+        // For deferred entries (Conservative Market, SmartAggressive), _signalBar holds the arm/confirm bar
+        // (not the entry bar) so the stop reflects the bar that triggered the setup.
+        var stopBar = _signalBar ?? _prevBar;
+        if (_cfg.StopMode == "BarHL" && stopBar != null)
         {
             sl = isLong
-                ? LevelCalculator.RoundToTick(_prevBar.Low  - _cfg.TickSize, _cfg.TickSize)
-                : LevelCalculator.RoundToTick(_prevBar.High + _cfg.TickSize, _cfg.TickSize);
+                ? LevelCalculator.RoundToTick(stopBar.Low  - _cfg.TickSize, _cfg.TickSize)
+                : LevelCalculator.RoundToTick(stopBar.High + _cfg.TickSize, _cfg.TickSize);
             // Sanity: stop must be on the protective side of entry.
             // Long → sl < ep, Short → sl > ep. Otherwise fall back to OrbPct.
             if ((isLong && sl >= ep) || (!isLong && sl <= ep)) sl = orbPctSl;
@@ -555,6 +563,7 @@ public class RetestStrategy : ISetupStrategy
         else        { _shortCount++; _bearTraded = true; }
         _tradeCount = _longCount + _shortCount;
         _state = 0;
+        _signalBar = null;  // consumed — next trade sets its own signal bar
     }
 
     private int CalcContracts()
