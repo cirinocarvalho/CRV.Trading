@@ -185,8 +185,9 @@ public class RetestStrategy : ISetupStrategy
     {
         if (_inTrade) return;
 
-        // Deferred entry: Conservative confirmed on the previous bar,
-        // now enter at THIS bar's Open for a realistic fill price.
+        // Deferred entry fallback: OnTick should have consumed _enterNextBarOpen on the
+        // first tick of this bar (backtest: O tick; live: first L1 tick). This fallback
+        // handles tick-mode-disabled runs (legacy backtest path) so the entry still fires.
         if (_enterNextBarOpen)
         {
             _enterNextBarOpen = false;
@@ -408,6 +409,21 @@ public class RetestStrategy : ISetupStrategy
     {
         if (!_cfg.Enabled) return;
         if (!orb.IsSet || orb.Range <= 0) return;
+
+        // Deferred Market entry (Conservative/SmartAggressive): fire on the FIRST tick
+        // after the signal bar closes. This is bar N+1's open tick in backtest and the
+        // first live tick of the next bar in live — matching backtest parity.
+        if (_enterNextBarOpen && !_inTrade)
+        {
+            _enterNextBarOpen = false;
+            bool isLong = _enterNextBarDirection;
+            bool ready = isLong
+                ? _longCount < _cfg.EffectiveMaxLong
+                : _shortCount < _cfg.EffectiveMaxShort;
+            if (ready && _tradeCount < _cfg.MaxTrades)
+                TryEntry(price, isLong, orb, utc);
+            return;
+        }
 
         decimal orbRange = orb.Range;
         decimal tickTol  = _cfg.TickSize * 2;
