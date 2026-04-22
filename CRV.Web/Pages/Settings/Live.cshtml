@@ -1162,6 +1162,7 @@ function renderBasket() {
                         '<option ' + ((cfg.Mode||'Aggressive')==='Aggressive'?'selected':'') + '>Aggressive</option>' +
                         '<option ' + ((cfg.Mode||'')==='SmartAggressive'?'selected':'') + ' value="SmartAggressive">Smart Aggressive</option>' +
                         '<option ' + ((cfg.Mode||'')==='Conservative'?'selected':'') + '>Conservative</option>' +
+                        '<option ' + ((cfg.Mode||'')==='ConservativeSmart'?'selected':'') + ' value="ConservativeSmart">Conservative Smart</option>' +
                     '</select></div>' +
                 '<div class="col-auto"><label class="form-label small mb-0">Order</label>' +
                     '<select class="form-select form-select-sm" style="width:100px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'OrderType\',this.value)">' +

@@ -196,7 +196,10 @@ public class RetestStrategy : ISetupStrategy
                 ? _longCount < _cfg.EffectiveMaxLong
                 : _shortCount < _cfg.EffectiveMaxShort;
             if (ready && _tradeCount < _cfg.MaxTrades)
-                TryEntry(bar.Open, isLong, orb, bar.Time);
+            {
+                string? overrideType = _cfg.IsConservativeSmart ? "Limit" : null;
+                TryEntry(bar.Open, isLong, orb, bar.Time, overrideType);
+            }
         }
 
         decimal orbHigh  = orb.High;
@@ -372,12 +375,14 @@ public class RetestStrategy : ISetupStrategy
                     _retestCloseConfirmed = true;
 
                 // Entry from retest state (bar-level)
+                // ConservativeSmart also defers (will fire Limit at first tick of N+1).
+                bool deferEntry = _cfg.OrderType == "Market" || _cfg.IsConservativeSmart;
                 if (isReady && _state == 2 && _retestCloseConfirmed)
                 {
-                    if (_cfg.OrderType == "Market")
+                    if (deferEntry)
                     {
-                        // Defer entry to the next bar's Open for a realistic fill.
-                        // Limit orders still enter at orbHigh (fill via EvaluateFills).
+                        // Defer entry to the next bar's first tick for a realistic fill.
+                        // Market: fills at first tick price. ConservativeSmart: limit at first tick.
                         _enterNextBarOpen = true;
                         _enterNextBarDirection = true;
                         _signalBar = bar;  // snapshot signal bar for deferred BarHL stop
@@ -387,7 +392,7 @@ public class RetestStrategy : ISetupStrategy
                 }
                 else if (isReady && _state == -2 && _retestCloseConfirmed)
                 {
-                    if (_cfg.OrderType == "Market")
+                    if (deferEntry)
                     {
                         _enterNextBarOpen = true;
                         _enterNextBarDirection = false;
@@ -410,9 +415,11 @@ public class RetestStrategy : ISetupStrategy
         if (!_cfg.Enabled) return;
         if (!orb.IsSet || orb.Range <= 0) return;
 
-        // Deferred Market entry (Conservative/SmartAggressive): fire on the FIRST tick
+        // Deferred entry (Conservative Market, Conservative Smart): fire on the FIRST tick
         // after the signal bar closes. This is bar N+1's open tick in backtest and the
         // first live tick of the next bar in live — matching backtest parity.
+        //   - Conservative Market: sends Market order, fills at current price
+        //   - Conservative Smart:  sends Limit order at first-tick price (zero slippage)
         if (_enterNextBarOpen && !_inTrade)
         {
             _enterNextBarOpen = false;
@@ -421,7 +428,10 @@ public class RetestStrategy : ISetupStrategy
                 ? _longCount < _cfg.EffectiveMaxLong
                 : _shortCount < _cfg.EffectiveMaxShort;
             if (ready && _tradeCount < _cfg.MaxTrades)
-                TryEntry(price, isLong, orb, utc);
+            {
+                string? overrideType = _cfg.IsConservativeSmart ? "Limit" : null;
+                TryEntry(price, isLong, orb, utc, overrideType);
+            }
             return;
         }
 
@@ -485,7 +495,7 @@ public class RetestStrategy : ISetupStrategy
 
     // ── Private helpers ───────────────────────────────────────────
 
-    private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
+    private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time, string? orderTypeOverride = null)
     {
         if (_inTrade) return;
 
@@ -568,7 +578,7 @@ public class RetestStrategy : ISetupStrategy
             _cfg.SetupId,
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
-            _cfg.OrderType, Ticker: _cfg.Ticker,
+            orderTypeOverride ?? _cfg.OrderType, Ticker: _cfg.Ticker,
             PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe, Mode: _cfg.Mode,
             AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? LevelCalculator.RoundToTick(_cfg.AutoTrail.StopLoss * orb.Range, _cfg.TickSize) : null,

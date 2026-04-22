@@ -110,6 +110,9 @@ public class StrategySetupConfig
     // Derived
     public bool IsAggressive => Mode == "Aggressive";
     public bool IsSmartAggressive => Mode == "SmartAggressive";
+    /// <summary>Conservative Smart: deferred entry fires as Limit at first tick of next bar
+    /// (zero slippage — only fills if price returns to that exact level).</summary>
+    public bool IsConservativeSmart => Mode == "ConservativeSmart";
 
     /// <summary>Get the cutoff for a specific session, falling back to the global cutoff.</summary>
     public (int Hour, int Minute) GetCutoffForSession(string sessionName)
