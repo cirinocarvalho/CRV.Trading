@@ -1,0 +1,119 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Override image tag (default: commit SHA)'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write       # required for OIDC federation
+  contents: read
+
+env:
+  AZURE_RG:        crv-trading-rg
+  AZURE_APP:       crv-trading
+  AZURE_LOCATION:  eastus
+
+jobs:
+  # ── Build + test (runs first, blocks deploy) ──────────────────
+  build-and-test:
+    name: Build & Test (.NET 10)
+    uses: ./.github/workflows/ci.yml
+
+  # ── Deploy to Azure App Service ───────────────────────────────
+  deploy:
+    name: Deploy to App Service
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.image_tag }}" ]]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve ACR name
+        id: acr
+        run: |
+          # Prefer repo variable (set by infra.yml), fall back to looking it up
+          NAME="${{ vars.AZURE_ACR_NAME }}"
+          if [[ -z "$NAME" ]]; then
+            NAME=$(az acr list -g "$AZURE_RG" --query '[0].name' -o tsv)
+          fi
+          if [[ -z "$NAME" ]]; then
+            echo "ERROR: no ACR in $AZURE_RG. Run infra.yml first." >&2
+            exit 1
+          fi
+          SERVER=$(az acr show -n "$NAME" --query loginServer -o tsv)
+          echo "name=$NAME"     >> "$GITHUB_OUTPUT"
+          echo "server=$SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: Build image in ACR
+        run: |
+          az acr build \
+            --registry "${{ steps.acr.outputs.name }}" \
+            --image "crv-web:${{ steps.tag.outputs.tag }}" \
+            --image "crv-web:latest" \
+            --file Dockerfile \
+            .
+
+      - name: Update App Service to new image
+        run: |
+          az webapp config container set \
+            -g "$AZURE_RG" -n "$AZURE_APP" \
+            --container-image-name "${{ steps.acr.outputs.server }}/crv-web:${{ steps.tag.outputs.tag }}"
+
+      - name: Restart App Service
+        run: az webapp restart -g "$AZURE_RG" -n "$AZURE_APP"
+
+      - name: Smoke test
+        run: |
+          URL="https://${AZURE_APP}.azurewebsites.net/"
+          echo "Waiting for $URL to respond..."
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+            if [[ "$code" =~ ^(200|301|302)$ ]]; then
+              echo "✓ $URL responded with $code"
+              exit 0
+            fi
+            echo "  attempt $i: $code — retrying in 10s"
+            sleep 10
+          done
+          echo "✗ $URL did not become healthy"
+          exit 1
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "### Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **App:** https://${AZURE_APP}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image tag:** \`${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"

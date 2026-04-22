@@ -14,6 +14,17 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Persistent data directory (Azure App Service mounts /home as Azure Storage) ──
+// All relative file paths (SQLite DB, token files, sessions.json, orb_cache.json,
+// live_settings.json) resolve from CurrentDirectory. ContentRootPath is unchanged
+// so Razor views and wwwroot continue to load from the app directory.
+var dataDir = Environment.GetEnvironmentVariable("DATA_DIR");
+if (!string.IsNullOrWhiteSpace(dataDir))
+{
+    Directory.CreateDirectory(dataDir);
+    Environment.CurrentDirectory = dataDir;
+}
+
 // ── Structured logging → Seq ─────────────────────────────────
 builder.Host.UseSerilog((ctx, cfg) => cfg
     .ReadFrom.Configuration(ctx.Configuration)

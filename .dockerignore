@@ -1,0 +1,43 @@
+# Build output
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# IDE / VCS
+.git/
+.github/
+.idea/
+.vs/
+.vscode/
+**/*.user
+**/*.suo
+
+# Local dev state (must NEVER ship in the image — will live on /home/data)
+*.db
+*.db-shm
+*.db-wal
+schwab_tokens.json
+tradestation_tokens.json
+tradovate_tokens.json
+live_settings.json
+sessions.json
+orb_cache.json
+appsettings.Development.json
+
+# Claude / worktrees / docs / README noise
+.claude/
+docs/
+README.md
+*.md
+
+# Test project
+CRV.Core.Tests/
+
+# Misc
+identifier.sqlite
+**/logs/
+**/*.log
+Dockerfile
+.dockerignore
+deploy/

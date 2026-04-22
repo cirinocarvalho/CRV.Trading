@@ -1,0 +1,134 @@
+name: Infrastructure
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'deploy/main.bicep'
+      - '.github/workflows/infra.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'deploy/main.bicep'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AZURE_RG:       crv-trading-rg
+  AZURE_LOCATION: eastus
+
+jobs:
+  # ── PR: preview changes without applying ────────────────────────────
+  plan:
+    name: what-if (plan)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Preserve current container image
+        id: current
+        run: |
+          img=$(az webapp config show -g "$AZURE_RG" -n crv-trading \
+                --query linuxFxVersion -o tsv 2>/dev/null || echo "")
+          if [[ -n "$img" ]]; then
+            echo "image=$img" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: what-if
+        id: whatif
+        run: |
+          args=(-g "$AZURE_RG" -f deploy/main.bicep)
+          if [[ -n "${{ steps.current.outputs.image }}" ]]; then
+            args+=(-p "containerImage=${{ steps.current.outputs.image }}")
+          fi
+          echo '```' > whatif.txt
+          az deployment group what-if "${args[@]}" >> whatif.txt 2>&1 || true
+          echo '```' >> whatif.txt
+          {
+            echo "### Infra what-if"
+            cat whatif.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment PR with what-if
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = "### Infra what-if\n\n" + fs.readFileSync('whatif.txt', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+  # ── Main/master: apply ──────────────────────────────────────────────
+  apply:
+    name: deploy Bicep
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group exists
+        run: az group create -n "$AZURE_RG" -l "$AZURE_LOCATION" -o none
+
+      - name: Preserve current container image
+        id: current
+        run: |
+          img=$(az webapp config show -g "$AZURE_RG" -n crv-trading \
+                --query linuxFxVersion -o tsv 2>/dev/null || echo "")
+          if [[ -n "$img" ]]; then
+            echo "image=$img" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy Bicep
+        id: deploy
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ env.AZURE_RG }}
+          template: deploy/main.bicep
+          parameters: >-
+            ${{ steps.current.outputs.image && format('containerImage={0}', steps.current.outputs.image) || '' }}
+          failOnStdErr: false
+
+      - name: Save ACR name as repo variable
+        # Lets deploy.yml read the ACR name without a hard-coded secret
+        run: |
+          echo "ACR_NAME=${{ steps.deploy.outputs.acrName }}"       >> "$GITHUB_ENV"
+          gh variable set AZURE_ACR_NAME --body "${{ steps.deploy.outputs.acrName }}" --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Infra deployed"
+            echo "- **App:** https://${{ steps.deploy.outputs.siteHostname }}"
+            echo "- **ACR:** ${{ steps.deploy.outputs.acrLoginServer }}"
+            echo "- **Key Vault:** ${{ steps.deploy.outputs.keyVaultName }}"
+          } >> "$GITHUB_STEP_SUMMARY"
