@@ -1,6 +1,5 @@
 namespace CRV.Web.Pages.Settings;
 
-using System.Text.RegularExpressions;
 using CRV.Core.Models;
 using CRV.Live;
 using CRV.Live.Brokers.Schwab;
@@ -73,7 +72,7 @@ public class LiveModel : PageModel
         {
             try
             {
-                var root = Regex.Replace(FuturesSymbol.Normalize(_cfgSvc.Current.Ticker), @"[HMUZ]\d{2}$", "");
+                var root = FuturesSymbol.RootSymbol(_cfgSvc.Current.Ticker);
                 return ContractRollCalendar.ActiveContract(root);
             }
             catch { return ""; }

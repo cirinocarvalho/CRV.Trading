@@ -1648,19 +1648,15 @@ public class LiveEngineOrchestrator : BackgroundService
             }
             else if (cfg.Broker == "Schwab")
             {
-                // Validate the configured ticker is the current active contract.
-                // Only warn for quarterly equity indices (NQ/ES/YM/RTY) where the roll calendar
-                // is accurate. Commodity contracts (GC, CL) use different expiration conventions
-                // (e.g. CL expires ~3 business days before the 25th of the prior month).
+                // Validate the configured ticker is the current active contract. The roll
+                // calendar now supports all product families (equity indices, gold, crude,
+                // bitcoin), so this warning fires for every supported root.
                 var root = FuturesSymbol.RootSymbol(ticker);
-                if (ContractRollCalendar.IsQuarterly(root))
-                {
-                    var active = ContractRollCalendar.ActiveContract(root);
-                    if (!string.Equals(FuturesSymbol.Normalize(ticker), active, StringComparison.OrdinalIgnoreCase))
-                        _log.LogWarning(
-                            "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
-                            ticker, active);
-                }
+                var active = ContractRollCalendar.ActiveContract(root);
+                if (!string.Equals(FuturesSymbol.Normalize(ticker), active, StringComparison.OrdinalIgnoreCase))
+                    _log.LogWarning(
+                        "Ticker mismatch: config uses {Ticker} but active contract is {Active} — backfill may return stale data from broker",
+                        ticker, active);
 
                 var auth   = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                 var token  = await auth.GetAccessTokenAsync();
