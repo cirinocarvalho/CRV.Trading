@@ -598,4 +598,154 @@ public class BrokerEventHandlerTests
         Assert.True(handler.HasActiveGroup("A"));
         Assert.Equal("grp-NEW", handler.GetActiveGroup("A")!.GroupOrderId);
     }
+
+    // ── Orphan reconciliation / pending placements ──────────────
+
+    private static EntrySignal MakeSignal(string setupLabel = "A", string ticker = "/NQH2026",
+        int total = 2, int partial = 1) =>
+        new(SetupId.A, Direction.Long,
+            Entry: 20000m, Stop: 19950m, Tg2Price: 20100m, Tg1Price: 20050m,
+            TotalContracts: total, Time: DateTime.UtcNow, OrderType: "Limit",
+            Ticker: ticker, SetupLabel: setupLabel,
+            PartialContracts: partial, PointValue: 20m, UsePartial: true, UseBe: true);
+
+    [Fact]
+    public async Task PlaceEntry_ExecutorReturnsNull_RetainsPendingPlacement()
+    {
+        var exec = new FakeGroupExecutor(); // always returns null
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec); // IsBacktest=false by default
+
+        await handler.PlaceEntryAsync(MakeSignal(), strategy);
+
+        var pending = handler.GetPendingPlacements();
+        Assert.Single(pending);
+        Assert.Equal("A", pending[0].SetupId);
+        Assert.Equal(Direction.Long, pending[0].Direction);
+        Assert.Equal(2, pending[0].TotalContracts);
+    }
+
+    [Fact]
+    public async Task PlaceEntry_Backtest_DoesNotRecordPendingPlacement()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec) { IsBacktest = true };
+
+        await handler.PlaceEntryAsync(MakeSignal(), strategy);
+
+        // Backtest should skip the pending tracker — no orphan risk in backtest
+        Assert.Empty(handler.GetPendingPlacements());
+    }
+
+    [Fact]
+    public async Task PlaceEntry_ExecutorReturnsGroup_ClearsPendingPlacement()
+    {
+        var groupToReturn = MakeGroup();
+        groupToReturn.Status = GroupOrderStatus.Pending;
+        var exec = new FakeGroupExecutorWithGroup(groupToReturn);
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        await handler.PlaceEntryAsync(MakeSignal(), strategy);
+
+        Assert.Empty(handler.GetPendingPlacements());
+        Assert.True(handler.HasActiveGroup("A"));
+    }
+
+    [Fact]
+    public async Task AdoptOrphan_RegistersGroup_AndFiresEvents()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        GroupOrder? registered = null;
+        GroupOrder? entryFilled = null;
+        handler.OnGroupRegistered += g => registered = g;
+        handler.OnEntryFilled     += g => entryFilled = g;
+
+        // Simulate a prior null-return that left a pending placement
+        await handler.PlaceEntryAsync(MakeSignal(), strategy);
+        Assert.Single(handler.GetPendingPlacements());
+
+        // Now adopt an orphaned group discovered at the broker
+        var orphan = MakeGroup();
+        orphan.Status = GroupOrderStatus.Active;
+        orphan.EntryPrice = 20001m;
+
+        await handler.AdoptOrphanAsync(orphan, strategy);
+
+        Assert.True(handler.HasActiveGroup("A"));
+        Assert.Empty(handler.GetPendingPlacements());
+        Assert.Same(orphan, registered);
+        Assert.Same(orphan, entryFilled);
+        Assert.True(strategy.InTrade);
+    }
+
+    [Fact]
+    public async Task AdoptOrphan_PendingGroup_DoesNotFireEntryFilled()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        GroupOrder? entryFilled = null;
+        handler.OnEntryFilled += g => entryFilled = g;
+
+        var orphan = MakeGroup();
+        orphan.Status = GroupOrderStatus.Pending; // not filled yet
+
+        await handler.AdoptOrphanAsync(orphan, strategy);
+
+        Assert.True(handler.HasActiveGroup("A"));
+        Assert.Null(entryFilled);
+        Assert.False(strategy.InTrade);
+    }
+
+    [Fact]
+    public async Task PrunePendingPlacements_DropsStaleEntries()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        await handler.PlaceEntryAsync(MakeSignal(), strategy);
+        Assert.Single(handler.GetPendingPlacements());
+
+        // No prune with a long window
+        Assert.Equal(0, handler.PrunePendingPlacements(TimeSpan.FromHours(1)));
+        Assert.Single(handler.GetPendingPlacements());
+
+        // Prune with negative window drops everything
+        Assert.Equal(1, handler.PrunePendingPlacements(TimeSpan.FromSeconds(-1)));
+        Assert.Empty(handler.GetPendingPlacements());
+    }
+
+    [Fact]
+    public async Task PlaceEntry_TwiceSameSetup_ReplacesPendingPlacement()
+    {
+        var exec = new FakeGroupExecutor();
+        var strategy = new FakeSetup();
+        var handler = new BrokerEventHandler(exec);
+
+        await handler.PlaceEntryAsync(MakeSignal(total: 2), strategy);
+        await handler.PlaceEntryAsync(MakeSignal(total: 5), strategy);
+
+        var pending = handler.GetPendingPlacements();
+        Assert.Single(pending);
+        Assert.Equal(5, pending[0].TotalContracts); // latest attempt wins
+    }
+
+    // ── Helper executor that returns a pre-set group on OnEntrySignalAsync ──
+    private class FakeGroupExecutorWithGroup : IGroupOrderExecutor
+    {
+        private readonly GroupOrder _group;
+        public FakeGroupExecutorWithGroup(GroupOrder group) { _group = group; }
+        public Task<GroupOrder?> OnEntrySignalAsync(EntrySignal signal) => Task.FromResult<GroupOrder?>(_group);
+        public Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty) => Task.CompletedTask;
+        public Task CancelOrderAsync(string orderId) => Task.CompletedTask;
+        public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty) => Task.FromResult(0m);
+        public Task<decimal?> GetOrderFillPriceAsync(string orderId) => Task.FromResult<decimal?>(null);
+    }
 }

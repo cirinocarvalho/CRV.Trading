@@ -41,6 +41,14 @@ public class TradovateEventStream : IBrokerEventStream
             _orderMap[tradovateOrderId] = (groupOrderId, legType, tradovateOrderId.ToString());
     }
 
+    /// <summary>True if the given Tradovate order ID is already mapped — used by orphan
+    /// reconciliation to skip orders we already track.</summary>
+    public bool IsOrderTracked(long tradovateOrderId)
+    {
+        lock (_mapLock)
+            return _orderMap.ContainsKey(tradovateOrderId);
+    }
+
     /// <summary>Emit a synthetic OrderEvent (e.g. when REST poll detects a fill WSS missed).</summary>
     public void EmitSyntheticFill(OrderEvent evt)
     {

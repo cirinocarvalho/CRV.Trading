@@ -6,6 +6,7 @@ using System.Text.Json;
 using CRV.Core.Data;
 using CRV.Core.Interfaces;
 using CRV.Core.Models;
+using CRV.Core.Strategy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -695,6 +696,110 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             groupId, disc.Entry?.Id, disc.Entry?.Status, disc.Tg1?.Id, tg2Disc?.Id, activeStop?.Id, group.Status);
 
         return group;
+    }
+
+    /// <summary>
+    /// Scan Tradovate for strategies the engine created but failed to register locally
+    /// (e.g. startOrderStrategy returned null after the broker accepted the order).
+    /// Matches orphaned strategies against <see cref="BrokerEventHandler"/>'s pending
+    /// placements by action + quantity, then adopts each match via RecoverStrategyAsync.
+    /// Returns the number of orphans adopted.
+    /// </summary>
+    public async Task<int> ReconcileOrphansAsync(BrokerEventHandler handler, TimeSpan pendingWindow)
+    {
+        var pending = handler.GetPendingPlacements()
+            .Where(p => p.PlacedAtUtc >= DateTime.UtcNow - pendingWindow)
+            .ToList();
+        if (pending.Count == 0) return 0;
+
+        List<BrokerStrategyView> strategies;
+        try
+        {
+            strategies = await GetAllStrategiesAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TV-ORPHAN] Failed to fetch strategy list");
+            return 0;
+        }
+
+        // Add a small buffer past pendingWindow since broker timestamp may lag slightly
+        var stratCutoff = DateTime.UtcNow - pendingWindow - TimeSpan.FromMinutes(2);
+
+        int adopted = 0;
+        foreach (var strat in strategies)
+        {
+            // Only recent strategies — avoid adopting stale ones that predate this session
+            if (strat.Timestamp != DateTime.MinValue && strat.Timestamp < stratCutoff) continue;
+
+            // Skip terminal states where nothing was actually placed
+            if (strat.Status is "Failed" or "Rejected") continue;
+
+            // If any linked order is already tracked (present in WSS order map), this
+            // strategy is not an orphan — another execution path already registered it.
+            var anyTracked = strat.OrderLinks.Any(l => EventStream?.IsOrderTracked(l.OrderId) == true);
+            if (anyTracked) continue;
+
+            // Normalize Tradovate action string to our Direction enum for matching
+            var stratDir = strat.Action == "Buy" ? Direction.Long
+                         : strat.Action == "Sell" ? Direction.Short
+                         : (Direction?)null;
+            if (stratDir is null) continue;
+
+            // Match against pending placements by direction + contracts. If multiple
+            // pending match, we skip (ambiguous) rather than risk wrong adoption.
+            var candidates = pending.Where(p =>
+                p.Direction == stratDir.Value &&
+                p.TotalContracts == strat.EntryQty).ToList();
+            if (candidates.Count != 1) continue;
+            var match = candidates[0];
+
+            _log.LogWarning(
+                "[TV-ORPHAN] Adopting strategy {S} ({Dir} {Qty}) for pending placement setup={Setup} ticker={Ticker}",
+                strat.StrategyId, strat.Action, strat.EntryQty, match.SetupId, match.Ticker);
+
+            GroupOrder? recovered;
+            try
+            {
+                recovered = await RecoverStrategyAsync(
+                    strat.StrategyId, match.Ticker, match.Direction,
+                    match.TotalContracts,
+                    match.Signal.UsePartial ? match.Signal.PartialContracts : 0,
+                    match.Signal.UseBe,
+                    match.SetupId);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "[TV-ORPHAN] RecoverStrategyAsync failed for strategy {S}", strat.StrategyId);
+                continue;
+            }
+
+            if (recovered is null)
+            {
+                _log.LogWarning("[TV-ORPHAN] RecoverStrategyAsync returned null for strategy {S}", strat.StrategyId);
+                continue;
+            }
+
+            // Carry session context and persist
+            if (string.IsNullOrEmpty(recovered.SessionId))
+                recovered.SessionId = match.Signal.SessionId;
+
+            try
+            {
+                await handler.AdoptOrphanAsync(recovered, match.Strategy);
+                adopted++;
+                pending.Remove(match);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "[TV-ORPHAN] AdoptOrphanAsync failed for strategy {S}", strat.StrategyId);
+            }
+        }
+
+        // Prune very old pending placements — nothing to reconcile them against anymore
+        handler.PrunePendingPlacements(pendingWindow + TimeSpan.FromMinutes(5));
+
+        return adopted;
     }
 
     /// <summary>

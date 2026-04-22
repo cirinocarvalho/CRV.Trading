@@ -41,6 +41,12 @@ public class BrokerEventHandler
     private readonly Dictionary<string, List<OrderEvent>> _earlyEvents = new();
     private readonly object _earlyLock = new();
 
+    // Pending placements: recorded before the executor call, cleared on success,
+    // retained when the executor returns null so orphan reconciliation can discover
+    // orders the broker accepted but we failed to register locally.
+    private readonly List<PendingPlacement> _pendingPlacements = new();
+    private readonly object _pendingLock = new();
+
     /// <summary>Raised when a group completes (target, stop, or manual exit).</summary>
     public event Action<GroupOrder, TradeRecord>? OnTradeCompleted;
 
@@ -57,6 +63,82 @@ public class BrokerEventHandler
     {
         _executor = executor;
         _log = log;
+    }
+
+    // ── Pending placements (orphan reconciliation) ──────────────
+
+    /// <summary>Placement recorded before calling the executor. Retained on null-return so a
+    /// periodic reconciler can match it against broker orders the engine never registered.</summary>
+    public record PendingPlacement(
+        string SetupId,
+        string Ticker,
+        Direction Direction,
+        int TotalContracts,
+        DateTime PlacedAtUtc,
+        EntrySignal Signal,
+        ISetupStrategy Strategy);
+
+    /// <summary>Snapshot of pending placements awaiting broker confirmation.</summary>
+    public List<PendingPlacement> GetPendingPlacements()
+    {
+        lock (_pendingLock)
+            return _pendingPlacements.ToList();
+    }
+
+    private void RecordPendingPlacement(EntrySignal signal, ISetupStrategy strategy)
+    {
+        lock (_pendingLock)
+        {
+            // Replace any prior pending for the same setup — only the latest attempt matters.
+            _pendingPlacements.RemoveAll(p => p.SetupId == strategy.Id);
+            _pendingPlacements.Add(new PendingPlacement(
+                strategy.Id, signal.Ticker, signal.Direction, signal.TotalContracts,
+                DateTime.UtcNow, signal, strategy));
+        }
+    }
+
+    /// <summary>Clear any pending placement for a setup — call after successful group registration.</summary>
+    public void ClearPendingPlacement(string setupId)
+    {
+        lock (_pendingLock)
+            _pendingPlacements.RemoveAll(p => p.SetupId == setupId);
+    }
+
+    /// <summary>Drop pending placements older than <paramref name="maxAge"/>. Returns number pruned.</summary>
+    public int PrunePendingPlacements(TimeSpan maxAge)
+    {
+        var cutoff = DateTime.UtcNow - maxAge;
+        lock (_pendingLock)
+        {
+            int before = _pendingPlacements.Count;
+            _pendingPlacements.RemoveAll(p => p.PlacedAtUtc < cutoff);
+            return before - _pendingPlacements.Count;
+        }
+    }
+
+    /// <summary>Register a group that was discovered at the broker but never registered locally
+    /// (e.g. because the original executor call returned null). Runs the same wiring as
+    /// <see cref="PlaceEntryAsync"/>: registration, DB persist, SetInTrade, dashboard notify.</summary>
+    public async Task AdoptOrphanAsync(GroupOrder group, ISetupStrategy strategy)
+    {
+        _log?.LogWarning("[BEH] Adopting orphaned group {G} for setup {S} — status={St} entry={P}",
+            group.GroupOrderId, strategy.Id, group.Status, group.EntryPrice);
+
+        // Ensure PointValue is seeded (RegisterGroupAsync does this too, but belt-and-braces)
+        if (group.PointValue == 0 && strategy.PointValue > 0)
+            group.PointValue = strategy.PointValue;
+
+        await RegisterGroupAsync(group, strategy);
+        ClearPendingPlacement(strategy.Id);
+
+        if (!IsBacktest)
+            OnGroupRegistered?.Invoke(group);
+
+        if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
+        {
+            strategy.SetInTrade(true);
+            OnEntryFilled?.Invoke(group);
+        }
     }
 
     // ── Registration ────────────────────────────────────────────
@@ -210,9 +292,17 @@ public class BrokerEventHandler
         if (!IsBacktest && signal.Mode == "Conservative" && signal.OrderType != "Limit")
             signal = signal with { OrderType = "Limit" };
 
+        // Record the placement attempt before calling the executor. If the executor returns
+        // null but the order actually reached the broker (timeout, parse failure, etc.), this
+        // pending entry lets a periodic reconciler match up the orphaned broker order.
+        if (!IsBacktest)
+            RecordPendingPlacement(signal, strategy);
+
         var group = await _executor.OnEntrySignalAsync(signal);
         if (group != null)
         {
+            ClearPendingPlacement(strategy.Id);
+
             // Carry session context so completed trades are tagged correctly
             if (string.IsNullOrEmpty(group.SessionId))
                 group.SessionId = signal.SessionId;
@@ -232,6 +322,11 @@ public class BrokerEventHandler
                 _log?.LogDebug("[BEH] Entry FILLED grp={G} @ {P}", group.GroupOrderId, group.EntryPrice);
                 OnEntryFilled?.Invoke(group);
             }
+        }
+        else if (!IsBacktest)
+        {
+            _log?.LogWarning("[BEH] Executor returned null for setup {S} — placement retained for orphan reconciliation",
+                strategy.Id);
         }
     }
 

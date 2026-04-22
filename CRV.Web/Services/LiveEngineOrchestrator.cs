@@ -1229,6 +1229,40 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
             }, ct);
 
+            // ── Orphan reconciliation (Tradovate only) ────────────────────────
+            // When startOrderStrategy accepts the order but the local registration step
+            // fails (null return from executor), the trade is live at the broker but
+            // invisible to the dashboard. A periodic sweep matches broker strategies
+            // against BrokerEventHandler.PendingPlacements and adopts any orphans.
+            if (groupExecutor is TradovateExecutor orphanExec && brokerHandler != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    var pendingWindow = TimeSpan.FromMinutes(5);
+                    var sweepInterval = TimeSpan.FromSeconds(30);
+                    while (!ct.IsCancellationRequested)
+                    {
+                        try { await Task.Delay(sweepInterval, ct); }
+                        catch (OperationCanceledException) { break; }
+
+                        BrokerEventHandler? h;
+                        lock (_lifecycleLock) { h = _brokerHandler; }
+                        if (h == null) break;
+
+                        try
+                        {
+                            var adopted = await orphanExec.ReconcileOrphansAsync(h, pendingWindow);
+                            if (adopted > 0)
+                                _log.LogWarning("[TV-ORPHAN] Adopted {N} orphaned group(s) this sweep", adopted);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[TV-ORPHAN] Reconciliation sweep failed");
+                        }
+                    }
+                }, ct);
+            }
+
             // Schwab CHART_FUTURES has no barsback replay — we must REST-backfill historical
             // bars so ORB/ATR/VWAP are warm before the streaming loop starts.
             // TradeStation handles this via barsback=20 in its stream URL.
