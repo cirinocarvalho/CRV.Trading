@@ -187,11 +187,13 @@ public static class SnapshotAggregator
         // Map each strategy to per-setup fields by SetupId
         foreach (var strategy in inputs.Strategies)
         {
-            // Per-setup last price from the strategy's own ticker
+            // Per-setup last price from the strategy's own ticker. Do NOT fall back to
+            // inputs.LastPrice on miss — a silent fallback masks ticker-routing bugs
+            // (e.g. stored setup ticker stale after rollover so its own price never
+            // arrives). The UI renders 0 as "—", making the missing price visible.
             var setupLastPrice = inputs.Prices != null && !string.IsNullOrEmpty(strategy.Ticker)
                 ? inputs.Prices.GetLastPrice(strategy.Ticker)
-                : inputs.LastPrice;
-            if (setupLastPrice <= 0) setupLastPrice = inputs.LastPrice;
+                : 0m;
 
             var ss = strategy.GetSnapshot();
 

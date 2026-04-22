@@ -467,6 +467,13 @@ public class LiveEngineOrchestrator : BackgroundService
 
             // Clone config and inject AccountId from appsettings for the DATA broker
             cfg = cfg.Clone();
+
+            // Auto-roll any stale contract tickers (cfg.Ticker + basket entries) to the
+            // current active front-month per ContractRollCalendar. Runs BEFORE the
+            // AccountId / broker-format mutations below so the persisted config carries
+            // only the ticker changes, not runtime overrides.
+            AutoRollTickers(cfg, scope);
+
             cfg.AccountId = cfg.Broker switch
             {
                 "TradeStation" => _config["TradeStation:AccountId"] ?? cfg.AccountId,
@@ -1423,6 +1430,49 @@ public class LiveEngineOrchestrator : BackgroundService
         finally
         {
             lock (_lifecycleLock) { _engine = null; _brokerHandler = null; _groupExecutor = null; }
+        }
+    }
+
+    /// <summary>
+    /// Rewrite any stale futures tickers on the config (primary + both baskets) to the
+    /// current active front-month per <see cref="ContractRollCalendar"/>. Persists the
+    /// updated config so the UI reflects the rolled tickers on next load.
+    /// </summary>
+    private void AutoRollTickers(StrategyConfig cfg, IServiceScope scope)
+    {
+        var rewrites = new List<TickerAutoRoller.Rewrite>();
+
+        // Primary ticker
+        var primaryNew = TickerAutoRoller.NewerContractFor(cfg.Ticker);
+        if (primaryNew != null)
+        {
+            rewrites.Add(new TickerAutoRoller.Rewrite("cfg.Ticker", cfg.Ticker, primaryNew));
+            cfg.Ticker = primaryNew;
+        }
+
+        // Basket JSON rewrites preserve all other fields via JsonNode round-trip.
+        var (basketJson, basketRw) = TickerAutoRoller.RewriteBasket(cfg.BasketJson, "Basket");
+        if (basketRw.Count > 0) { cfg.BasketJson = basketJson; rewrites.AddRange(basketRw); }
+
+        var (ema21Json, ema21Rw) = TickerAutoRoller.RewriteBasket(cfg.Ema21BasketJson, "Ema21Basket");
+        if (ema21Rw.Count > 0) { cfg.Ema21BasketJson = ema21Json; rewrites.AddRange(ema21Rw); }
+
+        if (rewrites.Count == 0) return;
+
+        foreach (var r in rewrites)
+            _log.LogWarning("[ROLL] {Where}: {Old} → {New}", r.Where, r.Old, r.New);
+
+        // Persist so the UI displays the rolled tickers on next load. AccountId and
+        // broker-format mutations happen after this call, so they do NOT get persisted.
+        try
+        {
+            var cfgSvc = scope.ServiceProvider.GetRequiredService<StrategyConfigService>();
+            cfgSvc.Update(cfg);
+            _log.LogInformation("[ROLL] Config persisted with {N} ticker rewrite(s).", rewrites.Count);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[ROLL] Failed to persist rolled tickers — engine will still use rolled values this session.");
         }
     }
 
