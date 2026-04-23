@@ -65,9 +65,17 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ── HTTP client factory (prevents socket exhaustion from new HttpClient()) ──
-// ConfigurePrimaryHttpMessageHandler removes the default logging handler
+// - Remove default logging handlers (noise)
+// - Enable automatic decompression so Schwab/TradeStation gzip responses are
+//   readable (otherwise error bodies come back as binary garbage).
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(b =>
-    b.RemoveAllLoggers());
+{
+    b.RemoveAllLoggers();
+    b.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All
+    });
+});
 
 // ── Core singleton services ───────────────────────────────────
 builder.Services.AddSingleton<StrategyConfigService>();
