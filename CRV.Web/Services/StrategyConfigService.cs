@@ -41,6 +41,15 @@ public class StrategyConfigService
         cfg.Id        = ConfigId;
         cfg.UpdatedAt = DateTime.UtcNow;
 
+        // Columns that are NOT NULL in the DB schema but nullable on the model.
+        // Coerce to empty string so save never fails with a NOT NULL constraint
+        // violation (which previously made every save silently no-op — see
+        // https://github.com/.../issues/... for the symptom: "settings reset
+        // on every restart").
+        cfg.EmailRecipients ??= "";
+        cfg.BasketJson      ??= "";
+        cfg.Ema21BasketJson ??= "";
+
         lock (_lock) { _current = cfg; }
 
         SaveToDb(cfg);

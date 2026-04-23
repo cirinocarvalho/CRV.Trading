@@ -216,6 +216,17 @@ using (var scope = app.Services.CreateScope())
     catch { /* Fresh DB with no tables yet — Migrate() below will create everything. */ }
 
     db.Database.Migrate();
+
+    // Post-migration repair: NOT NULL columns that older rows might have as NULL
+    // (caused silent save failures on UPDATE with the "Configs.EmailRecipients"
+    // NOT NULL constraint). Safe to run every boot — no-op once all rows are clean.
+    try
+    {
+        db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"EmailRecipients\" = '' WHERE \"EmailRecipients\" IS NULL");
+        db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"BasketJson\"      = '' WHERE \"BasketJson\"      IS NULL");
+        db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"Ema21BasketJson\" = '' WHERE \"Ema21BasketJson\" IS NULL");
+    }
+    catch { /* Table may not exist on first run — Migrate() above handled it. */ }
 }
 
 // ── Swagger (development only) ────────────────────────────────
