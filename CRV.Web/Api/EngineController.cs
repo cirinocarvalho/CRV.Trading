@@ -676,11 +676,19 @@ public class EngineController : ControllerBase
                 direction, req.Qty, ticker, req.Entry, req.Stop,
                 brackets?.Count ?? (usePartial ? 2 : 1), label);
 
+        // Echo back the ticker in the exact format the executing broker used
+        // (Tradovate: NQM6, Schwab: /NQM26, TradeStation: NQM26, else: canonical).
+        var execTicker = FuturesSymbol.ForBroker(ticker, cfg.EffectiveExecBroker);
+
         return Ok(new
         {
             status = "ok",
             message,
             groupOrderId = group?.GroupOrderId,
+            brokerStrategyId = group?.BrokerStrategyId,
+            ticker = execTicker,
+            broker = cfg.EffectiveExecBroker,
+            orderType = req.OrderType ?? "Market",
             direction = direction.ToString(),
             entry = req.Entry,
             stop = req.Stop,
