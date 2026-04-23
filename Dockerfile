@@ -29,7 +29,7 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     /p:UseAppHost=false
 
 # ── Litestream (build from source, pre-built binaries lack azblob backend) ──
-FROM golang:1.23-alpine AS litestream
+FROM golang:1.25-alpine AS litestream
 RUN apk add --no-cache git
 WORKDIR /src
 # Pin to a known-good commit. Update LITESTREAM_REF to track upstream.
