@@ -28,19 +28,21 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     --no-restore \
     /p:UseAppHost=false
 
-# ── Litestream (download binary) ─────────────────────────
-FROM alpine:3.20 AS litestream
-ARG LITESTREAM_VERSION=0.3.13
-RUN apk add --no-cache curl ca-certificates \
- && curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz" \
-      | tar -xz -C /usr/local/bin litestream
+# ── Litestream (build from source, pre-built binaries lack azblob backend) ──
+FROM golang:1.23-alpine AS litestream
+RUN apk add --no-cache git
+WORKDIR /src
+# Pin to a known-good commit. Update LITESTREAM_REF to track upstream.
+ARG LITESTREAM_REF=main
+RUN git clone --depth 1 --branch "${LITESTREAM_REF}" https://github.com/benbjohnson/litestream.git . \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/litestream ./cmd/litestream
 
 # ── Runtime ──────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Litestream binary + config
-COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
+COPY --from=litestream /out/litestream /usr/local/bin/litestream
 COPY litestream.yml       /etc/litestream.yml
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

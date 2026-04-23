@@ -18,6 +18,13 @@ if [ -z "${LITESTREAM_AZURE_ACCOUNT_NAME:-}" ]; then
     exec dotnet /app/CRV.Web.dll
 fi
 
+# Pre-flight: confirm litestream understands the config. If not (e.g. missing
+# azblob backend in the binary), skip replication rather than killing the app.
+if ! litestream databases -config /etc/litestream.yml > /dev/null 2>&1; then
+    echo "[entrypoint] Litestream config invalid — skipping replication, running app directly"
+    exec dotnet /app/CRV.Web.dll
+fi
+
 echo "[entrypoint] Restoring SQLite from Azure Blob if needed..."
 litestream restore \
     -config /etc/litestream.yml \
