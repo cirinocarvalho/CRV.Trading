@@ -182,7 +182,9 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       http20Enabled: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
-      healthCheckPath: '/'
+      // `/` 302-redirects to /dashboard, which Azure's health probe treats as unhealthy.
+      // Point at an endpoint that returns 200 directly.
+      healthCheckPath: '/api/engine/status'
       appSettings: [
         // ── Core runtime ────────────────────────────────────
         { name: 'WEBSITES_PORT',                          value: '8080' }
