@@ -14,6 +14,14 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Culture ───────────────────────────────────────────────────
+// Linux container defaults to InvariantCulture, so `ToString("C0")`
+// renders the generic currency sign '¤' instead of '$'. Pin to en-US
+// so money formatting is consistent and prices/numbers parse correctly.
+var usCulture = new System.Globalization.CultureInfo("en-US");
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = usCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = usCulture;
+
 // ── Persistent data directory (Azure App Service mounts /home as Azure Storage) ──
 // All relative file paths (SQLite DB, token files, sessions.json, orb_cache.json,
 // live_settings.json) resolve from CurrentDirectory. ContentRootPath is unchanged
