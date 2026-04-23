@@ -1,0 +1,23 @@
+# Litestream config — continuous streaming backup of the SQLite DB
+# to Azure Blob Storage. Values come from env vars set in App Service.
+#
+# Env vars required (set by Bicep, Key Vault reference or direct):
+#   LITESTREAM_AZURE_ACCOUNT_NAME
+#   LITESTREAM_AZURE_ACCOUNT_KEY
+#   LITESTREAM_AZURE_BUCKET          (container name, e.g. "litestream")
+
+dbs:
+  - path: /home/data/crv_trading.db
+    replicas:
+      - type: azblob
+        account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
+        account-key:  ${LITESTREAM_AZURE_ACCOUNT_KEY}
+        bucket:       ${LITESTREAM_AZURE_BUCKET}
+        path:         crv_trading
+        # Keep 24 hours of WAL snapshots for point-in-time restore.
+        retention:            24h
+        retention-check-interval: 1h
+        # Snapshot frequency. Default 24h; tighter = faster restore, more cost.
+        snapshot-interval:    6h
+        # WAL writes stream continuously; this is the batching window.
+        sync-interval:        1s

@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy solution + csprojs first for better layer caching
-COPY CRV.Trading.sln ./
+#COPY CRV.Trading.sln ./
 COPY CRV.Core/CRV.Core.csproj        CRV.Core/
 COPY CRV.Core.Tests/CRV.Core.Tests.csproj CRV.Core.Tests/
 COPY CRV.Backtest/CRV.Backtest.csproj CRV.Backtest/
@@ -25,9 +25,24 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     --no-restore \
     /p:UseAppHost=false
 
+# ── Litestream (download binary) ─────────────────────────
+FROM alpine:3.20 AS litestream
+ARG LITESTREAM_VERSION=0.3.13
+RUN apk add --no-cache curl ca-certificates \
+ && curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz" \
+      | tar -xz -C /usr/local/bin litestream
+
 # ── Runtime ──────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+
+# Litestream binary + config
+COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
+COPY litestream.yml       /etc/litestream.yml
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# App
 COPY --from=build /app/publish ./
 
 # App Service Linux expects the container to listen on $PORT (set via WEBSITES_PORT)
@@ -36,4 +51,4 @@ ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV DATA_DIR=/home/data
 
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "CRV.Web.dll"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
