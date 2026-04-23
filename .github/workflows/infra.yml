@@ -53,10 +53,15 @@ jobs:
 
       - name: what-if
         id: whatif
+        env:
+          ENTRA_CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
         run: |
           args=(-g "$AZURE_RG" -f deploy/main.bicep)
           if [[ -n "${{ steps.current.outputs.image }}" ]]; then
             args+=(-p "containerImage=${{ steps.current.outputs.image }}")
+          fi
+          if [[ -n "$ENTRA_CLIENT_ID" ]]; then
+            args+=(-p "entraClientId=$ENTRA_CLIENT_ID")
           fi
           echo '```' > whatif.txt
           az deployment group what-if "${args[@]}" >> whatif.txt 2>&1 || true
@@ -114,6 +119,7 @@ jobs:
           template: deploy/main.bicep
           parameters: >-
             ${{ steps.current.outputs.image && format('containerImage={0}', steps.current.outputs.image) || '' }}
+            ${{ secrets.ENTRA_CLIENT_ID && format('entraClientId={0}', secrets.ENTRA_CLIENT_ID) || '' }}
           failOnStdErr: false
 
       # Note: deploy.yml auto-discovers the ACR name via `az acr list` in the RG,

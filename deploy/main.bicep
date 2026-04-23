@@ -32,6 +32,18 @@ param placeholderValue string = 'CHANGE_ME'
 @description('Seed placeholder secrets in Key Vault. Set to true ONLY on first infra deploy to create the slots. On subsequent deploys leave false, otherwise Bicep will overwrite real secret values with the placeholder.')
 param seedPlaceholderSecrets bool = false
 
+@description('Entra ID (Azure AD) app registration client ID for App Service Easy Auth. Leave blank to skip auth setup on first deploy. Create via: az ad app create --display-name crv-trading --web-redirect-uris https://<site>.azurewebsites.net/.auth/login/aad/callback')
+param entraClientId string = ''
+
+@description('Entra ID tenant ID. Defaults to the deployment subscription tenant. Override for multi-tenant scenarios (not recommended for this app).')
+param entraTenantId string = subscription().tenantId
+
+@description('Paths that bypass Easy Auth. Webhook endpoints and health checks — must remain reachable without a user login.')
+param authExcludedPaths array = [
+  '/api/engine/status'
+  '/api/engine/webhook/order'
+]
+
 @description('Tags applied to every resource.')
 param tags object = {
   project: 'CRV.Trading'
@@ -138,6 +150,7 @@ var placeholderSecrets = [
   'Tradovate--Secret'
   'Tradovate--DeviceId'
   'Smtp--Password'
+  'Auth--ClientSecret'
 ]
 
 // Only create these on first run (seedPlaceholderSecrets=true). Once set-secrets.sh
@@ -250,7 +263,71 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'LITESTREAM_AZURE_ACCOUNT_NAME',          value: storage.name }
         { name: 'LITESTREAM_AZURE_BUCKET',                value: litestreamContainer }
         { name: 'LITESTREAM_AZURE_ACCOUNT_KEY',           value: kvRef(kv.name, 'Litestream--StorageKey') }
+
+        // ── Easy Auth (Microsoft Entra ID) client secret ─────
+        // Resolved by Easy Auth at runtime via the setting name configured in
+        // authsettingsV2.identityProviders.azureActiveDirectory.registration.
+        { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: kvRef(kv.name, 'Auth--ClientSecret') }
       ]
+    }
+  }
+}
+
+// ── App Service Easy Auth (Microsoft Entra ID) ─────────────────────────────
+// Only configured once `entraClientId` is provided. Workflow:
+//   1. First deploy with entraClientId='' — app is public, no auth.
+//   2. Create the Entra app registration (one-time, manual):
+//        az ad app create --display-name crv-trading \
+//          --web-redirect-uris https://<siteHostname>/.auth/login/aad/callback \
+//          --enable-id-token-issuance true
+//      Then create a client secret and populate Auth--ClientSecret in KV.
+//   3. Redeploy with entraClientId=<the app id>. Auth is now enforced.
+resource siteAuth 'Microsoft.Web/sites/config@2023-12-01' = if (!empty(entraClientId)) {
+  parent: site
+  name: 'authsettingsV2'
+  properties: {
+    platform: {
+      enabled: true
+      runtimeVersion: '~1'
+    }
+    globalValidation: {
+      requireAuthentication: true
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+      redirectToProvider: 'azureactivedirectory'
+      excludedPaths: authExcludedPaths
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          openIdIssuer: 'https://login.microsoftonline.com/${entraTenantId}/v2.0'
+          clientId: entraClientId
+          clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
+        }
+        validation: {
+          allowedAudiences: [
+            'api://${entraClientId}'
+          ]
+          defaultAuthorizationPolicy: {
+            allowedPrincipals: {}
+          }
+        }
+        login: {
+          disableWWWAuthenticate: false
+        }
+      }
+    }
+    login: {
+      tokenStore: {
+        enabled: true
+      }
+      preserveUrlFragmentsForLogins: false
+    }
+    httpSettings: {
+      requireHttps: true
+      forwardProxy: {
+        convention: 'NoProxy'
+      }
     }
   }
 }

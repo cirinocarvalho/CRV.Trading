@@ -31,6 +31,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy", "deploy", "{B10000
 		deploy\set-secrets.sh = deploy\set-secrets.sh
 		deploy\OAUTH_REDIRECTS.md = deploy\OAUTH_REDIRECTS.md
 		deploy\SECRETS.md = deploy\SECRETS.md
+		deploy\app-entra.sh = deploy\app-entra.sh
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".github", ".github", "{B1000000-0000-0000-0000-000000000003}"
