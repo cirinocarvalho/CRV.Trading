@@ -191,6 +191,12 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE',    value: 'true' }
         { name: 'ASPNETCORE_ENVIRONMENT',                 value: 'Production' }
         { name: 'DATA_DIR',                               value: '/home/data' }
+        // Run the container in US Eastern Time so DateTime.Now / ToLocalTime()
+        // and all log timestamps match trading-session time (markets are ET).
+        // WEBSITE_TIME_ZONE is App Service's documented knob; TZ is the POSIX
+        // env var — setting both covers every library.
+        { name: 'WEBSITE_TIME_ZONE',                      value: 'Eastern Standard Time' }
+        { name: 'TZ',                                     value: 'America/New_York' }
         { name: 'ConnectionStrings__DefaultConnection',   value: 'Data Source=/home/data/crv_trading.db' }
 
         // ── Broker: Schwab (non-secret) ─────────────────────
