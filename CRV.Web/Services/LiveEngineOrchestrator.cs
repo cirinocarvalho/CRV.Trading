@@ -98,7 +98,14 @@ public class LiveEngineOrchestrator : BackgroundService
         if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
             stub.SetInTrade(true);
 
-        return (true, $"GroupOrder {group.GroupOrderId} placed: {group.Direction} {group.TotalContracts}× @ {group.EntryPrice ?? signal.Entry}", group);
+        // Render @ <price>:
+        //   — use group.EntryPrice if the broker reported a real fill (> 0)
+        //   — for Market orders without a fill price yet, show "pending" (signal.Entry is not a price)
+        //   — for Limit orders, fall back to signal.Entry (the requested limit price)
+        var priceLabel = group.EntryPrice is > 0
+            ? group.EntryPrice.Value.ToString("0.##")
+            : signal.OrderType == "Limit" ? signal.Entry.ToString("0.##") : "pending";
+        return (true, $"GroupOrder {group.GroupOrderId} placed: {group.Direction} {group.TotalContracts}× @ {priceLabel}", group);
     }
 
     /// <summary>Recover an orphaned Tradovate strategy and register it for live tracking.</summary>
