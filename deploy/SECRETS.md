@@ -1,8 +1,8 @@
 # Secrets inventory
 
 Every credential in production lives in **Azure Key Vault**, referenced from
-App Service app settings as `@Microsoft.KeyVault(...)`. The Web App's system-
-assigned managed identity resolves them at startup.
+App Service app settings as `@Microsoft.KeyVault(...)`. The Web App's
+system-assigned managed identity resolves them at startup.
 
 ## Where each secret lives
 
@@ -21,112 +21,123 @@ assigned managed identity resolves them at startup.
 | `Tradovate:DeviceId` | 🔴 | KV secret `Tradovate--DeviceId` |
 | `Tradovate:AccountId` | 🟡 | App Service setting `Tradovate__AccountId` |
 | `Smtp:Password` | 🔴 | KV secret `Smtp--Password` |
-| `LITESTREAM_AZURE_ACCOUNT_KEY` | 🔴 | KV secret `Litestream--StorageKey` (auto-populated) |
+| Entra Easy Auth client secret | 🔴 | KV secret `Auth--ClientSecret` |
+| Storage key (Litestream) | 🔴 | KV secret `Litestream--StorageKey` (auto-populated from `listKeys()`) |
 
 ### Naming convention
 
 Azure Key Vault secret names only allow `[A-Za-z0-9-]`, so `:` isn't valid.
-The convention here is `Section--Key`, which maps back to `Section:Key` in
-.NET config via the App Service reference. The App Service setting key uses
-`__` (double underscore) as the section separator per standard .NET config
+Convention here is `Section--Key`, which maps back to `Section:Key` in .NET
+config via the App Service reference. The App Service setting key uses `__`
+(double underscore) as the section separator per standard .NET config
 conventions.
-
-Example:
 
 | KV secret name | App Service setting name | .NET config key |
 |---|---|---|
 | `Schwab--AppKey` | `Schwab__AppKey` | `Schwab:AppKey` |
 
-## Bootstrap (first-time setup)
+## Bootstrap (first-time setup on a fresh subscription)
 
-After `infra.yml` finishes its first successful run, **every secret exists in
-KV with a placeholder value `CHANGE_ME`**. The app will start but broker auth
-will fail until you populate real values.
+After the **first** `infra.yml` run, the Key Vault exists but is empty —
+`seedPlaceholderSecrets` defaults to `false` so Bicep doesn't touch secret
+values. You have two options:
 
 ```bash
-# Populate all secrets interactively:
+# Option A — seed placeholders via Bicep, then replace with real values
+gh workflow run infra.yml -f seedPlaceholderSecrets=true
+./deploy/set-secrets.sh     # replace all CHANGE_ME placeholders
+
+# Option B — populate real values directly (set-secrets.sh creates-or-updates)
 ./deploy/set-secrets.sh
 
-# Or rotate one family:
-./deploy/set-secrets.sh schwab
-./deploy/set-secrets.sh tradestation
-./deploy/set-secrets.sh tradovate
-./deploy/set-secrets.sh smtp
-
-# AccountIds are NOT secret — set directly:
+# Then, whichever path:
 az webapp config appsettings set -g crv-trading-rg -n crv-trading --settings \
-  Schwab__AccountId=69E504138008BA79319C6752AD0D0157CBDE897C66E91072C7ADB6A1EC2A189B \
-  TradeStation__AccountId=SIM2841497F \
-  Tradovate__AccountId=DEMO7063613
-
-# Then restart so KV references re-resolve:
+  Schwab__AccountId=... TradeStation__AccountId=... Tradovate__AccountId=...
 az webapp restart -g crv-trading-rg -n crv-trading
 ```
 
+> **Why this matters.** Earlier versions of the Bicep re-applied `CHANGE_ME`
+> to every secret on every deploy (declarative resources always assert their
+> state), silently wiping real values. The `seedPlaceholderSecrets` flag
+> defaults to `false` so subsequent deploys leave your secrets alone.
+
 ## Rotation
 
-To rotate any credential:
+```bash
+./deploy/set-secrets.sh <family>         # schwab | tradestation | tradovate | smtp | all
+az webapp restart -g crv-trading-rg -n crv-trading
+```
 
-1. Update the secret at the broker's portal
-2. `./deploy/set-secrets.sh <family>` — adds a new secret version in KV
-3. `az webapp restart -g crv-trading-rg -n crv-trading`
+App Service resolves the **latest** enabled version of a KV secret each time
+the reference is resolved. A restart forces immediate re-resolution;
+otherwise the cache refreshes within ~24h.
 
-App Service resolves the **latest** version each time the reference is
-resolved (no SecretVersion pinning in the reference string). Restart forces
-immediate re-resolution; otherwise it refreshes within ~24h.
+### ⚠️ The KV reference can get stuck on an old resolution
+
+If the old version of a secret is still enabled and the App Service cache
+hasn't seen the new one yet, the running container keeps using the old value
+even after `set-secrets.sh`. Symptom: `client_id=CHANGE_ME` in OAuth URLs.
+
+Recovery:
+
+```bash
+# Disable old versions so App Service MUST resolve the latest
+KV=$(az keyvault list -g crv-trading-rg --query '[0].name' -o tsv)
+for sec in Schwab--AppKey Schwab--AppSecret ...; do
+  for v in $(az keyvault secret list-versions --vault-name "$KV" --name "$sec" \
+             --query "[?attributes.enabled].id" -o tsv | head -n -1); do
+    az keyvault secret set-attributes --id "$v" --enabled false -o none
+  done
+done
+az webapp restart -g crv-trading-rg -n crv-trading
+```
 
 ## Local development
 
-Nothing changes. `CRV.Web.csproj` has `<UserSecretsId>crv-trading-web</UserSecretsId>`,
-so local secrets live in `~/.microsoft/usersecrets/crv-trading-web/secrets.json`.
+Unchanged. `CRV.Web.csproj` has `<UserSecretsId>crv-trading-web</UserSecretsId>`,
+so local secrets live in `~/.microsoft/usersecrets/crv-trading-web/secrets.json`:
 
 ```bash
-# One-time per workstation:
-dotnet user-secrets set "Schwab:AppKey"         "..." --project CRV.Web
-dotnet user-secrets set "Schwab:AppSecret"      "..." --project CRV.Web
-dotnet user-secrets set "Schwab:AccountId"      "..." --project CRV.Web
-dotnet user-secrets set "TradeStation:ClientId"     "..." --project CRV.Web
-dotnet user-secrets set "TradeStation:ClientSecret" "..." --project CRV.Web
-dotnet user-secrets set "TradeStation:AccountId"    "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:Username"    "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:Password"    "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:Cid"         "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:Secret"      "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:DeviceId"    "..." --project CRV.Web
-dotnet user-secrets set "Tradovate:AccountId"   "..." --project CRV.Web
-dotnet user-secrets set "Smtp:Password"         "..." --project CRV.Web
+cd CRV.Web
+dotnet user-secrets set "Schwab:AppKey"             "..."
+dotnet user-secrets set "Schwab:AppSecret"          "..."
+dotnet user-secrets set "Schwab:AccountId"          "..."
+dotnet user-secrets set "TradeStation:ClientId"     "..."
+dotnet user-secrets set "TradeStation:ClientSecret" "..."
+dotnet user-secrets set "TradeStation:AccountId"    "..."
+dotnet user-secrets set "Tradovate:Username"        "..."
+dotnet user-secrets set "Tradovate:Password"        "..."
+dotnet user-secrets set "Tradovate:Cid"             "..."
+dotnet user-secrets set "Tradovate:Secret"          "..."
+dotnet user-secrets set "Tradovate:DeviceId"        "..."
+dotnet user-secrets set "Tradovate:AccountId"       "..."
+dotnet user-secrets set "Smtp:Password"             "..."
 ```
 
-## Files this touches
+## Files
 
-- `deploy/main.bicep` — declares KV, KV secrets (placeholder values), wires
-  App Service settings to KV references
-- `deploy/set-secrets.sh` — interactive populator / rotator
-- `CRV.Web/appsettings.json` — **no secrets or account IDs**, safe to commit
-- User-secrets / App Service settings / Key Vault — real values by environment
-
-## Audit
-
-Every read of a KV secret is logged in the vault's diagnostic settings. Enable
-diagnostic logs on the KV resource and route to Log Analytics / Storage for
-access audit trails.
+| File | Role |
+|---|---|
+| `deploy/main.bicep` | Declares KV + (conditionally) placeholder secrets; wires App Service settings to KV references |
+| `deploy/set-secrets.sh` | Interactive populator / rotator |
+| `deploy/app-entra.sh` | Sets up the Entra ID app registration used by Easy Auth |
+| `CRV.Web/appsettings.json` | **No secrets or account IDs** — safe to commit |
+| User-secrets / App Service / Key Vault | Real values per environment |
 
 ## Tier legend
 
-- 🔴 **Tier 1 (must be in KV)** — credentials that authenticate to external
-  APIs. Exposure = account takeover.
-- 🟡 **Tier 2 (not in KV, but not in git either)** — identifiers that are
-  semi-sensitive (account numbers). Exposure = information disclosure, not
-  compromise. Stored as plain App Service settings.
+- 🔴 **Tier 1 (must be in KV)** — credentials that authenticate to external APIs. Exposure = account takeover.
+- 🟡 **Tier 2 (not in KV, but not in git)** — identifiers that are semi-sensitive (account numbers). Stored as plain App Service settings.
 - ⚪ **Tier 3 (plain config)** — URLs, file paths, ports. Safe in git.
+
+## Audit
+
+Every KV secret read is logged in the vault's diagnostic settings. Enable
+diagnostic logs on the KV resource and route to Log Analytics for an access
+audit trail.
 
 ## What ships in the container image
 
-Nothing secret. `.dockerignore` excludes:
-
-- `*_tokens.json` (runtime OAuth tokens)
-- `appsettings.Development.json`
-- `.env`, `crv_trading.db`
-
-The image contains only compiled binaries + `appsettings.json` (which now
-has no secrets or account IDs).
+Nothing secret. `.dockerignore` excludes `*_tokens.json`, `appsettings.Development.json`,
+`.env`, and any `*.db`. The image contains only compiled binaries plus
+`appsettings.json` (which has no secrets or account IDs).

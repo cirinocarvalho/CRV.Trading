@@ -85,6 +85,41 @@ dotnet run --launch-profile https
 dotnet test CRV.Core.Tests/CRV.Core.Tests.csproj
 ```
 
+## Cloud deployment (Azure)
+
+Deployed to Azure App Service (Linux, container) via GitHub Actions with
+Bicep-declared infrastructure and Azure Key Vault for secrets. Runs at
+~$19/mo on a B1 plan. Full end-to-end runbook: [deploy/DEPLOY.md](deploy/DEPLOY.md).
+
+**Shape of the deploy:**
+
+- **Infra as code** — `deploy/main.bicep` declaratively defines ACR, App
+  Service plan, Web App, Key Vault, Storage + Blob container, role
+  assignments, Entra Easy Auth config
+- **Two workflows** — `infra.yml` deploys Bicep (what-if on PR, apply on
+  merge); `deploy.yml` builds the image in ACR and updates the Web App
+- **Zero long-lived secrets** — GitHub Actions auths to Azure via OIDC
+  federation; broker credentials live in Key Vault and are read via
+  `@Microsoft.KeyVault(...)` app setting references
+- **Persistent SQLite + continuous backup** — DB on `/home/data` (Azure
+  Files mount); Litestream streams WAL writes to Azure Blob every ~1s
+  with 24h of point-in-time recovery
+- **Entra Easy Auth** — the site is gated by Azure AD login; `/api/engine/status`
+  and `/api/engine/webhook/order` are auth-excluded for health checks
+  and external webhooks
+- **Timezone** — container runs in `America/New_York` so log/UI
+  timestamps match trading session time
+
+Quick bring-up:
+
+```bash
+./deploy/github-oidc-setup.sh      # one-time bootstrap
+gh workflow run infra.yml -f seedPlaceholderSecrets=true
+./deploy/app-entra.sh               # Easy Auth app registration
+./deploy/set-secrets.sh             # populate broker creds in Key Vault
+gh workflow run deploy.yml          # first real image build
+```
+
 ## Documentation
 
 | Document | Contents |
@@ -93,13 +128,23 @@ dotnet test CRV.Core.Tests/CRV.Core.Tests.csproj
 | [Configuration](docs/configuration.md) | Launch profiles, appsettings, EF migrations, full StrategyConfig property reference |
 | [Broker Auth](docs/brokers.md) | Schwab/TradeStation/Tradovate authentication setup, token lifecycle, security |
 | [API & SignalR](docs/api.md) | REST endpoints, SignalR hub messages, EngineSnapshot fields, client-side events |
+| [Cloud Deploy](deploy/DEPLOY.md) | End-to-end Azure deployment runbook |
+| [Operations](deploy/OPERATIONS.md) | Day-2 ops — logs, SQLite access, backups/restore, troubleshooting |
+| [Secrets](deploy/SECRETS.md) | Credential inventory, rotation, tiers |
+| [OAuth Redirects](deploy/OAUTH_REDIRECTS.md) | Broker-side URI registration |
 
-## CI
+## CI/CD
 
-GitHub Actions at `.github/workflows/ci.yml` runs build + test on every push and PR.
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `.github/workflows/ci.yml` | Every push + PR | Build + test (.NET 10) |
+| `.github/workflows/deploy.yml` | Push to master + manual | Build image in ACR, update Web App, smoke test |
+| `.github/workflows/infra.yml` | Bicep file change + manual | `what-if` on PR, `apply` on master |
 
 ## Security
 
-- Store credentials in `dotnet user-secrets` — never in `appsettings.json`
-- Token files are excluded by `.gitignore`
-- See [Broker Auth](docs/brokers.md) for token lifecycle details
+- **Local dev**: credentials in `dotnet user-secrets` (never in `appsettings.json`); OAuth token files are git-ignored
+- **Production**: credentials in Azure Key Vault, fetched by App Service
+  managed identity; repo has zero long-lived Azure secrets (OIDC)
+- **App gate**: Entra ID Easy Auth on every request except auth-excluded health/webhook paths
+- Full details: [deploy/SECRETS.md](deploy/SECRETS.md), [docs/brokers.md](docs/brokers.md)
