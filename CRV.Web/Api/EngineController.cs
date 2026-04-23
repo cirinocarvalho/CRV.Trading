@@ -358,6 +358,40 @@ public class EngineController : ControllerBase
         if (fills.Count == 0)
             return Ok(new { status = "ok", message = "No fills returned from Tradovate for the requested window.", updated = 0 });
 
+        // Resolve contractId → contract name (Tradovate format, e.g. "MCLM6") so fills
+        // can be filtered to the trade's ticker. Without this, a same-qty fill on a
+        // different contract can be mis-matched and produce wildly wrong P&L.
+        var contractNames = new Dictionary<long, string>();
+        foreach (var id in fills.Select(f => f.ContractId).Where(x => x > 0).Distinct())
+        {
+            try
+            {
+                var cRes = await http.GetAsync($"{auth.ApiBaseUrl}/contract/item?id={id}");
+                if (!cRes.IsSuccessStatusCode) continue;
+                using var cDoc = System.Text.Json.JsonDocument.Parse(await cRes.Content.ReadAsStringAsync());
+                if (cDoc.RootElement.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    contractNames[id] = nameProp.GetString() ?? "";
+            }
+            catch { /* skip — trade matching will fail-safe below */ }
+        }
+
+        // Per-ticker PointValue map from the basket. The global cfg.PointValue is only
+        // correct for one ticker; multi-ticker baskets need the right $/point per trade.
+        var basketPv = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(cfg.BasketJson))
+            {
+                var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var entries = System.Text.Json.JsonSerializer.Deserialize<List<CRV.Core.Models.BasketEntry>>(cfg.BasketJson, opts);
+                if (entries != null)
+                    foreach (var e in entries)
+                        if (!string.IsNullOrEmpty(e.Ticker) && e.PointValue > 0)
+                            basketPv[FuturesSymbol.Normalize(e.Ticker)] = e.PointValue;
+            }
+        }
+        catch { /* fall back to cfg.PointValue per-trade below */ }
+
         // Load trades in the same window
         using var scope = _sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CRV.Core.Data.TradingDbContext>();
@@ -367,23 +401,33 @@ public class EngineController : ControllerBase
             .ToListAsync();
 
         var results = new List<object>();
+        var skipped = new List<object>();
         int updated = 0;
+        var log = _loggerFactory.CreateLogger("Reconcile");
 
         foreach (var t in trades)
         {
-            // Find entry fill: matches direction + qty, timestamp closest to (and >=) t.EnteredAt - 5 min window
+            // Per-trade contract filter — the fill's resolved name must equal the
+            // trade's ticker in Tradovate format (e.g. canonical "MCLM26" → "MCLM6").
+            var wantedContract = FuturesSymbol.ToTradovate(t.Ticker);
+            bool MatchesContract(FillRow f) =>
+                f.ContractId > 0 &&
+                contractNames.TryGetValue(f.ContractId, out var n) &&
+                string.Equals(n, wantedContract, StringComparison.OrdinalIgnoreCase);
+
             var wantedAction = t.Direction == CRV.Core.Models.Direction.Long ? "Buy" : "Sell";
             var exitAction   = t.Direction == CRV.Core.Models.Direction.Long ? "Sell" : "Buy";
 
             var entryWindow = fills.Where(f =>
+                MatchesContract(f) &&
                 f.Action == wantedAction &&
                 f.Qty == t.Contracts &&
                 Math.Abs((f.Time - t.EnteredAt).TotalMinutes) <= 5)
                 .OrderBy(f => Math.Abs((f.Time - t.EnteredAt).TotalMinutes))
                 .FirstOrDefault();
 
-            // Find exit fills: opposite direction, total qty == t.Contracts, after entry time, before exit+5 min
             var exitFills = fills.Where(f =>
+                MatchesContract(f) &&
                 f.Action == exitAction &&
                 f.Time >= t.EnteredAt &&
                 f.Time <= t.ExitedAt.AddMinutes(5))
@@ -397,41 +441,53 @@ public class EngineController : ControllerBase
                 exitWeighted += f.Qty * f.Price;
             }
 
-            var before = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl };
-            bool changed = false;
+            // Build proposed values without mutating the entity — so we can sanity-check first.
+            decimal proposedEntry = entryWindow != null ? entryWindow.Price : t.Entry;
+            decimal proposedExit  = (exitQty == t.Contracts && exitWeighted > 0) ? exitWeighted / exitQty : t.Exit;
 
-            if (entryWindow != null && Math.Abs(entryWindow.Price - t.Entry) > 0.01m)
-            {
-                t.Entry = entryWindow.Price;
-                changed = true;
-            }
+            bool entryChanged = entryWindow != null && Math.Abs(proposedEntry - t.Entry) > 0.01m;
+            bool exitChanged  = exitQty == t.Contracts && exitWeighted > 0 && Math.Abs(proposedExit - t.Exit) > 0.01m;
 
-            if (exitQty == t.Contracts && exitWeighted > 0)
+            if (!entryChanged && !exitChanged) continue;
+
+            // Per-ticker PointValue; fall back to global if ticker not in basket.
+            decimal pv = basketPv.TryGetValue(FuturesSymbol.Normalize(t.Ticker), out var tpv) ? tpv : cfg.PointValue;
+            decimal dir = t.Direction == CRV.Core.Models.Direction.Long ? 1m : -1m;
+            decimal proposedGross = dir * (proposedExit - proposedEntry) * t.Contracts * pv;
+            decimal proposedNet   = proposedGross - t.Commission;
+
+            // Sanity guard: if |NetPnl| moves by >10× the original, the fill match is
+            // almost certainly wrong (e.g. cross-contract leakage). Skip and log.
+            decimal origAbs = Math.Abs(t.NetPnl);
+            decimal newAbs  = Math.Abs(proposedNet);
+            if (origAbs > 0 && newAbs > origAbs * 10m)
             {
-                var avgExit = exitWeighted / exitQty;
-                if (Math.Abs(avgExit - t.Exit) > 0.01m)
+                log.LogWarning(
+                    "Reconcile: skipping trade {Id} ({Ticker} {Setup}) — proposed |NetPnl| {New:F2} >> original {Orig:F2} (>10x). Likely bad fill match.",
+                    t.Id, t.Ticker, t.SetupLabel, newAbs, origAbs);
+                skipped.Add(new
                 {
-                    t.Exit = avgExit;
-                    changed = true;
-                }
-            }
-
-            if (changed)
-            {
-                // Recalculate P&L
-                decimal pv = cfg.PointValue;
-                decimal direction = t.Direction == CRV.Core.Models.Direction.Long ? 1m : -1m;
-                t.GrossPnl = direction * (t.Exit - t.Entry) * t.Contracts * pv;
-                t.NetPnl   = t.GrossPnl - t.Commission;
-                decimal risk = Math.Abs(t.Entry - t.InitialStop) * t.Contracts * pv;
-                t.RMultiple = risk > 0 ? t.NetPnl / risk : 0m;
-                updated++;
-                results.Add(new
-                {
-                    id = t.Id, setup = t.SetupLabel, direction = t.Direction.ToString(),
-                    before, after = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl }
+                    id = t.Id, ticker = t.Ticker, setup = t.SetupLabel,
+                    reason = "|NetPnl| moved by >10× original — likely cross-contract fill",
+                    before = new { Entry = t.Entry, Exit = t.Exit, NetPnl = t.NetPnl },
+                    proposed = new { Entry = proposedEntry, Exit = proposedExit, NetPnl = proposedNet }
                 });
+                continue;
             }
+
+            var before = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl };
+            t.Entry    = proposedEntry;
+            t.Exit     = proposedExit;
+            t.GrossPnl = proposedGross;
+            t.NetPnl   = proposedNet;
+            decimal risk = Math.Abs(t.Entry - t.InitialStop) * t.Contracts * pv;
+            t.RMultiple = risk > 0 ? t.NetPnl / risk : 0m;
+            updated++;
+            results.Add(new
+            {
+                id = t.Id, setup = t.SetupLabel, direction = t.Direction.ToString(),
+                before, after = new { Entry = t.Entry, Exit = t.Exit, GrossPnl = t.GrossPnl, NetPnl = t.NetPnl }
+            });
         }
 
         if (updated > 0 && !req.DryRun)
@@ -445,7 +501,8 @@ public class EngineController : ControllerBase
             totalFills = fills.Count,
             totalTrades = trades.Count,
             updated,
-            changes = results
+            changes = results,
+            skipped
         });
     }
 
