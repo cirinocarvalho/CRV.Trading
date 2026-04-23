@@ -116,13 +116,9 @@ jobs:
             ${{ steps.current.outputs.image && format('containerImage={0}', steps.current.outputs.image) || '' }}
           failOnStdErr: false
 
-      - name: Save ACR name as repo variable
-        # Lets deploy.yml read the ACR name without a hard-coded secret
-        run: |
-          echo "ACR_NAME=${{ steps.deploy.outputs.acrName }}"       >> "$GITHUB_ENV"
-          gh variable set AZURE_ACR_NAME --body "${{ steps.deploy.outputs.acrName }}" --repo "$GITHUB_REPOSITORY"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Note: deploy.yml auto-discovers the ACR name via `az acr list` in the RG,
+      # so we don't need to persist it to a repo variable here (which would require
+      # elevated GITHUB_TOKEN permissions the default token doesn't have).
 
       - name: Summary
         run: |
