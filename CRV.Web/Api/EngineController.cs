@@ -548,6 +548,40 @@ public class EngineController : ControllerBase
         if (req.Stop <= 0) return BadRequest(new { status = "error", message = "Stop price is required." });
         if (req.Qty <= 0) return BadRequest(new { status = "error", message = "Qty must be > 0." });
 
+        // Guardrail: for Market orders, the stop must be on the protective side of the
+        // current market with at least a few ticks of buffer — otherwise Tradovate will
+        // fire the stop in the same tick the entry fills, and we lose commission + slippage
+        // on a zero-intent trade. Skipped when req.AllowTightStop is set.
+        if ((req.OrderType ?? "Market") == "Market" && !req.AllowTightStop)
+        {
+            var isLong = direction == CRV.Core.Models.Direction.Long;
+            var marketPrice = _prices.GetLastPrice(ticker);
+            if (marketPrice == 0)
+            {
+                var brokerTicker = FuturesSymbol.ForBroker(ticker, cfg.EffectiveExecBroker);
+                marketPrice = _prices.GetLastPrice(brokerTicker);
+            }
+            if (marketPrice > 0)
+            {
+                // Require a buffer of max(3 ticks, 0.1% of price) — enough to clear the
+                // typical NQ/ES spread + a little slippage.
+                var buffer = Math.Max(3 * tickSize, marketPrice * 0.001m);
+                var minLongStop  = marketPrice - buffer;
+                var maxShortStop = marketPrice + buffer;
+                if (isLong && req.Stop >= minLongStop)
+                    return BadRequest(new { status = "error", message =
+                        $"Market LONG would stop out immediately: stop {req.Stop} is not below market {marketPrice} by ≥ {buffer:0.##}. Use a Limit order or widen the stop. Pass allowTightStop=true to override." });
+                if (!isLong && req.Stop <= maxShortStop)
+                    return BadRequest(new { status = "error", message =
+                        $"Market SHORT would stop out immediately: stop {req.Stop} is not above market {marketPrice} by ≥ {buffer:0.##}. Use a Limit order or widen the stop. Pass allowTightStop=true to override." });
+            }
+            else
+            {
+                _loggerFactory.CreateLogger<EngineController>()
+                    .LogWarning("[WEBHOOK] No last price for {Ticker} — skipping market-order stop guardrail", ticker);
+            }
+        }
+
         // Build the bracket list. Two modes:
         //   1. Explicit N-bracket list via req.Brackets (new — up to 4 brackets)
         //   2. Legacy Tgt1/Tgt2/PartialQty fields (backcompat)
@@ -590,13 +624,14 @@ public class EngineController : ControllerBase
                 : 0;
         }
 
-        // Warn when N>2 and the live broker can't honor it (Schwab/TradeStation only see Tg1/Tg2).
+        // Warn when N>2 and the execution broker can't honor it (Schwab/TradeStation only see Tg1/Tg2).
+        // Check EffectiveExecBroker (order routing) not Broker (data streaming) — they can differ.
         if (brackets is { Count: > 2 }
-            && cfg.Broker is "Schwab" or "TradeStation")
+            && cfg.EffectiveExecBroker is "Schwab" or "TradeStation")
         {
             _loggerFactory.CreateLogger<EngineController>()
                 .LogWarning("[WEBHOOK] {Broker} does not support N-bracket signals — only Tg1 and Tg{Last} will be used, brackets 2..{Last2} will be dropped",
-                    cfg.Broker, brackets.Count, brackets.Count - 1);
+                    cfg.EffectiveExecBroker, brackets.Count, brackets.Count - 1);
         }
 
         // Build auto-trail if requested
@@ -714,5 +749,7 @@ public class EngineController : ControllerBase
         public string? OrderType { get; init; }
         /// <summary>Custom label for the order (appears in dashboard). Auto-generated if empty.</summary>
         public string? Label { get; init; }
+        /// <summary>Bypass the market-order stop-distance guardrail. Default: false.</summary>
+        public bool AllowTightStop { get; init; }
     }
 }
