@@ -29,6 +29,9 @@ param containerImage string = 'DOCKER|mcr.microsoft.com/appsvc/staticsite:latest
 @description('Placeholder value written into KV on first deploy. Not a real credential — real values are set by deploy/set-secrets.sh.')
 param placeholderValue string = 'CHANGE_ME'
 
+@description('Seed placeholder secrets in Key Vault. Set to true ONLY on first infra deploy to create the slots. On subsequent deploys leave false, otherwise Bicep will overwrite real secret values with the placeholder.')
+param seedPlaceholderSecrets bool = false
+
 @description('Tags applied to every resource.')
 param tags object = {
   project: 'CRV.Trading'
@@ -137,7 +140,10 @@ var placeholderSecrets = [
   'Smtp--Password'
 ]
 
-resource secrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for name in placeholderSecrets: {
+// Only create these on first run (seedPlaceholderSecrets=true). Once set-secrets.sh
+// has populated real values, we MUST NOT overwrite them — so default is false and
+// subsequent deploys leave the secrets alone.
+resource secrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for name in placeholderSecrets: if (seedPlaceholderSecrets) {
   parent: kv
   name: name
   properties: {
