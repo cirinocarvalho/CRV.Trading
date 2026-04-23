@@ -21,6 +21,19 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Verify SDK resolution
+        run: |
+          echo "--- which dotnet ---"
+          which dotnet
+          echo "--- DOTNET_ROOT ---"
+          echo "$DOTNET_ROOT"
+          echo "--- dotnet --version (honors global.json from CWD) ---"
+          dotnet --version
+          echo "--- installed SDKs ---"
+          dotnet --list-sdks
+          echo "--- global.json contents ---"
+          cat global.json
+
       - name: Restore dependencies
         run: dotnet restore CRV.Trading.sln
 

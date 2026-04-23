@@ -4,13 +4,16 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy solution + csprojs first for better layer caching
-#COPY CRV.Trading.sln ./
-COPY CRV.Core/CRV.Core.csproj        CRV.Core/
+# Pin SDK via global.json (must be present before restore/build).
+COPY global.json ./
+
+# Copy solution + csprojs for better layer caching
+COPY CRV.Trading.sln ./
+COPY CRV.Core/CRV.Core.csproj             CRV.Core/
 COPY CRV.Core.Tests/CRV.Core.Tests.csproj CRV.Core.Tests/
-COPY CRV.Backtest/CRV.Backtest.csproj CRV.Backtest/
-COPY CRV.Live/CRV.Live.csproj        CRV.Live/
-COPY CRV.Web/CRV.Web.csproj          CRV.Web/
+COPY CRV.Backtest/CRV.Backtest.csproj     CRV.Backtest/
+COPY CRV.Live/CRV.Live.csproj             CRV.Live/
+COPY CRV.Web/CRV.Web.csproj               CRV.Web/
 RUN dotnet restore CRV.Web/CRV.Web.csproj
 
 # Copy the rest and publish

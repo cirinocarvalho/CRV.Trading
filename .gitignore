@@ -1,8 +1,12 @@
 # .NET build output
-bin/
-obj/
-bin\*/
-obj\*/
+**/bin/
+**/obj/
+# Literal-backslash directories created by Windows tooling on case-insensitive
+# filesystems (e.g. bin\Debug as a single-component name). These DO get
+# created occasionally and must never be committed — they break the SDK's
+# default item globs on Linux CI.
+**/bin\\*/
+**/obj\\*/
 *.user
 *.suo
 
