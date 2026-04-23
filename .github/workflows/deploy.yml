@@ -96,7 +96,11 @@ jobs:
 
       - name: Smoke test
         run: |
-          URL="https://${AZURE_APP}.azurewebsites.net/"
+          # Hit an Easy-Auth-excluded endpoint. `/` is behind Entra login and
+          # returns 401 to unauthenticated probes, which looks like a failure
+          # but is actually the auth layer working. `/api/engine/status` is
+          # in authExcludedPaths in main.bicep and returns JSON without login.
+          URL="https://${AZURE_APP}.azurewebsites.net/api/engine/status"
           echo "Waiting for $URL to respond..."
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
