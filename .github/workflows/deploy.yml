@@ -76,26 +76,16 @@ jobs:
           echo "name=$NAME"     >> "$GITHUB_OUTPUT"
           echo "server=$SERVER" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Litestream builder image in ACR
-        # Docker Hub's anonymous pull rate limit intermittently blocks the ACR
-        # build runner. Importing once into ACR makes subsequent builds pull
-        # from our own registry. Idempotent — `--force` just re-syncs digest.
-        run: |
-          az acr import \
-            --name "${{ steps.acr.outputs.name }}" \
-            --source docker.io/library/golang:1.25-alpine \
-            --image library/golang:1.25-alpine \
-            --force \
-            || echo "WARN: acr import failed (image may already be cached) — proceeding"
-
       - name: Build image in ACR
+        # All base images come from mcr.microsoft.com (no rate limit). The
+        # Litestream stage installs Go from go.dev directly, so no Docker
+        # Hub involvement at any point.
         run: |
           az acr build \
             --registry "${{ steps.acr.outputs.name }}" \
             --image "crv-web:${{ steps.tag.outputs.tag }}" \
             --image "crv-web:latest" \
             --file Dockerfile \
-            --build-arg "LITESTREAM_BUILDER=${{ steps.acr.outputs.server }}/library/golang:1.25-alpine" \
             .
 
       - name: Update App Service to new image

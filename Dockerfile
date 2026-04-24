@@ -1,11 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build for CRV.Web (ASP.NET Core + SignalR, .NET 10)
-
-# Global ARG — must be declared BEFORE the first FROM to be usable in later
-# FROM statements (per Docker spec). CI overrides with an ACR-cached image to
-# avoid Docker Hub's anonymous pull rate limit; local `docker build` uses the
-# default (Docker Hub).
-ARG LITESTREAM_BUILDER=golang:1.25-alpine
+# All base images are pulled from mcr.microsoft.com (no rate limit). The
+# Litestream stage installs Go from go.dev directly to avoid any dependency
+# on Docker Hub's anonymous pull quota, which has repeatedly blocked deploys.
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -35,8 +32,15 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     /p:UseAppHost=false
 
 # ── Litestream (build from source, pre-built binaries lack azblob backend) ──
-FROM ${LITESTREAM_BUILDER} AS litestream
-RUN apk add --no-cache git
+# Base on the same Microsoft SDK image the "build" stage uses — already cached,
+# no Docker Hub involvement. Install Go from go.dev (Google-hosted, no rate limit).
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS litestream
+ARG GO_VERSION=1.23.4
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates curl \
+ && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz \
+ && ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 # Pin to a known-good commit. Update LITESTREAM_REF to track upstream.
 ARG LITESTREAM_REF=main
