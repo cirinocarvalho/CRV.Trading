@@ -38,28 +38,34 @@ conventions.
 
 ## Bootstrap (first-time setup on a fresh subscription)
 
-After the **first** `infra.yml` run, the Key Vault exists but is empty —
-`seedPlaceholderSecrets` defaults to `false` so Bicep doesn't touch secret
-values. You have two options:
+After the **first** `infra.yml` run, the Key Vault exists but is empty and App
+Service has no appSettings applied — both `seedPlaceholderSecrets` and
+`seedAppSettings` default to `false` so routine deploys don't overwrite manual
+Portal edits.
 
 ```bash
-# Option A — seed placeholders via Bicep, then replace with real values
-gh workflow run infra.yml -f seedPlaceholderSecrets=true
-./deploy/set-secrets.sh     # replace all CHANGE_ME placeholders
+# Step 1 — seed Bicep defaults (appSettings + placeholder secrets) on first run
+gh workflow run infra.yml \
+  -f seedPlaceholderSecrets=true \
+  -f seedAppSettings=true
 
-# Option B — populate real values directly (set-secrets.sh creates-or-updates)
+# Step 2 — replace CHANGE_ME placeholders with real secrets
 ./deploy/set-secrets.sh
 
-# Then, whichever path:
+# Step 3 — set broker account IDs (these live in appSettings, not KV)
 az webapp config appsettings set -g crv-trading-rg -n crv-trading --settings \
   Schwab__AccountId=... TradeStation__AccountId=... Tradovate__AccountId=...
 az webapp restart -g crv-trading-rg -n crv-trading
 ```
 
-> **Why this matters.** Earlier versions of the Bicep re-applied `CHANGE_ME`
-> to every secret on every deploy (declarative resources always assert their
-> state), silently wiping real values. The `seedPlaceholderSecrets` flag
-> defaults to `false` so subsequent deploys leave your secrets alone.
+> **Why both flags default to `false`.** Earlier versions of the Bicep
+> re-applied `CHANGE_ME` to every secret on every deploy, silently wiping real
+> values. Separately, `siteConfig.appSettings` on the `Microsoft.Web/sites`
+> resource re-applied all app settings on every deploy, wiping manual Portal
+> edits (AccountId, Tradovate demo/live URL, SMTP overrides, etc.). Both are
+> now gated behind opt-in flags, so routine infra deploys leave runtime config
+> alone. To intentionally reset to Bicep defaults, dispatch `infra.yml` with
+> the matching flag set to `true`.
 
 ## Rotation
 

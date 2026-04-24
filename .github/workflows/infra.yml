@@ -12,6 +12,15 @@ on:
       - 'deploy/main.bicep'
       - '.github/workflows/infra.yml'
   workflow_dispatch:
+    inputs:
+      seedPlaceholderSecrets:
+        description: 'Seed CHANGE_ME placeholders in Key Vault. ONLY on first deploy — otherwise overwrites real secrets.'
+        type: boolean
+        default: false
+      seedAppSettings:
+        description: 'Seed App Service appSettings with Bicep defaults. ONLY on first deploy or intentional reset — otherwise wipes manual Portal edits (AccountId, demo/live URLs, etc.).'
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -120,6 +129,8 @@ jobs:
           parameters: >-
             ${{ steps.current.outputs.image && format('containerImage={0}', steps.current.outputs.image) || '' }}
             ${{ secrets.ENTRA_CLIENT_ID && format('entraClientId={0}', secrets.ENTRA_CLIENT_ID) || '' }}
+            ${{ inputs.seedPlaceholderSecrets && 'seedPlaceholderSecrets=true' || '' }}
+            ${{ inputs.seedAppSettings && 'seedAppSettings=true' || '' }}
           failOnStdErr: false
 
       # Note: deploy.yml auto-discovers the ACR name via `az acr list` in the RG,
