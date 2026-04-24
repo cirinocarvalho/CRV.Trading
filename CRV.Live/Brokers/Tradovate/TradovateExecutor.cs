@@ -677,6 +677,8 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         // Detect if trade is already completed (stop or Tg2 already filled)
         var stopLeg = group.GetLeg(LegType.Stop);
         var tg2Leg = group.GetLeg(LegType.Tg2);
+        var entryLeg = group.GetLeg(LegType.Entry);
+        var recoveredTg1Leg = group.GetLeg(LegType.Tg1);
         if (stopLeg?.Status == OrderLegStatus.Filled)
         {
             group.Status = GroupOrderStatus.Completed;
@@ -690,6 +692,31 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             group.CompletedAt = DateTime.UtcNow;
             _log.LogInformation("[TV-RECOVER] Strategy {S} already completed (target filled @ {P})",
                 strategyId, tg2Leg.FillPrice ?? tg2Disc?.FillPrice);
+        }
+        else
+        {
+            // Detect external closure: user flattened the position at the broker
+            // (Tradovate UI "Flat" button or manual cancel of the bracket legs).
+            // In that state the bracket orders end up: entry Filled/Canceled, every
+            // non-filled exit leg Canceled, and no stop/target fill. Mark Canceled
+            // so RecoverAsync skips registration and doesn't spawn a phantom
+            // SessionEnd trade on the next session-transition check.
+            static bool CanceledOrMissing(OrderLeg? leg) =>
+                leg is null || leg.Status is OrderLegStatus.Canceled or OrderLegStatus.Rejected;
+
+            bool entryCanceledOrMissing = CanceledOrMissing(entryLeg);
+            bool allExitsCanceled =
+                CanceledOrMissing(recoveredTg1Leg) &&
+                CanceledOrMissing(tg2Leg) &&
+                CanceledOrMissing(stopLeg);
+
+            if (allExitsCanceled && (entryCanceledOrMissing || entryLeg?.Status == OrderLegStatus.Filled))
+            {
+                group.Status = GroupOrderStatus.Canceled;
+                group.CompletedAt = DateTime.UtcNow;
+                _log.LogWarning("[TV-RECOVER] Strategy {S} externally closed (entry={E}, all exit legs canceled) — treating as Canceled, no trade recorded",
+                    strategyId, entryLeg?.Status.ToString() ?? "missing");
+            }
         }
 
         _log.LogInformation("[TV-RECOVER] Recovered group {G}: entry={E}({ES}) tg1={T1} tg2={T2} stop={S} status={St}",
