@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build for CRV.Web (ASP.NET Core + SignalR, .NET 10)
 
+# Global ARG — must be declared BEFORE the first FROM to be usable in later
+# FROM statements (per Docker spec). CI overrides with an ACR-cached image to
+# avoid Docker Hub's anonymous pull rate limit; local `docker build` uses the
+# default (Docker Hub).
+ARG LITESTREAM_BUILDER=golang:1.25-alpine
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -29,10 +35,6 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     /p:UseAppHost=false
 
 # ── Litestream (build from source, pre-built binaries lack azblob backend) ──
-# LITESTREAM_BUILDER is overrideable so CI can point at an ACR-cached image and
-# avoid Docker Hub's anonymous pull rate limit. Local `docker build` uses the
-# default (Docker Hub).
-ARG LITESTREAM_BUILDER=golang:1.25-alpine
 FROM ${LITESTREAM_BUILDER} AS litestream
 RUN apk add --no-cache git
 WORKDIR /src
