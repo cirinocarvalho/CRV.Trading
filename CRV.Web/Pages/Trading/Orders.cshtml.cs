@@ -274,7 +274,8 @@ public class OrdersModel : PageModel
                         var direction = strat.Action == "Sell" ? "Short" : "Long";
                         var exitAction = strat.Action == "Sell" ? "Buy" : "Sell";
 
-                        // Classify legs from order links
+                        // Classify legs from order links. Targets are numbered Tg1..TgN
+                        // in the order Tradovate returns them (OrderId ascending).
                         var legs = new List<LegDto>();
                         foreach (var link in strat.OrderLinks.OrderBy(l => l.OrderId))
                         {
@@ -284,7 +285,10 @@ public class OrdersModel : PageModel
                             else if (link.OrderType == "Stop")
                                 legType = "Stop";
                             else if (link.OrderType == "Limit")
-                                legType = legs.Any(l => l.LegType == "Tg1") ? "Tg2" : "Tg1";
+                            {
+                                var tgCount = legs.Count(l => l.LegType.StartsWith("Tg"));
+                                legType = $"Tg{tgCount + 1}";
+                            }
                             else
                                 legType = "Unknown";
 
