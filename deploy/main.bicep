@@ -32,6 +32,9 @@ param placeholderValue string = 'CHANGE_ME'
 @description('Seed placeholder secrets in Key Vault. Set to true ONLY on first infra deploy to create the slots. On subsequent deploys leave false, otherwise Bicep will overwrite real secret values with the placeholder.')
 param seedPlaceholderSecrets bool = false
 
+@description('Seed App Service appSettings with the defaults defined in this template. Set to true ONLY on first deploy or when intentionally resetting config — otherwise manual Portal edits (AccountId, Tradovate URL for demo/live, SMTP overrides, etc.) will be wiped. Default: false, so routine infra deploys leave runtime config alone.')
+param seedAppSettings bool = false
+
 @description('Entra ID (Azure AD) app registration client ID for App Service Easy Auth. Leave blank to skip auth setup on first deploy. Create via: az ad app create --display-name crv-trading --web-redirect-uris https://<site>.azurewebsites.net/.auth/login/aad/callback')
 param entraClientId string = ''
 
@@ -204,72 +207,85 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       // `/` 302-redirects to /dashboard, which Azure's health probe treats as unhealthy.
       // Point at an endpoint that returns 200 directly.
       healthCheckPath: '/api/engine/status'
-      appSettings: [
-        // ── Core runtime ────────────────────────────────────
-        { name: 'WEBSITES_PORT',                          value: '8080' }
-        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE',    value: 'true' }
-        { name: 'ASPNETCORE_ENVIRONMENT',                 value: 'Production' }
-        { name: 'DATA_DIR',                               value: '/home/data' }
-        // Run the container in US Eastern Time so DateTime.Now / ToLocalTime()
-        // and all log timestamps match trading-session time (markets are ET).
-        // WEBSITE_TIME_ZONE is App Service's documented knob; TZ is the POSIX
-        // env var — setting both covers every library.
-        { name: 'WEBSITE_TIME_ZONE',                      value: 'Eastern Standard Time' }
-        { name: 'TZ',                                     value: 'America/New_York' }
-        { name: 'ConnectionStrings__DefaultConnection',   value: 'Data Source=/home/data/crv_trading.db' }
-
-        // ── Broker: Schwab (non-secret) ─────────────────────
-        { name: 'Schwab__ApiBaseUrl',                     value: 'https://api.schwabapi.com' }
-        { name: 'Schwab__WssBaseUrl',                     value: 'wss://streamer-api.schwab.com/ws' }
-        { name: 'Schwab__RedirectUri',                    value: 'https://${siteName}.azurewebsites.net/auth/schwab' }
-        { name: 'Schwab__TokenFile',                      value: '/home/data/schwab_tokens.json' }
-        { name: 'Schwab__AccountId',                      value: placeholderValue }  // override in portal or set-secrets.sh
-        // ── Broker: Schwab (secret → KV) ────────────────────
-        { name: 'Schwab__AppKey',                         value: kvRef(kv.name, 'Schwab--AppKey') }
-        { name: 'Schwab__AppSecret',                      value: kvRef(kv.name, 'Schwab--AppSecret') }
-
-        // ── Broker: TradeStation (non-secret) ───────────────
-        { name: 'TradeStation__ApiBaseUrl',               value: 'https://api.tradestation.com' }
-        { name: 'TradeStation__AuthBaseUrl',              value: 'https://signin.tradestation.com' }
-        { name: 'TradeStation__RedirectUri',              value: 'https://${siteName}.azurewebsites.net/auth/tradestation' }
-        { name: 'TradeStation__TokenFile',                value: '/home/data/tradestation_tokens.json' }
-        { name: 'TradeStation__AccountId',                value: placeholderValue }
-        // ── Broker: TradeStation (secret → KV) ──────────────
-        { name: 'TradeStation__ClientId',                 value: kvRef(kv.name, 'TradeStation--ClientId') }
-        { name: 'TradeStation__ClientSecret',             value: kvRef(kv.name, 'TradeStation--ClientSecret') }
-
-        // ── Broker: Tradovate (non-secret) ──────────────────
-        { name: 'Tradovate__ApiBaseUrl',                  value: 'https://live.tradovateapi.com/v1' }
-        { name: 'Tradovate__MdWssUrl',                    value: 'wss://md.tradovateapi.com/v1/websocket' }
-        { name: 'Tradovate__TokenFile',                   value: '/home/data/tradovate_tokens.json' }
-        { name: 'Tradovate__AppId',                       value: 'CRVBot' }
-        { name: 'Tradovate__AccountId',                   value: placeholderValue }
-        // ── Broker: Tradovate (secret → KV) ─────────────────
-        { name: 'Tradovate__Username',                    value: kvRef(kv.name, 'Tradovate--Username') }
-        { name: 'Tradovate__Password',                    value: kvRef(kv.name, 'Tradovate--Password') }
-        { name: 'Tradovate__Cid',                         value: kvRef(kv.name, 'Tradovate--Cid') }
-        { name: 'Tradovate__Secret',                      value: kvRef(kv.name, 'Tradovate--Secret') }
-        { name: 'Tradovate__DeviceId',                    value: kvRef(kv.name, 'Tradovate--DeviceId') }
-
-        // ── SMTP ─────────────────────────────────────────────
-        { name: 'Smtp__Host',                             value: 'smtp.gmail.com' }
-        { name: 'Smtp__Port',                             value: '587' }
-        { name: 'Smtp__UseSsl',                           value: 'true' }
-        { name: 'Smtp__FromAddress',                      value: 'cirino.carvalho@gmail.com' }
-        { name: 'Smtp__Username',                         value: 'cirino.carvalho@gmail.com' }
-        { name: 'Smtp__Password',                         value: kvRef(kv.name, 'Smtp--Password') }
-
-        // ── Litestream (backup to Azure Blob) ────────────────
-        { name: 'LITESTREAM_AZURE_ACCOUNT_NAME',          value: storage.name }
-        { name: 'LITESTREAM_AZURE_BUCKET',                value: litestreamContainer }
-        { name: 'LITESTREAM_AZURE_ACCOUNT_KEY',           value: kvRef(kv.name, 'Litestream--StorageKey') }
-
-        // ── Easy Auth (Microsoft Entra ID) client secret ─────
-        // Resolved by Easy Auth at runtime via the setting name configured in
-        // authsettingsV2.identityProviders.azureActiveDirectory.registration.
-        { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: kvRef(kv.name, 'Auth--ClientSecret') }
-      ]
+      // NOTE: appSettings are NOT declared here. They live in the gated child
+      // resource `siteAppSettings` below so routine Bicep redeploys don't wipe
+      // manual Portal edits (AccountId, Tradovate demo/live URL, etc.).
     }
+  }
+}
+
+// ── App Service appSettings (seeded on first deploy only) ──────────────────
+// Gated behind `seedAppSettings` so subsequent infra deploys do NOT overwrite
+// runtime config that's been edited in the Portal (demo vs live URLs, account
+// IDs, SMTP overrides, etc.). To intentionally reset config to these defaults,
+// pass `-p seedAppSettings=true` on the deploy.
+resource siteAppSettings 'Microsoft.Web/sites/config@2023-12-01' = if (seedAppSettings) {
+  parent: site
+  name: 'appsettings'
+  properties: {
+    // ── Core runtime ────────────────────────────────────
+    WEBSITES_PORT: '8080'
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'true'
+    ASPNETCORE_ENVIRONMENT: 'Production'
+    DATA_DIR: '/home/data'
+    // Run the container in US Eastern Time so DateTime.Now / ToLocalTime()
+    // and all log timestamps match trading-session time (markets are ET).
+    // WEBSITE_TIME_ZONE is App Service's documented knob; TZ is the POSIX
+    // env var — setting both covers every library.
+    WEBSITE_TIME_ZONE: 'Eastern Standard Time'
+    TZ: 'America/New_York'
+    ConnectionStrings__DefaultConnection: 'Data Source=/home/data/crv_trading.db'
+
+    // ── Broker: Schwab (non-secret) ─────────────────────
+    Schwab__ApiBaseUrl: 'https://api.schwabapi.com'
+    Schwab__WssBaseUrl: 'wss://streamer-api.schwab.com/ws'
+    Schwab__RedirectUri: 'https://${siteName}.azurewebsites.net/auth/schwab'
+    Schwab__TokenFile: '/home/data/schwab_tokens.json'
+    Schwab__AccountId: placeholderValue  // override in portal or set-secrets.sh
+    // ── Broker: Schwab (secret → KV) ────────────────────
+    Schwab__AppKey: kvRef(kv.name, 'Schwab--AppKey')
+    Schwab__AppSecret: kvRef(kv.name, 'Schwab--AppSecret')
+
+    // ── Broker: TradeStation (non-secret) ───────────────
+    TradeStation__ApiBaseUrl: 'https://api.tradestation.com'
+    TradeStation__AuthBaseUrl: 'https://signin.tradestation.com'
+    TradeStation__RedirectUri: 'https://${siteName}.azurewebsites.net/auth/tradestation'
+    TradeStation__TokenFile: '/home/data/tradestation_tokens.json'
+    TradeStation__AccountId: placeholderValue
+    // ── Broker: TradeStation (secret → KV) ──────────────
+    TradeStation__ClientId: kvRef(kv.name, 'TradeStation--ClientId')
+    TradeStation__ClientSecret: kvRef(kv.name, 'TradeStation--ClientSecret')
+
+    // ── Broker: Tradovate (non-secret) ──────────────────
+    Tradovate__ApiBaseUrl: 'https://live.tradovateapi.com/v1'
+    Tradovate__MdWssUrl: 'wss://md.tradovateapi.com/v1/websocket'
+    Tradovate__TokenFile: '/home/data/tradovate_tokens.json'
+    Tradovate__AppId: 'CRVBot'
+    Tradovate__AccountId: placeholderValue
+    // ── Broker: Tradovate (secret → KV) ─────────────────
+    Tradovate__Username: kvRef(kv.name, 'Tradovate--Username')
+    Tradovate__Password: kvRef(kv.name, 'Tradovate--Password')
+    Tradovate__Cid: kvRef(kv.name, 'Tradovate--Cid')
+    Tradovate__Secret: kvRef(kv.name, 'Tradovate--Secret')
+    Tradovate__DeviceId: kvRef(kv.name, 'Tradovate--DeviceId')
+
+    // ── SMTP ─────────────────────────────────────────────
+    Smtp__Host: 'smtp.gmail.com'
+    Smtp__Port: '587'
+    Smtp__UseSsl: 'true'
+    Smtp__FromAddress: 'cirino.carvalho@gmail.com'
+    Smtp__Username: 'cirino.carvalho@gmail.com'
+    Smtp__Password: kvRef(kv.name, 'Smtp--Password')
+
+    // ── Litestream (backup to Azure Blob) ────────────────
+    LITESTREAM_AZURE_ACCOUNT_NAME: storage.name
+    LITESTREAM_AZURE_BUCKET: litestreamContainer
+    LITESTREAM_AZURE_ACCOUNT_KEY: kvRef(kv.name, 'Litestream--StorageKey')
+
+    // ── Easy Auth (Microsoft Entra ID) client secret ─────
+    // Resolved by Easy Auth at runtime via the setting name configured in
+    // authsettingsV2.identityProviders.azureActiveDirectory.registration.
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET: kvRef(kv.name, 'Auth--ClientSecret')
   }
 }
 
