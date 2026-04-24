@@ -333,10 +333,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         var disc = await DiscoverBracketLegsAsync(
             strategyId.Value, symbol, entryAction, exitAction, usePartial);
 
-        // Entry rejected (e.g. market closed) — no trade placed
+        // Entry rejected (e.g. market closed, invalid price, insufficient margin) — no trade placed
         if (disc.Entry is not null && disc.Entry.Status is "Rejected" or "Canceled" or "Cancelled")
         {
-            _log.LogWarning("[TV-GRP] Entry {E} was {S} — order not placed", disc.Entry.Id, disc.Entry.Status);
+            var reason = await GetOrderRejectionReasonAsync(disc.Entry.Id);
+            _log.LogWarning("[TV-GRP] Entry {E} was {S} — order not placed{Reason}",
+                disc.Entry.Id, disc.Entry.Status,
+                string.IsNullOrEmpty(reason) ? "" : $" (reason: {reason})");
             return null;
         }
 
@@ -865,13 +868,27 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 
                 var disc = await DiscoverBracketLegsAsync(stratId, group.Ticker, entryAction, exitAction, usePartial);
 
-                // Entry was rejected/canceled — mark group as canceled, stop polling
-                if (disc.Entry is not null && disc.Entry.Status is "Rejected" or "Canceled" or "Cancelled")
+                // Entry was rejected/canceled — emit a synthetic OrderEvent so
+                // BrokerEventHandler.HandleEntryEventAsync runs its normal flow
+                // (cancel remaining legs, mark group Canceled, call RemoveGroup).
+                // Without emitting an event, the poller would just mutate status
+                // but the group stays in _active and re-polls every 10s forever.
+                // Skip if group is already Canceled (idempotent) to avoid re-fire.
+                if (disc.Entry is not null
+                    && disc.Entry.Status is "Rejected" or "Canceled" or "Cancelled"
+                    && group.Status != GroupOrderStatus.Canceled
+                    && group.Status != GroupOrderStatus.Completed)
                 {
-                    _log.LogWarning("[TV-POLL] Entry {E} was {S} — marking group {G} as Canceled",
-                        disc.Entry.Id, disc.Entry.Status, group.GroupOrderId);
-                    group.Status = GroupOrderStatus.Canceled;
-                    group.CompletedAt = DateTime.UtcNow;
+                    var rejectReason = await GetOrderRejectionReasonAsync(disc.Entry.Id);
+                    _log.LogWarning("[TV-POLL] Entry {E} was {S} — emitting synthetic Rejected event for group {G}{Reason}",
+                        disc.Entry.Id, disc.Entry.Status, group.GroupOrderId,
+                        string.IsNullOrEmpty(rejectReason) ? "" : $" (reason: {rejectReason})");
+
+                    var status = disc.Entry.Status == "Rejected" ? OrderLegStatus.Rejected : OrderLegStatus.Canceled;
+                    events.Add(new OrderEvent(
+                        group.GroupOrderId, disc.Entry.Id.ToString(), LegType.Entry, status,
+                        FillPrice: null, FillQty: null, ModifiedPrice: null, ModifiedQty: null,
+                        Timestamp: DateTime.UtcNow));
                     return events;
                 }
 
@@ -1378,8 +1395,44 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     }
 
     /// <summary>
+    /// Fetch Tradovate's rejection reason / text for a rejected order. Best-effort:
+    /// returns null if the call fails or the fields aren't present. Used only for
+    /// logging — never for control flow.
+    /// </summary>
+    private async Task<string?> GetOrderRejectionReasonAsync(long orderId)
+    {
+        try
+        {
+            var json = await GetAsync($"/order/item?id={orderId}");
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            string? reason = null;
+            foreach (var prop in new[] { "rejectReason", "rejectText", "text", "commandStatus" })
+            {
+                if (root.TryGetProperty(prop, out var p) && p.ValueKind == JsonValueKind.String)
+                {
+                    var v = p.GetString();
+                    if (!string.IsNullOrWhiteSpace(v))
+                        reason = reason is null ? $"{prop}={v}" : $"{reason}; {prop}={v}";
+                }
+            }
+            return reason;
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "[TV] GetOrderRejectionReasonAsync failed for {Id}", orderId);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Resolves and caches the Tradovate account from GET /account/list.
-    /// Uses the first account in the list.
+    /// If <see cref="StrategyConfig.AccountId"/> is set (either the numeric
+    /// account id or the account name like "DEMO7063613"), filter the list for
+    /// a matching account. Otherwise fall back to the first account with a
+    /// warning — Tradovate demo sub-accounts can rotate after a reset, so
+    /// unpinned behavior is non-deterministic.
     /// </summary>
     private async Task<AccountRef> GetAccountAsync()
     {
@@ -1387,16 +1440,47 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 
         var json = await GetAsync("/account/list");
         using var doc = JsonDocument.Parse(json);
-
-        var first = doc.RootElement.EnumerateArray().FirstOrDefault();
-        if (first.ValueKind == JsonValueKind.Undefined)
+        var accounts = doc.RootElement.EnumerateArray().ToList();
+        if (accounts.Count == 0)
             throw new InvalidOperationException("Tradovate: /account/list returned empty array — no accounts found.");
 
-        var name = first.TryGetProperty("name", out var np) ? np.GetString() ?? "" : "";
-        var id   = first.TryGetProperty("id",   out var ip) ? ip.GetInt64()      : 0;
+        static (string name, long id) Extract(JsonElement el) =>
+            (el.TryGetProperty("name", out var np) ? np.GetString() ?? "" : "",
+             el.TryGetProperty("id",   out var ip) ? ip.GetInt64()      : 0);
 
+        var configured = _cfg.AccountId;
+        JsonElement picked;
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            // Match by name (case-insensitive) or by numeric id
+            var match = accounts.FirstOrDefault(a =>
+            {
+                var (n, i) = Extract(a);
+                return string.Equals(n, configured, StringComparison.OrdinalIgnoreCase)
+                    || i.ToString() == configured;
+            });
+            if (match.ValueKind != JsonValueKind.Undefined)
+            {
+                picked = match;
+            }
+            else
+            {
+                var available = string.Join(", ", accounts.Select(a => { var (n, i) = Extract(a); return $"{n}({i})"; }));
+                _log.LogWarning("[TV] Configured AccountId='{Cfg}' not found in /account/list. Available: [{Avail}]. Falling back to first account.",
+                    configured, available);
+                picked = accounts[0];
+            }
+        }
+        else
+        {
+            _log.LogWarning("[TV] No AccountId configured — using first account from /account/list. Pin via Tradovate__AccountId to avoid unexpected rotation on demo resets.");
+            picked = accounts[0];
+        }
+
+        var (name, id) = Extract(picked);
         _cachedAccount = new AccountRef(name, id);
-        _log.LogInformation("[TV] Resolved account: name={Name} id={Id}", name, id);
+        _log.LogInformation("[TV] Resolved account: name={Name} id={Id} (configured={Cfg})",
+            name, id, string.IsNullOrWhiteSpace(configured) ? "<unset>" : configured);
         return _cachedAccount;
     }
 
