@@ -128,8 +128,11 @@ public class BrokerEventHandler
         if (group.PointValue == 0 && strategy.PointValue > 0)
             group.PointValue = strategy.PointValue;
 
-        await RegisterGroupAsync(group, strategy);  // fires OnGroupRegistered internally
+        await RegisterGroupAsync(group, strategy);
         ClearPendingPlacement(strategy.Id);
+
+        if (!IsBacktest)
+            OnGroupRegistered?.Invoke(group);
 
         if (group.Status == GroupOrderStatus.Active && group.EntryPrice.HasValue)
         {
@@ -180,11 +183,6 @@ public class BrokerEventHandler
         if (buffered != null)
             foreach (var evt in buffered)
                 await HandleEventAsync(evt);
-
-        // Fire registration event so persistence hooks (StrategyLog for live, full
-        // GroupOrder for mock) run for every code path — engine, webhook, orphan adoption.
-        if (!IsBacktest)
-            OnGroupRegistered?.Invoke(group);
     }
 
     /// <summary>Register a newly placed group order for event tracking (sync overload).</summary>
@@ -309,10 +307,11 @@ public class BrokerEventHandler
             if (string.IsNullOrEmpty(group.SessionId))
                 group.SessionId = signal.SessionId;
 
-            // RegisterGroupAsync fires OnGroupRegistered internally — persistence hooks
-            // (StrategyLog for live, full GroupOrder for mock) run for both Pending limit
-            // orders and already-filled market orders.
             await RegisterGroupAsync(group, strategy);
+
+            // Persist immediately (covers both Pending limit orders and already-filled market orders)
+            if (!IsBacktest)
+                OnGroupRegistered?.Invoke(group);
 
             // Immediate fills (backtest market orders): group already Active + EntryPrice set
             // by the executor before returning. Activate the strategy now — no event roundtrip
