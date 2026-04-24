@@ -29,7 +29,11 @@ RUN dotnet publish CRV.Web/CRV.Web.csproj \
     /p:UseAppHost=false
 
 # ── Litestream (build from source, pre-built binaries lack azblob backend) ──
-FROM golang:1.25-alpine AS litestream
+# LITESTREAM_BUILDER is overrideable so CI can point at an ACR-cached image and
+# avoid Docker Hub's anonymous pull rate limit. Local `docker build` uses the
+# default (Docker Hub).
+ARG LITESTREAM_BUILDER=golang:1.25-alpine
+FROM ${LITESTREAM_BUILDER} AS litestream
 RUN apk add --no-cache git
 WORKDIR /src
 # Pin to a known-good commit. Update LITESTREAM_REF to track upstream.
