@@ -1053,6 +1053,32 @@ function _bSelect(id, field, val, w, label, options) {
         '<select class="form-select form-select-sm" style="width:' + w + 'px" onchange="updateBasketConfig(\'' + id + '\',\'' + field + '\',parseInt(this.value))">' + opts + '</select></div>';
 }
 
+function _bOrbWindowRow(entry, cfg) {
+    var custom = cfg.UseCustomOrbWindow === true;
+    var start = cfg.OrbStart || '09:30';
+    var end = cfg.OrbEnd || '10:00';
+    // Clamp time strings to "HH:mm" — backend may have written "HH:mm:ss"
+    if (typeof start === 'string' && start.length > 5) start = start.substring(0, 5);
+    if (typeof end === 'string' && end.length > 5) end = end.substring(0, 5);
+    var dim = custom ? '' : 'opacity:0.4;';
+    var disabled = custom ? '' : 'disabled';
+    return '<div class="row g-2 mt-1">' +
+        '<div class="col-auto d-flex align-items-end pb-1">' +
+            '<div class="form-check form-check-inline mb-0">' +
+                '<input type="checkbox" class="form-check-input"' + (custom ? ' checked' : '') +
+                ' onchange="updateBasketConfig(\'' + entry.Id + '\',\'UseCustomOrbWindow\',this.checked); renderBasket();">' +
+                '<label class="form-check-label small">Custom ORB</label>' +
+            '</div>' +
+        '</div>' +
+        '<div class="col-auto"><label class="form-label small mb-0">Start</label>' +
+            '<input type="time" class="form-control form-control-sm" style="width:95px;' + dim + '" value="' + start + '" ' + disabled +
+                ' onchange="updateBasketConfig(\'' + entry.Id + '\',\'OrbStart\',this.value)"></div>' +
+        '<div class="col-auto"><label class="form-label small mb-0">End</label>' +
+            '<input type="time" class="form-control form-control-sm" style="width:95px;' + dim + '" value="' + end + '" ' + disabled +
+                ' onchange="updateBasketConfig(\'' + entry.Id + '\',\'OrbEnd\',this.value)"></div>' +
+    '</div>';
+}
+
 function _bSessionSlot(entry, sessionId) {
     var slots = entry.Sessions || [];
     var slot = slots.find(function(s) { return s.SessionId === sessionId; });
@@ -1156,6 +1182,7 @@ function renderBasket() {
                 _bSessionSlot(entry, 'London') +
                 _bSessionSlot(entry, 'NY') +
             '</div>' +
+            _bOrbWindowRow(entry, cfg) +
             '<div class="row g-2 mt-1">' +
                 '<div class="col-auto"><label class="form-label small mb-0">Mode</label>' +
                     '<select class="form-select form-select-sm" style="width:120px" onchange="updateBasketConfig(\'' + entry.Id + '\',\'Mode\',this.value)">' +
