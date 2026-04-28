@@ -19,6 +19,18 @@ public class StrategySetupConfig
     public decimal PointValue { get; set; } = 20m;
     public decimal TickSize { get; set; } = 0.25m;
 
+    // ── ORB window override (per-setup) ────────────────────────────
+    /// <summary>When true, this setup uses its own ORB window instead of the global config window.
+    /// Lets one ticker (e.g. NQ at 09:30–10:00) and another (e.g. GC at 08:20–09:50) coexist
+    /// in the same basket without forcing a single shared window.</summary>
+    public bool UseCustomOrbWindow { get; set; }
+    /// <summary>Start of the ORB window when <see cref="UseCustomOrbWindow"/> is true.
+    /// Effective value (already resolved against the global fallback at config-build time).</summary>
+    public TimeOnly OrbStart { get; set; } = new(9, 30);
+    /// <summary>End of the ORB window when <see cref="UseCustomOrbWindow"/> is true.
+    /// Effective value (already resolved against the global fallback at config-build time).</summary>
+    public TimeOnly OrbEnd { get; set; } = new(10, 0);
+
     // Sizing
     public int Contracts { get; set; } = 2;
     public decimal HiVolMult { get; set; } = 1.0m;

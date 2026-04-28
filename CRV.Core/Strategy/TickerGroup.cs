@@ -32,7 +32,14 @@ public class TickerGroup
     private readonly AtrIndicator _atr;
     private readonly VwapIndicator _vwap;
     private readonly Ema21Indicator _ema21 = new();
-    private readonly OrbCalculator _orb;
+    private readonly OrbCalculator _orb;  // primary ORB — feeds modules (FB/Drive/Trend) and snapshots
+    /// <summary>Per-window ORB calculators. Keyed by (start, end) so multiple setups in this group
+    /// with different ORB windows each get their own calculation. The primary <see cref="_orb"/>
+    /// is also stored here under the global window key. Strategies that don't override a window
+    /// share the primary calculator.</summary>
+    private readonly Dictionary<(TimeOnly Start, TimeOnly End), OrbCalculator> _orbs = new();
+    /// <summary>Maps strategy.Id → its (start, end) window key into <see cref="_orbs"/>.</summary>
+    private readonly Dictionary<string, (TimeOnly Start, TimeOnly End)> _stratWindow = new();
     private readonly TimeZoneInfo _tz;
     private decimal _lastBarClose;
     private decimal _orbAtrRatio;
@@ -68,6 +75,7 @@ public class TickerGroup
         _atr = new AtrIndicator(14);
         _vwap = new VwapIndicator();
         _orb = new OrbCalculator(cfg.OrbStart, cfg.OrbEnd, cfg.Timezone, cfg.ExecutionTFMinutes);
+        _orbs[(cfg.OrbStart, cfg.OrbEnd)] = _orb;
         _tz = FindTimeZone(cfg.Timezone);
 
         var modCfg = new ModuleConfig
@@ -104,7 +112,14 @@ public class TickerGroup
 
     // ── Strategy registration ────────────────────────────────────
 
-    public void AddStrategy(ISetupStrategy strategy) => _strategies.Add(strategy);
+    public void AddStrategy(ISetupStrategy strategy)
+    {
+        _strategies.Add(strategy);
+        var key = (strategy.OrbStart, strategy.OrbEnd);
+        _stratWindow[strategy.Id] = key;
+        if (!_orbs.ContainsKey(key))
+            _orbs[key] = new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _cfg.ExecutionTFMinutes);
+    }
 
     // ── Bar processing ───────────────────────────────────────────
 
@@ -137,8 +152,10 @@ public class TickerGroup
                 _orbAtrRatio = 0;
             }
 
-            // ORB tracks all bars (including unconfirmed)
-            _orb.Update(bar, tradingDate);
+            // ORB tracks all bars (including unconfirmed). Update every per-window calculator;
+            // the primary _orb is included in _orbs and is what feeds modules below.
+            foreach (var orb in _orbs.Values)
+                orb.Update(bar, tradingDate);
 
             // Track current bar for live chart candle (before confirmed check)
             _currentBar = bar;
@@ -214,7 +231,6 @@ public class TickerGroup
             }
 
             // Build state snapshots once for all strategies
-            var orbState = BuildOrbState();
             var indState = BuildIndicatorState();
             var modState = BuildModuleState();
 
@@ -223,15 +239,7 @@ public class TickerGroup
 
             // Per-setup cutoff: compute local time once for all strategies
             var localTime = TimeOnly.FromDateTime(local);
-
-            // Time-based ORB guard: even if orb.IsSet, don't dispatch to strategies
-            // until the bar's time is genuinely past the ORB window end. This prevents
-            // premature entries if the ORB was set by a bar ordering race at the feed level.
-            var barLocalTime = TimeOnly.FromDateTime(local);
-            if (orbState.IsSet && barLocalTime < _cfg.OrbEnd)
-            {
-                orbState = orbState with { IsSet = false };
-            }
+            var barLocalTime = localTime;
 
             // Dispatch to each strategy, tracking whether fakeout signals get consumed.
             // OrbTracker: clear activation when Setup C newly arms (one-shot, allows new fakeout detection).
@@ -286,7 +294,13 @@ public class TickerGroup
                 bool orbActivated = _falseBreakout.OrbTracker.IsActivated;
                 bool wasArmed     = strategy.IsArmed || strategy.IsActive;
 
-                strategy.OnBar(bar, orbState, indState, modState);
+                // Per-strategy ORB: pull from this strategy's window calculator and apply
+                // the time-based guard against THIS strategy's OrbEnd (not the global one).
+                var stratOrbState = BuildOrbStateForStrategy(strategy);
+                if (stratOrbState.IsSet && barLocalTime < strategy.OrbEnd)
+                    stratOrbState = stratOrbState with { IsSet = false };
+
+                strategy.OnBar(bar, stratOrbState, indState, modState);
 
                 bool nowArmed = strategy.IsArmed || strategy.IsActive;
                 if (orbActivated && !wasArmed && nowArmed && strategy.SetupId == SetupId.C)
@@ -337,19 +351,12 @@ public class TickerGroup
         {
             _sessionEngine.OnTick(price, utc);
 
-            var orbState = BuildOrbState();
             var indState = BuildIndicatorState();
             var modState = BuildModuleState();
 
             // Per-setup cutoff for tick path
             var tickLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _tz);
             var tickLocalTime = TimeOnly.FromDateTime(tickLocal);
-
-            // Time-based ORB guard (same as bar path)
-            if (orbState.IsSet && tickLocalTime < _cfg.OrbEnd)
-            {
-                orbState = orbState with { IsSet = false };
-            }
 
             foreach (var strategy in _strategies)
             {
@@ -380,7 +387,12 @@ public class TickerGroup
                     strategy.ResetCutoff();
                 }
 
-                strategy.OnTick(price, utc, orbState, indState, modState);
+                // Per-strategy ORB with the strategy's own time-based guard
+                var stratOrbState = BuildOrbStateForStrategy(strategy);
+                if (stratOrbState.IsSet && tickLocalTime < strategy.OrbEnd)
+                    stratOrbState = stratOrbState with { IsSet = false };
+
+                strategy.OnTick(price, utc, stratOrbState, indState, modState);
 
                 if (strategy.PendingEntry != null)
                 {
@@ -465,7 +477,7 @@ public class TickerGroup
         // persist across sessions.  Resetting it at every session boundary forces
         // a 70-minute warmup (14 × 5-min bars) during which ATR reads 0.
         _vwap.Reset();
-        _orb.Reset();
+        foreach (var orb in _orbs.Values) orb.Reset();
         // NOTE: Do NOT clear _barBuffer — chart history should persist across sessions.
         // The ring buffer naturally rolls off old bars as new ones arrive.
         _currentBar = null;
@@ -641,14 +653,42 @@ public class TickerGroup
         return true;
     }
 
-    /// <summary>Reconfigure ORB window for a new session.</summary>
+    /// <summary>Reconfigure the primary ORB window for a new session. Strategies that override
+    /// the window keep their own calculators untouched. The primary calculator is re-keyed in
+    /// <see cref="_orbs"/> so subsequent bar updates feed the new window. Per-strategy window
+    /// mappings are refreshed from each strategy's current OrbStart/OrbEnd so non-overriding
+    /// setups follow the new session, while overriding setups stay pinned.</summary>
     public void ReconfigureOrb(TimeOnly orbStart, TimeOnly orbEnd)
     {
         _orb.Reconfigure(orbStart, orbEnd);
-        // Keep ORB suppression guard in sync — _cfg.OrbEnd is used at line 228
-        // to prevent premature entries during the ORB formation window.
         _cfg.OrbStart = orbStart;
         _cfg.OrbEnd = orbEnd;
+        RefreshStrategyWindows();
+    }
+
+    /// <summary>Re-derive the (strategy → window) map and (window → calculator) map from each
+    /// registered strategy's current OrbStart/OrbEnd. Call after strategies have been Reconfigure'd
+    /// so window changes propagate to bar dispatch. Reuses existing calculators where possible.</summary>
+    public void RefreshStrategyWindows()
+    {
+        var newOrbs = new Dictionary<(TimeOnly, TimeOnly), OrbCalculator>
+        {
+            [(_cfg.OrbStart, _cfg.OrbEnd)] = _orb,
+        };
+        _stratWindow.Clear();
+        foreach (var s in _strategies)
+        {
+            var key = (s.OrbStart, s.OrbEnd);
+            _stratWindow[s.Id] = key;
+            if (!newOrbs.ContainsKey(key))
+            {
+                newOrbs[key] = _orbs.TryGetValue(key, out var existing)
+                    ? existing
+                    : new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _cfg.ExecutionTFMinutes);
+            }
+        }
+        _orbs.Clear();
+        foreach (var kv in newOrbs) _orbs[kv.Key] = kv.Value;
     }
 
     // ── Ticker grouping helper ───────────────────────────────────
@@ -769,6 +809,19 @@ public class TickerGroup
     private OrbState BuildOrbState() => new(
         _orb.OrbHigh, _orb.OrbLow, _orb.OrbMid, _orb.OrbRange,
         _orb.IsSet, _orb.OrbBullClose, _orb.OrbBearClose, _orbAtrRatio);
+
+    /// <summary>OrbState for a strategy's declared window. Falls back to the primary ORB
+    /// if the strategy was not registered (defensive — should not happen in practice).</summary>
+    public OrbState GetOrbStateForStrategy(string strategyId)
+    {
+        if (_stratWindow.TryGetValue(strategyId, out var key) && _orbs.TryGetValue(key, out var orb))
+            return new OrbState(orb.OrbHigh, orb.OrbLow, orb.OrbMid, orb.OrbRange,
+                orb.IsSet, orb.OrbBullClose, orb.OrbBearClose, _orbAtrRatio);
+        return BuildOrbState();
+    }
+
+    private OrbState BuildOrbStateForStrategy(ISetupStrategy strategy)
+        => GetOrbStateForStrategy(strategy.Id);
 
     private IndicatorState BuildIndicatorState() => new(
         _atr.Value,

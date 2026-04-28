@@ -254,6 +254,16 @@ public class ComposableEngine
         _config = BuildEngineConfigFromStrategy(cfg);
         _activeSessionId = sessionId.ToString();
 
+        // Push each strategy's config first so its OrbStart/OrbEnd reflects the new
+        // session's window (for non-overriding setups). TickerGroup.ReconfigureOrb
+        // below reads strategy.OrbStart/OrbEnd to refresh per-window calculators.
+        var newSetupConfigs = cfg.ToSetupConfigs();
+        foreach (var setupCfg in newSetupConfigs)
+        {
+            if (_strategies.TryGetValue(setupCfg.Id, out var strategy))
+                strategy.Reconfigure(setupCfg);
+        }
+
         foreach (var group in _groups.Values)
         {
             // Snapshot prior session H/L into FalseBreakoutDetector BEFORE reset
@@ -283,6 +293,11 @@ public class ComposableEngine
             if (_strategies.TryGetValue(setupCfg.Id, out var strategy))
                 strategy.Reconfigure(setupCfg);
         }
+
+        // Strategy ORB windows may have changed — refresh per-window calculators in each group
+        // so subsequent bar dispatch routes to the correct ORB.
+        foreach (var group in _groups.Values)
+            group.RefreshStrategyWindows();
     }
 
     /// <summary>
@@ -349,14 +364,15 @@ public class ComposableEngine
             modState = primaryGroup.GetModuleState();
         }
 
-        // Build per-setup ORB state by looking up each strategy's ticker group
+        // Build per-setup ORB state. Each strategy may declare its own ORB window;
+        // GetOrbStateForStrategy returns the calculator state for that window.
         var perSetupOrb = new Dictionary<string, OrbState>();
         foreach (var (id, strategy) in _strategies)
         {
             if (_setupToGroupKey.TryGetValue(id, out var gk) &&
                 _groups.TryGetValue(gk, out var g))
             {
-                perSetupOrb[id] = g.GetOrbState();
+                perSetupOrb[id] = g.GetOrbStateForStrategy(id);
             }
         }
 

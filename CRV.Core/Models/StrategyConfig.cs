@@ -18,6 +18,22 @@ internal sealed class LenientIntConverter : JsonConverter<int>
         writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// Accepts "HH:mm" or "HH:mm:ss" strings, writes "HH:mm". Mirrors the format used by
+/// the existing UI inputs (HTML &lt;input type="time"&gt;) so basket JSON round-trips cleanly.
+/// </summary>
+internal sealed class LenientTimeOnlyConverter : JsonConverter<TimeOnly>
+{
+    public override TimeOnly Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var s = reader.GetString();
+        return string.IsNullOrEmpty(s) ? default : TimeOnly.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public override void Write(Utf8JsonWriter writer, TimeOnly value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString("HH:mm"));
+}
+
 /// <summary>How the daily loss limit is measured.</summary>
 public enum DailyLossMode
 {
@@ -448,7 +464,7 @@ public class StrategyConfig
                 var opts = new System.Text.Json.JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true,
-                    Converters = { new LenientIntConverter() },
+                    Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
                 };
                 var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
                 configs = basket?.Count > 0
@@ -476,7 +492,7 @@ public class StrategyConfig
             var opts = new System.Text.Json.JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
-                Converters = { new LenientIntConverter() },
+                Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
             };
             var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(Ema21BasketJson, opts);
             if (basket?.Count > 0)
@@ -486,7 +502,7 @@ public class StrategyConfig
         return new();
     }
 
-    private static StrategySetupConfig ToSetupConfig(BasketEntry b) => new()
+    private StrategySetupConfig ToSetupConfig(BasketEntry b) => new()
     {
         Id = b.Id,
         Name = b.Label,
@@ -496,6 +512,9 @@ public class StrategyConfig
         Ticker = b.Ticker,
         PointValue = b.PointValue,
         TickSize = b.TickSize,
+        UseCustomOrbWindow = b.Config.UseCustomOrbWindow,
+        OrbStart = b.Config.UseCustomOrbWindow ? b.Config.OrbStart : OrbStart,
+        OrbEnd   = b.Config.UseCustomOrbWindow ? b.Config.OrbEnd   : OrbEnd,
         Contracts = b.Config.Contracts,
         HiVolMult = b.Config.HiVolMult,
         MaxContracts = b.Config.MaxContracts,
@@ -549,6 +568,7 @@ public class StrategyConfig
         Enabled = EnableA,
         Ticker = EffectiveTickerA, PointValue = EffectivePointValueA,
         TickSize = EffectiveTickSizeA,
+        OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsA, HiVolMult = HiVolMultA, MaxContracts = MaxContractsA,
         StopPct = StopPctA, TargetPct = TargetPctA, PartialPct = PartialPctA,
         NearPct = NearPctA, MinRr = MinRrA, Mode = ModeA,
@@ -573,6 +593,7 @@ public class StrategyConfig
         Enabled = EnableB,
         Ticker = EffectiveTickerB, PointValue = EffectivePointValueB,
         TickSize = EffectiveTickSizeB,
+        OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsB, HiVolMult = HiVolMultB, MaxContracts = MaxContractsB,
         StopPct = StopPctB, TargetPct = TargetPctB, PartialPct = PartialPctB,
         NearPct = NearPctB, MinRr = MinRrB, Mode = ModeB,
@@ -597,6 +618,7 @@ public class StrategyConfig
         Enabled = EnableC,
         Ticker = EffectiveTickerC, PointValue = EffectivePointValueC,
         TickSize = EffectiveTickSizeC,
+        OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsC, HiVolMult = HiVolMultC, MaxContracts = MaxContractsC,
         StopPct = StopPctC, TargetPct = TargetPctC, PartialPct = PartialPctC,
         NearPct = NearPctC, MinRr = MinRrC, Mode = "Conservative",
@@ -620,6 +642,7 @@ public class StrategyConfig
         Enabled = EnableD,
         Ticker = EffectiveTickerD, PointValue = EffectivePointValueD,
         TickSize = EffectiveTickSizeD,
+        OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsD, HiVolMult = HiVolMultD, MaxContracts = MaxContractsD,
         StopPct = StopPctD, TargetPct = TargetPctD, PartialPct = PartialPctD,
         NearPct = NearPctD, MinRr = MinRrD, Mode = "Conservative",
@@ -727,6 +750,29 @@ public class StrategyConfig
                 errors.Add("CutoffHourB must be 0-23.");
             if (CutoffMinuteB < 0 || CutoffMinuteB > 59)
                 errors.Add("CutoffMinuteB must be 0-59.");
+        }
+
+        // Validate per-basket-entry ORB window overrides.
+        if (!string.IsNullOrEmpty(BasketJson))
+        {
+            try
+            {
+                var opts = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
+                };
+                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
+                if (basket != null)
+                {
+                    foreach (var b in basket)
+                    {
+                        if (b.Config.UseCustomOrbWindow && b.Config.OrbEnd <= b.Config.OrbStart)
+                            errors.Add($"Basket entry '{b.Label ?? b.Id}': OrbEnd must be after OrbStart.");
+                    }
+                }
+            }
+            catch { /* basket parse errors surfaced elsewhere; don't double-report */ }
         }
 
         return errors;

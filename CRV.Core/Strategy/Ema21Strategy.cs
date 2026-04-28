@@ -81,6 +81,8 @@ public sealed class Ema21Strategy : ISetupStrategy
     public string       Name         => _cfg.Name;
     public string       Ticker       => _cfg.Ticker;
     public decimal      PointValue   => _cfg.PointValue;
+    public TimeOnly     OrbStart     => _cfg.OrbStart;
+    public TimeOnly     OrbEnd       => _cfg.OrbEnd;
     public bool         UseEmaFilter => _cfg.UseEmaFilter;
     public bool         IsActive     => _inTrade;
     public bool         IsArmed      => _state != 0;

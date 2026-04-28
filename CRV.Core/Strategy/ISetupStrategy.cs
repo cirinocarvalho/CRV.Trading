@@ -100,6 +100,12 @@ public interface ISetupStrategy
     /// <summary>The point value for this setup's instrument (e.g. 20 for NQ, 50 for ES).</summary>
     decimal PointValue { get; }
 
+    /// <summary>Effective ORB-window start for this setup (already resolved against the global fallback).</summary>
+    TimeOnly OrbStart { get; }
+
+    /// <summary>Effective ORB-window end for this setup (already resolved against the global fallback).</summary>
+    TimeOnly OrbEnd { get; }
+
     /// <summary>When true, long entries require price > EMA21, short entries require price &lt; EMA21.</summary>
     bool UseEmaFilter { get; }
 

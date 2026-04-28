@@ -42,6 +42,8 @@ public class NBracketTests
         public int CutoffMinute => 0;
         public string Ticker => "/NQH2026";
         public decimal PointValue => 20m;
+        public TimeOnly OrbStart => new(9, 30);
+        public TimeOnly OrbEnd   => new(10, 0);
         public bool UseEmaFilter => false;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
