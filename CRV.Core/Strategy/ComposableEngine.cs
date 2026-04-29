@@ -205,6 +205,8 @@ public class ComposableEngine
     {
         _idle = true;
         _activeSessionId = "";
+        foreach (var group in _groups.Values)
+            group.SetActiveSessionId("");
     }
 
     /// <summary>Clear idle flag so warmup bars can flow through.</summary>
@@ -213,8 +215,15 @@ public class ComposableEngine
     /// <summary>
     /// Pre-set the active session ID so ORB cache writes during backfill
     /// use the correct session key (matches the key used on restore after session transition).
+    /// Also propagates to ticker groups so strategy session-slot gating follows the user's
+    /// session config instead of the SessionEngine module's hardcoded clock.
     /// </summary>
-    public void SetActiveSessionId(string sessionId) => _activeSessionId = sessionId;
+    public void SetActiveSessionId(string sessionId)
+    {
+        _activeSessionId = sessionId;
+        foreach (var group in _groups.Values)
+            group.SetActiveSessionId(sessionId);
+    }
 
     /// <summary>
     /// Reset only trade counters on all strategies. Call after warmup completes
@@ -272,6 +281,7 @@ public class ComposableEngine
             group.OnSessionBoundary(sessionId);
             group.ReconfigureOrb(cfg.OrbStart, cfg.OrbEnd);
             group.Reset();
+            group.SetActiveSessionId(_activeSessionId);
         }
 
         foreach (var (_, strategy) in _strategies)
