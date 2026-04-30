@@ -42,8 +42,17 @@ public class EngineConfig
     public bool    AllowBothSameBar   { get; set; } = false;
 
     // ── Chop Regime Filter ──────────────────────────────────────
-    public bool          UseChopFilter { get; set; } = false;
-    public ChopBlockMode ChopBlockMode { get; set; } = ChopBlockMode.UntilClear;
+    public bool          UseChopFilter             { get; set; } = false;
+    public ChopBlockMode ChopBlockMode             { get; set; } = ChopBlockMode.UntilClear;
+    public int           ChopMinVotes              { get; set; } = 2;
+    public bool          ChopUseRangeCompression   { get; set; } = true;
+    public decimal       ChopCompressionRatio      { get; set; } = 0.70m;
+    public bool          ChopUseFlatVwap           { get; set; } = true;
+    public decimal       ChopFlatSlopeThresholdPct { get; set; } = 0.05m;
+    public bool          ChopUseWeakDrive          { get; set; } = true;
+    public decimal       ChopMinDriveRatio         { get; set; } = 0.50m;
+    public bool          ChopUseLowVolume          { get; set; } = true;
+    public decimal       ChopMinVolumeRatio        { get; set; } = 1.00m;
 
     // ── Broker ──────────────────────────────────────────────────
     public string  Broker             { get; set; } = "Schwab";

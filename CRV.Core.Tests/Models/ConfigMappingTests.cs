@@ -256,6 +256,40 @@ public class ConfigMappingTests
         Assert.False(cfg.ToChopRegimeConfig().Enabled);
     }
 
+    [Fact]
+    public void ToEngineConfig_PreservesChopFields()
+    {
+        // Regression: AddSetup → BuildStrategyConfigFromEngine round-trip used to
+        // strip chop fields, so backtests ignored the user's chop config entirely.
+        var cfg = new StrategyConfig
+        {
+            UseChopFilter             = true,
+            ChopBlockMode             = ChopBlockMode.RestOfDay,
+            ChopMinVotes              = 3,
+            ChopUseRangeCompression   = false,
+            ChopCompressionRatio      = 0.65m,
+            ChopUseFlatVwap           = true,
+            ChopFlatSlopeThresholdPct = 0.08m,
+            ChopUseWeakDrive          = false,
+            ChopMinDriveRatio         = 0.40m,
+            ChopUseLowVolume          = true,
+            ChopMinVolumeRatio        = 0.85m,
+        };
+        var ec = cfg.ToEngineConfig();
+
+        Assert.True(ec.UseChopFilter);
+        Assert.Equal(ChopBlockMode.RestOfDay, ec.ChopBlockMode);
+        Assert.Equal(3,        ec.ChopMinVotes);
+        Assert.False(ec.ChopUseRangeCompression);
+        Assert.Equal(0.65m,    ec.ChopCompressionRatio);
+        Assert.True(ec.ChopUseFlatVwap);
+        Assert.Equal(0.08m,    ec.ChopFlatSlopeThresholdPct);
+        Assert.False(ec.ChopUseWeakDrive);
+        Assert.Equal(0.40m,    ec.ChopMinDriveRatio);
+        Assert.True(ec.ChopUseLowVolume);
+        Assert.Equal(0.85m,    ec.ChopMinVolumeRatio);
+    }
+
     // ── ToSetupConfigs tests ─────────────────────────────────────
 
     [Fact]

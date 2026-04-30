@@ -723,6 +723,17 @@ public class ComposableEngine
         UseDailyLossLimit = cfg.UseDailyLossLimit,
         MaxDailyLoss = cfg.MaxDailyLoss,
         DailyLossMode = cfg.DailyLossMode,
+        UseChopFilter             = cfg.UseChopFilter,
+        ChopBlockMode             = cfg.ChopBlockMode,
+        ChopMinVotes              = cfg.ChopMinVotes,
+        ChopUseRangeCompression   = cfg.ChopUseRangeCompression,
+        ChopCompressionRatio      = cfg.ChopCompressionRatio,
+        ChopUseFlatVwap           = cfg.ChopUseFlatVwap,
+        ChopFlatSlopeThresholdPct = cfg.ChopFlatSlopeThresholdPct,
+        ChopUseWeakDrive          = cfg.ChopUseWeakDrive,
+        ChopMinDriveRatio         = cfg.ChopMinDriveRatio,
+        ChopUseLowVolume          = cfg.ChopUseLowVolume,
+        ChopMinVolumeRatio        = cfg.ChopMinVolumeRatio,
     };
 
     /// <summary>Build an EngineConfig from a StrategyConfig (for Reconfigure path).</summary>
@@ -744,5 +755,16 @@ public class ComposableEngine
         RthStart = cfg.RthStart,
         RthEnd = cfg.RthEnd,
         ExitMinutesBefore = cfg.ExitMinutesBefore,
+        UseChopFilter             = cfg.UseChopFilter,
+        ChopBlockMode             = cfg.ChopBlockMode,
+        ChopMinVotes              = cfg.ChopMinVotes,
+        ChopUseRangeCompression   = cfg.ChopUseRangeCompression,
+        ChopCompressionRatio      = cfg.ChopCompressionRatio,
+        ChopUseFlatVwap           = cfg.ChopUseFlatVwap,
+        ChopFlatSlopeThresholdPct = cfg.ChopFlatSlopeThresholdPct,
+        ChopUseWeakDrive          = cfg.ChopUseWeakDrive,
+        ChopMinDriveRatio         = cfg.ChopMinDriveRatio,
+        ChopUseLowVolume          = cfg.ChopUseLowVolume,
+        ChopMinVolumeRatio        = cfg.ChopMinVolumeRatio,
     };
 }
