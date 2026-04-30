@@ -83,7 +83,7 @@ public class TickerGroupTests
         public void Disarm() { }
         public void ResetCutoff() { }
         public (int Hour, int Minute) GetCutoffForSession(string s) => (CutoffHour, CutoffMinute);
-        public bool IsEnabledForSession(string s) => true;
+        public virtual bool IsEnabledForSession(string s) => true;
         public void ResetSession()
         {
             OnBarCallCount = 0;
@@ -433,4 +433,71 @@ public class TickerGroupTests
 
     // NOTE: Opposing position guard tests removed — guard now uses BrokerEventHandler
     // (requires live broker context, not available in unit tests with FakeStrategy).
+
+    // ── SetActiveSessionId — strategy session-slot gating ────────
+    //
+    // Regression: a custom NY session starting at 06:00 ET (before the SessionEngine
+    // module's hardcoded NYOpenStart=09:30) was blocking every bar between 06:00 and
+    // 09:30 because IsEnabledForCurrentSession read the module clock instead of the
+    // user-configured active session. With SetActiveSessionId("NY") wired in by
+    // ComposableEngine.Reconfigure, dispatch must follow the user's session id.
+
+    private class SessionGatedFakeStrategy : FakeStrategy
+    {
+        public string AllowedSession { get; set; } = "NY";
+        public override bool IsEnabledForSession(string s) =>
+            string.Equals(s, AllowedSession, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProcessBarAsync_AtSixAmEt_BlockedByModuleClock_WhenActiveSessionUnset()
+    {
+        // 06:30 ET → SessionEngine module says "London" (LondonStart=03:00, LondonEnd=08:30).
+        // Strategy is enabled only for NY → blocked, OnBar must not fire.
+        var group = new TickerGroup("NQ", DefaultConfig());
+        var strat = new SessionGatedFakeStrategy { Id = "B", SetupId = SetupId.B, AllowedSession = "NY" };
+        group.AddStrategy(strat);
+
+        // 06:30 ET on a weekday → 10:30 UTC (EDT) — within "London" per module clock
+        var utc = new DateTime(2026, 4, 28, 10, 30, 0, DateTimeKind.Utc);
+        await group.ProcessBarAsync(MakeBar(utc, 100m, 101m, 99m, 100m));
+
+        Assert.Equal(0, strat.OnBarCallCount);
+    }
+
+    [Fact]
+    public async Task ProcessBarAsync_AtSixAmEt_DispatchesWhenActiveSessionIsNy()
+    {
+        // Same bar/time as above, but the engine has wired in the user's active session
+        // ("NY", because the user's RthStart is 06:00). OnBar must fire.
+        var group = new TickerGroup("NQ", DefaultConfig());
+        var strat = new SessionGatedFakeStrategy { Id = "B", SetupId = SetupId.B, AllowedSession = "NY" };
+        group.AddStrategy(strat);
+        group.SetActiveSessionId("NY");
+
+        var utc = new DateTime(2026, 4, 28, 10, 30, 0, DateTimeKind.Utc);
+        await group.ProcessBarAsync(MakeBar(utc, 100m, 101m, 99m, 100m));
+
+        Assert.Equal(1, strat.OnBarCallCount);
+    }
+
+    [Fact]
+    public async Task SetActiveSessionId_EmptyClearsOverride_FallsBackToModuleClock()
+    {
+        // Round-trip: set NY, then clear it. After clear, dispatch must again be gated
+        // by the module clock (which says "London" at 06:30) — so OnBar must not fire.
+        var group = new TickerGroup("NQ", DefaultConfig());
+        var strat = new SessionGatedFakeStrategy { Id = "B", SetupId = SetupId.B, AllowedSession = "NY" };
+        group.AddStrategy(strat);
+
+        group.SetActiveSessionId("NY");
+        var utc1 = new DateTime(2026, 4, 28, 10, 30, 0, DateTimeKind.Utc);
+        await group.ProcessBarAsync(MakeBar(utc1, 100m, 101m, 99m, 100m));
+        Assert.Equal(1, strat.OnBarCallCount);
+
+        group.SetActiveSessionId("");
+        var utc2 = new DateTime(2026, 4, 28, 10, 31, 0, DateTimeKind.Utc);
+        await group.ProcessBarAsync(MakeBar(utc2, 100m, 101m, 99m, 100m));
+        Assert.Equal(1, strat.OnBarCallCount); // unchanged — still blocked by module clock
+    }
 }

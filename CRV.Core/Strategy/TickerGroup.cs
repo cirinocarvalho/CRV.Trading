@@ -59,6 +59,13 @@ public class TickerGroup
 
     // ── Session tracking ─────────────────────────────────────────
     private DateTime _lastDate = DateTime.MinValue;
+    /// <summary>
+    /// User-configured active session id ("Asia"/"London"/"NY"), set by <see cref="ComposableEngine"/>
+    /// from the SessionManager. When non-empty, takes precedence over the SessionEngine module's
+    /// hardcoded clock for <see cref="IsEnabledForCurrentSession"/>. Empty = fall back to module clock
+    /// (live-mode bootstrap before any session reconfigure has happened).
+    /// </summary>
+    private string _activeSessionId = "";
 
     /// <summary>The group key (e.g. "NQ" for NQ/MNQ).</summary>
     public string TickerKey => _tickerKey;
@@ -760,9 +767,22 @@ public class TickerGroup
     }
 
     /// <summary>Check if a strategy is enabled for the current session.</summary>
+    /// <summary>
+    /// Set the engine-supplied active session id ("Asia"/"London"/"NY", or "" to clear).
+    /// Called by <see cref="ComposableEngine"/> on Reconfigure / SetIdle so strategy
+    /// session-slot gating follows the user's session config rather than the module's
+    /// hardcoded clock (which would otherwise block 06:00 NY ORBs until 09:30).
+    /// </summary>
+    public void SetActiveSessionId(string sessionId) => _activeSessionId = sessionId ?? "";
+
     private bool IsEnabledForCurrentSession(ISetupStrategy strategy)
     {
-        var sessionName = SessionTypeName(_sessionEngine.CurrentSession);
+        // Prefer the user-configured active session (from SessionManager). Fall back to
+        // the SessionEngine module clock only when no session has been wired in (e.g.
+        // live-mode bootstrap before the first Reconfigure).
+        var sessionName = !string.IsNullOrEmpty(_activeSessionId)
+            ? _activeSessionId
+            : SessionTypeName(_sessionEngine.CurrentSession);
         return strategy.IsEnabledForSession(sessionName);
     }
 
