@@ -43,6 +43,15 @@ public enum DailyLossMode
     Peak
 }
 
+/// <summary>How long a chop-regime block stays active once the detector flags chop.</summary>
+public enum ChopBlockMode
+{
+    /// <summary>Block only while the detector currently votes chop. Re-evaluated each bar.</summary>
+    UntilClear,
+    /// <summary>Once chop is detected during the session, block all entries for the rest of the trading day.</summary>
+    RestOfDay
+}
+
 /// <summary>All strategy inputs — shared by live engine and backtest engine.</summary>
 public class StrategyConfig
 {
@@ -95,6 +104,25 @@ public class StrategyConfig
     public bool    UseVwap         { get; set; } = true;
     public bool    UseOrbClose     { get; set; } = false;
     public bool    AllowBothSameBar{ get; set; } = false;
+
+    /// <summary>Master switch for the chop-regime filter. When true, entries are blocked while the detector flags chop.</summary>
+    public bool    UseChopFilter   { get; set; } = false;
+    /// <summary>UntilClear = block only while currently chop. RestOfDay = stay blocked for the rest of the trading day after first chop signal.</summary>
+    public ChopBlockMode ChopBlockMode { get; set; } = ChopBlockMode.UntilClear;
+    /// <summary>Minimum number of sub-filters that must vote "chop" for the regime to be flagged.</summary>
+    public int     ChopMinVotes              { get; set; } = 2;
+    public bool    ChopUseRangeCompression   { get; set; } = true;
+    /// <summary>OR range / ATR threshold; below this ratio the OR is considered compressed.</summary>
+    public decimal ChopCompressionRatio      { get; set; } = 0.70m;
+    public bool    ChopUseFlatVwap           { get; set; } = true;
+    /// <summary>VWAP slope (% of price) below which VWAP is considered flat.</summary>
+    public decimal ChopFlatSlopeThresholdPct { get; set; } = 0.05m;
+    public bool    ChopUseWeakDrive          { get; set; } = true;
+    /// <summary>|OR open→close| / OR height; below this the opening drive is considered weak.</summary>
+    public decimal ChopMinDriveRatio         { get; set; } = 0.50m;
+    public bool    ChopUseLowVolume          { get; set; } = true;
+    /// <summary>bar volume / SMA(volume); below this the bar is considered low-volume.</summary>
+    public decimal ChopMinVolumeRatio        { get; set; } = 1.00m;
 
     // ── Position Sizing ───────────────────────────────────────
     public int     Contracts       { get; set; } = 2;
@@ -400,6 +428,21 @@ public class StrategyConfig
 
     public StrategyConfig Clone() => (StrategyConfig)MemberwiseClone();
 
+    /// <summary>Build a <see cref="CRV.Core.Modules.ChopRegimeConfig"/> from the persisted Chop* fields.</summary>
+    public CRV.Core.Modules.ChopRegimeConfig ToChopRegimeConfig() => new()
+    {
+        Enabled                    = UseChopFilter,
+        MinVotesForChop            = ChopMinVotes,
+        F1_RangeCompressionEnabled = ChopUseRangeCompression,
+        F1_CompressionRatio        = ChopCompressionRatio,
+        F2_FlatVwapEnabled         = ChopUseFlatVwap,
+        F2_FlatSlopeThresholdPct   = ChopFlatSlopeThresholdPct,
+        F3_WeakDriveEnabled        = ChopUseWeakDrive,
+        F3_MinDriveRatio           = ChopMinDriveRatio,
+        F4_LowVolumeEnabled        = ChopUseLowVolume,
+        F4_MinVolumeRatio          = ChopMinVolumeRatio,
+    };
+
     /// <summary>Extract global engine-level fields into an EngineConfig.</summary>
     public EngineConfig ToEngineConfig() => new()
     {
@@ -420,6 +463,8 @@ public class StrategyConfig
         AtrFilterPct       = AtrFilterPct,
         CommissionPerSide  = CommissionPerSide,
         AllowBothSameBar   = AllowBothSameBar,
+        UseChopFilter      = UseChopFilter,
+        ChopBlockMode      = ChopBlockMode,
         Broker             = Broker,
         ExecBroker         = ExecBroker,
         AccountId          = AccountId,

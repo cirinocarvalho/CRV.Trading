@@ -56,6 +56,9 @@ public class TickerGroup
     private readonly OpeningDriveDetector _openingDrive;
     private readonly TrendDayFilter _trendDay;
     private readonly FalseBreakoutDetector _falseBreakout;
+    private readonly ChopRegimeDetector _chopRegime;
+    /// <summary>Sticky flag for ChopBlockMode.RestOfDay — set when chop is first detected, cleared on session boundary.</summary>
+    private bool _chopBlockedToday;
 
     // ── Session tracking ─────────────────────────────────────────
     private DateTime _lastDate = DateTime.MinValue;
@@ -115,6 +118,7 @@ public class TickerGroup
         _openingDrive = new OpeningDriveDetector(modCfg);
         _trendDay = new TrendDayFilter(modCfg);
         _falseBreakout = new FalseBreakoutDetector(modCfg);
+        _chopRegime = new ChopRegimeDetector(cfg.ToChopRegimeConfig(), _orb, _vwapModel, _atr);
     }
 
     // ── Strategy registration ────────────────────────────────────
@@ -156,6 +160,8 @@ public class TickerGroup
                 _openingDrive.NewSession(tradingDate);
                 _trendDay.NewSession(tradingDate);
                 _falseBreakout.NewSession(tradingDate);
+                _chopRegime.NewSession(tradingDate);
+                _chopBlockedToday = false;
                 _orbAtrRatio = 0;
             }
 
@@ -235,6 +241,14 @@ public class TickerGroup
                     _sessionEngine.SessionHigh,
                     _sessionEngine.SessionLow < decimal.MaxValue ? _sessionEngine.SessionLow : bar.Low,
                     _orb.OrbMid);
+            }
+
+            // Chop regime — only on confirmed bars (driven by VWAP/ATR/Volume which only update on close)
+            if (bar.IsConfirmed)
+            {
+                _chopRegime.OnBar(bar, tradingDate);
+                if (_cfg.UseChopFilter && _chopRegime.LastResult.IsChop)
+                    _chopBlockedToday = true;
             }
 
             // Build state snapshots once for all strategies
@@ -319,6 +333,11 @@ public class TickerGroup
 
                     // EMA21 directional filter: long only above EMA, short only below
                     if (IsEmaFiltered(strategy, isLong, indState.Ema21))
+                    {
+                        strategy.RevertEntry();
+                    }
+                    // Chop regime filter: block entries when the market is chopping
+                    else if (IsChopBlocked())
                     {
                         strategy.RevertEntry();
                     }
@@ -407,6 +426,11 @@ public class TickerGroup
 
                     // EMA21 directional filter: long only above EMA, short only below
                     if (IsEmaFiltered(strategy, isLong, indState.Ema21))
+                    {
+                        strategy.RevertEntry();
+                    }
+                    // Chop regime filter: block entries when the market is chopping
+                    else if (IsChopBlocked())
                     {
                         strategy.RevertEntry();
                     }
@@ -603,6 +627,16 @@ public class TickerGroup
         SweepScore = ComputeSweepScore(),
         VwapDevScore = ComputeVwapDevScore(),
         SignalStrength = ComputeSignalStrength(),
+        // Chop Regime
+        ChopFilterEnabled = _cfg.UseChopFilter,
+        ChopIsActive      = _chopRegime.LastResult.IsChop,
+        ChopBlocked       = IsChopBlocked(),
+        ChopVotes         = _chopRegime.LastResult.Votes,
+        ChopVotesRequired = _chopRegime.LastResult.VotesRequired,
+        ChopRangeCompression = _chopRegime.LastResult.RangeCompression,
+        ChopFlatVwap         = _chopRegime.LastResult.FlatVwap,
+        ChopWeakDrive        = _chopRegime.LastResult.WeakDrive,
+        ChopLowVolume        = _chopRegime.LastResult.LowVolume,
         };
     }
 
@@ -728,6 +762,19 @@ public class TickerGroup
         if (!strategy.UseEmaFilter || ema21 == 0 || strategy.PendingEntry == null) return false;
         decimal entryPrice = strategy.PendingEntry.Entry;
         return isLong ? entryPrice <= ema21 : entryPrice >= ema21;
+    }
+
+    /// <summary>
+    /// Returns true when the chop-regime filter is enabled and the current state blocks entries.
+    /// UntilClear: blocks while the detector currently votes chop.
+    /// RestOfDay:  blocks for the rest of the trading day after the first chop signal (sticky).
+    /// </summary>
+    private bool IsChopBlocked()
+    {
+        if (!_cfg.UseChopFilter) return false;
+        return _cfg.ChopBlockMode == ChopBlockMode.RestOfDay
+            ? _chopBlockedToday
+            : _chopRegime.LastResult.IsChop;
     }
 
     /// <summary>

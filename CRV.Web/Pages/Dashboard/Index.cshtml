@@ -229,6 +229,36 @@
                                 <span class="small ms-2" id="stat-ema21-pos">—</span>
                             </td>
                         </tr>
+                        <tr id="row-chop-summary" style="cursor:pointer" onclick="toggleChopDetails()" title="Click to show per-filter breakdown">
+                            <td class="text-muted">
+                                Chop
+                                <i class="bi bi-chevron-down ms-1" id="chop-chevron" style="font-size:.7rem;transition:transform .15s"></i>
+                            </td>
+                            <td>
+                                <span class="badge" id="stat-chop-badge">OFF</span>
+                                <span class="small text-muted ms-2" id="stat-chop-votes">—</span>
+                            </td>
+                        </tr>
+                        <tr id="row-chop-details" style="display:none">
+                            <td colspan="2" class="px-3 py-2" style="background:rgba(255,255,255,0.03)">
+                                <table class="table table-sm mb-0" style="font-size:.8rem">
+                                    <thead>
+                                        <tr class="text-muted">
+                                            <th class="border-0 fw-normal">Filter</th>
+                                            <th class="border-0 fw-normal text-center" style="width:55px">Vote</th>
+                                            <th class="border-0 fw-normal text-end">Value</th>
+                                            <th class="border-0 fw-normal text-end text-muted">Threshold</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="chop-filter-rows">
+                                        <tr data-filter="rangeCompression"><td>Range Compression</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
+                                        <tr data-filter="flatVwap"><td>Flat VWAP</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
+                                        <tr data-filter="weakDrive"><td>Weak Drive</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
+                                        <tr data-filter="lowVolume"><td>Low Volume</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -1077,6 +1107,72 @@ function _applyGroupContext(g) {
         setText("stat-orb-atr-ratio", "vs ORB " + g.orbAtrRatio.toFixed(2) + "x");
     else
         setText("stat-orb-atr-ratio", "vs ORB —");
+
+    // ── Chop Regime ───────────────────────────────────────
+    var chopBadge = document.getElementById("stat-chop-badge");
+    if (chopBadge) {
+        if (!g.chopFilterEnabled) {
+            chopBadge.textContent = "OFF";
+            chopBadge.className   = "badge bg-secondary";
+        } else if (g.chopBlocked) {
+            // Sticky RestOfDay block OR currently chop
+            chopBadge.textContent = g.chopIsActive ? "CHOP" : "BLOCKED";
+            chopBadge.className   = "badge bg-danger";
+        } else {
+            chopBadge.textContent = "CLEAR";
+            chopBadge.className   = "badge bg-success";
+        }
+    }
+    setText("stat-chop-votes",
+        g.chopFilterEnabled && g.chopVotesRequired > 0
+            ? "votes " + (g.chopVotes ?? 0) + "/" + g.chopVotesRequired
+            : "—");
+
+    // Per-filter breakdown (expanded view)
+    updateChopFilterRow("rangeCompression", g.chopRangeCompression, "x", false);
+    updateChopFilterRow("flatVwap",         g.chopFlatVwap,         "%", true);
+    updateChopFilterRow("weakDrive",        g.chopWeakDrive,        "",  false);
+    updateChopFilterRow("lowVolume",        g.chopLowVolume,        "x", false);
+}
+
+function updateChopFilterRow(filterKey, diag, suffix, isPct) {
+    var row = document.querySelector('#chop-filter-rows tr[data-filter="' + filterKey + '"]');
+    if (!row || !diag) return;
+    var voteCell  = row.querySelector('[data-vote]');
+    var valueCell = row.querySelector('[data-value]');
+    var threshCell = row.querySelector('[data-thresh]');
+
+    if (!diag.active) {
+        voteCell.textContent  = "—";
+        voteCell.className    = "text-center text-muted";
+        valueCell.textContent = "—";
+        threshCell.textContent = "—";
+        return;
+    }
+    if (diag.voted) {
+        voteCell.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+        voteCell.className = "text-center text-danger";
+    } else {
+        voteCell.innerHTML = '<i class="bi bi-dash-circle"></i>';
+        voteCell.className = "text-center text-success";
+    }
+    var format = function(v) {
+        var n = Number(v);
+        if (!isFinite(n)) return "—";
+        var precision = isPct ? 3 : 2;
+        return n.toFixed(precision) + (suffix || "");
+    };
+    valueCell.textContent  = format(diag.value);
+    threshCell.textContent = "< " + format(diag.threshold);
+}
+
+function toggleChopDetails() {
+    var row = document.getElementById("row-chop-details");
+    var chevron = document.getElementById("chop-chevron");
+    if (!row) return;
+    var isHidden = row.style.display === "none";
+    row.style.display = isHidden ? "" : "none";
+    if (chevron) chevron.style.transform = isHidden ? "rotate(180deg)" : "";
 }
 
 // ── Dynamic setup card creation ───────────────────────────────

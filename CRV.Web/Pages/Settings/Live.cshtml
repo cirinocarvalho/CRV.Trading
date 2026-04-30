@@ -133,11 +133,11 @@
 <!-- ── Global Settings ────────────────────────────────────── -->
 <!-- ════════════════════════════════════════════════════════════ -->
 <div class="card bg-dark border-secondary mb-3">
-  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#globalSettingsBody" aria-expanded="true" aria-controls="globalSettingsBody">
+  <div class="card-header d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#globalSettingsBody" aria-expanded="false" aria-controls="globalSettingsBody">
     <i class="bi bi-sliders me-2 text-warning"></i>
     <strong>Global Settings <i class="bi bi-chevron-down ms-2 small"></i></strong>
   </div>
-  <div class="card-body collapse show" id="globalSettingsBody">
+  <div class="card-body collapse" id="globalSettingsBody">
 <div class="row g-3 mb-3 align-items-stretch">
 
 <!-- ── Instrument ──────────────────────────────────────────── -->
@@ -351,6 +351,75 @@
                 <input name="Config.CommissionPerSide" type="number" step="0.01" value="@Model.Config.CommissionPerSide" class="form-control form-control-sm" />
             </div>
         </div>
+        <hr class="my-2" />
+        <div class="small fw-semibold text-muted mb-1">Chop Filter Settings</div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small">Block Mode</label>
+                @{ var cbm = Model.Config.ChopBlockMode; }
+                <select name="Config.ChopBlockMode" class="form-select form-select-sm">
+                    <option value="UntilClear" selected="@(cbm == CRV.Core.Models.ChopBlockMode.UntilClear)">Until Clear</option>
+                    <option value="RestOfDay"  selected="@(cbm == CRV.Core.Models.ChopBlockMode.RestOfDay)">Rest of Day</option>
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small">Min Votes (1–4)</label>
+                <input name="Config.ChopMinVotes" type="number" min="1" max="4" step="1" value="@Model.Config.ChopMinVotes" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="Config.ChopUseRangeCompression" value="true" id="chk-chop-rc" @(Model.Config.ChopUseRangeCompression ? "checked" : "") />
+                    <input type="hidden" name="Config.ChopUseRangeCompression" value="false" />
+                    <label class="form-check-label small" for="chk-chop-rc">Range Compression</label>
+                </div>
+            </div>
+            <div class="col-9">
+                <label class="form-label small">OR/ATR Ratio &lt;</label>
+                <input name="Config.ChopCompressionRatio" type="number" step="0.01" min="0" value="@Model.Config.ChopCompressionRatio" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="Config.ChopUseFlatVwap" value="true" id="chk-chop-fv" @(Model.Config.ChopUseFlatVwap ? "checked" : "") />
+                    <input type="hidden" name="Config.ChopUseFlatVwap" value="false" />
+                    <label class="form-check-label small" for="chk-chop-fv">Flat VWAP</label>
+                </div>
+            </div>
+            <div class="col-9">
+                <label class="form-label small">Slope (% of price) &lt;</label>
+                <input name="Config.ChopFlatSlopeThresholdPct" type="number" step="0.01" min="0" value="@Model.Config.ChopFlatSlopeThresholdPct" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="Config.ChopUseWeakDrive" value="true" id="chk-chop-wd" @(Model.Config.ChopUseWeakDrive ? "checked" : "") />
+                    <input type="hidden" name="Config.ChopUseWeakDrive" value="false" />
+                    <label class="form-check-label small" for="chk-chop-wd">Weak Drive</label>
+                </div>
+            </div>
+            <div class="col-9">
+                <label class="form-label small">Drive Ratio &lt;</label>
+                <input name="Config.ChopMinDriveRatio" type="number" step="0.01" min="0" value="@Model.Config.ChopMinDriveRatio" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="Config.ChopUseLowVolume" value="true" id="chk-chop-lv" @(Model.Config.ChopUseLowVolume ? "checked" : "") />
+                    <input type="hidden" name="Config.ChopUseLowVolume" value="false" />
+                    <label class="form-check-label small" for="chk-chop-lv">Low Volume</label>
+                </div>
+            </div>
+            <div class="col-9">
+                <label class="form-label small">Volume Ratio &lt;</label>
+                <input name="Config.ChopMinVolumeRatio" type="number" step="0.01" min="0" value="@Model.Config.ChopMinVolumeRatio" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <hr class="my-2" />
         <div class="mt-2 d-flex flex-column gap-2">
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="Config.UseDailyLossLimit" value="true" id="chk-dd" @(Model.Config.UseDailyLossLimit ? "checked" : "") />
@@ -361,6 +430,11 @@
                 <input class="form-check-input" type="checkbox" name="Config.UseTimeFilter" value="true" id="chk-time" @(Model.Config.UseTimeFilter ? "checked" : "") />
                 <input type="hidden" name="Config.UseTimeFilter" value="false" />
                 <label class="form-check-label small" for="chk-time">Time Filter (cutoff)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="Config.UseChopFilter" value="true" id="chk-chop" @(Model.Config.UseChopFilter ? "checked" : "") />
+                <input type="hidden" name="Config.UseChopFilter" value="false" />
+                <label class="form-check-label small" for="chk-chop">Chop Regime Filter</label>
             </div>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="Config.AllowBothSameBar" value="true" id="chk-both" @(Model.Config.AllowBothSameBar ? "checked" : "") />

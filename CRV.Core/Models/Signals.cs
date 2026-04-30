@@ -1,3 +1,5 @@
+using CRV.Core.Modules;
+
 namespace CRV.Core.Models;
 
 // ── Enums ────────────────────────────────────────────────────
@@ -364,6 +366,18 @@ public class TickerGroupSnapshot
     public decimal SweepScore      { get; set; }
     public decimal VwapDevScore    { get; set; }
     public decimal SignalStrength  { get; set; }
+
+    // Chop Regime
+    public bool    ChopFilterEnabled  { get; set; }
+    public bool    ChopIsActive       { get; set; }   // detector currently votes chop
+    public bool    ChopBlocked        { get; set; }   // entries blocked (factors in RestOfDay sticky)
+    public int     ChopVotes          { get; set; }
+    public int     ChopVotesRequired  { get; set; }
+    // Per-filter diagnostics (current bar)
+    public ChopFilterDiagnostic ChopRangeCompression { get; set; }
+    public ChopFilterDiagnostic ChopFlatVwap         { get; set; }
+    public ChopFilterDiagnostic ChopWeakDrive        { get; set; }
+    public ChopFilterDiagnostic ChopLowVolume        { get; set; }
 }
 
 public class AlertEvent

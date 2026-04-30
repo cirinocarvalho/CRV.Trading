@@ -3,6 +3,7 @@ using System;
 using CRV.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CRV.Core.Migrations
 {
     [DbContext(typeof(TradingDbContext))]
-    partial class TradingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260430193025_AddChopFilter")]
+    partial class AddChopFilter
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.3");
@@ -325,33 +328,6 @@ namespace CRV.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("ChopBlockMode")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal>("ChopCompressionRatio")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("ChopFlatSlopeThresholdPct")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("ChopMinDriveRatio")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("ChopMinVolumeRatio")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ChopMinVotes")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ChopUseFlatVwap")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ChopUseLowVolume")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ChopUseRangeCompression")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ChopUseWeakDrive")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("CloseAtRthClose")

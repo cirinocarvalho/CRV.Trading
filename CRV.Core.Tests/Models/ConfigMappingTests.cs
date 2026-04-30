@@ -216,6 +216,46 @@ public class ConfigMappingTests
         Assert.Equal(cfg.FBMaxTrendDayScore,         ec.FBMaxTrendDayScore);
     }
 
+    [Fact]
+    public void ToChopRegimeConfig_MapsAllChopFields()
+    {
+        var cfg = new StrategyConfig
+        {
+            UseChopFilter             = true,
+            ChopMinVotes              = 3,
+            ChopUseRangeCompression   = false,
+            ChopCompressionRatio      = 0.65m,
+            ChopUseFlatVwap           = true,
+            ChopFlatSlopeThresholdPct = 0.08m,
+            ChopUseWeakDrive          = false,
+            ChopMinDriveRatio         = 0.40m,
+            ChopUseLowVolume          = true,
+            ChopMinVolumeRatio        = 0.85m,
+        };
+
+        var c = cfg.ToChopRegimeConfig();
+
+        Assert.True(c.Enabled);
+        // MinVotes is clamped by Normalize() when used; raw mapping should preserve it.
+        // (Detector calls Normalize() internally.)
+        Assert.Equal(3,         c.MinVotesForChop);
+        Assert.False(c.F1_RangeCompressionEnabled);
+        Assert.Equal(0.65m,     c.F1_CompressionRatio);
+        Assert.True(c.F2_FlatVwapEnabled);
+        Assert.Equal(0.08m,     c.F2_FlatSlopeThresholdPct);
+        Assert.False(c.F3_WeakDriveEnabled);
+        Assert.Equal(0.40m,     c.F3_MinDriveRatio);
+        Assert.True(c.F4_LowVolumeEnabled);
+        Assert.Equal(0.85m,     c.F4_MinVolumeRatio);
+    }
+
+    [Fact]
+    public void ToChopRegimeConfig_DisabledWhenFilterOff()
+    {
+        var cfg = new StrategyConfig { UseChopFilter = false };
+        Assert.False(cfg.ToChopRegimeConfig().Enabled);
+    }
+
     // ── ToSetupConfigs tests ─────────────────────────────────────
 
     [Fact]

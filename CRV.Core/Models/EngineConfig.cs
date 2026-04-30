@@ -41,6 +41,10 @@ public class EngineConfig
     // ── Cross-Setup Coordination ────────────────────────────────
     public bool    AllowBothSameBar   { get; set; } = false;
 
+    // ── Chop Regime Filter ──────────────────────────────────────
+    public bool          UseChopFilter { get; set; } = false;
+    public ChopBlockMode ChopBlockMode { get; set; } = ChopBlockMode.UntilClear;
+
     // ── Broker ──────────────────────────────────────────────────
     public string  Broker             { get; set; } = "Schwab";
     public string? ExecBroker         { get; set; }

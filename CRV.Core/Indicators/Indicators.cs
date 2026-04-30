@@ -74,6 +74,39 @@ public class Ema21Indicator
     public void Reset() { _ema = 0; _sum = 0; _count = 0; }
 }
 
+// ── Volume SMA — rolling average of bar volume ────────────────
+public class VolumeSmaIndicator
+{
+    private readonly Queue<long> _window = new();
+    private readonly int _period;
+    private long _sum;
+
+    public VolumeSmaIndicator(int period = 20)
+    {
+        if (period <= 0) throw new ArgumentOutOfRangeException(nameof(period));
+        _period = period;
+    }
+
+    public bool    IsReady => _window.Count >= _period;
+    public bool    HasValue => _window.Count > 0;
+    public decimal Value   => _window.Count > 0 ? (decimal)_sum / _window.Count : 0m;
+
+    public decimal Update(long volume)
+    {
+        _window.Enqueue(volume);
+        _sum += volume;
+        if (_window.Count > _period)
+            _sum -= _window.Dequeue();
+        return Value;
+    }
+
+    public void Reset()
+    {
+        _window.Clear();
+        _sum = 0;
+    }
+}
+
 // ── VWAP — resets per trading session ─────────────────────────
 public class VwapIndicator
 {
@@ -126,6 +159,8 @@ public class OrbCalculator
 
     private decimal  _high;
     private decimal  _low = decimal.MaxValue;
+    private decimal  _open;
+    private decimal  _close;
     private bool     _active;
     private bool     _isSet;
     private DateTime _lastTradingDate = DateTime.MinValue;
@@ -143,6 +178,8 @@ public class OrbCalculator
     public decimal OrbLow      => _low == decimal.MaxValue ? 0 : _low;
     public decimal OrbMid      => (_high + OrbLow) / 2m;
     public decimal OrbRange    => _high - OrbLow;
+    public decimal OrbOpen     => _open;
+    public decimal OrbClose    => _close;
     public bool    IsSet       => _isSet;
     public bool    OrbBullClose => _closeRelPct >= 0.70m;
     public bool    OrbBearClose => _closeRelPct <= 0.30m;
@@ -188,6 +225,8 @@ public class OrbCalculator
     {
         _high             = 0;
         _low              = decimal.MaxValue;
+        _open             = 0;
+        _close            = 0;
         _active           = false;
         _isSet            = false;
         _closeRelPct      = 0;
@@ -209,6 +248,7 @@ public class OrbCalculator
         {
             _lastTradingDate = tradingDate;
             _high = 0; _low = decimal.MaxValue;
+            _open = 0; _close = 0;
             _active = false; _isSet = false; _closeRelPct = 0;
         }
 
@@ -227,8 +267,18 @@ public class OrbCalculator
             if (_isSet) { _isSet = false; _active = true; }
 
             _active = true;
-            if (_high == 0) { _high = bar.High; _low = bar.Low; }
-            else { _high = Math.Max(_high, bar.High); _low = Math.Min(_low, bar.Low); }
+            if (_high == 0)
+            {
+                _high = bar.High;
+                _low  = bar.Low;
+                _open = bar.Open;
+            }
+            else
+            {
+                _high = Math.Max(_high, bar.High);
+                _low  = Math.Min(_low, bar.Low);
+            }
+            _close = bar.Close;
         }
         else if (_active && !_isSet && time >= _orbEnd)
         {
