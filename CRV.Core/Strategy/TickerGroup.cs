@@ -486,13 +486,71 @@ public class TickerGroup
     /// </summary>
     public void OnSessionBoundary(SessionId newSession)
     {
-        if (newSession == SessionId.Asia)
-            _falseBreakout.OnSessionStart(_sessionEngine.PDH, _sessionEngine.PDL);
-        else if (newSession == SessionId.London)
-            _falseBreakout.OnSessionStart(_sessionEngine.AsiaHigh, _sessionEngine.AsiaLow);
-        else if (newSession == SessionId.NY)
-            _falseBreakout.OnSessionStart(_sessionEngine.LondonHigh, _sessionEngine.LondonLow);
+        var (high, low) = ResolveFakeoutReference(newSession);
+        _falseBreakout.OnSessionStart(high, low);
     }
+
+    /// <summary>
+    /// Resolve which prior-session range to use as the false-breakout reference.
+    /// If a registered Setup D has an explicit <see cref="FakeoutSession"/> choice
+    /// (anything other than <c>Auto</c>), use it. Otherwise fall back to the default
+    /// chain: Asia start → PDH/PDL, London start → Asia, NY start → London.
+    /// First non-Auto Setup D wins (groups share one tracker).
+    /// </summary>
+    private (decimal high, decimal low) ResolveFakeoutReference(SessionId newSession)
+    {
+        FakeoutSession? choice = null;
+        foreach (var s in _strategies)
+        {
+            if (s is SessionFakeoutStrategy sf && sf.FakeoutReferenceSession != FakeoutSession.Auto)
+            {
+                choice = sf.FakeoutReferenceSession;
+                break;
+            }
+        }
+        return ResolveFakeoutReference(
+            newSession, choice,
+            _sessionEngine.PDH,        _sessionEngine.PDL,
+            _sessionEngine.AsiaHigh,   _sessionEngine.AsiaLow,
+            _sessionEngine.LondonHigh, _sessionEngine.LondonLow);
+    }
+
+    /// <summary>
+    /// Pure resolver: given the new-session id, an optional explicit fakeout-session choice
+    /// (null = use default chain), and the four session-range values, returns the (high, low)
+    /// to seed into <see cref="FalseBreakoutDetector.SessionRangeTracker"/>. Exposed as
+    /// internal for unit testing.
+    /// </summary>
+    internal static (decimal high, decimal low) ResolveFakeoutReference(
+        SessionId newSession, FakeoutSession? choice,
+        decimal pdh, decimal pdl,
+        decimal asiaHigh, decimal asiaLow,
+        decimal londonHigh, decimal londonLow)
+    {
+        if (choice is FakeoutSession c && c != FakeoutSession.Auto)
+        {
+            return c switch
+            {
+                FakeoutSession.PreviousDayNY => (pdh,        pdl),
+                FakeoutSession.Asia          => (asiaHigh,   asiaLow),
+                FakeoutSession.London        => (londonHigh, londonLow),
+                _ => DefaultChain(newSession, pdh, pdl, asiaHigh, asiaLow, londonHigh, londonLow)
+            };
+        }
+        return DefaultChain(newSession, pdh, pdl, asiaHigh, asiaLow, londonHigh, londonLow);
+    }
+
+    private static (decimal high, decimal low) DefaultChain(
+        SessionId newSession,
+        decimal pdh, decimal pdl,
+        decimal asiaHigh, decimal asiaLow,
+        decimal londonHigh, decimal londonLow) => newSession switch
+    {
+        SessionId.Asia   => (pdh,        pdl),
+        SessionId.London => (asiaHigh,   asiaLow),
+        SessionId.NY     => (londonHigh, londonLow),
+        _                => (0m, 0m)
+    };
 
     // ── Reset ────────────────────────────────────────────────────
 

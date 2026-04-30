@@ -61,6 +61,9 @@ public class StrategySetupConfig
     /// <summary>When true, this setup is exempt from the global chop-regime filter — entries fire even when chop is flagged.</summary>
     public bool BypassChopFilter { get; set; }
 
+    /// <summary>(Setup D only) Which prior-session range to fade. Auto = default chain.</summary>
+    public FakeoutSession FakeoutReferenceSession { get; set; } = FakeoutSession.Auto;
+
     // ── EMA21 strategy parameters (ignored by ORB strategies) ─────
     /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
     public int SlopeLen { get; set; } = 5;

@@ -1287,6 +1287,12 @@ function renderBasket() {
                 _bCheck(entry.Id, 'UseVwap', cfg.UseVwap !== false, 'VWAP') +
                 _bCheck(entry.Id, 'UseEmaFilter', cfg.UseEmaFilter === true, 'EMA Filter') +
                 _bCheck(entry.Id, 'BypassChopFilter', cfg.BypassChopFilter === true, 'Bypass Chop') +
+                (entry.StrategyType === 3 ? _bSelect(entry.Id, 'FakeoutReferenceSession', cfg.FakeoutReferenceSession || 0, 130, 'Fade Session', [
+                    { value: 0, text: 'Auto (chain)' },
+                    { value: 1, text: 'Previous NY' },
+                    { value: 2, text: 'Asia' },
+                    { value: 3, text: 'London' }
+                ]) : '') +
                 (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +

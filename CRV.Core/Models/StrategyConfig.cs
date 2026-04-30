@@ -43,6 +43,20 @@ public enum DailyLossMode
     Peak
 }
 
+/// <summary>Which prior-session range Setup D fades. <c>Auto</c> uses the
+/// default chain (Asia start fades PDH/PDL, London start fades Asia, NY start fades London).</summary>
+public enum FakeoutSession
+{
+    /// <summary>Default chain — fade whichever session just ended.</summary>
+    Auto,
+    /// <summary>Fade the previous trading day's NY range (PDH/PDL).</summary>
+    PreviousDayNY,
+    /// <summary>Fade the Asia session range.</summary>
+    Asia,
+    /// <summary>Fade the London session range.</summary>
+    London
+}
+
 /// <summary>How long a chop-regime block stays active once the detector flags chop.</summary>
 public enum ChopBlockMode
 {
@@ -605,6 +619,10 @@ public class StrategyConfig
         SessionSlots = b.Sessions,
         // EMA filter (any strategy)
         UseEmaFilter = b.Config.UseEmaFilter,
+        // Chop filter opt-out (any strategy)
+        BypassChopFilter = b.Config.BypassChopFilter,
+        // Setup-D: which prior-session range to fade (Auto = default chain)
+        FakeoutReferenceSession = b.Config.FakeoutReferenceSession,
         // EMA21-specific
         SlopeLen = b.Config.SlopeLen,
         AtrTouchMult = b.Config.AtrTouchMult,

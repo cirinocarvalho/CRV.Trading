@@ -107,6 +107,52 @@ public class TickerGroupTests
 
     // ── GetGroupKey tests ─────────────────────────────────────────
 
+    // ── Fakeout reference resolution ─────────────────────────────
+
+    [Fact]
+    public void FakeoutReference_Auto_ChainsByNewSession()
+    {
+        // Asia start → fades previous day NY (PDH/PDL)
+        var (h, l) = TickerGroup.ResolveFakeoutReference(
+            SessionId.Asia, choice: null,
+            pdh: 100m, pdl: 90m,
+            asiaHigh: 200m, asiaLow: 190m,
+            londonHigh: 300m, londonLow: 290m);
+        Assert.Equal(100m, h);
+        Assert.Equal(90m,  l);
+
+        // London start → fades Asia
+        (h, l) = TickerGroup.ResolveFakeoutReference(
+            SessionId.London, FakeoutSession.Auto,
+            100m, 90m, 200m, 190m, 300m, 290m);
+        Assert.Equal(200m, h);
+        Assert.Equal(190m, l);
+
+        // NY start → fades London
+        (h, l) = TickerGroup.ResolveFakeoutReference(
+            SessionId.NY, FakeoutSession.Auto,
+            100m, 90m, 200m, 190m, 300m, 290m);
+        Assert.Equal(300m, h);
+        Assert.Equal(290m, l);
+    }
+
+    [Theory]
+    [InlineData(FakeoutSession.PreviousDayNY, 100, 90)]
+    [InlineData(FakeoutSession.Asia,          200, 190)]
+    [InlineData(FakeoutSession.London,        300, 290)]
+    public void FakeoutReference_ExplicitChoice_OverridesChain(
+        FakeoutSession choice, decimal expectedHigh, decimal expectedLow)
+    {
+        // Even on NY-session start (which would default to London), explicit choice wins.
+        var (h, l) = TickerGroup.ResolveFakeoutReference(
+            SessionId.NY, choice,
+            pdh: 100m, pdl: 90m,
+            asiaHigh: 200m, asiaLow: 190m,
+            londonHigh: 300m, londonLow: 290m);
+        Assert.Equal(expectedHigh, h);
+        Assert.Equal(expectedLow,  l);
+    }
+
     [Theory]
     [InlineData("NQ", "NQ")]
     [InlineData("NQH2026", "NQ")]

@@ -290,6 +290,33 @@ public class ConfigMappingTests
         Assert.Equal(0.85m,    ec.ChopMinVolumeRatio);
     }
 
+    [Fact]
+    public void ToSetupConfigs_FromBasket_PropagatesBypassChopAndFakeoutSession()
+    {
+        // Regression: ToSetupConfig(BasketEntry) used to silently drop BypassChopFilter
+        // and FakeoutReferenceSession, so per-setup chop opt-out and Setup-D fade-session
+        // choice never reached the strategy when configured via the basket editor.
+        var basket = """
+        [{
+          "Id":"d-mnq-1",
+          "Enabled":true,
+          "Label":"D - SessionFakeout",
+          "StrategyType":3,
+          "Ticker":"/MNQM26",
+          "Config":{
+            "BypassChopFilter":true,
+            "FakeoutReferenceSession":2
+          }
+        }]
+        """;
+        var cfg = new StrategyConfig { BasketJson = basket };
+        var setups = cfg.ToSetupConfigs();
+
+        Assert.Single(setups);
+        Assert.True(setups[0].BypassChopFilter);
+        Assert.Equal(FakeoutSession.Asia, setups[0].FakeoutReferenceSession);
+    }
+
     // ── ToSetupConfigs tests ─────────────────────────────────────
 
     [Fact]

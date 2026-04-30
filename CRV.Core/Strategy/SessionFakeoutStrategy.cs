@@ -64,6 +64,8 @@ public class SessionFakeoutStrategy : ISetupStrategy
     public TimeOnly     OrbEnd       => _cfg.OrbEnd;
     public bool         UseEmaFilter => _cfg.UseEmaFilter;
     public bool         BypassChopFilter => _cfg.BypassChopFilter;
+    /// <summary>Which prior-session range this setup fades (Auto = default chain).</summary>
+    public FakeoutSession FakeoutReferenceSession => _cfg.FakeoutReferenceSession;
     public bool         IsActive     => _inTrade;
     public bool         IsArmed      => _state == 1 || _state == -1;
     private bool        _inTrade;
