@@ -60,6 +60,7 @@ public class BrokerEventHandlerTests
         public TimeOnly OrbStart => new(9, 30);
         public TimeOnly OrbEnd   => new(10, 0);
         public bool UseEmaFilter => false;
+        public bool BypassChopFilter => false;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
         public void OnBar(Bar b, OrbState o, IndicatorState i, ModuleState m) { }

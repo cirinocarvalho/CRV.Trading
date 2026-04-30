@@ -20,7 +20,7 @@ public record StrategySignals(
 public class TickerGroup
 {
     private readonly string _tickerKey;
-    private readonly StrategyConfig _cfg;
+    private StrategyConfig _cfg;   // mutable so Reconfigure() can swap in a fresh config at runtime
     private readonly List<ISetupStrategy> _strategies = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _enteredThisBar;
@@ -337,7 +337,8 @@ public class TickerGroup
                         strategy.RevertEntry();
                     }
                     // Chop regime filter: block entries when the market is chopping
-                    else if (IsChopBlocked())
+                    // (per-setup BypassChopFilter opts the strategy out of this filter)
+                    else if (!strategy.BypassChopFilter && IsChopBlocked())
                     {
                         strategy.RevertEntry();
                     }
@@ -430,7 +431,8 @@ public class TickerGroup
                         strategy.RevertEntry();
                     }
                     // Chop regime filter: block entries when the market is chopping
-                    else if (IsChopBlocked())
+                    // (per-setup BypassChopFilter opts the strategy out of this filter)
+                    else if (!strategy.BypassChopFilter && IsChopBlocked())
                     {
                         strategy.RevertEntry();
                     }
@@ -692,6 +694,18 @@ public class TickerGroup
             SavedAtUtc  = DateTime.UtcNow,
         };
         return true;
+    }
+
+    /// <summary>
+    /// Hot-reload the global StrategyConfig without resetting state. Updates <c>_cfg</c>
+    /// (so toggles like <c>UseChopFilter</c>, <c>AllowBothSameBar</c>, <c>ChopBlockMode</c>
+    /// reflect the new value on subsequent reads) and reconfigures the chop detector.
+    /// Does NOT reset session/daily state — call from a settings-save path, not a session boundary.
+    /// </summary>
+    public void Reconfigure(StrategyConfig cfg)
+    {
+        _cfg = cfg ?? throw new ArgumentNullException(nameof(cfg));
+        _chopRegime.Reconfigure(cfg.ToChopRegimeConfig());
     }
 
     /// <summary>Reconfigure the primary ORB window for a new session. Strategies that override

@@ -20,6 +20,7 @@ public class SnapshotAggregatorTests
         public TimeOnly OrbStart { get; init; } = new(9, 30);
         public TimeOnly OrbEnd   { get; init; } = new(10, 0);
         public bool UseEmaFilter => false;
+        public bool BypassChopFilter => false;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
         public bool InTrade { get; set; }

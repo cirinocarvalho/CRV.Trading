@@ -109,6 +109,9 @@ public interface ISetupStrategy
     /// <summary>When true, long entries require price > EMA21, short entries require price &lt; EMA21.</summary>
     bool UseEmaFilter { get; }
 
+    /// <summary>When true, this setup is exempt from the global chop-regime filter (entries fire even when chop is flagged).</summary>
+    bool BypassChopFilter { get; }
+
     /// <summary>Process a confirmed bar. May produce pending signals.</summary>
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
 

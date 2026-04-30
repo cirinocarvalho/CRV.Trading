@@ -64,6 +64,17 @@ public class LiveEngineOrchestrator : BackgroundService
         return eng?.GetBarHistoryWithIndicators(groupKey) ?? new List<(CRV.Core.Models.Bar, decimal, decimal)>();
     }
 
+    /// <summary>
+    /// Apply settings changes to a running engine without restarting it. No-op when stopped
+    /// (the next StartAsync will pick up the fresh config from <see cref="StrategyConfigService"/>).
+    /// </summary>
+    public void ApplyRuntimeSettings(StrategyConfig cfg)
+    {
+        ComposableEngine? eng;
+        lock (_lifecycleLock) { eng = _engine; }
+        eng?.ApplyRuntimeSettings(cfg);
+    }
+
     /// <summary>Force-exit a specific setup immediately at current market price.</summary>
     public async Task ForceExitSetup(string setupId)
     {

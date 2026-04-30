@@ -54,6 +54,7 @@ public class ComposableEngineTests
         public TimeOnly OrbStart { get; set; } = new(9, 30);
         public TimeOnly OrbEnd   { get; set; } = new(10, 0);
         public bool UseEmaFilter => false;
+        public bool BypassChopFilter => false;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }

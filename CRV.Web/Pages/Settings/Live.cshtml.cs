@@ -164,6 +164,9 @@ public class LiveModel : PageModel
         }
 
         _cfgSvc.Update(Config);
+        // Hot-reload into the running engine so toggles take effect immediately
+        // (no-op if the engine is stopped — next start picks up the fresh config).
+        _orchestrator.ApplyRuntimeSettings(Config);
         TempData["live_saved"] = "1";
         return RedirectToPage();
     }

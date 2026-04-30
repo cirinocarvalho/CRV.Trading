@@ -84,6 +84,7 @@ public sealed class Ema21Strategy : ISetupStrategy
     public TimeOnly     OrbStart     => _cfg.OrbStart;
     public TimeOnly     OrbEnd       => _cfg.OrbEnd;
     public bool         UseEmaFilter => _cfg.UseEmaFilter;
+    public bool         BypassChopFilter => _cfg.BypassChopFilter;
     public bool         IsActive     => _inTrade;
     public bool         IsArmed      => _state != 0;
     public bool         InTrade      => _inTrade;

@@ -1286,6 +1286,7 @@ function renderBasket() {
                 _bCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
                 _bCheck(entry.Id, 'UseVwap', cfg.UseVwap !== false, 'VWAP') +
                 _bCheck(entry.Id, 'UseEmaFilter', cfg.UseEmaFilter === true, 'EMA Filter') +
+                _bCheck(entry.Id, 'BypassChopFilter', cfg.BypassChopFilter === true, 'Bypass Chop') +
                 (entry.StrategyType === 0 ? _bCheck(entry.Id, 'UseCloseConfirmation', cfg.UseCloseConfirmation === true, 'Close Confirm') : '') +
                 _bCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
                 _bCheck(entry.Id, 'AllowRearmAfterBe', cfg.AllowRearmAfterBe !== false, 'Rearm BE') +
@@ -1566,6 +1567,7 @@ function renderEma21Basket() {
                 _eCheck(entry.Id, 'UsePartial', cfg.UsePartial !== false, 'Partial') +
                 _eCheck(entry.Id, 'UseBe', cfg.UseBe !== false, 'BE') +
                 _eCheck(entry.Id, 'UseVolumeFilter', cfg.UseVolumeFilter === true, 'Vol Filter') +
+                _eCheck(entry.Id, 'BypassChopFilter', cfg.BypassChopFilter === true, 'Bypass Chop') +
                 _eCheck(entry.Id, 'CloseAtRthClose', cfg.CloseAtRthClose !== false, 'Close EOD') +
             '</div>' +
             '</div>' +

@@ -77,6 +77,7 @@ public class ChopFilterIntegrationTests
         public TimeOnly OrbStart { get; set; } = new(9, 30);
         public TimeOnly OrbEnd   { get; set; } = new(10, 0);
         public bool UseEmaFilter => false;
+        public bool BypassChopFilter { get; set; } = false;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }
@@ -132,6 +133,43 @@ public class ChopFilterIntegrationTests
         await group.ProcessBarAsync(MakeBar(triggerUtc.AddMinutes(1), 5200m, volume: 500));
 
         Assert.Null(fake.PendingEntry);
+    }
+
+    [Fact]
+    public async Task Reconfigure_FlipsFilterOn_WithoutRestart()
+    {
+        var (group, fake) = BuildGroup(MakeConfig(useFilter: false));
+        var triggerUtc = await WarmUpToChopAsync(group);
+
+        // With filter off, entry survives even with chop conditions.
+        fake.PendingEntry = MakeSignal(triggerUtc.AddMinutes(1));
+        await group.ProcessBarAsync(MakeBar(triggerUtc.AddMinutes(1), 5200m, volume: 500));
+        Assert.NotNull(fake.PendingEntry);
+
+        // Hot-reload: flip the master switch ON without restarting the engine.
+        var newCfg = MakeConfig(useFilter: true, ChopBlockMode.UntilClear);
+        group.Reconfigure(newCfg);
+
+        // Same chop conditions on the next bar — should now be blocked.
+        fake.PendingEntry = MakeSignal(triggerUtc.AddMinutes(2));
+        await group.ProcessBarAsync(MakeBar(triggerUtc.AddMinutes(2), 5200m, volume: 500));
+        Assert.Null(fake.PendingEntry);
+    }
+
+    [Fact]
+    public async Task BypassChopFilter_AllowsEntry_EvenWhileChopActive()
+    {
+        var (group, fake) = BuildGroup(MakeConfig(useFilter: true, ChopBlockMode.UntilClear));
+        fake.BypassChopFilter = true;   // strategy opts out of the global filter
+
+        var triggerUtc = await WarmUpToChopAsync(group);
+
+        var signal = MakeSignal(triggerUtc.AddMinutes(1));
+        fake.PendingEntry = signal;
+        await group.ProcessBarAsync(MakeBar(triggerUtc.AddMinutes(1), 5200m, volume: 500));
+
+        Assert.NotNull(fake.PendingEntry);
+        Assert.Same(signal, fake.PendingEntry);
     }
 
     [Fact]

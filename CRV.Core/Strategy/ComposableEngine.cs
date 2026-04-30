@@ -291,6 +291,32 @@ public class ComposableEngine
     }
 
     /// <summary>
+    /// Hot-reload settings into a running engine without resetting session/daily state.
+    /// Call from the Settings/Live save path so toggles take effect immediately
+    /// (e.g. <c>UseChopFilter</c>, <c>ChopBlockMode</c>, chop tuning, per-setup flags
+    /// like <c>BypassChopFilter</c>). Does NOT change ORB windows or active session —
+    /// those are session-scoped and only change at session boundaries.
+    /// </summary>
+    public void ApplyRuntimeSettings(StrategyConfig cfg)
+    {
+        _config = BuildEngineConfigFromStrategy(cfg);
+
+        // Push per-setup config to each registered strategy
+        var newSetupConfigs = cfg.ToSetupConfigs();
+        foreach (var setupCfg in newSetupConfigs)
+        {
+            if (_strategies.TryGetValue(setupCfg.Id, out var strategy))
+                strategy.Reconfigure(setupCfg);
+        }
+
+        // Push the new global StrategyConfig down to each TickerGroup so its
+        // _cfg (and therefore _cfg.UseChopFilter, AllowBothSameBar, etc.) refreshes,
+        // and reconfigure the chop detector with new tuning.
+        foreach (var group in _groups.Values)
+            group.Reconfigure(cfg);
+    }
+
+    /// <summary>
     /// Reconfigure with new global config and setup configs.
     /// </summary>
     public void Reconfigure(EngineConfig globalConfig, List<StrategySetupConfig> setupConfigs)

@@ -58,6 +58,9 @@ public class StrategySetupConfig
     /// <summary>When true, only allow long if price > EMA21, short if price &lt; EMA21.</summary>
     public bool UseEmaFilter { get; set; }
 
+    /// <summary>When true, this setup is exempt from the global chop-regime filter — entries fire even when chop is flagged.</summary>
+    public bool BypassChopFilter { get; set; }
+
     // ── EMA21 strategy parameters (ignored by ORB strategies) ─────
     /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
     public int SlopeLen { get; set; } = 5;
