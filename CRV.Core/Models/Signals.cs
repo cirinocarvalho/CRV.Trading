@@ -307,6 +307,10 @@ public class TickerGroupSnapshot
     public decimal SessionLow      { get; set; }
     public decimal PrevDayHigh     { get; set; }
     public decimal PrevDayLow      { get; set; }
+    public decimal AsiaHigh        { get; set; }
+    public decimal AsiaLow         { get; set; }
+    public decimal LondonHigh      { get; set; }
+    public decimal LondonLow       { get; set; }
     public bool    AsiaCompressed  { get; set; }
 
     // Sweep

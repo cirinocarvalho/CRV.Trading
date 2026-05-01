@@ -518,10 +518,10 @@ public class TickerGroup
     /// <summary>
     /// Pure resolver: given the new-session id, an optional explicit fakeout-session choice
     /// (null = use default chain), and the four session-range values, returns the (high, low)
-    /// to seed into <see cref="FalseBreakoutDetector.SessionRangeTracker"/>. Exposed as
-    /// internal for unit testing.
+    /// to seed into <see cref="FalseBreakoutDetector.SessionRangeTracker"/>. Public so the
+    /// dashboard prospectus can compute SessionFakeout reference ranges identically.
     /// </summary>
-    internal static (decimal high, decimal low) ResolveFakeoutReference(
+    public static (decimal high, decimal low) ResolveFakeoutReference(
         SessionId newSession, FakeoutSession? choice,
         decimal pdh, decimal pdl,
         decimal asiaHigh, decimal asiaLow,
@@ -646,6 +646,10 @@ public class TickerGroup
         SessionLow = _sessionEngine.SessionLow,
         PrevDayHigh = _sessionEngine.PDH,
         PrevDayLow = _sessionEngine.PDL,
+        AsiaHigh = _sessionEngine.AsiaHigh,
+        AsiaLow = _sessionEngine.AsiaLow == decimal.MaxValue ? 0m : _sessionEngine.AsiaLow,
+        LondonHigh = _sessionEngine.LondonHigh,
+        LondonLow = _sessionEngine.LondonLow == decimal.MaxValue ? 0m : _sessionEngine.LondonLow,
         AsiaCompressed = _sessionEngine.AsiaCompressed,
         // VWAP
         Vwap = _vwap.Value,

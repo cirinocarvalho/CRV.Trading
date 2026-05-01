@@ -2,6 +2,7 @@ namespace CRV.Web.Pages.Dashboard;
 
 using CRV.Core.Data;
 using CRV.Core.Models;
+using CRV.Core.Strategy;
 using CRV.Live;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -70,15 +71,33 @@ public class ProspectusModel : PageModel
             .GroupBy(e => (FuturesSymbol.Normalize(e.Symbol), e.SessionId))
             .ToDictionary(g => g.Key, g => Math.Round(g.First().OrbHigh - g.First().OrbLow, 4));
 
-        // Fallback: if orb_cache has no entries for the selected date,
-        // back-compute ORB ranges from the Trades table
-        if (!IsLive && selectedDateOrb.Count == 0 && selectedDateUtc.HasValue)
+        // Per-setup back-computed ranges from the Trades table for the selected date.
+        // Key: (ticker, session, setupLabel) → range engine actually sized against.
+        // Used by SessionFakeout (which sizes off the prior-session range, not the ORB)
+        // and as the historical fallback for ORB-based rows when orb_cache is empty.
+        var selectedDatePerSetup = new Dictionary<(string, string, string), decimal>();
+        if (selectedDateUtc.HasValue)
         {
-            selectedDateOrb = ComputeOrbFromTrades(selectedDateUtc.Value, setups);
+            var dayStart = selectedDateUtc.Value.Date;
+            selectedDatePerSetup = ComputeRangeFromTradesPerSetup(dayStart, dayStart.AddDays(1), setups);
         }
 
-        // Build monthly average ORB ranges from orb_cache.json
+        // Fallback: if orb_cache has no entries for the selected date, back-compute ORB
+        // by averaging the per-setup map across setups in the same (ticker, session).
+        if (!IsLive && selectedDateOrb.Count == 0 && selectedDatePerSetup.Count > 0)
+        {
+            selectedDateOrb = AggregateAcrossSetups(selectedDatePerSetup);
+        }
+
+        // Build monthly average ORB ranges from orb_cache.json (ORB-based setups).
         var monthlyAvgOrb = ComputeMonthlyAverageOrb(allOrbEntries);
+
+        // Build monthly average per-setup back-computed range from Trades for the
+        // current calendar month — needed for SessionFakeout, whose prior-session
+        // ranges are not stored in orb_cache.
+        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var monthlyPerSetup = ComputeRangeFromTradesPerSetup(
+            monthStartUtc, monthStartUtc.AddMonths(1), setups);
 
         // Identify active sessions from the config
         var sessionIds = new[] { "Asia", "London", "NY" };
@@ -124,6 +143,32 @@ public class ProspectusModel : PageModel
                 decimal avgOrb = monthlyAvgOrb.TryGetValue((normTicker, sessionId), out var avg) ? avg
                     : monthlyAvgOrb.TryGetValue((normTicker, ""), out var avgLegacy) ? avgLegacy : 0;
 
+                // SessionFakeout sizes stops/targets off the PRIOR session's full range
+                // (per FakeoutReferenceSession), not the ORB. Use the live-snapshot range
+                // when available, falling back to back-computed range from this setup's
+                // own trades — which gives the exact range the engine sized against.
+                // Monthly avg comes from this setup's trades over the current month.
+                if (setup.StrategyType == StrategyType.SessionFakeout)
+                {
+                    var key = (normTicker, sessionId, setup.Id);
+                    if (IsLive)
+                    {
+                        decimal sfRange = ResolveSessionFakeoutRange(setup, sessionId, normTicker, snapshot);
+                        // Today's reference range from live engine state. If it hasn't formed
+                        // yet (e.g. viewing during Asia before Asia closes), the snapshot
+                        // returns 0 — leave todayOrb at 0 so the row reads "—" rather than
+                        // showing a misleading ORB-based number.
+                        todayOrb = sfRange;
+                    }
+                    else
+                    {
+                        // Historical: back-compute from this setup's own trades that day.
+                        todayOrb = selectedDatePerSetup.TryGetValue(key, out var sfHist) ? sfHist : 0m;
+                    }
+                    // Monthly avg: this setup's trades over the current calendar month.
+                    avgOrb = monthlyPerSetup.TryGetValue(key, out var sfAvg) ? sfAvg : 0m;
+                }
+
                 // Per-setup config values
                 var stopPct = setup.StopPct;
                 var targetPct = setup.TargetPct / 100m;   // int → decimal multiplier
@@ -135,12 +180,19 @@ public class ProspectusModel : PageModel
                 if (partialCts >= contracts) partialCts = contracts - 1;
                 var remainCts = contracts - partialCts;
 
+                // EntryTickOffset shifts the entry price after sl/tp/pp are computed
+                // (see e.g. RetestStrategy.cs:507-515). Net effect on a positive offset:
+                // stop distance grows by offset, target/partial distances shrink by offset.
+                // Negative offsets reverse it. Mirror that here so the dollar columns
+                // reflect what the engine actually sizes against.
+                var entryOffsetPts = setup.EntryTickOffset * tickSize;
+
                 // Compute P&L for a given ORB range
                 ProspectusRow MakeRow(decimal orbRange)
                 {
-                    var targetDist = orbRange * targetPct;
-                    var partialDist = targetDist * partialPct;
-                    var stopDist = orbRange * stopPct;
+                    var targetDist = Math.Max(0m, orbRange * targetPct - entryOffsetPts);
+                    var partialDist = Math.Max(0m, orbRange * targetPct * partialPct - entryOffsetPts);
+                    var stopDist = Math.Max(0m, orbRange * stopPct + entryOffsetPts);
 
                     var tgt1Usd = usePartial ? partialDist * pointValue * partialCts : 0;
                     var tgt2Usd = targetDist * pointValue * remainCts;
@@ -222,6 +274,31 @@ public class ProspectusModel : PageModel
         TotalRiskAvg = Sessions.Sum(s => s.TotalRiskAvg);
     }
 
+    /// <summary>
+    /// Resolve the prior-session range used by a SessionFakeout setup. Mirrors
+    /// <see cref="TickerGroup.ResolveFakeoutReference"/> so the prospectus shows
+    /// the same range the engine sizes against. Returns 0 when the snapshot is
+    /// unavailable, the session id is unknown, or the chosen range hasn't formed.
+    /// </summary>
+    private static decimal ResolveSessionFakeoutRange(
+        StrategySetupConfig setup, string sessionId, string normTicker, EngineSnapshot? snapshot)
+    {
+        if (snapshot?.GroupSnapshots == null) return 0m;
+        if (!Enum.TryParse<SessionId>(sessionId, ignoreCase: true, out var sid)) return 0m;
+
+        var gs = snapshot.GroupSnapshots.Values.FirstOrDefault(g =>
+            FuturesSymbol.Normalize(g.Ticker) == normTicker);
+        if (gs == null) return 0m;
+
+        var (high, low) = TickerGroup.ResolveFakeoutReference(
+            sid, setup.FakeoutReferenceSession,
+            gs.PrevDayHigh, gs.PrevDayLow,
+            gs.AsiaHigh, gs.AsiaLow,
+            gs.LondonHigh, gs.LondonLow);
+
+        return (high > 0 && low > 0 && high > low) ? Math.Round(high - low, 4) : 0m;
+    }
+
     // ── ORB cache helpers ──────────────────────────────────────────
 
     private static List<OrbStateCache> LoadAllOrbEntries()
@@ -264,54 +341,62 @@ public class ProspectusModel : PageModel
     }
 
     /// <summary>
-    /// Back-compute ORB range from Trades table for a given date.
-    /// Uses the formula: orbRange = |entry - initialStop| / stopPct.
-    /// Groups by ticker+session and averages across trades on that date.
-    /// Returns one ORB range per (ticker, sessionId) pair.
+    /// Back-compute the range each setup actually sized against from the Trades table.
+    /// Formula: range = |entry − initialStop| / stopPct (the engine's inverse — works for
+    /// both ORB-based setups and SessionFakeout, since each writes its own initial stop
+    /// using its own reference range).
+    /// Returns per-setup averages keyed by (ticker, sessionId, setupLabel).
     /// </summary>
-    private Dictionary<(string ticker, string sessionId), decimal> ComputeOrbFromTrades(
-        DateTime date, List<StrategySetupConfig> setups)
+    private Dictionary<(string ticker, string sessionId, string setupLabel), decimal>
+        ComputeRangeFromTradesPerSetup(DateTime startUtc, DateTime endUtc, List<StrategySetupConfig> setups)
     {
-        var result = new Dictionary<(string, string), decimal>();
+        var result = new Dictionary<(string, string, string), decimal>();
         try
         {
-            // Fetch trades for that date
-            var dayStart = date.Date;
-            var dayEnd = dayStart.AddDays(1);
             var trades = _db.Set<TradeRecord>()
-                .Where(t => t.Source == "live" && t.EnteredAt >= dayStart && t.EnteredAt < dayEnd
+                .Where(t => t.Source == "live" && t.EnteredAt >= startUtc && t.EnteredAt < endUtc
                             && t.InitialStop > 0 && t.Entry > 0)
                 .ToList();
-
             if (trades.Count == 0) return result;
 
-            // Build a stopPct lookup from setups (by SetupLabel → StopPct)
+            // StopPct lookup by setup id
             var stopPctByLabel = setups
                 .Where(s => s.StopPct > 0)
                 .ToDictionary(s => s.Id, s => s.StopPct, StringComparer.OrdinalIgnoreCase);
 
-            // Group trades by ticker+session, back-compute ORB per trade
-            var grouped = trades.GroupBy(t => (FuturesSymbol.Normalize(t.Ticker), t.SessionId));
+            var grouped = trades.GroupBy(t => (FuturesSymbol.Normalize(t.Ticker), t.SessionId, t.SetupLabel));
             foreach (var g in grouped)
             {
-                var orbRanges = new List<decimal>();
+                var ranges = new List<decimal>();
                 foreach (var t in g)
                 {
-                    // Find the matching setup's stopPct; fall back to 0.5 if unknown
                     var stopPct = stopPctByLabel.TryGetValue(t.SetupLabel, out var sp) ? sp : 0.5m;
                     if (stopPct <= 0) stopPct = 0.5m;
-
                     var stopDist = Math.Abs(t.Entry - t.InitialStop);
                     if (stopDist <= 0) continue;
-                    var orbRange = stopDist / stopPct;
-                    orbRanges.Add(orbRange);
+                    ranges.Add(stopDist / stopPct);
                 }
-                if (orbRanges.Count > 0)
-                    result[g.Key] = Math.Round(orbRanges.Average(), 4);
+                if (ranges.Count > 0)
+                    result[g.Key] = Math.Round(ranges.Average(), 4);
             }
         }
         catch { /* best effort */ }
         return result;
+    }
+
+    /// <summary>
+    /// Aggregate a per-setup range map down to (ticker, session) by averaging across
+    /// setups in the same group. Used as the historical fallback for ORB-based rows
+    /// when orb_cache has no entry for the selected date — preserves the original
+    /// (pre-per-setup) behavior of <c>ComputeOrbFromTrades</c>.
+    /// </summary>
+    private static Dictionary<(string ticker, string sessionId), decimal> AggregateAcrossSetups(
+        Dictionary<(string ticker, string sessionId, string setupLabel), decimal> perSetup)
+    {
+        var byPair = perSetup
+            .GroupBy(kv => (kv.Key.ticker, kv.Key.sessionId))
+            .ToDictionary(g => g.Key, g => Math.Round(g.Average(kv => kv.Value), 4));
+        return byPair;
     }
 }
 
