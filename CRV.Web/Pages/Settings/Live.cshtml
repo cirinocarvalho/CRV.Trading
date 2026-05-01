@@ -1053,7 +1053,7 @@ function addBasketEntry() {
         Ticker: '',
         PointValue: 20,
         TickSize: 0.25,
-        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxTradeRisk: 0, StopMode: 'OrbPct', StopVwapTicks: 4 }
+        Config: { MaxTrades: 5, CutoffHour: 14, CutoffMinute: 30, Contracts: 2, MaxContracts: 2, AutoSizeByRisk: false, HiVolMult: 1, StopPct: 0.35, TargetPct: 65, PartialPct: 50, MinRr: 1.5, Mode: 'Aggressive', OrderType: 'Market', UsePartial: true, UseBe: true, PartialCts: 1, MaxEntrySlippage: 0, MaxTradeRisk: 0, StopMode: 'OrbPct', StopVwapTicks: 4 }
     });
     renderBasket();
 }
@@ -1235,6 +1235,7 @@ function renderBasket() {
             '<div class="row g-2">' +
                 _bField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
                 _bField(entry.Id, 'MaxContracts', 'number', cfg.MaxContracts || cfg.Contracts || 2, 80, 'Max Cts', 'int') +
+                _bCheck(entry.Id, 'AutoSizeByRisk', cfg.AutoSizeByRisk === true, 'Auto-size by risk') +
                 _bField(entry.Id, 'HiVolMult', 'number', cfg.HiVolMult || 1, 70, 'HiVol ×', 'float', '0.1') +
                 _bField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
                 _bField(entry.Id, 'MaxLongTrades', 'number', cfg.MaxLongTrades || 0, 70, 'Max Long', 'int') +
@@ -1411,7 +1412,7 @@ function addEma21Entry() {
             { SessionId: 'NY', Enabled: true, CutoffHour: 14, CutoffMinute: 0 }
         ],
         Config: {
-            Contracts: 2, MaxContracts: 2, MaxTrades: 5, MinRr: 1.0,
+            Contracts: 2, MaxContracts: 2, AutoSizeByRisk: false, MaxTrades: 5, MinRr: 1.0,
             UsePartial: true, UseBe: true, PartialCts: 1, OrderType: 'Market',
             CutoffHour: 14, CutoffMinute: 0, CloseAtRthClose: true,
             SlopeLen: 5, AtrTouchMult: 0.5, MinSlopePct: 0.05, OpenTicksToEma: 4,
@@ -1544,6 +1545,7 @@ function renderEma21Basket() {
             '<div class="row g-2">' +
                 _eField(entry.Id, 'Contracts', 'number', cfg.Contracts || 2, 70, 'Contracts', 'int') +
                 _eField(entry.Id, 'MaxContracts', 'number', cfg.MaxContracts || 2, 80, 'Max Cts', 'int') +
+                _eCheck(entry.Id, 'AutoSizeByRisk', cfg.AutoSizeByRisk === true, 'Auto-size by risk') +
                 _eField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
                 _eField(entry.Id, 'MinRr', 'number', cfg.MinRr || 1.0, 65, 'Min R:R', 'float', '0.1') +
                 _eField(entry.Id, 'PartialCts', 'number', cfg.PartialCts || 0, 70, 'Partial Cts', 'int') +
