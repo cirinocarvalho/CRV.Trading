@@ -201,6 +201,7 @@ public class StrategyConfig
     /// <summary>Fixed partial exit contracts for Setup A. 0 = auto (50% floor).</summary>
     public int     PartialCtsA      { get; set; } = 0;
     public decimal MaxTradeRiskA      { get; set; } = 0m;
+    public bool    AutoSizeByRiskA   { get; set; } = false;
 
     // Per-setup filters / sizing (A)
     public int     ContractsA       { get; set; } = 2;
@@ -249,6 +250,7 @@ public class StrategyConfig
     /// <summary>Fixed partial exit contracts for Setup B. 0 = auto (50% floor).</summary>
     public int     PartialCtsB      { get; set; } = 0;
     public decimal MaxTradeRiskB      { get; set; } = 0m;
+    public bool    AutoSizeByRiskB   { get; set; } = false;
 
     /// <summary>
     /// Stop distance for Setup B as a fraction of ORB range (default 0.50 = 50%).
@@ -291,6 +293,7 @@ public class StrategyConfig
     public int     StopVwapTicksC     { get; set; } = 4;
     public int     PartialCtsC        { get; set; } = 0;
     public decimal MaxTradeRiskC      { get; set; } = 0m;
+    public bool    AutoSizeByRiskC   { get; set; } = false;
     public int     ContractsC         { get; set; } = 2;
     public decimal HiVolMultC         { get; set; } = 1.0m;
     public int     MaxContractsC      { get; set; } = 2;
@@ -321,6 +324,7 @@ public class StrategyConfig
     public int     StopVwapTicksD     { get; set; } = 4;
     public int     PartialCtsD        { get; set; } = 0;
     public decimal MaxTradeRiskD      { get; set; } = 0m;
+    public bool    AutoSizeByRiskD   { get; set; } = false;
     public int     ContractsD         { get; set; } = 2;
     public decimal HiVolMultD         { get; set; } = 1.0m;
     public int     MaxContractsD      { get; set; } = 2;
@@ -646,6 +650,7 @@ public class StrategyConfig
         CloseAtRthClose = CloseAtRthCloseA, MaxTrades = MaxTradesA,
         MaxLongTrades = MaxLongTradesA, MaxShortTrades = MaxShortTradesA,
         MaxTradeRisk = MaxTradeRiskA,
+        AutoSizeByRisk = AutoSizeByRiskA,
         UsePartial = UsePartialA, UseBe = UseBeA,
         PartialCts = PartialCtsA, AllowRearmAfterBe = AllowRearmAfterBeA,
     };
@@ -670,6 +675,7 @@ public class StrategyConfig
         CloseAtRthClose = CloseAtRthCloseB, MaxTrades = MaxTradesB,
         MaxLongTrades = MaxLongTradesB, MaxShortTrades = MaxShortTradesB,
         MaxTradeRisk = MaxTradeRiskB,
+        AutoSizeByRisk = AutoSizeByRiskB,
         UsePartial = UsePartialB, UseBe = UseBeB,
         PartialCts = PartialCtsB, AllowRearmAfterBe = AllowRearmAfterBeB,
     };
@@ -693,6 +699,7 @@ public class StrategyConfig
         CutoffHour = CutoffHourC, CutoffMinute = CutoffMinuteC,
         CloseAtRthClose = CloseAtRthCloseC, MaxTrades = MaxTradesC,
         MaxTradeRisk = MaxTradeRiskC,
+        AutoSizeByRisk = AutoSizeByRiskC,
         UsePartial = UsePartialC, UseBe = UseBeC,
         PartialCts = PartialCtsC, AllowRearmAfterBe = AllowRearmAfterBeC,
     };
@@ -716,6 +723,7 @@ public class StrategyConfig
         CutoffHour = CutoffHourD, CutoffMinute = CutoffMinuteD,
         CloseAtRthClose = CloseAtRthCloseD, MaxTrades = MaxTradesD,
         MaxTradeRisk = MaxTradeRiskD,
+        AutoSizeByRisk = AutoSizeByRiskD,
         UsePartial = UsePartialD, UseBe = UseBeD,
         PartialCts = PartialCtsD, AllowRearmAfterBe = AllowRearmAfterBeD,
     };
