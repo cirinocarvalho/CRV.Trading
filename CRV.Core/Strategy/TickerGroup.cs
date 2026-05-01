@@ -753,6 +753,12 @@ public class TickerGroup
             OpeningDriveBull  = _openingDrive.OpeningDriveBull,
             OpeningDriveBear  = _openingDrive.OpeningDriveBear,
             DriveRangePctATR  = _openingDrive.DriveRangePctATR,
+            PrevDayHigh = _sessionEngine.PDH,
+            PrevDayLow  = _sessionEngine.PDL,
+            AsiaHigh    = _sessionEngine.AsiaHigh,
+            AsiaLow     = _sessionEngine.AsiaLow == decimal.MaxValue ? 0m : _sessionEngine.AsiaLow,
+            LondonHigh  = _sessionEngine.LondonHigh,
+            LondonLow   = _sessionEngine.LondonLow == decimal.MaxValue ? 0m : _sessionEngine.LondonLow,
             SavedAtUtc  = DateTime.UtcNow,
         };
         return true;

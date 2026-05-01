@@ -89,6 +89,21 @@ public class ProspectusModel : PageModel
             selectedDateOrb = AggregateAcrossSetups(selectedDatePerSetup);
         }
 
+        // Per-ticker daily session-reference ranges for the selected date, folded
+        // across that day's Asia/London/NY orb_cache entries (each entry knows the
+        // ranges that had already closed by save-time; folding takes the max so we
+        // pick up whichever session captured each value first).
+        var selectedDateSessionRanges = FoldSessionRanges(
+            allOrbEntries.Where(e => e.TradingDate.Date == lookupDate));
+
+        // Same fold for every day in the current month — used to back-compute the
+        // monthly average prior-session range for SessionFakeout.
+        var monthStartCache = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var monthlySessionRangesByDay = allOrbEntries
+            .Where(e => e.TradingDate >= monthStartCache)
+            .GroupBy(e => (e.TradingDate.Date, FuturesSymbol.Normalize(e.Symbol)))
+            .ToDictionary(g => g.Key, g => FoldSessionRanges(g).Values.FirstOrDefault());
+
         // Build monthly average ORB ranges from orb_cache.json (ORB-based setups).
         var monthlyAvgOrb = ComputeMonthlyAverageOrb(allOrbEntries);
 
@@ -144,29 +159,43 @@ public class ProspectusModel : PageModel
                     : monthlyAvgOrb.TryGetValue((normTicker, ""), out var avgLegacy) ? avgLegacy : 0;
 
                 // SessionFakeout sizes stops/targets off the PRIOR session's full range
-                // (per FakeoutReferenceSession), not the ORB. Use the live-snapshot range
-                // when available, falling back to back-computed range from this setup's
-                // own trades — which gives the exact range the engine sized against.
-                // Monthly avg comes from this setup's trades over the current month.
+                // (per FakeoutReferenceSession), not the ORB. Resolve via, in order:
+                //   1. Live engine snapshot (today's view)
+                //   2. orb_cache PrevDay/Asia/London ranges (historical view)
+                //   3. Back-computed from this setup's past trades (legacy fallback,
+                //      only works for days the setup actually traded)
+                // Monthly avg likewise prefers cached ranges, falls back to trades.
                 if (setup.StrategyType == StrategyType.SessionFakeout)
                 {
                     var key = (normTicker, sessionId, setup.Id);
+                    decimal sfToday = 0m;
                     if (IsLive)
                     {
-                        decimal sfRange = ResolveSessionFakeoutRange(setup, sessionId, normTicker, snapshot);
-                        // Today's reference range from live engine state. If it hasn't formed
-                        // yet (e.g. viewing during Asia before Asia closes), the snapshot
-                        // returns 0 — leave todayOrb at 0 so the row reads "—" rather than
-                        // showing a misleading ORB-based number.
-                        todayOrb = sfRange;
+                        sfToday = ResolveSessionFakeoutRange(setup, sessionId, normTicker, snapshot);
                     }
-                    else
+                    if (sfToday == 0 && selectedDateSessionRanges.TryGetValue(normTicker, out var sr))
                     {
-                        // Historical: back-compute from this setup's own trades that day.
-                        todayOrb = selectedDatePerSetup.TryGetValue(key, out var sfHist) ? sfHist : 0m;
+                        sfToday = ResolveSessionFakeoutRangeFromCache(setup, sessionId, sr);
                     }
-                    // Monthly avg: this setup's trades over the current calendar month.
-                    avgOrb = monthlyPerSetup.TryGetValue(key, out var sfAvg) ? sfAvg : 0m;
+                    if (sfToday == 0 && selectedDatePerSetup.TryGetValue(key, out var sfHist))
+                    {
+                        sfToday = sfHist;
+                    }
+                    todayOrb = sfToday;
+
+                    // Monthly avg: average the prior-session range across each day in
+                    // the current month using the same resolver, then fall back to
+                    // trade back-computation if no cached days are available.
+                    var monthlyRanges = new List<decimal>();
+                    foreach (var ((_, t), sr2) in monthlySessionRangesByDay)
+                    {
+                        if (t != normTicker || sr2 == null) continue;
+                        var r = ResolveSessionFakeoutRangeFromCache(setup, sessionId, sr2);
+                        if (r > 0) monthlyRanges.Add(r);
+                    }
+                    avgOrb = monthlyRanges.Count > 0
+                        ? Math.Round(monthlyRanges.Average(), 4)
+                        : (monthlyPerSetup.TryGetValue(key, out var sfAvg) ? sfAvg : 0m);
                 }
 
                 // Per-setup config values
@@ -190,9 +219,12 @@ public class ProspectusModel : PageModel
                 // Compute P&L for a given ORB range
                 ProspectusRow MakeRow(decimal orbRange)
                 {
-                    var targetDist = Math.Max(0m, orbRange * targetPct - entryOffsetPts);
-                    var partialDist = Math.Max(0m, orbRange * targetPct * partialPct - entryOffsetPts);
-                    var stopDist = Math.Max(0m, orbRange * stopPct + entryOffsetPts);
+                    // Skip the offset adjustment when we have no range — otherwise an
+                    // empty row would still register a phantom risk = offset*pv*cts.
+                    var offset = orbRange > 0 ? entryOffsetPts : 0m;
+                    var targetDist = Math.Max(0m, orbRange * targetPct - offset);
+                    var partialDist = Math.Max(0m, orbRange * targetPct * partialPct - offset);
+                    var stopDist = Math.Max(0m, orbRange * stopPct + offset);
 
                     var tgt1Usd = usePartial ? partialDist * pointValue * partialCts : 0;
                     var tgt2Usd = targetDist * pointValue * remainCts;
@@ -272,6 +304,47 @@ public class ProspectusModel : PageModel
         TotalRiskToday = Sessions.Sum(s => s.TotalRiskToday);
         TotalProfitAvg = Sessions.Sum(s => s.TotalProfitAvg);
         TotalRiskAvg = Sessions.Sum(s => s.TotalRiskAvg);
+    }
+
+    /// <summary>Container for the four prior-session reference ranges on a given day.</summary>
+    private sealed record DaySessionRanges(
+        decimal PdH, decimal PdL,
+        decimal AsiaHigh, decimal AsiaLow,
+        decimal LondonHigh, decimal LondonLow);
+
+    /// <summary>
+    /// Fold a day's orb_cache entries (Asia/London/NY) into a single per-ticker
+    /// view of all four reference ranges. Each entry only knows the ranges that
+    /// had closed by save-time, so taking the max across entries pulls in
+    /// whichever session captured each value first.
+    /// </summary>
+    private static Dictionary<string, DaySessionRanges> FoldSessionRanges(
+        IEnumerable<OrbStateCache> entries)
+    {
+        var byTicker = entries
+            .GroupBy(e => FuturesSymbol.Normalize(e.Symbol))
+            .ToDictionary(g => g.Key, g => new DaySessionRanges(
+                PdH:        g.Max(e => e.PrevDayHigh),
+                PdL:        g.Max(e => e.PrevDayLow),
+                AsiaHigh:   g.Max(e => e.AsiaHigh),
+                AsiaLow:    g.Max(e => e.AsiaLow),
+                LondonHigh: g.Max(e => e.LondonHigh),
+                LondonLow:  g.Max(e => e.LondonLow)));
+        return byTicker;
+    }
+
+    /// <summary>
+    /// Same shape as <see cref="ResolveSessionFakeoutRange"/> but reads from a
+    /// cached <see cref="DaySessionRanges"/> instead of the live snapshot.
+    /// </summary>
+    private static decimal ResolveSessionFakeoutRangeFromCache(
+        StrategySetupConfig setup, string sessionId, DaySessionRanges r)
+    {
+        if (!Enum.TryParse<SessionId>(sessionId, ignoreCase: true, out var sid)) return 0m;
+        var (high, low) = TickerGroup.ResolveFakeoutReference(
+            sid, setup.FakeoutReferenceSession,
+            r.PdH, r.PdL, r.AsiaHigh, r.AsiaLow, r.LondonHigh, r.LondonLow);
+        return (high > 0 && low > 0 && high > low) ? Math.Round(high - low, 4) : 0m;
     }
 
     /// <summary>
