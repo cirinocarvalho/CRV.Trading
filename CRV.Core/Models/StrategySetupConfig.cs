@@ -98,11 +98,15 @@ public class StrategySetupConfig
     public int MaxLongTrades { get; set; } = 0;
     /// <summary>Max short entries per session. 0 = use MaxTrades.</summary>
     public int MaxShortTrades { get; set; } = 0;
+    /// <summary>When false, long entries are disabled regardless of MaxLongTrades/MaxTrades.</summary>
+    public bool AllowLong { get; set; } = true;
+    /// <summary>When false, short entries are disabled regardless of MaxShortTrades/MaxTrades.</summary>
+    public bool AllowShort { get; set; } = true;
 
-    /// <summary>Effective max longs (falls back to MaxTrades if 0).</summary>
-    public int EffectiveMaxLong => MaxLongTrades > 0 ? MaxLongTrades : MaxTrades;
-    /// <summary>Effective max shorts (falls back to MaxTrades if 0).</summary>
-    public int EffectiveMaxShort => MaxShortTrades > 0 ? MaxShortTrades : MaxTrades;
+    /// <summary>Effective max longs. 0 if AllowLong is false; otherwise MaxLongTrades or MaxTrades fallback.</summary>
+    public int EffectiveMaxLong => !AllowLong ? 0 : (MaxLongTrades > 0 ? MaxLongTrades : MaxTrades);
+    /// <summary>Effective max shorts. 0 if AllowShort is false; otherwise MaxShortTrades or MaxTrades fallback.</summary>
+    public int EffectiveMaxShort => !AllowShort ? 0 : (MaxShortTrades > 0 ? MaxShortTrades : MaxTrades);
 
     public int MaxAdverseMinutes { get; set; }
     /// <summary>Max dollar risk per trade. 0 = no limit. Risk = |entry-stop| * pointValue * contracts.</summary>

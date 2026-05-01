@@ -1239,6 +1239,8 @@ function renderBasket() {
                 _bField(entry.Id, 'MaxTrades', 'number', cfg.MaxTrades || 5, 70, 'Max Trades', 'int') +
                 _bField(entry.Id, 'MaxLongTrades', 'number', cfg.MaxLongTrades || 0, 70, 'Max Long', 'int') +
                 _bField(entry.Id, 'MaxShortTrades', 'number', cfg.MaxShortTrades || 0, 70, 'Max Short', 'int') +
+                _bCheck(entry.Id, 'AllowLong', cfg.AllowLong !== false, 'Long') +
+                _bCheck(entry.Id, 'AllowShort', cfg.AllowShort !== false, 'Short') +
                 _bField(entry.Id, 'StopPct', 'number', cfg.StopPct || 0.35, 75, 'Stop %', 'float', '0.01') +
                 _bSelect(entry.Id, 'TargetPct', cfg.TargetPct || 65, 90, 'Target %',
                     [25,50,65,75,100,125,150,175,200,250,300,350,400,450,500].map(function(v) { return {value:v, text:v+'%'}; })) +
