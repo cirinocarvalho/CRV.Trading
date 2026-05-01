@@ -130,6 +130,13 @@
                 <label class="form-label small mb-0">Max Cts</label>
                 <input type="number" class="form-control form-control-sm session-field" min="1" max="50"
                        data-session="@i" data-field="@(fieldPfx).MaxContracts" value="@setup.MaxContracts" />
+                <label class="ms-2 small">
+                    <input type="checkbox"
+                           class="form-check-input session-field"
+                           data-session="@i" data-field="@(fieldPfx).AutoSizeByRisk"
+                           @(setup.AutoSizeByRisk ? "checked" : "") />
+                    Auto-size by risk
+                </label>
             </div>
             <div class="col-md-1">
                 <label class="form-label small mb-0">Max Long</label>
