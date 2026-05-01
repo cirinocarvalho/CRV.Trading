@@ -15,6 +15,9 @@ public class MultiTickerFeedMuxTests
         private readonly List<Bar> _bars;
         public bool Disposed { get; private set; }
         public event Action<decimal, DateTime>? OnPriceTick;
+        /// <summary>True once the mux has subscribed to OnPriceTick — lets tests poll
+        /// for wiring deterministically instead of sleeping a fixed delay.</summary>
+        public bool HasTickSubscriber => OnPriceTick != null;
 
         public FakeBarFeed(params Bar[] bars) => _bars = bars.ToList();
 
@@ -116,8 +119,11 @@ public class MultiTickerFeedMuxTests
             await foreach (var _ in mux.StreamAsync(cts.Token)) { }
         });
 
-        // Give time for event wiring
-        await Task.Delay(50);
+        // Wait deterministically for the mux to wire OnPriceTick on both feeds —
+        // a fixed Task.Delay races on slow CI agents.
+        Assert.True(
+            SpinWait.SpinUntil(() => feedA.HasTickSubscriber && feedB.HasTickSubscriber, 5000),
+            "Mux did not wire OnPriceTick subscribers within 5s");
 
         var now = DateTime.UtcNow;
         feedA.RaiseTick(5000m, now);
