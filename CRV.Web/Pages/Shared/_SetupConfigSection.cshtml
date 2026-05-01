@@ -155,13 +155,6 @@
                        data-session="@i" data-field="@(fieldPfx).PartialCts" value="@setup.PartialCts" />
             </div>
             <div class="col-md-2">
-                <label class="form-label small mb-0">Adverse Exit</label>
-                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).MaxAdverseMinutes">
-                    @foreach (var v in new[]{0,15,20,30,45,60,90})
-                    { <option value="@v" selected="@(setup.MaxAdverseMinutes == v ? "selected" : null)">@(v == 0 ? "Off" : $"{v}m")</option> }
-                </select>
-            </div>
-            <div class="col-md-2">
                 <label class="form-label small mb-0">Max Risk $</label>
                 <input type="number" class="form-control form-control-sm session-field" min="0" step="10"
                        data-session="@i" data-field="@(fieldPfx).MaxTradeRisk" value="@setup.MaxTradeRisk" />

@@ -67,7 +67,6 @@ public class ConfigMappingTests
         EntryTickOffsetA   = 2,
         OrderTypeA         = "Limit",
         PartialCtsA        = 1,
-        MaxAdverseMinutesA = 10,
         ContractsA         = 4,
         HiVolMultA         = 1.5m,
         MaxContractsA      = 6,
@@ -93,7 +92,6 @@ public class ConfigMappingTests
         EntryTickOffsetB   = 1,
         OrderTypeB         = "Limit",
         PartialCtsB        = 1,
-        MaxAdverseMinutesB = 5,
         ContractsB         = 3,
         HiVolMultB         = 1.2m,
         MaxContractsB      = 4,
@@ -117,7 +115,6 @@ public class ConfigMappingTests
         EntryTickOffsetC   = 3,
         OrderTypeC         = "Limit",
         PartialCtsC        = 1,
-        MaxAdverseMinutesC = 8,
         ContractsC         = 5,
         HiVolMultC         = 2.0m,
         MaxContractsC      = 8,
@@ -139,7 +136,6 @@ public class ConfigMappingTests
         EntryTickOffsetD   = 4,
         OrderTypeD         = "Market",
         PartialCtsD        = 0,
-        MaxAdverseMinutesD = 12,
         ContractsD         = 6,
         HiVolMultD         = 1.8m,
         MaxContractsD      = 10,
@@ -362,7 +358,6 @@ public class ConfigMappingTests
         Assert.Equal(cfg.CutoffMinuteA,    a.CutoffMinute);
         Assert.Equal(cfg.CloseAtRthCloseA, a.CloseAtRthClose);
         Assert.Equal(cfg.MaxTradesA,       a.MaxTrades);
-        Assert.Equal(cfg.MaxAdverseMinutesA, a.MaxAdverseMinutes);
         Assert.Equal(cfg.UsePartialA,      a.UsePartial);
         Assert.Equal(cfg.UseBeA,           a.UseBe);
         Assert.Equal(cfg.PartialCtsA,      a.PartialCts);
@@ -410,7 +405,6 @@ public class ConfigMappingTests
         Assert.False(d.UseVwap);
         Assert.False(d.UseOrbClose);
         Assert.Equal(cfg.ContractsD,               d.Contracts);
-        Assert.Equal(cfg.MaxAdverseMinutesD,       d.MaxAdverseMinutes);
     }
 
     [Fact]
@@ -476,7 +470,6 @@ public class ConfigMappingTests
         Assert.Equal(expected.CutoffMinute,      actual.CutoffMinute);
         Assert.Equal(expected.CloseAtRthClose,   actual.CloseAtRthClose);
         Assert.Equal(expected.MaxTrades,         actual.MaxTrades);
-        Assert.Equal(expected.MaxAdverseMinutes, actual.MaxAdverseMinutes);
         Assert.Equal(expected.UsePartial,        actual.UsePartial);
         Assert.Equal(expected.UseBe,             actual.UseBe);
         Assert.Equal(expected.PartialCts,        actual.PartialCts);

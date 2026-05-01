@@ -25,7 +25,6 @@ public abstract class SetupConfigBase
     public bool    UsePartial         { get; set; } = true;
     public bool    UseBe              { get; set; } = true;
     public bool    AllowRearmAfterBE  { get; set; } = true;
-    public int     MaxAdverseMinutes  { get; set; } = 0;
     public decimal MaxTradeRisk       { get; set; } = 0m;
     public decimal HiVolMult          { get; set; } = 1.0m;
     public int     MaxContracts       { get; set; } = 2;
@@ -158,7 +157,6 @@ public class SessionConfig
         c.UsePartialA       = SetupA.UsePartial;
         c.UseBeA            = SetupA.UseBe;
         c.AllowRearmAfterBeA = SetupA.AllowRearmAfterBE;
-        c.MaxAdverseMinutesA = SetupA.MaxAdverseMinutes;
         c.MaxTradeRiskA     = SetupA.MaxTradeRisk;
         c.HiVolMultA        = SetupA.HiVolMult;
         c.MaxContractsA     = SetupA.MaxContracts;
@@ -196,7 +194,6 @@ public class SessionConfig
         c.UsePartialB       = SetupB.UsePartial;
         c.UseBeB            = SetupB.UseBe;
         c.AllowRearmAfterBeB = SetupB.AllowRearmAfterBE;
-        c.MaxAdverseMinutesB = SetupB.MaxAdverseMinutes;
         c.MaxTradeRiskB     = SetupB.MaxTradeRisk;
         c.HiVolMultB        = SetupB.HiVolMult;
         c.MaxContractsB     = SetupB.MaxContracts;
@@ -230,7 +227,6 @@ public class SessionConfig
         c.UsePartialC       = SetupC.UsePartial;
         c.UseBeC            = SetupC.UseBe;
         c.AllowRearmAfterBeC = SetupC.AllowRearmAfterBE;
-        c.MaxAdverseMinutesC = SetupC.MaxAdverseMinutes;
         c.MaxTradeRiskC     = SetupC.MaxTradeRisk;
         c.HiVolMultC        = SetupC.HiVolMult;
         c.MaxContractsC     = SetupC.MaxContracts;
@@ -259,7 +255,6 @@ public class SessionConfig
         c.UsePartialD       = SetupD.UsePartial;
         c.UseBeD            = SetupD.UseBe;
         c.AllowRearmAfterBeD = SetupD.AllowRearmAfterBE;
-        c.MaxAdverseMinutesD = SetupD.MaxAdverseMinutes;
         c.MaxTradeRiskD     = SetupD.MaxTradeRisk;
         c.HiVolMultD        = SetupD.HiVolMult;
         c.MaxContractsD     = SetupD.MaxContracts;
@@ -315,7 +310,6 @@ public class SessionConfig
             UsePartial        = cfg.UsePartialA,
             UseBe             = cfg.UseBeA,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeA,
-            MaxAdverseMinutes = cfg.MaxAdverseMinutesA,
             MaxTradeRisk      = cfg.MaxTradeRiskA,
             HiVolMult         = cfg.HiVolMultA,
             MaxContracts      = cfg.MaxContractsA,
@@ -353,7 +347,6 @@ public class SessionConfig
             UsePartial        = cfg.UsePartialB,
             UseBe             = cfg.UseBeB,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeB,
-            MaxAdverseMinutes = cfg.MaxAdverseMinutesB,
             MaxTradeRisk      = cfg.MaxTradeRiskB,
             HiVolMult         = cfg.HiVolMultB,
             MaxContracts      = cfg.MaxContractsB,
@@ -388,7 +381,6 @@ public class SessionConfig
             UsePartial        = cfg.UsePartialC,
             UseBe             = cfg.UseBeC,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeC,
-            MaxAdverseMinutes = cfg.MaxAdverseMinutesC,
             MaxTradeRisk      = cfg.MaxTradeRiskC,
             HiVolMult         = cfg.HiVolMultC,
             MaxContracts      = cfg.MaxContractsC,
@@ -419,7 +411,6 @@ public class SessionConfig
             UsePartial        = cfg.UsePartialD,
             UseBe             = cfg.UseBeD,
             AllowRearmAfterBE = cfg.AllowRearmAfterBeD,
-            MaxAdverseMinutes = cfg.MaxAdverseMinutesD,
             MaxTradeRisk      = cfg.MaxTradeRiskD,
             HiVolMult         = cfg.HiVolMultD,
             MaxContracts      = cfg.MaxContractsD,

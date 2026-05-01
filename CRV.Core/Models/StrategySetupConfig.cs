@@ -108,7 +108,6 @@ public class StrategySetupConfig
     /// <summary>Effective max shorts. 0 if AllowShort is false; otherwise MaxShortTrades or MaxTrades fallback.</summary>
     public int EffectiveMaxShort => !AllowShort ? 0 : (MaxShortTrades > 0 ? MaxShortTrades : MaxTrades);
 
-    public int MaxAdverseMinutes { get; set; }
     /// <summary>Max dollar risk per trade. 0 = no limit. Risk = |entry-stop| * pointValue * contracts.</summary>
     public decimal MaxTradeRisk { get; set; }
 
