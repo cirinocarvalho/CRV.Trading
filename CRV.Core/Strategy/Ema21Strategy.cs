@@ -423,22 +423,16 @@ public sealed class Ema21Strategy : ISetupStrategy
             return;
         }
 
-        // Contract sizing
-        int contracts = Math.Min(_cfg.Contracts, _cfg.MaxContracts);
-
-        // Max trade risk filter
-        if (_cfg.MaxTradeRisk > 0)
-        {
-            decimal tradeRisk = risk * _cfg.PointValue * contracts;
-            if (tradeRisk > _cfg.MaxTradeRisk) { _state = 0; return; }
-        }
+        // Contract sizing (AutoSizeByRisk-aware)
+        var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, atrRatio: 0m);
+        if (contracts <= 0) { _state = 0; return; }
 
         _pendingEntry = new EntrySignal(
             _cfg.SetupId,
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp2, tp1, contracts, bar.Time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
-            PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
+            PartialContracts: scaledPartial, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe,
             AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true
                 ? LevelCalculator.RoundToTick(_cfg.AutoTrail.StopLoss * _atr, _cfg.TickSize) : null,
