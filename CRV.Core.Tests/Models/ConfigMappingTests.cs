@@ -291,6 +291,27 @@ public class ConfigMappingTests
     }
 
     [Fact]
+    public void ToSetupConfig_WithBasketEntry_PreservesAutoSizeByRisk()
+    {
+        var cfg = new StrategyConfig
+        {
+            BasketJson = System.Text.Json.JsonSerializer.Serialize(new[]
+            {
+                new BasketEntry
+                {
+                    Id = "x", Enabled = true,
+                    StrategyType = StrategyType.Pullback,
+                    Ticker = "NQH26",
+                    Config = new StrategySetupConfig { AutoSizeByRisk = true, Contracts = 2, MaxContracts = 4 }
+                }
+            }),
+        };
+        var setups = cfg.ToSetupConfigs();
+        Assert.Single(setups);
+        Assert.True(setups[0].AutoSizeByRisk);
+    }
+
+    [Fact]
     public void ToSetupConfigs_FromBasket_PropagatesBypassChopAndFakeoutSession()
     {
         // Regression: ToSetupConfig(BasketEntry) used to silently drop BypassChopFilter

@@ -99,4 +99,12 @@ public class AutoSizeByRiskTests
             ep: 100m, sl: 95m, cfg: cfg, atrRatio: 0m);
         Assert.Equal(2, cts);        // falls back to plain Contracts
     }
+
+    [Fact]
+    public void AutoSize_EpEqualsStopLoss_ReturnsZeroToSignalSkip()
+    {
+        var (cts, _) = AutoSizeByRiskCalculator.Calc(
+            ep: 100m, sl: 100m, cfg: BaseCfg(), atrRatio: 0m);
+        Assert.Equal(0, cts);
+    }
 }

@@ -427,6 +427,13 @@ public sealed class Ema21Strategy : ISetupStrategy
         var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, atrRatio: 0m);
         if (contracts <= 0) { _state = 0; return; }
 
+        // Max trade risk veto (active when AutoSizeByRisk is OFF; harmless when ON)
+        if (_cfg.MaxTradeRisk > 0)
+        {
+            decimal tradeRisk = risk * _cfg.PointValue * contracts;
+            if (tradeRisk > _cfg.MaxTradeRisk) { _state = 0; return; }
+        }
+
         _pendingEntry = new EntrySignal(
             _cfg.SetupId,
             isLong ? Direction.Long : Direction.Short,

@@ -607,6 +607,7 @@ public class StrategyConfig
         MaxLongTrades = b.Config.MaxLongTrades,
         MaxShortTrades = b.Config.MaxShortTrades,
         MaxTradeRisk = b.Config.MaxTradeRisk,
+        AutoSizeByRisk = b.Config.AutoSizeByRisk,
         UsePartial = b.Config.UsePartial,
         UseBe = b.Config.UseBe,
         PartialCts = b.Config.PartialCts,

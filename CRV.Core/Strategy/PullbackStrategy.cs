@@ -406,10 +406,4 @@ public class PullbackStrategy : ISetupStrategy
         _state = 0;
     }
 
-    private static int CalcPartialCts(int totalCts, int fixedCts)
-    {
-        if (fixedCts > 0)
-            return Math.Min(fixedCts, totalCts - 1);
-        return (int)Math.Floor(totalCts * 0.5);
-    }
 }
