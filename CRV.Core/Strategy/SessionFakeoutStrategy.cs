@@ -315,7 +315,8 @@ public class SessionFakeoutStrategy : ISetupStrategy
         decimal rr     = risk > 0 ? reward / risk : 0;
         if (rr < _cfg.MinRr) return;
 
-        int contracts = CalcContracts();
+        var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, _lastAtrRatio);
+        if (contracts <= 0) return;
 
         // Max trade risk filter: skip if dollar risk exceeds limit (0 = disabled)
         if (_cfg.MaxTradeRisk > 0)
@@ -329,7 +330,7 @@ public class SessionFakeoutStrategy : ISetupStrategy
             isLong ? Direction.Long : Direction.Short,
             ep, sl, tp, pp, contracts, time,
             _cfg.OrderType, Ticker: _cfg.Ticker,
-            PartialContracts: _cfg.PartialCts, PointValue: _cfg.PointValue,
+            PartialContracts: scaledPartial, PointValue: _cfg.PointValue,
             UsePartial: _cfg.UsePartial, UseBe: _cfg.UseBe,
             AutoTrailStopLoss: _cfg.AutoTrail?.Enabled == true ? LevelCalculator.RoundToTick(_cfg.AutoTrail.StopLoss * orb.Range, _cfg.TickSize) : null,
             AutoTrailTrigger:  _cfg.AutoTrail?.Enabled == true ? (_cfg.AutoTrail.Trigger.HasValue ? LevelCalculator.RoundToTick(_cfg.AutoTrail.Trigger.Value * orb.Range, _cfg.TickSize) : null) : null,
@@ -338,15 +339,6 @@ public class SessionFakeoutStrategy : ISetupStrategy
         _tradeCount++;
         if (isLong) _bullTraded = true; else _bearTraded = true;
         _state = 0;
-    }
-
-    private int CalcContracts()
-    {
-        bool isHighVol = _lastAtrRatio >= 1.0m;
-        int  cts       = isHighVol
-            ? (int)Math.Round(_cfg.Contracts * _cfg.HiVolMult)
-            : _cfg.Contracts;
-        return Math.Min(cts, _cfg.MaxContracts);
     }
 
     private static int CalcPartialCts(int totalCts, int fixedCts)
