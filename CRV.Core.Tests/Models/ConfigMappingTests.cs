@@ -75,6 +75,7 @@ public class ConfigMappingTests
         CutoffHourA        = 13,
         CutoffMinuteA      = 0,
         CloseAtRthCloseA   = false,
+        AutoSizeByRiskA    = true,
 
         // Setup B
         EnableB            = true,
@@ -100,6 +101,7 @@ public class ConfigMappingTests
         CutoffHourB        = 12,
         CutoffMinuteB      = 45,
         CloseAtRthCloseB   = false,
+        AutoSizeByRiskB    = true,
 
         // Setup C
         EnableC            = true,
@@ -121,6 +123,7 @@ public class ConfigMappingTests
         CutoffHourC        = 11,
         CutoffMinuteC      = 15,
         CloseAtRthCloseC   = false,
+        AutoSizeByRiskC    = true,
 
         // Setup D
         EnableD            = true,
@@ -142,6 +145,7 @@ public class ConfigMappingTests
         CutoffHourD        = 10,
         CutoffMinuteD      = 0,
         CloseAtRthCloseD   = true,
+        AutoSizeByRiskD    = true,
     };
 
     // ── ToEngineConfig tests ──────────────────────────────────────
@@ -362,6 +366,7 @@ public class ConfigMappingTests
         Assert.Equal(cfg.UseBeA,           a.UseBe);
         Assert.Equal(cfg.PartialCtsA,      a.PartialCts);
         Assert.Equal(cfg.AllowRearmAfterBeA, a.AllowRearmAfterBe);
+        Assert.Equal(cfg.AutoSizeByRiskA,  a.AutoSizeByRisk);
     }
 
     [Fact]
@@ -378,6 +383,7 @@ public class ConfigMappingTests
         Assert.Equal(cfg.ModeB,         b.Mode);
         Assert.Equal(cfg.NearPctB,      b.NearPct);
         Assert.Equal(cfg.ContractsB,    b.Contracts);
+        Assert.Equal(cfg.AutoSizeByRiskB, b.AutoSizeByRisk);
     }
 
     [Fact]
@@ -391,6 +397,7 @@ public class ConfigMappingTests
         Assert.Equal("Conservative",          c.Mode);
         Assert.False(c.UseVwap);
         Assert.False(c.UseOrbClose);
+        Assert.Equal(cfg.AutoSizeByRiskC, c.AutoSizeByRisk);
     }
 
     [Fact]
@@ -405,6 +412,7 @@ public class ConfigMappingTests
         Assert.False(d.UseVwap);
         Assert.False(d.UseOrbClose);
         Assert.Equal(cfg.ContractsD,               d.Contracts);
+        Assert.Equal(cfg.AutoSizeByRiskD, d.AutoSizeByRisk);
     }
 
     [Fact]
@@ -474,5 +482,6 @@ public class ConfigMappingTests
         Assert.Equal(expected.UseBe,             actual.UseBe);
         Assert.Equal(expected.PartialCts,        actual.PartialCts);
         Assert.Equal(expected.AllowRearmAfterBe, actual.AllowRearmAfterBe);
+        Assert.Equal(expected.AutoSizeByRisk,    actual.AutoSizeByRisk);
     }
 }
