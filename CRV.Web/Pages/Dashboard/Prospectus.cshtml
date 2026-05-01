@@ -7,7 +7,6 @@
 
     string Dol(decimal v) => v == 0 ? "\u2014" : "$" + v.ToString("N2");
     string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "";
-    string Pct(decimal v) => v == 0 ? "\u2014" : (v * 100).ToString("F0") + "%";
     string OrbFmt(decimal v) => v == 0 ? "\u2014" : v.ToString("F2");
 }
 

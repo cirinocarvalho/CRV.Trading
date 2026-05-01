@@ -50,8 +50,6 @@ public sealed class Ema21Strategy : ISetupStrategy
     // ── State machine ────────────────────────────────────────────
     // 0=flat, 1=armed LONG, -1=armed SHORT
     private int _state;
-    private bool _bullTraded;
-    private bool _bearTraded;
     private bool _pastCutoff;
     private int _tradeCount;
     private int _longCount;
@@ -124,12 +122,10 @@ public sealed class Ema21Strategy : ISetupStrategy
         if (wasLong)
         {
             if (_longCount > 0) _longCount--;
-            _bullTraded = false;
         }
         else
         {
             if (_shortCount > 0) _shortCount--;
-            _bearTraded = false;
         }
         _tradeCount = _longCount + _shortCount;
     }
@@ -140,7 +136,7 @@ public sealed class Ema21Strategy : ISetupStrategy
     // warmup gap at the start of each day where the strategy can't fire.
     public void Reset()
     {
-        _state = 0; _bullTraded = false; _bearTraded = false;
+        _state = 0;
         _pastCutoff = false;
         _tradeCount = 0; _longCount = 0; _shortCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
@@ -153,7 +149,7 @@ public sealed class Ema21Strategy : ISetupStrategy
     // ── ResetSession — clears trade state, preserves indicators ──
     public void ResetSession()
     {
-        _state = 0; _bullTraded = false; _bearTraded = false;
+        _state = 0;
         _pastCutoff = false;
         _tradeCount = 0; _longCount = 0; _shortCount = 0;
         _inTrade = false;
@@ -449,8 +445,8 @@ public sealed class Ema21Strategy : ISetupStrategy
                 ? LevelCalculator.RoundToTick(_cfg.AutoTrail.Freq * _atr, _cfg.TickSize) : null);
 
         _tradeCount++;
-        if (isLong) { _longCount++; _bullTraded = true; }
-        else { _shortCount++; _bearTraded = true; }
+        if (isLong) _longCount++;
+        else _shortCount++;
         _state = 0;
     }
 }
