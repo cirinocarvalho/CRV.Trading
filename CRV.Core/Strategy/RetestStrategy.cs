@@ -124,11 +124,27 @@ public class RetestStrategy : ISetupStrategy
     /// <summary>
     /// Revert an entry back to armed state. Used by the engine when
     /// opposing position guard or cross-setup coordination blocks an entry.
+    /// Undoes the counter increment and direction lock that <see cref="TryEntry"/>
+    /// applied — otherwise a reverted entry would silently consume a MaxTrades
+    /// slot and lock the side, blocking the next legitimate signal.
     /// </summary>
     public void RevertEntry()
     {
+        if (_pendingEntry == null) return;
+        bool wasLong = _pendingEntry.Direction == Direction.Long;
         _pendingEntry = null;
-        // TryEntry resets _state=0, entry is simply dropped.
+        if (wasLong)
+        {
+            if (_longCount > 0) _longCount--;
+            _bullTraded = false;
+        }
+        else
+        {
+            if (_shortCount > 0) _shortCount--;
+            _bearTraded = false;
+        }
+        _tradeCount = _longCount + _shortCount;
+        // _state was already 0 from TryEntry — the arm signal was consumed; we don't re-arm.
     }
 
     public void Reset()

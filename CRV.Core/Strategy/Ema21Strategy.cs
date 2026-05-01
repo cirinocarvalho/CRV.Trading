@@ -109,9 +109,29 @@ public sealed class Ema21Strategy : ISetupStrategy
 
     public void Reconfigure(StrategySetupConfig config) => _cfg = config;
 
+    /// <summary>
+    /// Revert an entry back to armed state. Used by the engine when opposing
+    /// position guard or cross-setup coordination blocks an entry. Undoes the
+    /// counter increment and direction lock that <see cref="TryEntry"/> applied
+    /// — otherwise a reverted entry would silently consume a MaxTrades slot
+    /// and lock the side, blocking the next legitimate signal.
+    /// </summary>
     public void RevertEntry()
     {
+        if (_pendingEntry == null) return;
+        bool wasLong = _pendingEntry.Direction == Direction.Long;
         _pendingEntry = null;
+        if (wasLong)
+        {
+            if (_longCount > 0) _longCount--;
+            _bullTraded = false;
+        }
+        else
+        {
+            if (_shortCount > 0) _shortCount--;
+            _bearTraded = false;
+        }
+        _tradeCount = _longCount + _shortCount;
     }
 
     // ── Reset (new trading day) — clears trade state but preserves indicators ──
