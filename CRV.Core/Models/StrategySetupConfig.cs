@@ -111,6 +111,12 @@ public class StrategySetupConfig
     /// <summary>Max dollar risk per trade. 0 = no limit. Risk = |entry-stop| * pointValue * contracts.</summary>
     public decimal MaxTradeRisk { get; set; }
 
+    /// <summary>When true and <see cref="MaxTradeRisk"/> &gt; 0, contracts auto-scale between
+    /// <see cref="Contracts"/> (floor) and <see cref="MaxContracts"/> (ceiling) to consume the
+    /// risk budget. <see cref="HiVolMult"/> is ignored in this mode. When the floor's risk
+    /// already exceeds the budget, the trade is skipped (same as the legacy veto).</summary>
+    public bool AutoSizeByRisk { get; set; }
+
     // Exit
     public bool UsePartial { get; set; } = true;
     public bool UseBe { get; set; } = true;
