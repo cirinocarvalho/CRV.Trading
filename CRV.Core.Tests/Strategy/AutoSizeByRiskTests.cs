@@ -23,12 +23,11 @@ public class AutoSizeByRiskTests
     public void AutoSize_WithinBudget_ScalesUpToBudgetCap()
     {
         // riskPerCt = |100 - 95| * 20 = 100. Budget = 500/100 = 5. Cap = MaxContracts (6).
-        // Expect 5 contracts.
+        // Expect 5 contracts. AutoSize ON + PartialCts > 0 → runner=1, partial=cts-1=4.
         var (cts, partial) = AutoSizeByRiskCalculator.Calc(
             ep: 100m, sl: 95m, cfg: BaseCfg(), atrRatio: 0m);
         Assert.Equal(5, cts);
-        // Partial scaled: round(1 * 5 / 2) = 3 (clamped to cts-1 = 4).
-        Assert.Equal(3, partial);
+        Assert.Equal(4, partial);
     }
 
     [Fact]
@@ -45,11 +44,11 @@ public class AutoSizeByRiskTests
     public void AutoSize_BudgetExceedsMaxContracts_ClampsToMaxContracts()
     {
         // riskPerCt = |100 - 99.5| * 20 = 10. Budget = 500/10 = 50. Cap to MaxContracts (6).
+        // AutoSize ON + PartialCts > 0 → runner=1, partial=cts-1=5.
         var (cts, partial) = AutoSizeByRiskCalculator.Calc(
             ep: 100m, sl: 99.5m, cfg: BaseCfg(), atrRatio: 0m);
         Assert.Equal(6, cts);
-        // Partial: round(1 * 6 / 2) = 3, clamped to cts-1 = 5 ⇒ 3.
-        Assert.Equal(3, partial);
+        Assert.Equal(5, partial);
     }
 
     [Fact]
@@ -81,8 +80,10 @@ public class AutoSizeByRiskTests
     [Fact]
     public void AutoSize_PartialCtsZero_StaysZeroForAutoMode()
     {
+        // PartialCts=0 is the "auto/50% — handled downstream" sentinel. AutoSize must
+        // NOT override it: leave partial=0 so downstream logic continues to work.
         var cfg = BaseCfg();
-        cfg.PartialCts = 0; // 0 means auto/50% — handled downstream
+        cfg.PartialCts = 0;
         var (cts, partial) = AutoSizeByRiskCalculator.Calc(
             ep: 100m, sl: 95m, cfg: cfg, atrRatio: 0m);
         Assert.Equal(5, cts);

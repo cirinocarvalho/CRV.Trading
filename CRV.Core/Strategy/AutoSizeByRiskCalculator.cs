@@ -33,15 +33,15 @@ public static class AutoSizeByRiskCalculator
             contracts = System.Math.Min(cts, cfg.MaxContracts);
         }
 
-        int partial = cfg.PartialCts;
-        if (cfg.AutoSizeByRisk && partial > 0 && contracts > cfg.Contracts && cfg.Contracts > 0)
-        {
-            partial = (int)System.Math.Round(
-                (decimal)cfg.PartialCts * contracts / cfg.Contracts,
-                MidpointRounding.AwayFromZero);
-            if (partial < 1) partial = 1;
-            if (partial > contracts - 1) partial = contracts - 1;
-        }
+        // Partial sizing rule:
+        //  • AutoSize ON  + PartialCts > 0 → reserve exactly 1 runner; partial = contracts − 1.
+        //  • AutoSize ON  + PartialCts = 0 → leave 0 (auto/50% sentinel — same as AutoSize-OFF).
+        //  • AutoSize OFF                   → honor cfg.PartialCts literally, clamped to contracts − 1.
+        int partial = (cfg.AutoSizeByRisk && cfg.PartialCts > 0)
+            ? (contracts > 1 ? contracts - 1 : 0)
+            : cfg.PartialCts;
+        if (partial > contracts - 1) partial = contracts - 1;
+        if (partial < 0) partial = 0;
 
         return (contracts, partial);
     }
