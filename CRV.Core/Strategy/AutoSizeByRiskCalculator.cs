@@ -7,7 +7,7 @@ namespace CRV.Core.Strategy;
 /// honoring AutoSizeByRisk + MaxTradeRisk + HiVolMult + MaxContracts. Returning
 /// contracts == 0 means "skip" (risk floor exceeds the budget).
 /// </summary>
-internal static class AutoSizeByRiskCalculator
+public static class AutoSizeByRiskCalculator
 {
     public static (int contracts, int partial) Calc(
         decimal ep, decimal sl, StrategySetupConfig cfg, decimal atrRatio)

@@ -202,12 +202,7 @@ public class ProspectusModel : PageModel
                 var stopPct = setup.StopPct;
                 var targetPct = setup.TargetPct / 100m;   // int → decimal multiplier
                 var partialPct = setup.PartialPct / 100m; // fraction of targetDist
-                var contracts = setup.Contracts;
                 var usePartial = setup.UsePartial;
-                var partialCts = usePartial
-                    ? (setup.PartialCts > 0 ? setup.PartialCts : contracts / 2) : 0;
-                if (partialCts >= contracts) partialCts = contracts - 1;
-                var remainCts = contracts - partialCts;
 
                 // EntryTickOffset shifts the entry price after sl/tp/pp are computed
                 // (see e.g. RetestStrategy.cs:507-515). Net effect on a positive offset:
@@ -225,6 +220,26 @@ public class ProspectusModel : PageModel
                     var targetDist = Math.Max(0m, orbRange * targetPct - offset);
                     var partialDist = Math.Max(0m, orbRange * targetPct * partialPct - offset);
                     var stopDist = Math.Max(0m, orbRange * stopPct + offset);
+
+                    // Route through AutoSizeByRiskCalculator so projections match runtime
+                    // sizing. Synthetic (ep=stopDist, sl=0) — calculator only uses
+                    // Math.Abs(ep-sl) × PointValue for riskPerCt.
+                    // atrRatio=0 means "not high-vol regime" — projections show baseline
+                    // sizing; live high-vol days will scale up via HiVolMult at runtime.
+                    var (sizedCts, sizedPartial) = AutoSizeByRiskCalculator.Calc(
+                        ep: stopDist, sl: 0m, cfg: setup, atrRatio: 0m);
+
+                    // sizedCts == 0 signals "skip" (AutoSize ON + floor risk > budget).
+                    // For projection display fall back to baseline so the row still shows
+                    // what the trade WOULD look like absent the budget veto.
+                    int contracts = sizedCts > 0 ? sizedCts : setup.Contracts;
+                    int partialCts = !usePartial
+                        ? 0
+                        : (sizedPartial > 0
+                            ? sizedPartial
+                            : (setup.PartialCts > 0 ? setup.PartialCts : contracts / 2));
+                    if (partialCts >= contracts) partialCts = contracts - 1;
+                    var remainCts = contracts - partialCts;
 
                     var tgt1Usd = usePartial ? partialDist * pointValue * partialCts : 0;
                     var tgt2Usd = targetDist * pointValue * remainCts;
@@ -262,9 +277,9 @@ public class ProspectusModel : PageModel
                     StrategyType = setup.StrategyType.ToString(),
                     Ticker = normTicker,
                     PointValue = pointValue,
-                    Contracts = contracts,
-                    PartialCts = partialCts,
-                    RemainCts = remainCts,
+                    Contracts = rowToday.Contracts,
+                    PartialCts = rowToday.PartialCts,
+                    RemainCts = rowToday.RemainCts,
                     UsePartial = usePartial,
                     TargetPct = targetPct,
                     PartialPct = partialPct,
