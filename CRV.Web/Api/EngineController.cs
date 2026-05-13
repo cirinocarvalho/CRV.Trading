@@ -153,7 +153,7 @@ public class EngineController : ControllerBase
         var ticker = ResolveTickerForGroup(groupKey, cfg);
         if (string.IsNullOrEmpty(ticker)) return Ok(Array.Empty<object>());
 
-        var tf    = cfg.ExecutionTFMinutes;
+        var tf    = cfg.TfMinutesFor(ticker);
         var toUtc = DateTime.UtcNow;
         var fromUtc = toUtc.AddMinutes(-tf * 200); // ~200 bars back
 

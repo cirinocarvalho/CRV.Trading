@@ -65,7 +65,7 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
         foreach (var ticker in _tickers)
         {
             var t = ticker;
-            var builder = new RealTimeBarBuilder(t, cfg.ExecutionTFMinutes, prices, log);
+            var builder = new RealTimeBarBuilder(t, cfg.TfMinutesFor(t), prices, log);
             builder.BarClosed  += bar => _channel.Writer.TryWrite((bar, t));
             builder.BarUpdated += bar => _channel.Writer.TryWrite((bar, t));
             _builders[t] = builder;
@@ -171,7 +171,7 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
         }
         var orbStart = nowEt.Date.Add(earliestOrbStart.ToTimeSpan());
         if (orbStart > nowEt) orbStart = orbStart.AddDays(-1);
-        var fromEt  = orbStart.AddMinutes(-_cfg.ExecutionTFMinutes * 20);
+        var fromEt  = orbStart.AddMinutes(-_cfg.MaxTfMinutes() * 20);
         var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
             DateTime.SpecifyKind(fromEt, DateTimeKind.Unspecified), etTz);
 
@@ -180,6 +180,7 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
         foreach (var ticker in _tickers)
         {
             var symbol = ticker; // already in Tradovate format
+            var tfMinutes = _cfg.TfMinutesFor(ticker);
 
             // Chart subscription
             var chartReqId = reqId++;
@@ -190,7 +191,7 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
                 chartDescription = new
                 {
                     underlyingType  = "MinuteBar",
-                    elementSize     = _cfg.ExecutionTFMinutes,
+                    elementSize     = tfMinutes,
                     elementSizeUnit = "UnderlyingUnits"
                 },
                 timeRange = new { asFarAsTimestamp = fromUtc.ToString("O") }
@@ -204,7 +205,7 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
             await SendFrameAsync(ws, $"md/subscribeQuote\n{quoteReqId}\n\n{quoteReq}", ct);
 
             _log.LogInformation("TradovateMultiTicker subscribed — {Symbol} {Tf}min (chart reqId={CId}, quote reqId={QId})",
-                symbol, _cfg.ExecutionTFMinutes, chartReqId, quoteReqId);
+                symbol, tfMinutes, chartReqId, quoteReqId);
         }
 
         // ── Heartbeat timer ──────────────────────────────────────

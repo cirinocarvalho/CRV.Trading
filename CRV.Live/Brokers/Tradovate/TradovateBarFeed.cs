@@ -77,7 +77,7 @@ public class TradovateBarFeed : IBarFeed
 
     private async Task ConnectAsync(CancellationToken ct)
     {
-        var builder = new RealTimeBarBuilder(_cfg.Ticker, _cfg.ExecutionTFMinutes, _prices, _log);
+        var builder = new RealTimeBarBuilder(_cfg.Ticker, _cfg.TfMinutesFor(_cfg.Ticker), _prices, _log);
         builder.BarClosed  += bar => _channel.Writer.TryWrite(bar);
         builder.BarUpdated += bar => _channel.Writer.TryWrite(bar);
 
@@ -162,7 +162,7 @@ public class TradovateBarFeed : IBarFeed
         // the ORB start was yesterday evening — reach back to yesterday
         if (orbStart > nowEt)
             orbStart = orbStart.AddDays(-1);
-        var fromEt   = orbStart.AddMinutes(-_cfg.ExecutionTFMinutes * 20);
+        var fromEt   = orbStart.AddMinutes(-_cfg.TfMinutesFor(_cfg.Ticker) * 20);
         var fromUtc  = TimeZoneInfo.ConvertTimeToUtc(
             DateTime.SpecifyKind(fromEt, DateTimeKind.Unspecified), etTz);
 
@@ -173,7 +173,7 @@ public class TradovateBarFeed : IBarFeed
             chartDescription = new
             {
                 underlyingType  = "MinuteBar",
-                elementSize     = _cfg.ExecutionTFMinutes,
+                elementSize     = _cfg.TfMinutesFor(_cfg.Ticker),
                 elementSizeUnit = "UnderlyingUnits"
             },
             timeRange = new { asFarAsTimestamp = fromUtc.ToString("O") }
@@ -184,7 +184,7 @@ public class TradovateBarFeed : IBarFeed
         var quoteReq = JsonSerializer.Serialize(new { symbol = symbol });
         await SendFrameAsync(ws, $"md/subscribeQuote\n{reqId++}\n\n{quoteReq}", ct);
 
-        _log.LogInformation("TradovateBarFeed subscribed — {Symbol} {Tf}min", symbol, _cfg.ExecutionTFMinutes);
+        _log.LogInformation("TradovateBarFeed subscribed — {Symbol} {Tf}min", symbol, _cfg.TfMinutesFor(_cfg.Ticker));
 
         // ── Message loop with proactive heartbeats ─────────────────
         // Tradovate requires a heartbeat (empty "[]" frame) every 2.5s of inactivity.

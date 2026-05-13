@@ -29,6 +29,9 @@ public class BasketEntry
     /// <summary>Tick size for this instrument.</summary>
     public decimal TickSize { get; set; } = 0.25m;
 
+    /// <summary>Per-symbol execution TF override (minutes). Null = inherit StrategyConfig.ExecutionTFMinutes.</summary>
+    public int? ExecutionTFMinutes { get; set; }
+
     /// <summary>Per-session enablement and cutoff times.</summary>
     public List<SessionSlot> Sessions { get; set; } = new()
     {

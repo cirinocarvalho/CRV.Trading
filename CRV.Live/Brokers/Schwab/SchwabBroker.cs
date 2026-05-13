@@ -228,7 +228,7 @@ public class SchwabBarFeed : IBarFeed
 
     private async Task ConnectAsync(CancellationToken ct)
     {
-        var builder = new RealTimeBarBuilder(_cfg.Ticker, _cfg.ExecutionTFMinutes, _prices, _log);
+        var builder = new RealTimeBarBuilder(_cfg.Ticker, _cfg.TfMinutesFor(_cfg.Ticker), _prices, _log);
         builder.BarClosed  += bar => _channel.Writer.TryWrite(bar);
         builder.BarUpdated += bar => _channel.Writer.TryWrite(bar);
 

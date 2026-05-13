@@ -218,7 +218,8 @@ public class TradeStationBarFeed : IBarFeed
 
     private async Task ConnectAsync(CancellationToken ct)
     {
-        var builder = new RealTimeBarBuilder(_cfg.Ticker, _cfg.ExecutionTFMinutes, _prices, _log);
+        int tfMinutes = _cfg.TfMinutesFor(_cfg.Ticker);
+        var builder = new RealTimeBarBuilder(_cfg.Ticker, tfMinutes, _prices, _log);
         builder.BarClosed  += bar => _channel.Writer.TryWrite(bar);
         builder.BarUpdated += bar => _channel.Writer.TryWrite(bar);
 
@@ -239,9 +240,9 @@ public class TradeStationBarFeed : IBarFeed
                 var nowEt      = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, etTz);
                 var orbStart   = nowEt.Date.Add(_cfg.OrbStart.ToTimeSpan());
                 var minsSince  = Math.Max(0, (nowEt - orbStart).TotalMinutes);
-                var barsNeeded = (int)Math.Ceiling(minsSince / _cfg.ExecutionTFMinutes) + 22;
+                var barsNeeded = (int)Math.Ceiling(minsSince / tfMinutes) + 22;
                 var url = $"{_auth.ApiBaseUrl}/v3/marketdata/stream/barcharts/{sym}" +
-                          $"?interval={_cfg.ExecutionTFMinutes}&unit=Minute&barsback={barsNeeded}&sessiontemplate=Default";
+                          $"?interval={tfMinutes}&unit=Minute&barsback={barsNeeded}&sessiontemplate=Default";
 
                 using var resp   = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
                 using var reader = new System.IO.StreamReader(await resp.Content.ReadAsStreamAsync(ct));

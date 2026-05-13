@@ -568,6 +568,53 @@ public class StrategyConfig
         return new();
     }
 
+    /// <summary>
+    /// Resolves the execution TF (minutes) for a ticker. Looks up the basket entry (ORB + EMA21)
+    /// for a per-symbol override; falls back to the global <see cref="ExecutionTFMinutes"/>.
+    /// </summary>
+    public int TfMinutesFor(string ticker, int? fallbackMinutes = null)
+    {
+        if (!string.IsNullOrWhiteSpace(ticker))
+        {
+            foreach (var b in EnumerateBasketEntries())
+            {
+                if (b.ExecutionTFMinutes is int tf && tf > 0 &&
+                    string.Equals(b.Ticker, ticker, StringComparison.OrdinalIgnoreCase))
+                    return tf;
+            }
+        }
+        return Math.Max(1, fallbackMinutes ?? ExecutionTFMinutes);
+    }
+
+    /// <summary>Largest execution TF across all basket entries and the global default — used for warmup window sizing.</summary>
+    public int MaxTfMinutes()
+    {
+        int max = Math.Max(1, ExecutionTFMinutes);
+        foreach (var b in EnumerateBasketEntries())
+        {
+            if (b.ExecutionTFMinutes is int tf && tf > max) max = tf;
+        }
+        return max;
+    }
+
+    private IEnumerable<BasketEntry> EnumerateBasketEntries()
+    {
+        var opts = new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
+        };
+        foreach (var json in new[] { BasketJson, Ema21BasketJson })
+        {
+            if (string.IsNullOrEmpty(json)) continue;
+            List<BasketEntry>? parsed = null;
+            try { parsed = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(json, opts); }
+            catch { /* malformed — skip */ }
+            if (parsed is null) continue;
+            foreach (var b in parsed) yield return b;
+        }
+    }
+
     private StrategySetupConfig ToSetupConfig(BasketEntry b) => new()
     {
         Id = b.Id,
@@ -578,6 +625,7 @@ public class StrategyConfig
         Ticker = b.Ticker,
         PointValue = b.PointValue,
         TickSize = b.TickSize,
+        ExecutionTFMinutes = b.ExecutionTFMinutes is int tf && tf > 0 ? tf : ExecutionTFMinutes,
         UseCustomOrbWindow = b.Config.UseCustomOrbWindow,
         OrbStart = b.Config.UseCustomOrbWindow ? b.Config.OrbStart : OrbStart,
         OrbEnd   = b.Config.UseCustomOrbWindow ? b.Config.OrbEnd   : OrbEnd,
@@ -638,6 +686,7 @@ public class StrategyConfig
         Enabled = EnableA,
         Ticker = EffectiveTickerA, PointValue = EffectivePointValueA,
         TickSize = EffectiveTickSizeA,
+        ExecutionTFMinutes = ExecutionTFMinutes,
         OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsA, HiVolMult = HiVolMultA, MaxContracts = MaxContractsA,
         StopPct = StopPctA, TargetPct = TargetPctA, PartialPct = PartialPctA,
@@ -663,6 +712,7 @@ public class StrategyConfig
         Enabled = EnableB,
         Ticker = EffectiveTickerB, PointValue = EffectivePointValueB,
         TickSize = EffectiveTickSizeB,
+        ExecutionTFMinutes = ExecutionTFMinutes,
         OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsB, HiVolMult = HiVolMultB, MaxContracts = MaxContractsB,
         StopPct = StopPctB, TargetPct = TargetPctB, PartialPct = PartialPctB,
@@ -688,6 +738,7 @@ public class StrategyConfig
         Enabled = EnableC,
         Ticker = EffectiveTickerC, PointValue = EffectivePointValueC,
         TickSize = EffectiveTickSizeC,
+        ExecutionTFMinutes = ExecutionTFMinutes,
         OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsC, HiVolMult = HiVolMultC, MaxContracts = MaxContractsC,
         StopPct = StopPctC, TargetPct = TargetPctC, PartialPct = PartialPctC,
@@ -712,6 +763,7 @@ public class StrategyConfig
         Enabled = EnableD,
         Ticker = EffectiveTickerD, PointValue = EffectivePointValueD,
         TickSize = EffectiveTickSizeD,
+        ExecutionTFMinutes = ExecutionTFMinutes,
         OrbStart = OrbStart, OrbEnd = OrbEnd,
         Contracts = ContractsD, HiVolMult = HiVolMultD, MaxContracts = MaxContractsD,
         StopPct = StopPctD, TargetPct = TargetPctD, PartialPct = PartialPctD,
@@ -835,10 +887,13 @@ public class StrategyConfig
                 var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
                 if (basket != null)
                 {
+                    var allowedTfs = new HashSet<int> { 1, 2, 5, 10, 15, 20, 30, 60 };
                     foreach (var b in basket)
                     {
                         if (b.Config.UseCustomOrbWindow && b.Config.OrbEnd <= b.Config.OrbStart)
                             errors.Add($"Basket entry '{b.Label ?? b.Id}': OrbEnd must be after OrbStart.");
+                        if (b.ExecutionTFMinutes is int tf && !allowedTfs.Contains(tf))
+                            errors.Add($"Basket entry '{b.Label ?? b.Id}': ExecutionTFMinutes must be one of 1,2,5,10,15,20,30,60.");
                     }
                 }
             }

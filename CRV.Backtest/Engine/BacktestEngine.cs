@@ -129,7 +129,18 @@ public class BacktestEngine
         DateTime lastDailyReset = DateTime.MinValue;
         bool betweenSessions = true;  // Start in gap; first SessionStarted will clear it
 
-        int tfMinutes = Math.Max(1, _btCfg.ExecutionTFMinutes);
+        int runTfFallback = Math.Max(1, _btCfg.ExecutionTFMinutes);
+        // Per-ticker TF: basket override wins, else the backtest run TF.
+        var tickerTf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int TfFor(string t)
+        {
+            if (!tickerTf.TryGetValue(t, out var tf))
+            {
+                tf = _cfg.TfMinutesFor(t, runTfFallback);
+                tickerTf[t] = tf;
+            }
+            return tf;
+        }
 
         // ── Per-ticker execution-TF bucket state ─────────────────────
         var buckets = new Dictionary<string, BucketState>(StringComparer.OrdinalIgnoreCase);
@@ -157,7 +168,7 @@ public class BacktestEngine
                 buckets[ticker] = bkt;
             }
 
-            var key      = BucketStart(bar.Time, tfMinutes);
+            var key      = BucketStart(bar.Time, TfFor(ticker));
             bool newBkt  = bkt.BucketKey == null || key != bkt.BucketKey;
 
             if (newBkt && bkt.BucketKey != null)

@@ -301,16 +301,10 @@ public class LiveEngineOrchestrator : BackgroundService
                 }
             }
 
-            // Reach back 20 TF bars before ORB start for ATR/VWAP warmup, up to now
+            // Reach back 20 TF bars before ORB start for ATR/VWAP warmup, up to now.
+            // Per-symbol TFs: warmup window is computed per ticker inside the loop below.
             var orbStartLocal = nowLocal.Date.Add(orbStart.ToTimeSpan());
             if (orbStartLocal > nowLocal) orbStartLocal = orbStartLocal.AddDays(-1);
-            var fromLocal = orbStartLocal.AddMinutes(-cfg.ExecutionTFMinutes * 20);
-            var toLocal = nowLocal.AddMinutes(-cfg.ExecutionTFMinutes); // don't overlap live stream
-
-            var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
-                DateTime.SpecifyKind(fromLocal, DateTimeKind.Unspecified), tz);
-            var toUtc = TimeZoneInfo.ConvertTimeToUtc(
-                DateTime.SpecifyKind(toLocal, DateTimeKind.Unspecified), tz);
 
             // Collect all distinct tickers from basket (or fallback to global)
             var setupConfigs = cfg.ToSetupConfigs();
@@ -331,6 +325,19 @@ public class LiveEngineOrchestrator : BackgroundService
 
             foreach (var ticker in allTickers)
             {
+                // Resolve the raw ticker for engine routing (strip broker prefix)
+                var rawTicker = setupConfigs
+                    .Select(s => s.Ticker)
+                    .FirstOrDefault(t => FuturesSymbol.ForBroker(t, cfg.Broker) == ticker) ?? cfg.Ticker;
+
+                int tfMinutes = cfg.TfMinutesFor(rawTicker);
+                var fromLocal = orbStartLocal.AddMinutes(-tfMinutes * 20);
+                var toLocal   = nowLocal.AddMinutes(-tfMinutes); // don't overlap live stream
+                var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+                    DateTime.SpecifyKind(fromLocal, DateTimeKind.Unspecified), tz);
+                var toUtc = TimeZoneInfo.ConvertTimeToUtc(
+                    DateTime.SpecifyKind(toLocal, DateTimeKind.Unspecified), tz);
+
                 // Fetch bars from broker for this ticker
                 IAsyncEnumerable<Bar> bars;
                 if (cfg.Broker == "Schwab")
@@ -338,24 +345,19 @@ public class LiveEngineOrchestrator : BackgroundService
                     var auth = scope.ServiceProvider.GetRequiredService<SchwabAuthService>();
                     var token = await auth.GetAccessTokenAsync();
                     var loader = new SchwabHistoricalLoader(token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                    bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+                    bars = loader.LoadAsync(ticker, tfMinutes, fromUtc, toUtc);
                 }
                 else if (cfg.Broker == "TradeStation")
                 {
                     var auth = scope.ServiceProvider.GetRequiredService<TradeStationAuthService>();
                     var token = await auth.GetAccessTokenAsync();
                     var loader = new TradeStationHistoricalLoader(token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                    bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc);
+                    bars = loader.LoadAsync(ticker, tfMinutes, fromUtc, toUtc);
                 }
                 else
                 {
                     return (false, $"ForceORB not supported for broker {cfg.Broker} — use Schwab or TradeStation");
                 }
-
-                // Resolve the raw ticker for engine routing (strip broker prefix)
-                var rawTicker = setupConfigs
-                    .Select(s => s.Ticker)
-                    .FirstOrDefault(t => FuturesSymbol.ForBroker(t, cfg.Broker) == ticker) ?? cfg.Ticker;
 
                 // Feed ALL bars as warmup — builds ATR, VWAP, and all indicators.
                 decimal orbHigh = 0, orbLow = decimal.MaxValue;
@@ -1354,10 +1356,9 @@ public class LiveEngineOrchestrator : BackgroundService
             // built-in history replay (TS barsback=20) and must be treated as warmup — builds
             // ORB/ATR/VWAP without firing orders or consuming the trade-count budget.
             // Bars at or after the cutoff are live and run the full strategy.
-            var warmupCutoffUtc = (cfg.Broker == "TradovateReplay" && cfg.ReplayDate.HasValue
+            var warmupAnchorUtc = (cfg.Broker == "TradovateReplay" && cfg.ReplayDate.HasValue
                 ? cfg.ReplayDate.Value.ToUniversalTime()
-                : DateTime.UtcNow)
-                .AddMinutes(-cfg.ExecutionTFMinutes);
+                : DateTime.UtcNow);
 
             bool streamWarmupDone = false;
             await foreach (var (bar, barTicker) in mux.StreamAsync(ct))
@@ -1367,6 +1368,8 @@ public class LiveEngineOrchestrator : BackgroundService
                 await engineLock.WaitAsync(ct);
                 try
                 {
+                    // Per-ticker warmup cutoff: bars older than `now - 1 TF bar` are historical replay.
+                    var warmupCutoffUtc = warmupAnchorUtc.AddMinutes(-cfg.TfMinutesFor(barTicker));
                     var isWarmup = bar.IsConfirmed && bar.Time < warmupCutoffUtc;
                     // For live bars use wall-clock time for session transition — bar.Time is the
                     // bar's OPEN timestamp which can be up to one bar-period stale (e.g. 08:25 for
@@ -1686,9 +1689,10 @@ public class LiveEngineOrchestrator : BackgroundService
             // NQ futures trade ~23h/day so pre-RTH bars (e.g. 6 AM ET) are typically available.
             // If the API returns fewer bars than requested, ATR simply won't be ready yet
             // (non-fatal — the engine skips the ATR filter when !IsReady).
-            var fromEt = orbStartEt.AddMinutes(-cfg.ExecutionTFMinutes * 20);
+            int tfMinutes = cfg.TfMinutesFor(FuturesSymbol.Normalize(ticker));
+            var fromEt = orbStartEt.AddMinutes(-tfMinutes * 20);
             // Stop 1 full bar before now so backfill doesn't overlap the live stream
-            var toEt   = nowEt.AddMinutes(-cfg.ExecutionTFMinutes);
+            var toEt   = nowEt.AddMinutes(-tfMinutes);
             if (toEt <= fromEt) return 0;
 
             var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
@@ -1698,7 +1702,7 @@ public class LiveEngineOrchestrator : BackgroundService
 
             _log.LogInformation(
                 "Backfilling {Ticker} {From:HH:mm}–{To:HH:mm} ET ({Tf}-min bars)…",
-                ticker, fromEt, toEt, cfg.ExecutionTFMinutes);
+                ticker, fromEt, toEt, tfMinutes);
 
             await hub.Clients.All.SendAsync("EngineStatusChanged", "Backfilling…", ct);
 
@@ -1712,7 +1716,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new TradeStationHistoricalLoader(
                     token, lf.CreateLogger<TradeStationHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
+                bars = loader.LoadAsync(ticker, tfMinutes, fromUtc, toUtc, ct);
             }
             else if (cfg.Broker == "Schwab")
             {
@@ -1730,7 +1734,7 @@ public class LiveEngineOrchestrator : BackgroundService
                 var token  = await auth.GetAccessTokenAsync();
                 var loader = new SchwabHistoricalLoader(
                     token, lf.CreateLogger<SchwabHistoricalLoader>(), auth.ApiBaseUrl, hf);
-                bars = loader.LoadAsync(ticker, cfg.ExecutionTFMinutes, fromUtc, toUtc, ct);
+                bars = loader.LoadAsync(ticker, tfMinutes, fromUtc, toUtc, ct);
             }
             // Tradovate historical loader: add in Task 14
             else if (cfg.Broker is "Tradovate" or "TradovateReplay") return 0; // warmup via stream's built-in history

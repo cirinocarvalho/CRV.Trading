@@ -1072,6 +1072,34 @@ function _bField(id, field, type, val, w, label, parse, step) {
     return '<div class="col-auto"><label class="form-label small mb-0">' + label + '</label>' +
         '<input type="' + type + '"' + stepAttr + ' class="form-control form-control-sm" style="width:' + w + 'px" value="' + val + '" onchange="' + onChange + '"></div>';
 }
+function _bTfSelect(entry, updateFn) {
+    updateFn = updateFn || 'updateBasketTf';
+    var tfs = [1, 2, 5, 10, 15, 20, 30, 60];
+    var cur = entry.ExecutionTFMinutes;
+    var opts = '<option value=""' + (cur == null ? ' selected' : '') + '>TF (inherit)</option>';
+    opts += tfs.map(function(v) {
+        return '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>' + v + 'm</option>';
+    }).join('');
+    return '<select class="form-select form-select-sm" style="width:110px" title="Execution TF" ' +
+        'onchange="' + updateFn + '(\'' + entry.Id + '\',this.value)">' + opts + '</select>';
+}
+
+function updateBasketTf(id, raw) {
+    var entry = _basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    if (raw === '' || raw == null) entry.ExecutionTFMinutes = null;
+    else entry.ExecutionTFMinutes = parseInt(raw);
+    syncBasketJson();
+}
+
+function updateEma21Tf(id, raw) {
+    var entry = _ema21Basket.find(function(b) { return b.Id === id; });
+    if (!entry) return;
+    if (raw === '' || raw == null) entry.ExecutionTFMinutes = null;
+    else entry.ExecutionTFMinutes = parseInt(raw);
+    syncEma21Json();
+}
+
 function _bCheck(id, field, checked, label) {
     var chk = checked ? ' checked' : '';
     return '<div class="col-auto d-flex align-items-end pb-1"><div class="form-check form-check-inline mb-0">' +
@@ -1222,6 +1250,7 @@ function renderBasket() {
                 '<span class="badge bg-warning text-dark">#' + (i+1) + '</span>' +
                 '<select class="form-select form-select-sm" style="width:160px" onchange="updateBasketField(\'' + entry.Id + '\',\'StrategyType\',parseInt(this.value))">' + stratOptions + '</select>' +
                 '<select class="form-select form-select-sm" style="width:220px" onchange="updateBasketInstrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
+                _bTfSelect(entry) +
                 '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateBasketField(\'' + entry.Id + '\',\'Label\',this.value)">' +
                 '<div class="form-check form-switch ms-auto mb-0" title="' + (entry.Enabled !== false ? 'Enabled' : 'Disabled') + '">' +
                     '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled !== false ? 'checked' : '') +
@@ -1532,6 +1561,7 @@ function renderEma21Basket() {
                 '<span class="badge bg-warning text-dark">#' + (i+1) + '</span>' +
                 '<span class="badge bg-info">EMA21</span>' +
                 '<select class="form-select form-select-sm" style="width:220px" onchange="updateEma21Instrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
+                _bTfSelect(entry, 'updateEma21Tf') +
                 '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateEma21Field(\'' + entry.Id + '\',\'Label\',this.value)">' +
                 '<div class="form-check form-switch ms-auto mb-0">' +
                     '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled !== false ? 'checked' : '') +

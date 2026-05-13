@@ -19,6 +19,9 @@ public class StrategySetupConfig
     public decimal PointValue { get; set; } = 20m;
     public decimal TickSize { get; set; } = 0.25m;
 
+    /// <summary>Resolved execution TF (basket override or global default).</summary>
+    public int ExecutionTFMinutes { get; set; } = 1;
+
     // ── ORB window override (per-setup) ────────────────────────────
     /// <summary>When true, this setup uses its own ORB window instead of the global config window.
     /// Lets one ticker (e.g. NQ at 09:30–10:00) and another (e.g. GC at 08:20–09:50) coexist

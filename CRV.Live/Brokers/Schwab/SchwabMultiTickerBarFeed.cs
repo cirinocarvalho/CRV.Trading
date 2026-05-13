@@ -46,7 +46,7 @@ public sealed class SchwabMultiTickerBarFeed : IMultiTickerBarFeed
         foreach (var ticker in _tickers)
         {
             var t = ticker; // capture for closure
-            var builder = new RealTimeBarBuilder(t, cfg.ExecutionTFMinutes, prices, log);
+            var builder = new RealTimeBarBuilder(t, cfg.TfMinutesFor(t), prices, log);
             builder.BarClosed  += bar => _channel.Writer.TryWrite((bar, t));
             builder.BarUpdated += bar => _channel.Writer.TryWrite((bar, t));
             _builders[t] = builder;
