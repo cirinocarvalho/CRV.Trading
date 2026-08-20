@@ -34,3 +34,10 @@ sessions.json
 # macOS
 .DS_Store
 .worktrees/
+
+# Claude Code — machine-local files
+# settings.local.json holds per-user tool permissions; worktrees/ holds
+# transient agent worktrees registered with `git worktree`. Neither belongs
+# in the repo (.claude/launch.json IS shared and stays tracked).
+.claude/settings.local.json
+.claude/worktrees/
