@@ -1,5 +1,24 @@
 # CRV.Trading
 
+[![CI](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/ci.yml/badge.svg)](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/ci.yml)
+[![Deploy to Azure](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/deploy.yml/badge.svg)](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/deploy.yml)
+[![Infrastructure](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/infra.yml/badge.svg)](https://github.com/cirinocarvalho/CRV.Trading/actions/workflows/infra.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-14.0-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![ASP.NET Core](https://img.shields.io/badge/ASP.NET%20Core-Razor%20Pages-5C2D91?logo=dotnet&logoColor=white)](https://learn.microsoft.com/aspnet/core/)
+[![SignalR](https://img.shields.io/badge/SignalR-realtime-0078D4?logo=dotnet&logoColor=white)](https://learn.microsoft.com/aspnet/core/signalr/)
+[![EF Core](https://img.shields.io/badge/EF%20Core-10.0-512BD4?logo=dotnet&logoColor=white)](https://learn.microsoft.com/ef/core/)
+[![SQLite](https://img.shields.io/badge/SQLite-Litestream-003B57?logo=sqlite&logoColor=white)](https://litestream.io/)
+[![Serilog](https://img.shields.io/badge/Serilog-Seq-1B1B1B?logo=serilog&logoColor=white)](https://serilog.net/)
+[![Swagger](https://img.shields.io/badge/Swagger-OpenAPI-85EA2D?logo=swagger&logoColor=black)](https://swagger.io/)
+[![xUnit](https://img.shields.io/badge/tests-xUnit-5B2C6F?logo=xunit&logoColor=white)](https://xunit.net/)
+[![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Azure](https://img.shields.io/badge/Azure-App%20Service%20%2B%20Bicep-0078D4?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/)
+[![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](https://github.com/features/actions)
+[![Lightweight Charts](https://img.shields.io/badge/TradingView-Lightweight%20Charts%20v4-2962FF?logo=tradingview&logoColor=white)](https://tradingview.github.io/lightweight-charts/)
+
 ASP.NET Core web application for live and backtested ORB (Opening Range Breakout) futures trading. Built on a **composable engine** architecture where strategies are **pure signal generators** (emit `EntrySignal` only) and `BrokerEventHandler` manages the full trade lifecycle (fills, partials, break-even moves, exits). Supports multiple instruments simultaneously via shared WebSocket connections. Supports Schwab, TradeStation, Tradovate, and Tradovate Replay brokers with real-time dashboard via SignalR. Includes analytical modules (session detection, VWAP bands, sweep detection, opening drive, trend day filter, false breakout detection) and high-volatility position sizing.
 
 ## Projects
@@ -148,3 +167,11 @@ gh workflow run deploy.yml          # first real image build
   managed identity; repo has zero long-lived Azure secrets (OIDC)
 - **App gate**: Entra ID Easy Auth on every request except auth-excluded health/webhook paths
 - Full details: [deploy/SECRETS.md](deploy/SECRETS.md), [docs/brokers.md](docs/brokers.md)
+
+## License
+
+Released under the [MIT License](LICENSE) — © 2026 Cirino Carvalho.
+
+> **Disclaimer**: This software is provided for educational and research purposes.
+> It is not financial advice. Trading futures involves substantial risk of loss —
+> use at your own risk.
