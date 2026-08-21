@@ -14,7 +14,8 @@
 
 set -euo pipefail
 
-RG="crv-trading-rg"
+RG="${CRV_RG:-crv-trading-rg}"
+APP="${CRV_APP:-crv-trading}"
 FILTER="${1:-all}"
 
 # Discover the Key Vault name (unique-suffix from Bicep)
@@ -90,7 +91,7 @@ if match accounts; then
   echo "── AccountIds (not KV — App Service settings) ────────────────"
   echo "  These aren't secrets; set them directly as App Service settings:"
   echo
-  echo "    az webapp config appsettings set -g $RG -n crv-trading --settings \\"
+  echo "    az webapp config appsettings set -g $RG -n $APP --settings \\"
   echo "      Schwab__AccountId=... \\"
   echo "      TradeStation__AccountId=... \\"
   echo "      Tradovate__AccountId=..."
@@ -100,5 +101,5 @@ fi
 echo
 echo "─────────────────────────────────────────────────────────────────────"
 echo "✓ Done. Restart the web app for new values to take effect:"
-echo "    az webapp restart -g $RG -n crv-trading"
+echo "    az webapp restart -g $RG -n $APP"
 echo "─────────────────────────────────────────────────────────────────────"

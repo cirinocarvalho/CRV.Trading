@@ -23,9 +23,12 @@ permissions:
   contents: read
 
 env:
-  AZURE_RG:        crv-trading-rg
-  AZURE_APP:       crv-trading
-  AZURE_LOCATION:  eastus
+  # Repo variables (Settings → Secrets and variables → Actions → Variables)
+  # override these, so a fork deploys to its own resources without editing this
+  # file. Unset falls back to the defaults below.
+  AZURE_RG:        ${{ vars.AZURE_RG       || 'crv-trading-rg' }}
+  AZURE_APP:       ${{ vars.AZURE_APP      || 'crv-trading' }}
+  AZURE_LOCATION:  ${{ vars.AZURE_LOCATION || 'eastus' }}
 
 jobs:
   # ── Build + test (runs first, blocks deploy) ──────────────────

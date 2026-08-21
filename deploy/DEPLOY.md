@@ -16,6 +16,49 @@ Key Vault, Azure Blob (Litestream backup), and Entra ID Easy Auth.
 | 2 role assignments | Web App MI → ACR Pull + KV Secrets User | — |
 | **Total** | | **~$19** |
 
+
+## Deploying under your own names
+
+Nothing in this repo is pinned to one deployment. Every resource name comes
+from a default that you can override without editing tracked files — useful
+for a fork, a second environment, or a personal instance.
+
+**GitHub Actions** reads repo variables (Settings → Secrets and variables →
+Actions → Variables). Unset variables fall back to the defaults:
+
+| Variable | Default | Controls |
+|---|---|---|
+| `AZURE_RG` | `crv-trading-rg` | Resource group for both workflows |
+| `AZURE_APP` | `crv-trading` | Web App name, and the Bicep `appName` param that derives the plan, Key Vault, and ACR names |
+| `AZURE_LOCATION` | `eastus` | Region |
+| `SMTP_FROM_ADDRESS` | *(empty)* | Sender address for trade alerts. Empty = email alerts disabled |
+
+**Local scripts** read environment variables with the same defaults:
+
+```bash
+CRV_RG=my-rg CRV_LOCATION=westus2 ./deploy/github-oidc-setup.sh
+CRV_RG=my-rg ./deploy/set-secrets.sh
+```
+
+`CRV_APP_REG_NAME` overrides the Entra app-registration name in the bootstrap
+script.
+
+**Bicep** takes `appName` (default `crv-trading`); every other resource name is
+derived from it plus a `uniqueString(resourceGroup().id)` suffix, so two
+deployments in different resource groups never collide.
+
+The commands and URLs throughout these runbooks use the defaults. If you
+override the names, substitute accordingly — `https://<AZURE_APP>.azurewebsites.net`.
+
+### Email sender
+
+`Smtp:FromAddress` is intentionally empty in `appsettings.json` and defaults to
+empty in Bicep, so the repo carries nobody's personal address. The app treats
+unset SMTP as "not configured" and skips alerts with a logged warning rather
+than failing. To enable email, set the `SMTP_FROM_ADDRESS` repo variable (or
+the App Service `Smtp__FromAddress` setting) and store the password in Key
+Vault as `Smtp--Password` via `./deploy/set-secrets.sh smtp`. `Smtp__Username`
+defaults to the same address, which is what Gmail and most providers expect.
 ## Prerequisites
 
 - Azure subscription with **App Service B1 vCPU quota** (check `az vm list-usage --location eastus`)
