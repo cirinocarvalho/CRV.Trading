@@ -3,7 +3,7 @@
 az account show --query name -o tsv         # verify the right subscription
 
 # ── 1. Resolve your deployed resources ──────────────────────
-RG="crv-trading-rg"
+RG="${CRV_RG:-crv-trading-rg}"
 SITE=$(az webapp list -g "$RG" --query "[0].name" -o tsv)
 HOST=$(az webapp show -g "$RG" -n "$SITE" --query defaultHostName -o tsv)
 KV=$(az keyvault list -g "$RG" --query "[0].name" -o tsv)
@@ -13,7 +13,7 @@ echo "KeyVault: $KV"
 
 # ── 2. Create the Entra app registration ────────────────────
 APP_ID=$(az ad app create \
-  --display-name "crv-trading" \
+  --display-name "$SITE" \
   --sign-in-audience AzureADMyOrg \
   --web-redirect-uris "https://$HOST/.auth/login/aad/callback" \
   --enable-id-token-issuance true \

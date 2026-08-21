@@ -32,8 +32,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AZURE_RG:       crv-trading-rg
-  AZURE_LOCATION: eastus
+  # Overridable via repo variables — see deploy.yml.
+  AZURE_RG:       ${{ vars.AZURE_RG       || 'crv-trading-rg' }}
+  AZURE_APP:      ${{ vars.AZURE_APP      || 'crv-trading' }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus' }}
 
 jobs:
   # ── PR: preview changes without applying ────────────────────────────
@@ -54,7 +56,7 @@ jobs:
       - name: Preserve current container image
         id: current
         run: |
-          img=$(az webapp config show -g "$AZURE_RG" -n crv-trading \
+          img=$(az webapp config show -g "$AZURE_RG" -n "$AZURE_APP" \
                 --query linuxFxVersion -o tsv 2>/dev/null || echo "")
           if [[ -n "$img" ]]; then
             echo "image=$img" >> "$GITHUB_OUTPUT"
@@ -65,7 +67,7 @@ jobs:
         env:
           ENTRA_CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
         run: |
-          args=(-g "$AZURE_RG" -f deploy/main.bicep)
+          args=(-g "$AZURE_RG" -f deploy/main.bicep -p "appName=$AZURE_APP")
           if [[ -n "${{ steps.current.outputs.image }}" ]]; then
             args+=(-p "containerImage=${{ steps.current.outputs.image }}")
           fi
@@ -112,7 +114,7 @@ jobs:
       - name: Preserve current container image
         id: current
         run: |
-          img=$(az webapp config show -g "$AZURE_RG" -n crv-trading \
+          img=$(az webapp config show -g "$AZURE_RG" -n "$AZURE_APP" \
                 --query linuxFxVersion -o tsv 2>/dev/null || echo "")
           if [[ -n "$img" ]]; then
             echo "image=$img" >> "$GITHUB_OUTPUT"
@@ -127,6 +129,8 @@ jobs:
           resourceGroupName: ${{ env.AZURE_RG }}
           template: deploy/main.bicep
           parameters: >-
+            appName=${{ env.AZURE_APP }}
+            ${{ vars.SMTP_FROM_ADDRESS && format('smtpFromAddress={0}', vars.SMTP_FROM_ADDRESS) || '' }}
             ${{ steps.current.outputs.image && format('containerImage={0}', steps.current.outputs.image) || '' }}
             ${{ secrets.ENTRA_CLIENT_ID && format('entraClientId={0}', secrets.ENTRA_CLIENT_ID) || '' }}
             ${{ inputs.seedPlaceholderSecrets && 'seedPlaceholderSecrets=true' || '' }}

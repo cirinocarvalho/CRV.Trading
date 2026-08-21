@@ -38,6 +38,12 @@ param seedAppSettings bool = false
 @description('Entra ID (Azure AD) app registration client ID for App Service Easy Auth. Leave blank to skip auth setup on first deploy. Create via: az ad app create --display-name crv-trading --web-redirect-uris https://<site>.azurewebsites.net/.auth/login/aad/callback')
 param entraClientId string = ''
 
+@description('SMTP sender address for trade alerts, e.g. alerts@example.com. Left empty by default: the app treats unset SMTP as "not configured" and skips email alerts rather than failing. Not a secret — the password lives in Key Vault as Smtp--Password.')
+param smtpFromAddress string = ''
+
+@description('SMTP account username. Defaults to smtpFromAddress, which is correct for Gmail and most providers.')
+param smtpUsername string = ''
+
 @description('Entra ID tenant ID. Defaults to the deployment subscription tenant. Override for multi-tenant scenarios (not recommended for this app).')
 param entraTenantId string = subscription().tenantId
 
@@ -61,9 +67,14 @@ param tags object = {
 
 // Unique-but-stable suffix for globally-namespaced resources.
 var suffix      = uniqueString(resourceGroup().id)
-var acrName     = toLower('crvtrading${suffix}')
-var kvName      = 'crv-trading-kv-${substring(suffix, 0, 6)}'
-var storageName = toLower('crvtrading${substring(suffix, 0, 10)}')
+// Derived from appName so a second deployment does not inherit this one's
+// names. For the default appName ('crv-trading') these evaluate byte-identically
+// to the previous hardcoded literals — renaming them would orphan the existing
+// Key Vault, ACR, and storage account.
+var bareName    = toLower(replace(appName, '-', ''))
+var acrName     = toLower('${bareName}${suffix}')
+var kvName      = '${appName}-kv-${substring(suffix, 0, 6)}'
+var storageName = toLower('${bareName}${substring(suffix, 0, 10)}')
 var planName    = '${appName}-plan'
 var siteName    = appName
 var litestreamContainer = 'litestream'
@@ -280,8 +291,8 @@ resource siteAppSettings 'Microsoft.Web/sites/config@2023-12-01' = if (seedAppSe
     Smtp__Host: 'smtp.gmail.com'
     Smtp__Port: '587'
     Smtp__UseSsl: 'true'
-    Smtp__FromAddress: 'cirino.carvalho@gmail.com'
-    Smtp__Username: 'cirino.carvalho@gmail.com'
+    Smtp__FromAddress: smtpFromAddress
+    Smtp__Username: empty(smtpUsername) ? smtpFromAddress : smtpUsername
     Smtp__Password: kvRef(kv.name, 'Smtp--Password')
 
     // ── Litestream (backup to Azure Blob) ────────────────

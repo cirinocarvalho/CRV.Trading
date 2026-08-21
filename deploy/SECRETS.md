@@ -128,7 +128,7 @@ dotnet user-secrets set "Smtp:Password"             "..."
 | `deploy/main.bicep` | Declares KV + (conditionally) placeholder secrets; wires App Service settings to KV references |
 | `deploy/set-secrets.sh` | Interactive populator / rotator |
 | `deploy/app-entra.sh` | Sets up the Entra ID app registration used by Easy Auth |
-| `CRV.Web/appsettings.json` | **No secrets or account IDs** — safe to commit |
+| `CRV.Web/appsettings.json` | **No secrets, account IDs, or personal addresses** — safe to commit. `Smtp:FromAddress` is deliberately empty; set it per-deployment |
 | User-secrets / App Service / Key Vault | Real values per environment |
 
 ## Tier legend

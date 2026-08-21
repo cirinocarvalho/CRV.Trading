@@ -5,6 +5,10 @@ database access, recovery, and common troubleshooting.
 
 ## Endpoints
 
+> URLs below assume the default names (`crv-trading` / `crv-trading-rg`). If you
+> overrode `AZURE_APP` / `AZURE_RG`, substitute accordingly — see
+> [DEPLOY.md § Deploying under your own names](DEPLOY.md#deploying-under-your-own-names).
+
 | URL | Auth | Purpose |
 |---|---|---|
 | https://crv-trading.azurewebsites.net | Entra Easy Auth (user login) | App UI |

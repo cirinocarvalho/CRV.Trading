@@ -9,9 +9,10 @@
 set -euo pipefail
 
 # ── Config ───────────────────────────────────────────────────────────────────
-RG="crv-trading-rg"
-LOCATION="eastus"
-APP_REG_NAME="crv-trading-github-deploy"
+RG="${CRV_RG:-crv-trading-rg}"
+LOCATION="${CRV_LOCATION:-eastus}"
+APP_REG_NAME="${CRV_APP_REG_NAME:-crv-trading-github-deploy}"
+APP="${CRV_APP:-crv-trading}"
 GITHUB_REPO="${GITHUB_REPO:-}"   # auto-detected via gh if empty
 
 # ── Detect repo ──────────────────────────────────────────────────────────────
@@ -110,6 +111,6 @@ Next:
      each broker — see deploy/OAUTH_REDIRECTS.md
 
 Tail logs once deployed:
-    az webapp log tail -g $RG -n crv-trading
+    az webapp log tail -g $RG -n $APP
 ─────────────────────────────────────────────────────────────────────
 EOF
