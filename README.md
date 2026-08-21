@@ -166,6 +166,8 @@ gh workflow run deploy.yml          # first real image build
 - **Production**: credentials in Azure Key Vault, fetched by App Service
   managed identity; repo has zero long-lived Azure secrets (OIDC)
 - **App gate**: Entra ID Easy Auth on every request except auth-excluded health/webhook paths
+- **Order webhook**: `POST /api/engine/webhook/order` places real orders and cannot use an interactive login, so it is gated by a shared secret (`Webhook:Secret`, Key Vault `Webhook--Secret`) compared in constant time. It **fails closed** — with no secret configured it refuses every caller rather than accepting anonymous orders
+- **Anonymous surface**: only `/api/engine/health` (liveness, no trading data) is unauthenticated; `/api/engine/status` carries P&L and positions and stays behind Easy Auth
 - Full details: [deploy/SECRETS.md](deploy/SECRETS.md), [docs/brokers.md](docs/brokers.md)
 
 ## License

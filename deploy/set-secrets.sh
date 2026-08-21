@@ -10,6 +10,7 @@
 #   ./deploy/set-secrets.sh            # prompts for every secret
 #   ./deploy/set-secrets.sh schwab     # only prompts for Schwab-related secrets
 #   ./deploy/set-secrets.sh smtp       # etc.
+#   ./deploy/set-secrets.sh webhook    # order-webhook shared secret
 
 set -euo pipefail
 
@@ -73,6 +74,15 @@ fi
 if match smtp; then
   echo "── SMTP (for email alerts) ───────────────────────────────────"
   prompt_and_set "Smtp--Password" "SMTP password / app password"
+fi
+
+# ── Order webhook ───────────────────────────────────────────────────────────
+# Gates POST /api/engine/webhook/order, which is excluded from Easy Auth so
+# TradingView can reach it. Until this is set the endpoint refuses every
+# caller. Generate a strong value with:  openssl rand -base64 32
+if match webhook; then
+  echo "── Order webhook (shared secret) ─────────────────────────────"
+  prompt_and_set "Webhook--Secret" "Webhook shared secret (openssl rand -base64 32)"
 fi
 
 # ── Account IDs (not secrets — stored as plain App Service settings) ────────

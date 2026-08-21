@@ -22,6 +22,7 @@ system-assigned managed identity resolves them at startup.
 | `Tradovate:AccountId` | 🟡 | App Service setting `Tradovate__AccountId` |
 | `Smtp:Password` | 🔴 | KV secret `Smtp--Password` |
 | Entra Easy Auth client secret | 🔴 | KV secret `Auth--ClientSecret` |
+| `Webhook:Secret` | 🔴 | KV secret `Webhook--Secret` — gates the order webhook; unset = webhook disabled |
 | Storage key (Litestream) | 🔴 | KV secret `Litestream--StorageKey` (auto-populated from `listKeys()`) |
 
 ### Naming convention

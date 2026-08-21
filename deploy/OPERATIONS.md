@@ -8,8 +8,9 @@ database access, recovery, and common troubleshooting.
 | URL | Auth | Purpose |
 |---|---|---|
 | https://crv-trading.azurewebsites.net | Entra Easy Auth (user login) | App UI |
-| https://crv-trading.azurewebsites.net/api/engine/status | None | Health check, JSON status |
-| https://crv-trading.azurewebsites.net/api/engine/webhook/order | None | External order entry (TradingView) |
+| https://crv-trading.azurewebsites.net/api/engine/health | None | Liveness probe. JSON, no trading data |
+| https://crv-trading.azurewebsites.net/api/engine/status | Entra Easy Auth | Full engine state — P&L, positions, snapshot |
+| https://crv-trading.azurewebsites.net/api/engine/webhook/order | `Webhook--Secret` shared secret | External order entry (TradingView) |
 | https://crv-trading.scm.azurewebsites.net | Azure portal login | Kudu (logs, file system, web SSH) |
 | https://crv-trading.scm.azurewebsites.net/webssh/host | Azure portal login | Shell in the SCM container |
 
@@ -176,11 +177,41 @@ az webapp restart -g crv-trading-rg -n crv-trading
 
 ### Health check "unhealthy"
 
-Azure's health probe hits `healthCheckPath` (set to `/api/engine/status`
+Azure's health probe hits `healthCheckPath` (set to `/api/engine/health`
 in Bicep) and expects HTTP 200. If the app is returning 401 there, Easy
-Auth is gating the endpoint incorrectly — verify `/api/engine/status` is
+Auth is gating the endpoint incorrectly — verify `/api/engine/health` is
 in `authExcludedPaths`. If 5xx, check `*_default_docker.log` for startup
 errors.
+
+Note: `/api/engine/status` returning 401 is correct and not a health-check
+failure — it carries P&L and positions, so it is deliberately kept out of
+`authExcludedPaths`. Only `/api/engine/health` is anonymous.
+
+### Webhook returns 503 "Webhook is not configured"
+
+The order webhook fails closed: with no usable `Webhook:Secret` it refuses
+every caller rather than accepting anonymous orders. Look for the startup
+log line `[WEBHOOK] Rejected: no usable Webhook:Secret is configured`. Fix:
+
+```bash
+./deploy/set-secrets.sh webhook      # writes Webhook--Secret to Key Vault
+az webapp restart -g crv-trading-rg -n crv-trading
+```
+
+A value that is empty, still `CHANGE_ME`, or shorter than 16 characters
+counts as unconfigured. Note `seedAppSettings` defaults to false, so a
+routine infra deploy will NOT add the `Webhook__Secret` app setting — add
+it in the Portal (or with `az webapp config appsettings set`) pointing at
+`@Microsoft.KeyVault(VaultName=<kv>;SecretName=Webhook--Secret)`.
+
+### Webhook returns 401 "Unauthorized"
+
+The caller's secret does not match. Senders may pass it as the
+`X-Webhook-Secret` header or as a `"secret"` field in the JSON body —
+TradingView alerts must use the body, since they cannot set headers.
+Rejected attempts log `[WEBHOOK] Rejected unauthorised order attempt from
+<ip>`; a burst of these from unknown IPs means the endpoint is being
+probed.
 
 ### Settings don't persist after save (appear to reset)
 
@@ -202,7 +233,7 @@ Almost always one of:
 ### App returns `401` to every request
 
 Entra Easy Auth is working as intended. Log in at the root URL, or hit
-an auth-excluded path (`/api/engine/status`, `/api/engine/webhook/order`).
+an auth-excluded path (`/api/engine/health`, `/api/engine/webhook/order`).
 
 ### `invalid_grant` — "redirect_uri mismatch"
 

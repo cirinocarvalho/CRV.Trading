@@ -1,5 +1,6 @@
 using CRV.Backtest.DataLoaders;
 using CRV.Core.Interfaces;
+using CRV.Core.Security;
 using CRV.Core.Strategy;
 using CRV.Live;
 using CRV.Live.Brokers.Schwab;
@@ -24,11 +25,12 @@ public class EngineController : ControllerBase
     private readonly IServiceProvider _sp;
     private readonly ILoggerFactory _loggerFactory;
     private readonly EmailNotificationService _emailSvc;
+    private readonly IConfiguration _config;
 
     public EngineController(LiveEngineOrchestrator engine, StrategyConfigService cfgSvc,
                             ILastPriceProvider prices, SnapshotBroadcastService broadcast,
                             TradeRepository trades, IServiceProvider sp, ILoggerFactory loggerFactory,
-                            EmailNotificationService emailSvc)
+                            EmailNotificationService emailSvc, IConfiguration config)
     {
         _engine = engine;
         _cfgSvc = cfgSvc;
@@ -38,6 +40,7 @@ public class EngineController : ControllerBase
         _sp = sp;
         _loggerFactory = loggerFactory;
         _emailSvc = emailSvc;
+        _config = config;
     }
 
     [HttpPost("start")]
@@ -58,6 +61,26 @@ public class EngineController : ControllerBase
         return Ok(new { status = "stopped" });
     }
 
+    /// <summary>
+    /// Anonymous liveness probe for the Azure health check and deploy smoke test.
+    /// Deliberately carries no trading data: this is the only read endpoint excluded
+    /// from Entra Easy Auth, so anything returned here is world-readable. Engine
+    /// state and P&L live on <c>GET status</c>, which requires authentication.
+    /// </summary>
+    [HttpGet("health")]
+    public IActionResult Health() =>
+        Ok(new
+        {
+            status  = _engine.IsRunning ? "running" : "stopped",
+            running = _engine.IsRunning,
+            time    = DateTime.UtcNow,
+        });
+
+    /// <summary>
+    /// Full engine state including the last snapshot (P&L, positions, setups).
+    /// Authenticated: NOT in authExcludedPaths, so Easy Auth gates it in
+    /// production. Use <c>GET health</c> for unauthenticated probes.
+    /// </summary>
     [HttpGet("status")]
     public IActionResult Status() =>
         Ok(new
@@ -528,6 +551,29 @@ public class EngineController : ControllerBase
     [HttpPost("webhook/order")]
     public async Task<IActionResult> WebhookOrder([FromBody] WebhookOrderRequest req)
     {
+        // ── Authentication ──────────────────────────────────────
+        // This path is excluded from Easy Auth so external senders can reach it,
+        // which makes the shared secret the only gate in front of a live order.
+        // Accept it from the X-Webhook-Secret header (scripts, curl) or from the
+        // body, since TradingView alerts cannot set custom headers.
+        var presented = Request.Headers["X-Webhook-Secret"].FirstOrDefault() ?? req.Secret;
+        switch (WebhookAuth.Validate(_config["Webhook:Secret"], presented))
+        {
+            case WebhookAuthResult.NotConfigured:
+                _loggerFactory.CreateLogger<EngineController>()
+                    .LogError("[WEBHOOK] Rejected: no usable Webhook:Secret is configured. "
+                            + "Set the Webhook--Secret Key Vault entry (or Webhook:Secret in user-secrets) to enable the webhook.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { status = "error", message = "Webhook is not configured." });
+
+            case WebhookAuthResult.Missing:
+            case WebhookAuthResult.Mismatch:
+                _loggerFactory.CreateLogger<EngineController>()
+                    .LogWarning("[WEBHOOK] Rejected unauthorised order attempt from {Ip}",
+                                HttpContext.Connection.RemoteIpAddress);
+                return Unauthorized(new { status = "error", message = "Unauthorized." });
+        }
+
         var cfg = _cfgSvc.Current;
 
         // Resolve direction
@@ -715,6 +761,12 @@ public class EngineController : ControllerBase
 
     public record WebhookOrderRequest
     {
+        /// <summary>
+        /// Shared secret matching <c>Webhook:Secret</c>. Required unless the caller
+        /// sends the <c>X-Webhook-Secret</c> header instead. Use this field for
+        /// TradingView alerts, which cannot set custom headers. Never logged or echoed.
+        /// </summary>
+        public string? Secret { get; init; }
         /// <summary>"long", "short", "buy", or "sell"</summary>
         public string? Direction { get; init; }
         /// <summary>Entry price</summary>
