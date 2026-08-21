@@ -107,7 +107,7 @@ gh run watch
 
 Runs CI (build + test), then builds the image in ACR with `crv-web:<sha>`
 and `crv-web:latest` tags, updates the Web App to point at it, smoke-tests
-`/api/engine/status`.
+`/api/engine/health`.
 
 ## Step 6 — Register broker OAuth redirect URIs
 
@@ -120,8 +120,8 @@ alongside the dev `127.0.0.1:5001` URIs. Takes ~5 min to propagate.
 # Entra Easy Auth enforcing — expected
 curl -s -o /dev/null -w "root:   HTTP %{http_code}\n" https://crv-trading.azurewebsites.net/
 
-# Auth-excluded — should return JSON
-curl -s https://crv-trading.azurewebsites.net/api/engine/status
+# Auth-excluded — liveness only, no trading data
+curl -s https://crv-trading.azurewebsites.net/api/engine/health
 
 # Broker OAuth flow
 open https://crv-trading.azurewebsites.net/auth/schwab

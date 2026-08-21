@@ -43,7 +43,13 @@ param entraTenantId string = subscription().tenantId
 
 @description('Paths that bypass Easy Auth. Webhook endpoints and health checks — must remain reachable without a user login.')
 param authExcludedPaths array = [
-  '/api/engine/status'
+  // Anonymous liveness probe — carries no trading data. The full-state
+  // '/api/engine/status' is deliberately NOT excluded: it returns P&L and
+  // positions and must stay behind Easy Auth.
+  '/api/engine/health'
+  // External order entry (TradingView alerts). Cannot complete an interactive
+  // login, so it is gated by the Webhook--Secret shared secret in the app
+  // instead. That secret MUST be set, or the endpoint refuses every caller.
   '/api/engine/webhook/order'
 ]
 
@@ -154,6 +160,7 @@ var placeholderSecrets = [
   'Tradovate--DeviceId'
   'Smtp--Password'
   'Auth--ClientSecret'
+  'Webhook--Secret'
 ]
 
 // Only create these on first run (seedPlaceholderSecrets=true). Once set-secrets.sh
@@ -206,7 +213,7 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       minTlsVersion: '1.2'
       // `/` 302-redirects to /dashboard, which Azure's health probe treats as unhealthy.
       // Point at an endpoint that returns 200 directly.
-      healthCheckPath: '/api/engine/status'
+      healthCheckPath: '/api/engine/health'
       // NOTE: appSettings are NOT declared here. They live in the gated child
       // resource `siteAppSettings` below so routine Bicep redeploys don't wipe
       // manual Portal edits (AccountId, Tradovate demo/live URL, etc.).
@@ -281,6 +288,11 @@ resource siteAppSettings 'Microsoft.Web/sites/config@2023-12-01' = if (seedAppSe
     LITESTREAM_AZURE_ACCOUNT_NAME: storage.name
     LITESTREAM_AZURE_BUCKET: litestreamContainer
     LITESTREAM_AZURE_ACCOUNT_KEY: kvRef(kv.name, 'Litestream--StorageKey')
+
+    // ── Order webhook shared secret ──────────────────────
+    // Gates POST /api/engine/webhook/order, which is excluded from Easy Auth.
+    // Until this holds a real value the endpoint refuses every caller (503).
+    Webhook__Secret: kvRef(kv.name, 'Webhook--Secret')
 
     // ── Easy Auth (Microsoft Entra ID) client secret ─────
     // Resolved by Easy Auth at runtime via the setting name configured in

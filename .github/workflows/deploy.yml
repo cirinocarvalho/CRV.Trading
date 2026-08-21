@@ -101,9 +101,11 @@ jobs:
         run: |
           # Hit an Easy-Auth-excluded endpoint. `/` is behind Entra login and
           # returns 401 to unauthenticated probes, which looks like a failure
-          # but is actually the auth layer working. `/api/engine/status` is
+          # but is actually the auth layer working. `/api/engine/health` is
           # in authExcludedPaths in main.bicep and returns JSON without login.
-          URL="https://${AZURE_APP}.azurewebsites.net/api/engine/status"
+          # It carries no trading data — `/api/engine/status` holds the P&L
+          # and positions and is gated by Easy Auth, so it cannot be probed here.
+          URL="https://${AZURE_APP}.azurewebsites.net/api/engine/health"
           echo "Waiting for $URL to respond..."
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")

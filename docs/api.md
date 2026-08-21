@@ -8,12 +8,53 @@ Endpoints are rate-limited to 5 req/s via the `engine-api` policy and documented
 |----------|--------|-------------|
 | `/api/engine/start` | POST | Start the engine |
 | `/api/engine/stop` | POST | Stop the engine |
-| `/api/engine/status` | GET | Current engine state + last snapshot |
+| `/api/engine/health` | GET | Anonymous liveness probe — `{status, running, time}`. Carries no trading data; used by the Azure health check and the deploy smoke test |
+| `/api/engine/status` | GET | Current engine state + last snapshot (P&L, positions). **Requires auth** — behind Easy Auth in production |
 | `/api/engine/stream` | GET | SSE stream of engine snapshots (heartbeat every ~30s) |
 | `/api/engine/price/{ticker}` | GET | Last known price for a ticker (tries canonical then broker-formatted) |
 | `/api/engine/force-orb` | POST | Force-set ORB from historical broker bars |
 | `/api/engine/bars/{groupKey}` | GET | Bar history for a ticker group (Lightweight Charts); returns `[{time, open, high, low, close, volume, vwap}]`; falls back to Schwab/Tradovate REST when in-memory buffer is empty |
 | `/api/engine/trades/today` | GET | Today's completed trades for the dashboard table |
+| `/api/engine/webhook/order` | POST | External order entry (TradingView alerts, scripts). **Requires the shared secret** — see below |
+
+### Order webhook authentication
+
+`POST /api/engine/webhook/order` places a real order, and it is excluded from
+Entra Easy Auth so external senders can reach it. A shared secret is therefore
+the only thing in front of it.
+
+Configure `Webhook:Secret` — Key Vault `Webhook--Secret` in production,
+`dotnet user-secrets set "Webhook:Secret" "…"` locally. Generate one with
+`openssl rand -base64 32`.
+
+The endpoint **fails closed**: if the secret is unset, still `CHANGE_ME`, or
+shorter than 16 characters, every call is refused with `503`. It never falls
+back to accepting anonymous orders.
+
+Callers present the secret either way:
+
+```bash
+# Header — scripts, curl
+curl -X POST https://<host>/api/engine/webhook/order \
+  -H "X-Webhook-Secret: $WEBHOOK_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"direction":"long","entry":21000,"stop":20980,"qty":1,"tgt1":21020,"tgt2":21040}'
+```
+
+```json
+// Body field — TradingView alerts, which cannot set custom headers
+{ "secret": "…", "direction": "long", "entry": 21000, "stop": 20980, "qty": 1 }
+```
+
+| Response | Meaning |
+|---|---|
+| `503` | No usable secret configured server-side — the webhook is disabled |
+| `401` | Missing or wrong secret |
+| `400` | Authenticated, but the order failed validation |
+
+The comparison is constant-time, so a wrong secret leaks nothing through
+response timing. Rejected attempts are logged with the caller's IP; the secret
+itself is never logged or echoed back.
 
 ## SignalR Hub
 
