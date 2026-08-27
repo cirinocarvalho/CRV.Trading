@@ -16,7 +16,28 @@ public record PositionView(
     decimal Quantity,
     decimal AveragePrice,
     decimal? UnrealizedPnl,
-    decimal? DayPnl);
+    decimal? DayPnl,
+    string  AssetType  = "FUTURE",   // FUTURE | OPTION | EQUITY
+    int     Multiplier = 1,          // contract multiplier — 100 for standard options
+    string? Description = null)
+{
+    /// <summary>
+    /// Cost basis in dollars. <see cref="AveragePrice"/> is quoted per share for options,
+    /// so displaying it beside a quantity without the multiplier understates the position
+    /// by 100x.
+    /// </summary>
+    public decimal CostBasis => AveragePrice * Quantity * (Multiplier > 0 ? Multiplier : 1);
+
+    /// <summary>Options cannot be closed with the futures market-flat path.</summary>
+    public bool SupportsFlatAtMarket => !string.Equals(AssetType, "OPTION", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>One leg of a broker order. Multi-leg option orders carry several.</summary>
+public record OrderLegView(
+    string  Symbol,
+    string  Instruction,
+    decimal Quantity,
+    string  AssetType);
 
 public record OrderView(
     string   OrderId,
@@ -30,7 +51,16 @@ public record OrderView(
     decimal? StopPrice,
     string   PlacedTime,
     bool     CanCancel,
-    string?  Setup = null);  // Setup ID (A/B/C/D) — available for Mock orders
+    string?  Setup = null,   // Setup ID (A/B/C/D) — available for Mock orders
+    string   AssetType = "",
+    IReadOnlyList<OrderLegView>? Legs = null)
+{
+    /// <summary>True when this is a multi-leg structure rather than a single contract.</summary>
+    public bool IsMultiLeg => Legs is { Count: > 1 };
+
+    /// <summary>Symbol column text: the single symbol, or a leg count for a spread.</summary>
+    public string DisplaySymbol => IsMultiLeg ? $"{Symbol}  (+{Legs!.Count - 1} legs)" : Symbol;
+}
 
 /// <summary>
 /// One-shot broker operations used by the Manual Trading and Orders pages.
@@ -101,9 +131,16 @@ public static class ManualBrokerOps
         foreach (var p in positions.EnumerateArray())
         {
             if (!p.TryGetProperty("instrument", out var instr)) continue;
-            if (!instr.TryGetProperty("assetType", out var at) || at.GetString() != "FUTURE") continue;
+            var assetType = instr.TryGetProperty("assetType", out var at) ? at.GetString() ?? "" : "";
+            // Futures and options both belong here. Anything else (equity, MMF) is out of scope.
+            if (assetType is not ("FUTURE" or "OPTION")) continue;
 
             var symbol   = instr.TryGetProperty("symbol", out var s) ? s.GetString() ?? "" : "";
+            var descr    = instr.TryGetProperty("description", out var de) ? de.GetString() : null;
+            // Options report their own multiplier; a missing one means a 1:1 instrument.
+            var mult     = instr.TryGetProperty("multiplier", out var mu) && mu.ValueKind == JsonValueKind.Number
+                         ? (int)mu.GetDecimal()
+                         : assetType == "OPTION" ? 100 : 1;
             var longQty  = p.TryGetProperty("longQuantity",  out var lq) ? lq.GetDecimal() : 0m;
             var shortQty = p.TryGetProperty("shortQuantity", out var sq) ? sq.GetDecimal() : 0m;
             var avgPrice = p.TryGetProperty("averagePrice",  out var ap) ? ap.GetDecimal() : 0m;
@@ -120,7 +157,8 @@ public static class ManualBrokerOps
 
             decimal? dayPnl = p.TryGetProperty("currentDayProfitLoss", out var dp) ? dp.GetDecimal() : null;
 
-            list.Add(new PositionView(symbol, dir, qty, avgPrice, unreal, dayPnl));
+            list.Add(new PositionView(symbol, dir, qty, avgPrice, unreal, dayPnl,
+                                      assetType, mult, descr));
         }
         return list;
     }
@@ -381,29 +419,38 @@ public static class ManualBrokerOps
             var lp       = o.TryGetProperty("price",      out var pp)  && pp.ValueKind  == JsonValueKind.Number ? (decimal?)pp.GetDecimal()  : null;
             var sp       = o.TryGetProperty("stopPrice",  out var spp) && spp.ValueKind == JsonValueKind.Number ? (decimal?)spp.GetDecimal() : null;
 
-            string sym = "", action = "", assetType = "";
-            decimal qty = 0;
+            // Every leg is captured: a spread submitted as one order has several, and
+            // showing only the first would misrepresent what is working in the market.
+            var legViews = new List<OrderLegView>();
             if (o.TryGetProperty("orderLegCollection", out var legs) &&
                 legs.ValueKind == JsonValueKind.Array)
             {
-                var first = legs.EnumerateArray().FirstOrDefault();
-                if (first.ValueKind != JsonValueKind.Undefined)
+                foreach (var leg in legs.EnumerateArray())
                 {
-                    action = first.TryGetProperty("instruction", out var ins) ? ins.GetString() ?? "" : "";
-                    qty    = first.TryGetProperty("quantity",    out var qq)  && qq.ValueKind == JsonValueKind.Number ? qq.GetDecimal() : 0;
-                    if (first.TryGetProperty("instrument", out var instr))
+                    var lInstr = leg.TryGetProperty("instruction", out var ins) ? ins.GetString() ?? "" : "";
+                    var lQty   = leg.TryGetProperty("quantity",    out var qq) && qq.ValueKind == JsonValueKind.Number
+                               ? qq.GetDecimal() : 0m;
+                    string lSym = "", lType = "";
+                    if (leg.TryGetProperty("instrument", out var li))
                     {
-                        sym       = instr.TryGetProperty("symbol",    out var ss) ? ss.GetString() ?? "" : "";
-                        assetType = instr.TryGetProperty("assetType", out var at) ? at.GetString() ?? "" : "";
+                        lSym  = li.TryGetProperty("symbol",    out var ss) ? ss.GetString() ?? "" : "";
+                        lType = li.TryGetProperty("assetType", out var at) ? at.GetString() ?? "" : "";
                     }
+                    legViews.Add(new OrderLegView(lSym, lInstr, lQty, lType));
                 }
             }
 
-            // Only include futures orders — skip equity, options, etc.
-            if (!string.Equals(assetType, "FUTURE", StringComparison.OrdinalIgnoreCase)) continue;
+            var first     = legViews.FirstOrDefault();
+            var sym       = first?.Symbol      ?? "";
+            var action    = first?.Instruction ?? "";
+            var qty       = first?.Quantity    ?? 0m;
+            var assetType = first?.AssetType   ?? "";
+
+            // Futures and options only.
+            if (assetType is not ("FUTURE" or "OPTION")) continue;
 
             list.Add(new OrderView(orderId, sym, st, SchStatusLabel(st), oType, action,
-                qty, lp, sp, entered, SchCanCancel(st)));
+                qty, lp, sp, entered, SchCanCancel(st), null, assetType, legViews));
         }
         return list;
     }

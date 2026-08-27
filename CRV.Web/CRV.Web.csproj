@@ -21,4 +21,14 @@
   <ItemGroup>
     <Folder Include="Data\" />
   </ItemGroup>
+  <!-- The Web SDK globs content out of the project directory. Anything the app writes
+       beside its own output (token files, appsettings copies) was being picked up and
+       copied back into bin, producing bin/Debug/net10.0/bin/Debug/net10.0/... nesting
+       that eventually exceeded the OS path limit and broke the build. -->
+  <ItemGroup>
+    <Content Remove="bin/**" />
+    <None    Remove="bin/**" />
+    <Content Remove="obj/**" />
+    <None    Remove="obj/**" />
+  </ItemGroup>
 </Project>
