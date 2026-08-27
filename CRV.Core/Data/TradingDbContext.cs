@@ -14,6 +14,7 @@ public class TradingDbContext : DbContext
     public DbSet<GroupOrder>    GroupOrders { get; set; } = null!;
     public DbSet<OrderLeg>      OrderLegs   { get; set; } = null!;
     public DbSet<StrategyLog>  StrategyLogs { get; set; } = null!;
+    public DbSet<OptionOrderRecord> OptionOrders { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -41,6 +42,15 @@ public class TradingDbContext : DbContext
             e.HasIndex(o => o.Broker);
             e.HasIndex(o => o.PlacedAt);
             e.HasIndex(o => o.OrderId);
+        });
+
+        b.Entity<OptionOrderRecord>(e =>
+        {
+            e.HasKey(o => o.Id);
+            e.HasIndex(o => o.PlacedAt);
+            e.HasIndex(o => o.OrderId);
+            e.HasIndex(o => o.Underlying);
+            e.Property(o => o.LegsJson).HasColumnType("TEXT");
         });
 
         // ── Group Orders (WSS order management) ──────────────────

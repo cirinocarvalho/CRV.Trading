@@ -325,7 +325,10 @@ function renderOrders(data) {
         return `<tr>
             <td class="small">${o.orderId}</td>
             <td>${setupBadge}</td>
-            <td class="fw-bold">${o.symbol || '—'}</td>
+            <td class="fw-bold">${o.displaySymbol || o.symbol || '—'}
+                ${o.assetType === 'OPTION' ? '<span class="badge bg-info text-dark ms-1">OPT</span>' : ''}
+                ${o.isMultiLeg ? `<div class="small text-muted font-monospace">${o.legs.map(l =>
+                    `${l.instruction} ${l.quantity} ${l.symbol}`).join('<br>')}</div>` : ''}</td>
             <td>${o.orderType || '—'}</td>
             <td>${o.action || '—'}</td>
             <td class="text-end">${o.quantity || '—'}</td>

@@ -100,8 +100,21 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
     50%      { opacity: .3; }
 }
 
-/* Navbar */
-.navbar { height: 52px; }
+/* Navbar
+   `height` (rather than min-height) let the single non-wrapping row of nav links
+   overflow the 52px box and paint over the page heading at narrow widths. The links
+   now scroll horizontally inside the bar instead of escaping it. */
+.navbar { min-height: 52px; }
+.navbar .container-fluid { min-width: 0; }
+.navbar .navbar-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    min-width: 0;
+    scrollbar-width: thin;
+}
+.navbar .navbar-nav::-webkit-scrollbar { height: 3px; }
+.navbar .navbar-nav::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+.navbar .navbar-nav .nav-link { white-space: nowrap; }
 .nav-link { color: #aaa !important; font-size: .875rem; }
 .nav-link.active { color: var(--crv-yellow) !important; }
 .nav-link:hover  { color: #fff !important; }

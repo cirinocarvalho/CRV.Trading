@@ -897,7 +897,7 @@ function renderPositions(data) {
         new Date().toLocaleTimeString();
 
     if (positions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">No open futures positions.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">No open positions.</td></tr>';
         return;
     }
 
@@ -910,19 +910,36 @@ function renderPositions(data) {
         const fmtP     = v => v == null ? '—' : Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
         const qty      = Math.abs(p.quantity);
 
+        const isOption = p.assetType === 'OPTION';
+
+        // Options quote per share. Showing avg price beside a quantity without the
+        // multiplier understates the position by 100x, so the dollar basis goes with it.
+        const basis = p.averagePrice != null
+            ? `<div class="small text-muted">${fmt(p.costBasis)} basis</div>` : '';
+
+        // The Flat button posts a MARKET order tagged assetType FUTURE. Firing that at an
+        // options position would be both wrong and a market order on a spread — so options
+        // are closed from the explorer, where a limit close is built against live quotes.
+        const action = p.supportsFlatAtMarket
+            ? `<button class="btn btn-danger btn-sm py-0 px-2"
+                       onclick="flatPosition('${p.symbol}', ${qty}, ${isLong})">
+                   <i class="bi bi-x-lg me-1"></i>Flat
+               </button>`
+            : `<a class="btn btn-outline-secondary btn-sm py-0 px-2" href="/options/explorer"
+                  title="Options are closed from the Options Explorer with a limit order">
+                   <i class="bi bi-box-arrow-up-right me-1"></i>Close
+               </a>`;
+
         return `<tr>
-            <td class="font-monospace fw-bold">${p.symbol}</td>
+            <td class="font-monospace fw-bold">${p.symbol}
+                ${isOption ? '<span class="badge bg-info text-dark ms-1">OPT</span>' : ''}
+                ${p.description ? `<div class="small text-muted">${p.description}</div>` : ''}</td>
             <td class="${dirCls} fw-bold">${dirIcon} ${p.direction}</td>
             <td class="text-end">${qty}</td>
-            <td class="text-end">${fmtP(p.averagePrice)}</td>
+            <td class="text-end">${fmtP(p.averagePrice)}${basis}</td>
             <td class="text-end ${pnlCls(p.unrealizedPnl)}">${fmt(p.unrealizedPnl)}</td>
             <td class="text-end ${pnlCls(p.dayPnl)}">${fmt(p.dayPnl)}</td>
-            <td class="text-end">
-                <button class="btn btn-danger btn-sm py-0 px-2"
-                        onclick="flatPosition('${p.symbol}', ${qty}, ${isLong})">
-                    <i class="bi bi-x-lg me-1"></i>Flat
-                </button>
-            </td>
+            <td class="text-end">${action}</td>
         </tr>`;
     }).join('');
 }

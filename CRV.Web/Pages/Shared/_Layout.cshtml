@@ -6,7 +6,9 @@
     <title>CRV Trading — @ViewData["Title"]</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="~/css/crv.css" />
+    @* asp-append-version emits a content hash, so a changed stylesheet actually reaches
+       the browser instead of being served from cache indefinitely. *@
+    <link rel="stylesheet" href="~/css/crv.css" asp-append-version="true" />
 </head>
 <body class="d-flex flex-column min-vh-100">
 <nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
@@ -27,6 +29,8 @@
                href="/trading/orders"><i class="bi bi-list-ul me-1"></i>Orders</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="mock-broker"?"active text-warning":"")"
                href="/trading/mock"><i class="bi bi-robot me-1"></i>Mock</a>
+            <a class="nav-link @(ViewData["Page"]?.ToString()=="options-explorer"?"active text-warning":"")"
+               href="/options/explorer"><i class="bi bi-diagram-3 me-1"></i>Options</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="live-settings"?"active text-warning":"")"
                href="/settings/live"><i class="bi bi-sliders me-1"></i>Live Settings</a>
             <a class="nav-link @(ViewData["Page"]?.ToString()=="backtest-settings"?"active text-warning":"")"

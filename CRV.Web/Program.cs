@@ -159,6 +159,9 @@ builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<LiveEngineOrchestrator>());
 builder.Services.AddSingleton<SnapshotBroadcastService>();
 
+// Keeps Schwab/TradeStation refresh tokens from lapsing while the app is up.
+builder.Services.AddHostedService<CRV.Web.Services.BrokerTokenKeepAlive>();
+
 // ── Backtest ──────────────────────────────────────────────────
 builder.Services.AddSingleton<BacktestRunnerService>();
 builder.Services.AddScoped<CRV.Backtest.DataLoaders.CsvBarLoader>();
