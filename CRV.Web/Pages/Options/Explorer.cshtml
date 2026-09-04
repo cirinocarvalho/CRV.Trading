@@ -367,7 +367,6 @@ else
                 <th class="text-end">Spread %</th>
                 <th class="text-end">Delta</th><th class="text-end">Theta</th><th class="text-end">IV</th>
                 <th class="text-end">Vol</th><th class="text-end">OI</th>
-                <th class="text-end">Theo</th><th class="text-end" title="Mark minus theoretical value">Mark&minus;Theo</th>
                 <th class="text-end">Extrinsic</th><th class="text-end">Comm %</th>
                 <th></th><th class="text-center">Add</th>
             </tr>
@@ -528,13 +527,13 @@ function render() {
     const body = $('chain-body');
 
     if (!ROWS.length) {
-        body.innerHTML = `<tr><td colspan="17" class="text-center text-secondary py-4">
+        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
             Enter an underlying and press Load.</td></tr>`;
         return;
     }
     const shown = ROWS.filter(passes);
     if (!shown.length) {
-        body.innerHTML = `<tr><td colspan="17" class="text-center text-secondary py-4">
+        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
             No contracts match these filters.</td></tr>`;
         $('status').textContent = `0 of ${ROWS.length} contracts`;
         return;
@@ -562,10 +561,6 @@ function render() {
             <td class="text-end">${fmt(r.iv, 1)}</td>
             <td class="text-end">${r.volume.toLocaleString()}</td>
             <td class="text-end">${r.openInterest.toLocaleString()}</td>
-            <td class="text-end">${r.theo ? fmt(r.theo) : '—'}</td>
-            <td class="text-end ${r.markVsTheo == null ? '' : r.markVsTheo > 0 ? 'text-warning' : 'text-success'}"
-                title="${r.markVsTheo == null ? '' : r.markVsTheo > 0 ? 'market asking more than the model' : 'cheaper than the model'}">
-                ${r.markVsTheo == null ? '—' : (r.markVsTheo > 0 ? '+' : '') + fmt(r.markVsTheo)}</td>
             <td class="text-end">${fmt(r.extrinsic)}</td>
             <td class="text-end ${commCls}">${commPct === null ? '—' : fmt(commPct, 1)}</td>
             <td>${tradeable

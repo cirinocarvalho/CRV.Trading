@@ -163,34 +163,4 @@ public class OptionChainParserTests
         var calls = chain.For(chain.Expirations.Single(), OptionRight.Call);
         Assert.Equal([500m, 767m, 810m], calls.Select(c => c.Strike));
     }
-
-    // ── Theoretical value ──────────────────────────────────────────
-
-    [Fact]
-    public void Parse_ReadsTheBrokersTheoreticalValue()
-    {
-        // thinkorswim's "Theo Price". Supplied by the chain — no local pricing model.
-        Assert.Equal(3.361m, BySymbol(AtmCall).TheoreticalValue);
-    }
-
-    [Fact]
-    public void MarkVsTheo_IsPositiveWhenTheMarketIsAskingMoreThanTheModel()
-    {
-        // mark 3.55 against a model value of 3.361
-        Assert.Equal(0.189m, BySymbol(AtmCall).MarkVsTheo);
-    }
-
-    [Fact]
-    public void MarkVsTheo_IsNullWhenNoTheoreticalValueIsSupplied()
-    {
-        const string json = """
-        {"symbol":"XYZ","underlyingPrice":50.0,
-         "callExpDateMap":{"2026-09-18:23":{"55.0":[{
-            "symbol":"XYZ   260918C00055000","putCall":"CALL","strikePrice":55.0,
-            "bid":0.10,"ask":0.15,"mark":0.12,"multiplier":100.0,
-            "daysToExpiration":23,"inTheMoney":false,"nonStandard":false}]}},
-         "putExpDateMap":{}}
-        """;
-        Assert.Null(Assert.Single(OptionChainParser.Parse(json).Contracts).MarkVsTheo);
-    }
 }
