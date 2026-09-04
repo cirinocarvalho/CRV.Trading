@@ -3,7 +3,7 @@
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @{
     ViewData["Title"] = "Options Explorer";
-    ViewData["Page"]  = "options-explorer";
+    ViewData["Page"] = "options-explorer";
     Layout = "~/Pages/Shared/_Layout.cshtml";
 }
 
@@ -57,13 +57,21 @@ else
     </div>
     <div class="table-responsive">
         <table class="table table-sm mb-0">
-            <thead><tr class="small text-secondary">
-                <th style="width:32px"></th><th>Contract</th><th>Side</th>
-                <th class="text-end">Qty</th><th class="text-end">Avg</th>
-                <th class="text-end">Basis</th><th class="text-end">Unrealised</th>
-            </tr></thead>
+            <thead>
+            <tr class="small text-secondary">
+                <th style="width:32px"></th>
+                <th>Contract</th>
+                <th>Side</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Avg</th>
+                <th class="text-end">Basis</th>
+                <th class="text-end">Unrealised</th>
+            </tr>
+            </thead>
             <tbody id="pos-body">
-                <tr><td colspan="7" class="text-center text-secondary py-3 small">Not loaded.</td></tr>
+            <tr>
+                <td colspan="7" class="text-center text-secondary py-3 small">Not loaded.</td>
+            </tr>
             </tbody>
         </table>
     </div>
@@ -85,13 +93,24 @@ else
     </div>
     <div class="table-responsive">
         <table class="table table-sm mb-0">
-            <thead><tr class="small text-secondary">
-                <th>When</th><th>Underlying</th><th>Structure</th><th>Intent</th>
-                <th class="text-end">Spreads</th><th class="text-end">Net</th>
-                <th class="text-end">Max loss</th><th>Order</th><th>Status</th><th></th>
-            </tr></thead>
+            <thead>
+            <tr class="small text-secondary">
+                <th>When</th>
+                <th>Underlying</th>
+                <th>Structure</th>
+                <th>Intent</th>
+                <th class="text-end">Spreads</th>
+                <th class="text-end">Net</th>
+                <th class="text-end">Max loss</th>
+                <th>Order</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+            </thead>
             <tbody id="recent-body">
-                <tr><td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>
+            <tr>
+                <td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td>
+            </tr>
             </tbody>
         </table>
     </div>
@@ -104,7 +123,7 @@ else
             <label class="form-label small">Underlying</label>
             <input id="f-symbol" class="form-control form-control-sm text-uppercase"
                    style="min-width:120px" value="SPY" autocomplete="off"
-                   list="symbol-suggestions" />
+                   list="symbol-suggestions"/>
             <datalist id="symbol-suggestions">
                 <option value="SPY"></option>
                 <option value="QQQ"></option>
@@ -165,13 +184,19 @@ else
 
     <div id="suggest-wrap" class="table-responsive mt-2 d-none">
         <table class="table table-sm table-hover align-middle mb-1">
-            <thead><tr class="small text-secondary">
-                <th>Structure</th><th class="text-end">Cost</th><th class="text-end">Max loss</th>
+            <thead>
+            <tr class="small text-secondary">
+                <th>Structure</th>
+                <th class="text-end">Cost</th>
+                <th class="text-end">Max loss</th>
                 <th class="text-end" id="th-lo"></th>
                 <th class="text-end" id="th-mid"></th>
                 <th class="text-end" id="th-hi"></th>
-                <th class="text-end">R/R</th><th class="text-end">Worst spread</th><th></th>
-            </tr></thead>
+                <th class="text-end">R/R</th>
+                <th class="text-end">Worst spread</th>
+                <th></th>
+            </tr>
+            </thead>
             <tbody id="suggest-body"></tbody>
         </table>
         <div class="small text-secondary">
@@ -198,10 +223,15 @@ else
     <div class="row g-3">
         <div class="col-lg-6">
             <table class="table table-sm mb-2">
-                <thead><tr class="small text-secondary">
-                    <th></th><th>Leg</th><th class="text-end">Qty</th>
-                    <th class="text-end">Price</th><th></th>
-                </tr></thead>
+                <thead>
+                <tr class="small text-secondary">
+                    <th></th>
+                    <th>Leg</th>
+                    <th class="text-end">Qty</th>
+                    <th class="text-end">Price</th>
+                    <th></th>
+                </tr>
+                </thead>
                 <tbody id="legs-body"></tbody>
             </table>
 
@@ -294,52 +324,73 @@ else
     </div>
 </div>
 
+<!-- ── Message / question dialog ─────────────────────────────── -->
+<div class="modal fade" id="msg-modal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="msg-title"></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="msg-body"></div>
+            <div class="modal-footer">
+                <button type="button" id="msg-cancel" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="msg-ok" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ── Commit dialog ─────────────────────────────────────────── -->
 <div class="modal fade" id="confirm-modal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Confirm order</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="m-mode" class="alert py-2 mb-3"></div>
-        <table class="table table-sm">
-            <thead><tr class="small text-secondary">
-                <th>Instruction</th><th>Contract</th><th class="text-end">Qty</th>
-            </tr></thead>
-            <tbody id="m-legs"></tbody>
-        </table>
-        <div class="row g-3 mb-3">
-            <div class="col-6 col-md-3">
-                <div class="small text-secondary">Net</div>
-                <div id="m-net" class="fw-bold"></div>
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Confirm order</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="small text-secondary">Max loss</div>
-                <div id="m-loss" class="fw-bold text-danger"></div>
+            <div class="modal-body">
+                <div id="m-mode" class="alert py-2 mb-3"></div>
+                <table class="table table-sm">
+                    <thead>
+                    <tr class="small text-secondary">
+                        <th>Instruction</th>
+                        <th>Contract</th>
+                        <th class="text-end">Qty</th>
+                    </tr>
+                    </thead>
+                    <tbody id="m-legs"></tbody>
+                </table>
+                <div class="row g-3 mb-3">
+                    <div class="col-6 col-md-3">
+                        <div class="small text-secondary">Net</div>
+                        <div id="m-net" class="fw-bold"></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="small text-secondary">Max loss</div>
+                        <div id="m-loss" class="fw-bold text-danger"></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="small text-secondary">Max profit</div>
+                        <div id="m-profit" class="fw-bold text-success"></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="small text-secondary">Breakeven</div>
+                        <div id="m-be" class="fw-bold"></div>
+                    </div>
+                </div>
+                <div id="m-broker" class="small"></div>
+                <div id="m-stale" class="alert alert-warning py-2 mt-3 d-none">
+                    Quote is stale &mdash; close this and preview again.
+                </div>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="small text-secondary">Max profit</div>
-                <div id="m-profit" class="fw-bold text-success"></div>
-            </div>
-            <div class="col-6 col-md-3">
-                <div class="small text-secondary">Breakeven</div>
-                <div id="m-be" class="fw-bold"></div>
+            <div class="modal-footer">
+                <span id="m-age" class="small text-secondary me-auto"></span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="btn-place" class="btn btn-danger" onclick="placeOrder()">Place order</button>
             </div>
         </div>
-        <div id="m-broker" class="small"></div>
-        <div id="m-stale" class="alert alert-warning py-2 mt-3 d-none">
-            Quote is stale &mdash; close this and preview again.
-        </div>
-      </div>
-      <div class="modal-footer">
-        <span id="m-age" class="small text-secondary me-auto"></span>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" id="btn-place" class="btn btn-danger" onclick="placeOrder()">Place order</button>
-      </div>
     </div>
-  </div>
 </div>
 
 <!-- ── Filters ───────────────────────────────────────────────── -->
@@ -356,32 +407,32 @@ else
         <div class="col-auto">
             <label class="form-label small">Ask min</label>
             <input id="f-askmin" type="number" step="0.01" min="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()" />
+                   style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
             <label class="form-label small">Ask max</label>
             <input id="f-askmax" type="number" step="0.01" min="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()" />
+                   style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
             <label class="form-label small">|Delta| min</label>
             <input id="f-deltamin" type="number" step="0.01" min="0" max="1" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()" />
+                   style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
             <label class="form-label small">Max spread %</label>
             <input id="f-spread" type="number" step="0.5" min="0" value="10" class="form-control form-control-sm"
-                   style="width:110px" oninput="render()" />
+                   style="width:110px" oninput="render()"/>
         </div>
         <div class="col-auto">
             <label class="form-label small">Min OI</label>
             <input id="f-oi" type="number" step="1" min="0" value="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()" />
+                   style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
             <label class="form-label small">Commission /ct</label>
             <input id="f-comm" type="number" step="0.01" min="0" value="0.65" class="form-control form-control-sm"
-                   style="width:120px" oninput="onCommissionChanged()" />
+                   style="width:120px" oninput="onCommissionChanged()"/>
         </div>
         <div class="col-auto">
             <div class="form-check">
@@ -405,201 +456,232 @@ else
 <div class="table-responsive">
     <table class="table table-sm table-hover align-middle">
         <thead>
-            <tr class="small text-secondary">
-                <th>Right</th><th class="text-end">Strike</th>
-                <th class="text-end">Bid</th><th class="text-end">Ask</th><th class="text-end">Mid</th>
-                <th class="text-end">Spread %</th>
-                <th class="text-end">Delta</th><th class="text-end">Theta</th><th class="text-end">IV</th>
-                <th class="text-end">Vol</th><th class="text-end">OI</th>
-                <th class="text-end">Extrinsic</th><th class="text-end">Comm %</th>
-                <th></th><th class="text-center">Add</th>
-            </tr>
+        <tr class="small text-secondary">
+            <th>Right</th>
+            <th class="text-end">Strike</th>
+            <th class="text-end">Bid</th>
+            <th class="text-end">Ask</th>
+            <th class="text-end">Mid</th>
+            <th class="text-end">Spread %</th>
+            <th class="text-end">Delta</th>
+            <th class="text-end">Theta</th>
+            <th class="text-end">IV</th>
+            <th class="text-end">Vol</th>
+            <th class="text-end">OI</th>
+            <th class="text-end">Extrinsic</th>
+            <th class="text-end">Comm %</th>
+            <th></th>
+            <th class="text-center">Add</th>
+        </tr>
         </thead>
         <tbody id="chain-body">
-            <tr><td colspan="15" class="text-center text-secondary py-4">
+        <tr>
+            <td colspan="15" class="text-center text-secondary py-4">
                 Enter an underlying and press Load.
-            </td></tr>
+            </td>
+        </tr>
         </tbody>
     </table>
 </div>
 
 @section Scripts {
-<script>
-const TOKEN = '@Html.Raw(Antiforgery.GetAndStoreTokens(HttpContext).RequestToken)';
-let ROWS = [], LEGS = [], UNDERLYING = 0;
-// Monotonic id for analyse requests. Adding legs quickly fires several POSTs and the
-// responses can land out of order — without this guard a stale reply overwrites the
-// current structure's numbers, which is exactly the kind of wrong max-loss a trader
-// would act on.
-let ANALYSIS_SEQ = 0;
-let LAST_ANALYSIS = null;      // per-spread figures from the most recent analyse
-let PREVIEW = null;            // server response backing the open dialog
-let PREVIEW_AT = 0;            // when that preview was taken
-let AGE_TIMER = null;
-const STALE_AFTER_MS = 30000;  // a quote older than this may no longer be the market
-const DRAFT_KEY = 'crv.options.draft';
-const LIVE_ENABLED = @(Model.LiveOrdersEnabled ? "true" : "false");
+    <script>
+        const TOKEN = '@Html.Raw(Antiforgery.GetAndStoreTokens(HttpContext).RequestToken)';
+        let ROWS = [], LEGS = [], UNDERLYING = 0;
+        // Monotonic id for analyse requests. Adding legs quickly fires several POSTs and the
+        // responses can land out of order — without this guard a stale reply overwrites the
+        // current structure's numbers, which is exactly the kind of wrong max-loss a trader
+        // would act on.
+        let ANALYSIS_SEQ = 0;
+        let LAST_ANALYSIS = null;      // per-spread figures from the most recent analyse
+        let PREVIEW = null;            // server response backing the open dialog
+        let PREVIEW_AT = 0;            // when that preview was taken
+        let AGE_TIMER = null;
+        const STALE_AFTER_MS = 30000;  // a quote older than this may no longer be the market
+        const DRAFT_KEY = 'crv.options.draft';
+        const LIVE_ENABLED = @(Model.LiveOrdersEnabled ? "true" : "false");
 
-const $ = id => document.getElementById(id);
-const num = (id, dflt) => { const v = parseFloat($(id).value); return isNaN(v) ? dflt : v; };
-const fmt = (v, d = 2) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
-const money = v => (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString(undefined,
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const $ = id => document.getElementById(id);
+        const num = (id, dflt) => {
+            const v = parseFloat($(id).value);
+            return isNaN(v) ? dflt : v;
+        };
+        const fmt = (v, d = 2) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
+        const money = v => (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString(undefined,
+            {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
-function showErr(msg, reauth) {
-    const e = $('err');
-    e.className = 'alert alert-danger';
-    e.innerHTML = msg + (reauth
-        ? ' <a href="/auth/schwab" class="btn btn-sm btn-warning ms-2">Reconnect Schwab</a>' : '');
-}
-function clearErr() { $('err').classList.add('d-none'); $('err').textContent = ''; }
+        function showErr(msg, reauth) {
+            const e = $('err');
+            e.className = 'alert alert-danger';
+            e.innerHTML = msg + (reauth
+                ? ' <a href="/auth/schwab" class="btn btn-sm btn-warning ms-2">Reconnect Schwab</a>' : '');
+        }
 
-async function getJson(url) {
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    const j = await r.json().catch(() => ({ error: 'Malformed response from server.' }));
-    if (j.error) { showErr(j.error, j.reauth); return null; }
-    return j;
-}
+        function clearErr() {
+            $('err').classList.add('d-none');
+            $('err').textContent = '';
+        }
 
-// ── Panel A ────────────────────────────────────────────────────
+        async function getJson(url) {
+            const r = await fetch(url, {headers: {'Accept': 'application/json'}});
+            const j = await r.json().catch(() => ({error: 'Malformed response from server.'}));
+            if (j.error) {
+                showErr(j.error, j.reauth);
+                return null;
+            }
+            return j;
+        }
 
-async function loadExpirations() {
-    clearErr();
-    const sym = $('f-symbol').value.trim().toUpperCase();
-    if (!sym) return;
-    $('status').textContent = 'loading expirations…';
-    $('btn-load').disabled = true;
+        // ── Panel A ────────────────────────────────────────────────────
 
-    const j = await getJson(`?handler=Expirations&symbol=${encodeURIComponent(sym)}`);
-    $('btn-load').disabled = false;
-    if (!j) { $('status').textContent = ''; return; }
+        async function loadExpirations() {
+            clearErr();
+            const sym = $('f-symbol').value.trim().toUpperCase();
+            if (!sym) return;
+            $('status').textContent = 'loading expirations…';
+            $('btn-load').disabled = true;
 
-    UNDERLYING = j.underlyingPrice;
-    const badge = $('underlying-badge');
-    badge.classList.remove('d-none');
-    badge.textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
+            const j = await getJson(`?handler=Expirations&symbol=${encodeURIComponent(sym)}`);
+            $('btn-load').disabled = false;
+            if (!j) {
+                $('status').textContent = '';
+                return;
+            }
 
-    $('f-expiry').innerHTML = j.expirations
-        .map(e => `<option value="${e.date}">${e.date} &nbsp;(${e.dte}d)</option>`).join('');
-    $('f-expiry').disabled = false;
-    $('status').textContent = `${j.expirations.length} expirations`;
-    await loadChain();
-}
+            UNDERLYING = j.underlyingPrice;
+            const badge = $('underlying-badge');
+            badge.classList.remove('d-none');
+            badge.textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
 
-async function loadChain() {
-    clearErr();
-    const sym = $('f-symbol').value.trim().toUpperCase();
-    const exp = $('f-expiry').value;
-    if (!sym || !exp) return;
-    $('status').textContent = 'loading chain…';
+            $('f-expiry').innerHTML = j.expirations
+                .map(e => `<option value="${e.date}">${e.date} &nbsp;(${e.dte}d)</option>`).join('');
+            $('f-expiry').disabled = false;
+            $('status').textContent = `${j.expirations.length} expirations`;
+            await loadChain();
+        }
 
-    const j = await getJson(
-        `?handler=Chain&symbol=${encodeURIComponent(sym)}&expiry=${exp}&strikeCount=${$('f-strikes').value}`);
-    if (!j) { $('status').textContent = ''; return; }
+        async function loadChain() {
+            clearErr();
+            const sym = $('f-symbol').value.trim().toUpperCase();
+            const exp = $('f-expiry').value;
+            if (!sym || !exp) return;
+            $('status').textContent = 'loading chain…';
 
-    ROWS = j.rows;
-    UNDERLYING = j.underlyingPrice;
-    $('underlying-badge').textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
-    render();
+            const j = await getJson(
+                `?handler=Chain&symbol=${encodeURIComponent(sym)}&expiry=${exp}&strikeCount=${$('f-strikes').value}`);
+            if (!j) {
+                $('status').textContent = '';
+                return;
+            }
 
-    // Legs already selected keep their own prices unless this chain contains them.
-    // Without this a reload leaves the structure priced off a market that has moved.
-    repriceLegsFromChain();
-    if (LEGS.length) renderLegs(false);   // also refreshes the "different expiry" badges
+            ROWS = j.rows;
+            UNDERLYING = j.underlyingPrice;
+            $('underlying-badge').textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
+            render();
 
-    // Suggestions belong to the chain they were built from. Leaving them on screen after
-    // an expiry change offers structures from the wrong date, and "Use" would load them.
-    if (SUGGESTIONS.length && SUGGEST_EXPIRY !== exp) {
-        clearSuggestions();
-        if ($('f-target').value !== '') await suggest();   // the view still stands; re-run it here
-    }
-}
+            // Legs already selected keep their own prices unless this chain contains them.
+            // Without this a reload leaves the structure priced off a market that has moved.
+            repriceLegsFromChain();
+            if (LEGS.length) renderLegs(false);   // also refreshes the "different expiry" badges
 
-/// Refresh any leg present in the current chain view. Returns true if anything changed.
-function repriceLegsFromChain() {
-    let changed = false;
-    for (const leg of LEGS) {
-        const r = ROWS.find(x => x.symbol === leg.symbol);
-        if (!r) continue;                        // different expiry — left for the server re-quote
-        const fresh = leg.action === 'Buy' ? r.ask : r.bid;
-        if (fresh !== leg.premium) changed = true;
-        leg.premium = fresh;
-        leg.quotedAt = Date.now();
-    }
-    return changed;
-}
+            // Suggestions belong to the chain they were built from. Leaving them on screen after
+            // an expiry change offers structures from the wrong date, and "Use" would load them.
+            if (SUGGESTIONS.length && SUGGEST_EXPIRY !== exp) {
+                clearSuggestions();
+                if ($('f-target').value !== '') await suggest();   // the view still stands; re-run it here
+            }
 
-/// Re-quote every leg through the broker, whatever expiry it belongs to.
-async function refreshLegPrices() {
-    if (!LEGS.length) return true;
-    const res = await fetch('?handler=QuoteLegs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-        body: JSON.stringify({ symbols: LEGS.map(l => l.symbol) }),
-    });
-    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-    if (j.error) { showErr(j.error, j.reauth); return false; }
 
-    if (j.missing && j.missing.length) {
-        showErr('No live quote for: ' + j.missing.join(', '));
-        return false;
-    }
-    for (const leg of LEGS) {
-        const q = j.quotes[leg.symbol];
-        if (!q) continue;
-        leg.premium  = leg.action === 'Buy' ? q.ask : q.bid;
-        leg.quotedAt = Date.now();
-    }
-    return true;
-}
+        }
 
-function passes(r) {
-    if ($('f-right').value && r.right !== $('f-right').value) return false;
+        /// Refresh any leg present in the current chain view. Returns true if anything changed.
+        function repriceLegsFromChain() {
+            let changed = false;
+            for (const leg of LEGS) {
+                const r = ROWS.find(x => x.symbol === leg.symbol);
+                if (!r) continue;                        // different expiry — left for the server re-quote
+                const fresh = leg.action === 'Buy' ? r.ask : r.bid;
+                if (fresh !== leg.premium) changed = true;
+                leg.premium = fresh;
+                leg.quotedAt = Date.now();
+            }
+            return changed;
+        }
 
-    const askMin = $('f-askmin').value === '' ? null : num('f-askmin', 0);
-    const askMax = $('f-askmax').value === '' ? null : num('f-askmax', 0);
-    if (askMin !== null && r.ask < askMin) return false;
-    if (askMax !== null && r.ask > askMax) return false;
+        /// Re-quote every leg through the broker, whatever expiry it belongs to.
+        async function refreshLegPrices() {
+            if (!LEGS.length) return true;
+            const res = await fetch('?handler=QuoteLegs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                body: JSON.stringify({symbols: LEGS.map(l => l.symbol)}),
+            });
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+            if (j.error) {
+                showErr(j.error, j.reauth);
+                return false;
+            }
 
-    const dMin = $('f-deltamin').value === '' ? null : num('f-deltamin', 0);
-    if (dMin !== null && Math.abs(r.delta) < dMin) return false;
-    if (r.openInterest < num('f-oi', 0)) return false;
+            if (j.missing && j.missing.length) {
+                showErr('No live quote for: ' + j.missing.join(', '));
+                return false;
+            }
+            for (const leg of LEGS) {
+                const q = j.quotes[leg.symbol];
+                if (!q) continue;
+                leg.premium = leg.action === 'Buy' ? q.ask : q.bid;
+                leg.quotedAt = Date.now();
+            }
+            return true;
+        }
 
-    if ($('f-tradeable').checked) {
-        if (!r.hasBid) return false;
-        if (r.spreadPct === null || r.spreadPct > num('f-spread', 1e9)) return false;
-    }
-    return true;
-}
+        function passes(r) {
+            if ($('f-right').value && r.right !== $('f-right').value) return false;
 
-function render() {
-    const commPerCt = num('f-comm', 0);
-    const maxSpread = num('f-spread', 1e9);
-    const body = $('chain-body');
+            const askMin = $('f-askmin').value === '' ? null : num('f-askmin', 0);
+            const askMax = $('f-askmax').value === '' ? null : num('f-askmax', 0);
+            if (askMin !== null && r.ask < askMin) return false;
+            if (askMax !== null && r.ask > askMax) return false;
 
-    if (!ROWS.length) {
-        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
+            const dMin = $('f-deltamin').value === '' ? null : num('f-deltamin', 0);
+            if (dMin !== null && Math.abs(r.delta) < dMin) return false;
+            if (r.openInterest < num('f-oi', 0)) return false;
+
+            if ($('f-tradeable').checked) {
+                if (!r.hasBid) return false;
+                if (r.spreadPct === null || r.spreadPct > num('f-spread', 1e9)) return false;
+            }
+            return true;
+        }
+
+        function render() {
+            const commPerCt = num('f-comm', 0);
+            const maxSpread = num('f-spread', 1e9);
+            const body = $('chain-body');
+
+            if (!ROWS.length) {
+                body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
             Enter an underlying and press Load.</td></tr>`;
-        return;
-    }
-    const shown = ROWS.filter(passes);
-    if (!shown.length) {
-        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
+                return;
+            }
+            const shown = ROWS.filter(passes);
+            if (!shown.length) {
+                body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
             No contracts match these filters.</td></tr>`;
-        $('status').textContent = `0 of ${ROWS.length} contracts`;
-        return;
-    }
+                $('status').textContent = `0 of ${ROWS.length} contracts`;
+                return;
+            }
 
-    body.innerHTML = shown.map(r => {
-        const premium   = r.ask * r.multiplier;
-        const commPct   = premium > 0 ? (commPerCt / premium * 100) : null;
-        const tradeable = r.hasBid && r.spreadPct !== null && r.spreadPct <= maxSpread;
-        const spreadCls = (r.spreadPct === null || r.spreadPct > maxSpread) ? 'text-danger'
-                        : r.spreadPct > maxSpread / 2 ? 'text-warning' : 'text-success';
-        const commCls   = commPct === null ? 'text-danger'
-                        : commPct > 10 ? 'text-danger' : commPct > 2 ? 'text-warning' : 'text-secondary';
+            body.innerHTML = shown.map(r => {
+                const premium = r.ask * r.multiplier;
+                const commPct = premium > 0 ? (commPerCt / premium * 100) : null;
+                const tradeable = r.hasBid && r.spreadPct !== null && r.spreadPct <= maxSpread;
+                const spreadCls = (r.spreadPct === null || r.spreadPct > maxSpread) ? 'text-danger'
+                    : r.spreadPct > maxSpread / 2 ? 'text-warning' : 'text-success';
+                const commCls = commPct === null ? 'text-danger'
+                    : commPct > 10 ? 'text-danger' : commPct > 2 ? 'text-warning' : 'text-secondary';
 
-        return `<tr class="${r.itm ? 'table-active' : ''}">
+                return `<tr class="${r.itm ? 'table-active' : ''}">
             <td><span class="badge ${r.right === 'Call' ? 'bg-success' : 'bg-danger'}">${r.right}</span>
                 ${r.nonStandard ? '<span class="badge bg-warning text-dark ms-1" title="Non-standard deliverable">NS</span>' : ''}</td>
             <td class="text-end">${fmt(r.strike)}</td>
@@ -615,8 +697,8 @@ function render() {
             <td class="text-end">${fmt(r.extrinsic)}</td>
             <td class="text-end ${commCls}">${commPct === null ? '—' : fmt(commPct, 1)}</td>
             <td>${tradeable
-                ? '<span class="badge bg-success-subtle text-success">ok</span>'
-                : `<span class="badge bg-danger-subtle text-danger" title="${!r.hasBid ? 'No bid — cannot be sold' : 'Spread too wide'}">${!r.hasBid ? 'no bid' : 'wide'}</span>`}</td>
+                    ? '<span class="badge bg-success-subtle text-success">ok</span>'
+                    : `<span class="badge bg-danger-subtle text-danger" title="${!r.hasBid ? 'No bid — cannot be sold' : 'Spread too wide'}">${!r.hasBid ? 'no bid' : 'wide'}</span>`}</td>
             <td class="text-center text-nowrap">
                 <button class="btn btn-xs btn-outline-success py-0 px-1" title="Buy this contract"
                         onclick="addLeg('${r.symbol}','Buy')">B</button>
@@ -624,112 +706,145 @@ function render() {
                         onclick="addLeg('${r.symbol}','Sell')">S</button>
             </td>
         </tr>`;
-    }).join('');
+            }).join('');
 
-    const rejected = ROWS.length - shown.length;
-    $('status').textContent =
-        `${shown.length} of ${ROWS.length} contracts` + (rejected ? ` · ${rejected} filtered out` : '');
-}
+            const rejected = ROWS.length - shown.length;
+            $('status').textContent =
+                `${shown.length} of ${ROWS.length} contracts` + (rejected ? ` · ${rejected} filtered out` : '');
+        }
 
-function resetFilters() {
-    ['f-askmin','f-askmax','f-deltamin'].forEach(id => $(id).value = '');
-    $('f-right').value = ''; $('f-spread').value = 10; $('f-oi').value = 0;
-    $('f-comm').value = 0.65; $('f-tradeable').checked = true;
-    render();
-}
-function onCommissionChanged() { render(); analyze(); }
+        function resetFilters() {
+            ['f-askmin', 'f-askmax', 'f-deltamin'].forEach(id => $(id).value = '');
+            $('f-right').value = '';
+            $('f-spread').value = 10;
+            $('f-oi').value = 0;
+            $('f-comm').value = 0.65;
+            $('f-tradeable').checked = true;
+            render();
+        }
 
-// ── Panel B ────────────────────────────────────────────────────
+        function onCommissionChanged() {
+            render();
+            analyze();
+        }
 
-function addLeg(symbol, action) {
-    const r = ROWS.find(x => x.symbol === symbol);
-    if (!r) return;
-    const existing = LEGS.find(l => l.symbol === symbol && l.action === action);
-    if (existing) existing.quantity++;
-    else LEGS.push({
-        // Buying lifts the ask, selling hits the bid — quoting a structure at mid
-        // would flatter every number downstream.
-        symbol, action, right: r.right, strike: r.strike,
-        premium: action === 'Buy' ? r.ask : r.bid,
-        quantity: 1, multiplier: r.multiplier,
-        expiry: $('f-expiry').value,
-        quotedAt: Date.now(),
-    });
-    renderLegs();
-}
+        // ── Panel B ────────────────────────────────────────────────────
 
-function saveDraft() {
-    // Only the structure is kept. Size is deliberately excluded — a remembered quantity
-    // surviving a reload is the same accident as a sticky one.
-    try {
-        if (LEGS.length) localStorage.setItem(DRAFT_KEY, JSON.stringify({
-            symbol: $('f-symbol').value.trim().toUpperCase(),
-            legs: LEGS,
-        }));
-        else localStorage.removeItem(DRAFT_KEY);
-    } catch { /* private browsing or storage disabled — drafts are a convenience */ }
-}
+        function addLeg(symbol, action) {
+            const r = ROWS.find(x => x.symbol === symbol);
+            if (!r) return;
+            const existing = LEGS.find(l => l.symbol === symbol && l.action === action);
+            if (existing) existing.quantity++;
+            else LEGS.push({
+                // Buying lifts the ask, selling hits the bid — quoting a structure at mid
+                // would flatter every number downstream.
+                symbol, action, right: r.right, strike: r.strike,
+                premium: action === 'Buy' ? r.ask : r.bid,
+                quantity: 1, multiplier: r.multiplier,
+                expiry: $('f-expiry').value,
+                quotedAt: Date.now(),
+            });
+            renderLegs();
+        }
 
-function restoreDraft() {
-    let draft = null;
-    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { }
-    if (!draft?.legs?.length) return;
+        function saveDraft() {
+            // Only the structure is kept. Size is deliberately excluded — a remembered quantity
+            // surviving a reload is the same accident as a sticky one.
+            try {
+                if (LEGS.length) localStorage.setItem(DRAFT_KEY, JSON.stringify({
+                    symbol: $('f-symbol').value.trim().toUpperCase(),
+                    legs: LEGS,
+                }));
+                else localStorage.removeItem(DRAFT_KEY);
+            } catch { /* private browsing or storage disabled — drafts are a convenience */
+            }
 
-    if (draft.symbol) $('f-symbol').value = draft.symbol;
-    LEGS = draft.legs;
-    renderLegs();          // structure restored, size back to 1
 
-    // Restored premiums are as old as the reload. Mark them so, and re-quote.
-    LEGS.forEach(l => { l.quotedAt = 0; });
-    refreshLegPrices().then(ok => { if (ok) { clearErr(); renderLegs(false); } });
-}
+        }
 
-function removeLeg(i) { LEGS.splice(i, 1); renderLegs(); }
-function setQty(i, q) { LEGS[i].quantity = Math.max(1, parseInt(q) || 1); renderLegs(); }
-function clearLegs() { LEGS = []; ANALYSIS_SEQ++; LAST_ANALYSIS = null; renderLegs(); }
+        function restoreDraft() {
+            let draft = null;
+            try {
+                draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+            } catch {
+            }
+            if (!draft?.legs?.length) return;
 
-function structureName() {
-    if (!LEGS.length) return '';
-    const n = LEGS.reduce((s, l) => s + l.quantity, 0);
-    const rights = new Set(LEGS.map(l => l.right));
-    const strikes = new Set(LEGS.map(l => l.strike));
-    if (LEGS.length === 1) return `${LEGS[0].action} ${LEGS[0].right}`;
-    if (LEGS.length === 2 && rights.size === 1) return 'Vertical';
-    if (LEGS.length === 2 && rights.size === 2 && strikes.size === 1) return 'Straddle';
-    if (LEGS.length === 2 && rights.size === 2) return 'Strangle';
-    if (LEGS.length === 3 && rights.size === 1) return 'Butterfly';
-    if (LEGS.length === 4 && rights.size === 2) return 'Iron condor';
-    return `${LEGS.length} legs / ${n} contracts`;
-}
+            if (draft.symbol) $('f-symbol').value = draft.symbol;
+            LEGS = draft.legs;
+            renderLegs();          // structure restored, size back to 1
 
-/// resetSize: true when the STRUCTURE changed (legs added/removed/re-rationed), false when
-/// only prices were refreshed. Re-quoting must not silently reset the trader's size.
-function renderLegs(resetSize = true) {
-    const panel = $('panel-b');
-    if (!LEGS.length) {
-        panel.classList.add('d-none');
-        LEGS = [];
-        saveDraft();
-        return;
-    }
-    panel.classList.remove('d-none');
-    $('struct-name').textContent = structureName();
-    // Size never carries over from the last structure. A remembered quantity is how a
-    // 1-lot habit turns into a 50-lot accident.
-    if (resetSize) {
-        $('f-spreads').value = 1;
-        $('f-limit').value   = '';   // a price meant for the previous structure is meaningless here
-        $('f-exit').value    = '';
-    }
+            // Restored premiums are as old as the reload. Mark them so, and re-quote.
+            LEGS.forEach(l => {
+                l.quotedAt = 0;
+            });
+            refreshLegPrices().then(ok => {
+                if (ok) {
+                    clearErr();
+                    renderLegs(false);
+                }
+            });
+        }
 
-    saveDraft();
-    $('legs-body').innerHTML = LEGS.map((l, i) => `
+        function removeLeg(i) {
+            LEGS.splice(i, 1);
+            renderLegs();
+        }
+
+        function setQty(i, q) {
+            LEGS[i].quantity = Math.max(1, parseInt(q) || 1);
+            renderLegs();
+        }
+
+        function clearLegs() {
+            LEGS = [];
+            ANALYSIS_SEQ++;
+            LAST_ANALYSIS = null;
+            renderLegs();
+        }
+
+        function structureName() {
+            if (!LEGS.length) return '';
+            const n = LEGS.reduce((s, l) => s + l.quantity, 0);
+            const rights = new Set(LEGS.map(l => l.right));
+            const strikes = new Set(LEGS.map(l => l.strike));
+            if (LEGS.length === 1) return `${LEGS[0].action} ${LEGS[0].right}`;
+            if (LEGS.length === 2 && rights.size === 1) return 'Vertical';
+            if (LEGS.length === 2 && rights.size === 2 && strikes.size === 1) return 'Straddle';
+            if (LEGS.length === 2 && rights.size === 2) return 'Strangle';
+            if (LEGS.length === 3 && rights.size === 1) return 'Butterfly';
+            if (LEGS.length === 4 && rights.size === 2) return 'Iron condor';
+            return `${LEGS.length} legs / ${n} contracts`;
+        }
+
+        /// resetSize: true when the STRUCTURE changed (legs added/removed/re-rationed), false when
+        /// only prices were refreshed. Re-quoting must not silently reset the trader's size.
+        function renderLegs(resetSize = true) {
+            const panel = $('panel-b');
+            if (!LEGS.length) {
+                panel.classList.add('d-none');
+                LEGS = [];
+                saveDraft();
+                return;
+            }
+            panel.classList.remove('d-none');
+            $('struct-name').textContent = structureName();
+            // Size never carries over from the last structure. A remembered quantity is how a
+            // 1-lot habit turns into a 50-lot accident.
+            if (resetSize) {
+                $('f-spreads').value = 1;
+                $('f-limit').value = '';   // a price meant for the previous structure is meaningless here
+                $('f-exit').value = '';
+            }
+
+            saveDraft();
+            $('legs-body').innerHTML = LEGS.map((l, i) => `
         <tr>
             <td><span class="badge ${l.action === 'Buy' ? 'bg-success' : 'bg-danger'}">${l.action === 'Buy' ? '+' : '−'}</span></td>
             <td class="small"><code>${l.symbol}</code><br>
                 <span class="text-secondary">${l.right} ${fmt(l.strike)}</span>
                 ${l.expiry && l.expiry !== $('f-expiry').value
-                    ? `<span class="badge bg-secondary ms-1" title="Different expiry from the chain on screen">${l.expiry}</span>` : ''}</td>
+                ? `<span class="badge bg-secondary ms-1" title="Different expiry from the chain on screen">${l.expiry}</span>` : ''}</td>
             <td class="text-end">
                 <input type="number" min="1" value="${l.quantity}" style="width:64px"
                        class="form-control form-control-sm text-end"
@@ -742,334 +857,393 @@ function renderLegs(resetSize = true) {
                         onclick="removeLeg(${i})" title="Remove">&times;</button></td>
         </tr>`).join('');
 
-    analyze();
-}
+            analyze();
+        }
 
-async function analyze() {
-    if (!LEGS.length) return;
-    const seq = ++ANALYSIS_SEQ;
+        async function analyze() {
+            if (!LEGS.length) return;
+            const seq = ++ANALYSIS_SEQ;
 
-    const res = await fetch('?handler=Analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-        body: JSON.stringify({
-            legs: LEGS, commissionPerContract: num('f-comm', 0), underlyingPrice: UNDERLYING,
-            limitPrice: limitPrice(),
-        }),
-    });
-    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
+            const res = await fetch('?handler=Analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                body: JSON.stringify({
+                    legs: LEGS, commissionPerContract: num('f-comm', 0), underlyingPrice: UNDERLYING,
+                    limitPrice: limitPrice(),
+                }),
+            });
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
 
-    if (seq !== ANALYSIS_SEQ) return;          // a newer structure has been requested
-    if (j.error) { showErr(j.error); return; }
-    clearErr();
+            if (seq !== ANALYSIS_SEQ) return;          // a newer structure has been requested
+            if (j.error) {
+                showErr(j.error);
+                return;
+            }
+            clearErr();
 
-    $('a-net').innerHTML = j.netDebit >= 0
-        ? `<span class="text-warning">${money(j.netDebit)}</span> <span class="small text-secondary">debit</span>`
-        : `<span class="text-success">${money(-j.netDebit)}</span> <span class="small text-secondary">credit</span>`;
-    // A bare best/worst case invites the wrong comparison: a long put's max profit is its
-    // value at an underlying of zero, which dwarfs any realistic target. Say where it lives.
-    const at = v => v == null ? '' : `<div class="small text-secondary">at ${Number(v).toFixed(2)}</div>`;
+            $('a-net').innerHTML = j.netDebit >= 0
+                ? `<span class="text-warning">${money(j.netDebit)}</span> <span class="small text-secondary">debit</span>`
+                : `<span class="text-success">${money(-j.netDebit)}</span> <span class="small text-secondary">credit</span>`;
+            // A bare best/worst case invites the wrong comparison: a long put's max profit is its
+            // value at an underlying of zero, which dwarfs any realistic target. Say where it lives.
+            const at = v => v == null ? '' : `<div class="small text-secondary">at ${Number(v).toFixed(2)}</div>`;
 
-    $('a-loss').innerHTML   = j.lossUnbounded
-        ? 'UNLIMITED' : money(j.maxLoss) + at(j.maxLossAt);
-    $('a-profit').innerHTML = j.profitUnbounded
-        ? 'Unlimited' : money(j.maxProfit) + at(j.maxProfitAt);
-    $('a-be').textContent   = j.breakevens.length
-        ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
+            $('a-loss').innerHTML = j.lossUnbounded
+                ? 'UNLIMITED' : money(j.maxLoss) + at(j.maxLossAt);
+            $('a-profit').innerHTML = j.profitUnbounded
+                ? 'Unlimited' : money(j.maxProfit) + at(j.maxProfitAt);
+            $('a-be').textContent = j.breakevens.length
+                ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 
-    LAST_ANALYSIS = j;
-    renderTicket();
-    drawChart(j.curve, j.breakevens);
-}
+            LAST_ANALYSIS = j;
+            renderTicket();
+            drawChart(j.curve, j.breakevens);
+        }
 
-// ── Payoff chart ───────────────────────────────────────────────
+        // ── Payoff chart ───────────────────────────────────────────────
 
-function drawChart(curve, breakevens) {
-    const W = 520, H = 240, L = 52, R = 10, T = 12, B = 26;
-    const xs = curve.map(p => p.x), ys = curve.map(p => p.y);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    let yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const padY = Math.max((yMax - yMin) * 0.12, 1);
-    yMin -= padY; yMax += padY;
+        function drawChart(curve, breakevens) {
+            const W = 520, H = 240, L = 52, R = 10, T = 12, B = 26;
+            const xs = curve.map(p => p.x), ys = curve.map(p => p.y);
+            const xMin = Math.min(...xs), xMax = Math.max(...xs);
+            let yMin = Math.min(...ys), yMax = Math.max(...ys);
+            const padY = Math.max((yMax - yMin) * 0.12, 1);
+            yMin -= padY;
+            yMax += padY;
 
-    const px = x => L + (x - xMin) / (xMax - xMin || 1) * (W - L - R);
-    const py = y => T + (yMax - y) / (yMax - yMin || 1) * (H - T - B);
+            const px = x => L + (x - xMin) / (xMax - xMin || 1) * (W - L - R);
+            const py = y => T + (yMax - y) / (yMax - yMin || 1) * (H - T - B);
 
-    let svg = '';
-    // zero line
-    const y0 = py(0);
-    svg += `<line x1="${L}" y1="${y0}" x2="${W - R}" y2="${y0}" stroke="#6c757d" stroke-dasharray="3 3" stroke-width="1"/>`;
-    // axes
-    svg += `<line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" stroke="#495057" stroke-width="1"/>`;
+            let svg = '';
+            // zero line
+            const y0 = py(0);
+            svg += `<line x1="${L}" y1="${y0}" x2="${W - R}" y2="${y0}" stroke="#6c757d" stroke-dasharray="3 3" stroke-width="1"/>`;
+            // axes
+            svg += `<line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" stroke="#495057" stroke-width="1"/>`;
 
-    // payoff, coloured per segment by sign
-    for (let i = 0; i < curve.length - 1; i++) {
-        const a = curve[i], b = curve[i + 1];
-        const colour = (a.y >= 0 && b.y >= 0) ? '#22c55e' : (a.y < 0 && b.y < 0) ? '#ef4444' : '#eab308';
-        svg += `<line x1="${px(a.x)}" y1="${py(a.y)}" x2="${px(b.x)}" y2="${py(b.y)}" stroke="${colour}" stroke-width="2"/>`;
-    }
+            // payoff, coloured per segment by sign
+            for (let i = 0; i < curve.length - 1; i++) {
+                const a = curve[i], b = curve[i + 1];
+                const colour = (a.y >= 0 && b.y >= 0) ? '#22c55e' : (a.y < 0 && b.y < 0) ? '#ef4444' : '#eab308';
+                svg += `<line x1="${px(a.x)}" y1="${py(a.y)}" x2="${px(b.x)}" y2="${py(b.y)}" stroke="${colour}" stroke-width="2"/>`;
+            }
 
-    // breakevens
-    for (const be of breakevens) {
-        if (be < xMin || be > xMax) continue;
-        svg += `<line x1="${px(be)}" y1="${T}" x2="${px(be)}" y2="${H - B}" stroke="#eab308" stroke-dasharray="2 3" stroke-width="1"/>`;
-        svg += `<text x="${px(be)}" y="${H - B + 14}" fill="#eab308" font-size="10" text-anchor="middle">${Number(be).toFixed(2)}</text>`;
-    }
+            // breakevens
+            for (const be of breakevens) {
+                if (be < xMin || be > xMax) continue;
+                svg += `<line x1="${px(be)}" y1="${T}" x2="${px(be)}" y2="${H - B}" stroke="#eab308" stroke-dasharray="2 3" stroke-width="1"/>`;
+                svg += `<text x="${px(be)}" y="${H - B + 14}" fill="#eab308" font-size="10" text-anchor="middle">${Number(be).toFixed(2)}</text>`;
+            }
 
-    // current underlying
-    if (UNDERLYING >= xMin && UNDERLYING <= xMax) {
-        svg += `<line x1="${px(UNDERLYING)}" y1="${T}" x2="${px(UNDERLYING)}" y2="${H - B}" stroke="#0dcaf0" stroke-width="1"/>`;
-        svg += `<text x="${px(UNDERLYING)}" y="${T + 10}" fill="#0dcaf0" font-size="10" text-anchor="middle">spot</text>`;
-    }
+            // current underlying
+            if (UNDERLYING >= xMin && UNDERLYING <= xMax) {
+                svg += `<line x1="${px(UNDERLYING)}" y1="${T}" x2="${px(UNDERLYING)}" y2="${H - B}" stroke="#0dcaf0" stroke-width="1"/>`;
+                svg += `<text x="${px(UNDERLYING)}" y="${T + 10}" fill="#0dcaf0" font-size="10" text-anchor="middle">spot</text>`;
+            }
 
-    // y labels
-    for (const v of [yMax, 0, yMin]) {
-        svg += `<text x="${L - 6}" y="${py(v) + 3}" fill="#adb5bd" font-size="10" text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
-    }
-    // x labels
-    svg += `<text x="${L}" y="${H - 6}" fill="#adb5bd" font-size="10">${xMin.toFixed(0)}</text>`;
-    svg += `<text x="${W - R}" y="${H - 6}" fill="#adb5bd" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
+            // y labels
+            for (const v of [yMax, 0, yMin]) {
+                svg += `<text x="${L - 6}" y="${py(v) + 3}" fill="#adb5bd" font-size="10" text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
+            }
+            // x labels
+            svg += `<text x="${L}" y="${H - 6}" fill="#adb5bd" font-size="10">${xMin.toFixed(0)}</text>`;
+            svg += `<text x="${W - R}" y="${H - 6}" fill="#adb5bd" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
 
-    $('payoff').innerHTML = svg;
-}
+            $('payoff').innerHTML = svg;
+        }
 
-// ── Panel C · ticket ───────────────────────────────────────────
+        // ── Panel C · ticket ───────────────────────────────────────────
 
-const LEG_STALE_MS = 60000;
+        const LEG_STALE_MS = 60000;
 
-function legAgeMs(l) { return Date.now() - (l.quotedAt || 0); }
-function legAge(l) {
-    const s = Math.round(legAgeMs(l) / 1000);
-    return s < 1 ? 'now' : `${s}s ago`;
-}
-function legAgeClass(l) { return legAgeMs(l) > LEG_STALE_MS ? 'text-warning' : 'text-secondary'; }
+        function legAgeMs(l) {
+            return Date.now() - (l.quotedAt || 0);
+        }
 
-// A frozen "5s ago" that never advances is worse than showing nothing, so the age is
-// repainted in place rather than baked into the row at render time.
-setInterval(() => {
-    for (const el of document.querySelectorAll('.leg-age')) {
-        const l = LEGS[parseInt(el.dataset.i)];
-        if (!l) continue;
-        el.textContent = `${l.action === 'Buy' ? 'ask' : 'bid'} · ${legAge(l)}`;
-        el.className   = `small leg-age ${legAgeClass(l)}`;
-    }
-}, 1000);
+        function legAge(l) {
+            const s = Math.round(legAgeMs(l) / 1000);
+            return s < 1 ? 'now' : `${s}s ago`;
+        }
 
-async function reQuoteAndAnalyse() {
-    if (await refreshLegPrices()) { clearErr(); renderLegs(false); }
-}
+        function legAgeClass(l) {
+            return legAgeMs(l) > LEG_STALE_MS ? 'text-warning' : 'text-secondary';
+        }
 
-function spreadCount() { return Math.max(1, parseInt($('f-spreads').value) || 1); }
-function limitPrice()  { return $('f-limit').value === '' ? null : num('f-limit', 0); }
-function exitPrice()   { return $('f-exit').value  === '' ? null : num('f-exit', 0); }
-function onSpreadsChanged() { renderTicket(); }
-function onLimitChanged()   { renderTicket(); analyze(); }
+        // A frozen "5s ago" that never advances is worse than showing nothing, so the age is
+        // repainted in place rather than baked into the row at render time.
+        setInterval(() => {
+            for (const el of document.querySelectorAll('.leg-age')) {
+                const l = LEGS[parseInt(el.dataset.i)];
+                if (!l) continue;
+                el.textContent = `${l.action === 'Buy' ? 'ask' : 'bid'} · ${legAge(l)}`;
+                el.className = `small leg-age ${legAgeClass(l)}`;
+            }
 
-function renderTicket() {
-    if (!LAST_ANALYSIS) return;
-    const n = spreadCount();
 
-    $('t-contracts').textContent = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
+        }, 1000);
 
-    // Leg quantities carry a count as well as a ratio. Three identical puts is one put
-    // traded three times, and the quoted price must stay per put.
-    const gcd2 = (a, b) => b ? gcd2(b, a % b) : a;
-    const factor = LEGS.reduce((g, l) => gcd2(g, Math.max(1, l.quantity)), 0) || 1;
-    const marketNet = LEGS.reduce(
-        (s, l) => s + (l.action === 'Buy' ? 1 : -1) * l.premium * (l.quantity / factor), 0);
-    const lim = limitPrice();
-    const net = lim !== null ? lim : marketNet;
+        async function reQuoteAndAnalyse() {
+            if (await refreshLegPrices()) {
+                clearErr();
+                renderLegs(false);
+            }
 
-    let type = LEGS.length === 1 ? 'LIMIT'
-        : net > 0 ? 'NET_DEBIT' : net < 0 ? 'NET_CREDIT' : 'NET_ZERO';
-    if (exitPrice() !== null) type += ' + exit';
-    $('t-ordertype').textContent = type;
 
-    // Say plainly whether this limit is asking the market to come to you.
-    const hint = $('t-limit-hint');
-    if (lim === null) {
-        hint.textContent = `market ${marketNet.toFixed(2)}`;
-        hint.className = 'tk-hint';
-    } else if (Math.abs(lim - marketNet) < 0.005) {
-        hint.textContent = 'at the market';
-        hint.className = 'tk-hint';
-    } else if (lim < marketNet) {
-        hint.textContent = `${(marketNet - lim).toFixed(2)} better than market`;
-        hint.className = 'tk-hint text-success';
-    } else {
-        hint.textContent = `${(lim - marketNet).toFixed(2)} worse than market`;
-        hint.className = 'tk-hint text-warning';
-    }
+        }
 
-    // Total, not per-spread. The multiplied number is the one that matters.
-    $('t-maxloss').textContent = LAST_ANALYSIS.lossUnbounded
-        ? 'UNLIMITED' : money(LAST_ANALYSIS.maxLoss * n);
+        function spreadCount() {
+            return Math.max(1, parseInt($('f-spreads').value) || 1);
+        }
 
-    // What the round trip makes if the attached exit fills. Commission is paid twice.
-    const xp = exitPrice();
-    const el = $('t-target');
-    if (xp === null) { el.textContent = '—'; el.className = 'fs-5 fw-bold text-secondary'; }
-    else {
-        const mult  = LEGS[0]?.multiplier || 100;
-        const cts   = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
-        const comm  = cts * num('f-comm', 0);
-        const units = n * factor;
-        const profit = (xp * mult * units - comm) - (net * mult * units + comm);
-        el.textContent = money(profit);
-        el.className = 'fs-5 fw-bold ' + (profit >= 0 ? 'text-success' : 'text-danger');
-    }
-}
+        function limitPrice() {
+            return $('f-limit').value === '' ? null : num('f-limit', 0);
+        }
 
-async function previewOrder() {
-    if (!LEGS.length) return;
-    $('btn-preview').disabled = true;
-    try {
-        // Always price the preview off a fresh quote. The figures in this dialog are the
-        // ones the order is confirmed against, so they must never be a stale snapshot
-        // from whenever the leg happened to be clicked.
-        if (!await refreshLegPrices()) return;
-        renderLegs(false);
-        await new Promise(r => setTimeout(r, 250));   // let the re-analyse settle
+        function exitPrice() {
+            return $('f-exit').value === '' ? null : num('f-exit', 0);
+        }
 
-        const res = await fetch('?handler=PreviewOrder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-            body: JSON.stringify({
-                legs: LEGS, spreads: spreadCount(),
-                commissionPerContract: num('f-comm', 0),
-                limitPrice: limitPrice(), exitPrice: exitPrice(),
-            }),
-        });
-        const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-        if (j.error) { showErr(j.error); return; }
-        clearErr();
-        PREVIEW = j; PREVIEW_AT = Date.now();
-        showConfirm(j);
-    } finally { $('btn-preview').disabled = false; }
-}
+        function onSpreadsChanged() {
+            renderTicket();
+        }
 
-function showConfirm(j) {
-    $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
-    $('m-mode').innerHTML = LIVE_ENABLED
-        ? '<strong>LIVE.</strong> Placing this order sends it to Schwab for execution.'
-        : '<strong>Preview mode.</strong> Live placement is disabled in configuration; this order cannot be submitted.';
+        function onLimitChanged() {
+            renderTicket();
+            analyze();
+        }
 
-    $('m-legs').innerHTML = j.payload.orderLegCollection.map(l => `
+        function renderTicket() {
+            if (!LAST_ANALYSIS) return;
+            const n = spreadCount();
+
+            $('t-contracts').textContent = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
+
+            // Leg quantities carry a count as well as a ratio. Three identical puts is one put
+            // traded three times, and the quoted price must stay per put.
+            const gcd2 = (a, b) => b ? gcd2(b, a % b) : a;
+            const factor = LEGS.reduce((g, l) => gcd2(g, Math.max(1, l.quantity)), 0) || 1;
+            const marketNet = LEGS.reduce(
+                (s, l) => s + (l.action === 'Buy' ? 1 : -1) * l.premium * (l.quantity / factor), 0);
+            const lim = limitPrice();
+            const net = lim !== null ? lim : marketNet;
+
+            let type = LEGS.length === 1 ? 'LIMIT'
+                : net > 0 ? 'NET_DEBIT' : net < 0 ? 'NET_CREDIT' : 'NET_ZERO';
+            if (exitPrice() !== null) type += ' + exit';
+            $('t-ordertype').textContent = type;
+
+            // Say plainly whether this limit is asking the market to come to you.
+            const hint = $('t-limit-hint');
+            if (lim === null) {
+                hint.textContent = `market ${marketNet.toFixed(2)}`;
+                hint.className = 'tk-hint';
+            } else if (Math.abs(lim - marketNet) < 0.005) {
+                hint.textContent = 'at the market';
+                hint.className = 'tk-hint';
+            } else if (lim < marketNet) {
+                hint.textContent = `${(marketNet - lim).toFixed(2)} better than market`;
+                hint.className = 'tk-hint text-success';
+            } else {
+                hint.textContent = `${(lim - marketNet).toFixed(2)} worse than market`;
+                hint.className = 'tk-hint text-warning';
+            }
+
+            // Total, not per-spread. The multiplied number is the one that matters.
+            $('t-maxloss').textContent = LAST_ANALYSIS.lossUnbounded
+                ? 'UNLIMITED' : money(LAST_ANALYSIS.maxLoss * n);
+
+            // What the round trip makes if the attached exit fills. Commission is paid twice.
+            const xp = exitPrice();
+            const el = $('t-target');
+            if (xp === null) {
+                el.textContent = '—';
+                el.className = 'fs-5 fw-bold text-secondary';
+            } else {
+                const mult = LEGS[0]?.multiplier || 100;
+                const cts = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
+                const comm = cts * num('f-comm', 0);
+                const units = n * factor;
+                const profit = (xp * mult * units - comm) - (net * mult * units + comm);
+                el.textContent = money(profit);
+                el.className = 'fs-5 fw-bold ' + (profit >= 0 ? 'text-success' : 'text-danger');
+            }
+
+
+        }
+
+        async function previewOrder() {
+            if (!LEGS.length) return;
+            $('btn-preview').disabled = true;
+            try {
+                // Always price the preview off a fresh quote. The figures in this dialog are the
+                // ones the order is confirmed against, so they must never be a stale snapshot
+                // from whenever the leg happened to be clicked.
+                if (!await refreshLegPrices()) return;
+                renderLegs(false);
+                await new Promise(r => setTimeout(r, 250));   // let the re-analyse settle
+
+                const res = await fetch('?handler=PreviewOrder', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                    body: JSON.stringify({
+                        legs: LEGS, spreads: spreadCount(),
+                        commissionPerContract: num('f-comm', 0),
+                        limitPrice: limitPrice(), exitPrice: exitPrice(),
+                    }),
+                });
+                const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+                if (j.error) {
+                    showErr(j.error);
+                    return;
+                }
+                clearErr();
+                PREVIEW = j;
+                PREVIEW_AT = Date.now();
+                showConfirm(j);
+            } finally {
+                $('btn-preview').disabled = false;
+            }
+
+
+        }
+
+        function showConfirm(j) {
+            $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
+            $('m-mode').innerHTML = LIVE_ENABLED
+                ? '<strong>LIVE.</strong> Placing this order sends it to Schwab for execution.'
+                : '<strong>Preview mode.</strong> Live placement is disabled in configuration; this order cannot be submitted.';
+
+            $('m-legs').innerHTML = j.payload.orderLegCollection.map(l => `
         <tr>
             <td><span class="badge ${l.instruction.startsWith('BUY') ? 'bg-success' : 'bg-danger'}">${l.instruction}</span></td>
             <td><code class="small">${l.instrument.symbol}</code></td>
             <td class="text-end">${l.quantity}</td>
         </tr>`).join('');
 
-    $('m-net').innerHTML = j.totalNet >= 0
-        ? `${money(j.totalNet)} <span class="small text-secondary">debit</span>`
-        : `${money(-j.totalNet)} <span class="small text-secondary">credit</span>`;
-    $('m-loss').textContent   = j.lossUnbounded   ? 'UNLIMITED' : money(j.totalMaxLoss);
-    $('m-profit').textContent = j.profitUnbounded ? 'Unlimited' : money(j.totalMaxProfit);
-    $('m-be').textContent     = j.breakevens.length
-        ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
+            $('m-net').innerHTML = j.totalNet >= 0
+                ? `${money(j.totalNet)} <span class="small text-secondary">debit</span>`
+                : `${money(-j.totalNet)} <span class="small text-secondary">credit</span>`;
+            $('m-loss').textContent = j.lossUnbounded ? 'UNLIMITED' : money(j.totalMaxLoss);
+            $('m-profit').textContent = j.profitUnbounded ? 'Unlimited' : money(j.totalMaxProfit);
+            $('m-be').textContent = j.breakevens.length
+                ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 
-    if (j.exitPrice != null) {
-        $('m-legs').innerHTML += `<tr class="table-info">
+            if (j.exitPrice != null) {
+                $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
                 On fill, submit closing order at net <strong>${Number(j.exitPrice).toFixed(2)}</strong>
                 (good till cancelled)</td>
             <td></td></tr>`;
 
-        $('m-profit').innerHTML = j.targetProfit == null ? $('m-profit').innerHTML
-            : `${money(j.targetProfit)}<div class="small text-secondary">if the exit fills`
-              + (j.returnOnRisk != null ? ` · ${Number(j.returnOnRisk).toFixed(0)}% of risk` : '')
-              + `</div>`;
+                $('m-profit').innerHTML = j.targetProfit == null ? $('m-profit').innerHTML
+                    : `${money(j.targetProfit)}<div class="small text-secondary">if the exit fills`
+                    + (j.returnOnRisk != null ? ` · ${Number(j.returnOnRisk).toFixed(0)}% of risk` : '')
+                    + `</div>`;
 
-        if (j.exitUnreachable) {
-            $('m-stale').classList.remove('d-none');
-            $('m-stale').innerHTML =
-                `<strong>This exit can never fill.</strong> The structure cannot be worth more than
+                if (j.exitUnreachable) {
+                    $('m-stale').classList.remove('d-none');
+                    $('m-stale').innerHTML =
+                        `<strong>This exit can never fill.</strong> The structure cannot be worth more than
                  <strong>${Number(j.maxStructureValue).toFixed(2)}</strong> at expiration, but the exit
                  asks for ${Number(j.exitPrice).toFixed(2)}. Lower the exit or widen the structure.`;
-            $('btn-place').disabled = true;
-        }
-    }
+                    $('btn-place').disabled = true;
+                }
+            }
 
-    $('m-broker').innerHTML = j.brokerBody
-        ? `<div class="text-secondary">Schwab preview ${j.brokerOk ? '<span class="text-success">accepted</span>' : '<span class="text-danger">rejected</span>'}:</div>
+            $('m-broker').innerHTML = j.brokerBody
+                ? `<div class="text-secondary">Schwab preview ${j.brokerOk ? '<span class="text-success">accepted</span>' : '<span class="text-danger">rejected</span>'}:</div>
            <pre class="small mb-0" style="max-height:140px; overflow:auto">${escapeHtml(j.brokerBody).slice(0, 2000)}</pre>`
-        : '<span class="text-secondary">No Schwab account configured — broker validation skipped.</span>';
+                : '<span class="text-secondary">No Schwab account configured — broker validation skipped.</span>';
 
-    const btn = $('btn-place');
-    btn.disabled    = !LIVE_ENABLED;
-    btn.textContent = 'Place order';
-    btn.onclick     = placeOrder;
+            const btn = $('btn-place');
+            btn.disabled = !LIVE_ENABLED;
+            btn.textContent = 'Place order';
+            btn.onclick = placeOrder;
 
-    $('m-stale').classList.add('d-none');
-    new bootstrap.Modal($('confirm-modal')).show();
-    clearInterval(AGE_TIMER);
-    AGE_TIMER = setInterval(tickAge, 500);
-    tickAge();
-}
+            $('m-stale').classList.add('d-none');
+            new bootstrap.Modal($('confirm-modal')).show();
+            clearInterval(AGE_TIMER);
+            AGE_TIMER = setInterval(tickAge, 500);
+            tickAge();
+        }
 
-function tickAge() {
-    const age = Date.now() - PREVIEW_AT;
-    $('m-age').textContent = `quote age ${(age / 1000).toFixed(0)}s`;
-    if (age > STALE_AFTER_MS) {
-        // The order is always a limit, so a stale quote means "no fill" rather than a
-        // bad fill — but confirming numbers you can no longer see is still wrong.
-        $('m-stale').classList.remove('d-none');
-        $('btn-place').disabled = true;
-        clearInterval(AGE_TIMER);
-    }
-}
+        function tickAge() {
+            const age = Date.now() - PREVIEW_AT;
+            $('m-age').textContent = `quote age ${(age / 1000).toFixed(0)}s`;
+            if (age > STALE_AFTER_MS) {
+                // The order is always a limit, so a stale quote means "no fill" rather than a
+                // bad fill — but confirming numbers you can no longer see is still wrong.
+                $('m-stale').classList.remove('d-none');
+                $('btn-place').disabled = true;
+                clearInterval(AGE_TIMER);
+            }
 
-async function placeOrder() {
-    if (!PREVIEW || Date.now() - PREVIEW_AT > STALE_AFTER_MS) return;
-    $('btn-place').disabled = true;
-    const res = await fetch('?handler=PlaceOrder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-        body: JSON.stringify({
-            legs: LEGS, spreads: PREVIEW.spreads,
-            commissionPerContract: num('f-comm', 0),
-            limitPrice: PREVIEW.limitPrice, exitPrice: PREVIEW.exitPrice,
-            underlying: $('f-symbol').value.trim().toUpperCase(),
-            structure: structureName(),
-        }),
-    });
-    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-    clearInterval(AGE_TIMER);
-    bootstrap.Modal.getInstance($('confirm-modal'))?.hide();
 
-    if (j.error)   { showErr(j.error); return; }
-    if (j.ok)      { showOk(`Order placed${j.orderId ? ' — id ' + j.orderId : ''}.`); clearLegs(); loadRecent(); }
-    else           { showErr('Schwab rejected the order: ' + escapeHtml(j.body || '').slice(0, 400)); }
-}
+        }
 
-function showOk(msg) {
-    const e = $('err');
-    e.className = 'alert alert-success';
-    e.textContent = msg;
-}
+        async function placeOrder() {
+            if (!PREVIEW || Date.now() - PREVIEW_AT > STALE_AFTER_MS) return;
+            $('btn-place').disabled = true;
+            const res = await fetch('?handler=PlaceOrder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                body: JSON.stringify({
+                    legs: LEGS, spreads: PREVIEW.spreads,
+                    commissionPerContract: num('f-comm', 0),
+                    limitPrice: PREVIEW.limitPrice, exitPrice: PREVIEW.exitPrice,
+                    underlying: $('f-symbol').value.trim().toUpperCase(),
+                    structure: structureName(),
+                }),
+            });
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+            clearInterval(AGE_TIMER);
+            bootstrap.Modal.getInstance($('confirm-modal'))?.hide();
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
+            if (j.error) {
+                showErr(j.error);
+                return;
+            }
+            if (j.ok) {
+                showOk(`Order placed${j.orderId ? ' — id ' + j.orderId : ''}.`);
+                clearLegs();
+                loadRecent();
+            } else {
+                showErr('Schwab rejected the order: ' + escapeHtml(j.body || '').slice(0, 400));
+            }
 
-// ── Positions ──────────────────────────────────────────────────
 
-let POSITIONS = [], CLOSE_PREVIEW = null;
+        }
 
-async function loadPositions() {
-    const j = await getJson('?handler=Positions');
-    const body = $('pos-body');
-    if (!j) { body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3 small">Could not load.</td></tr>'; return; }
+        function showOk(msg) {
+            const e = $('err');
+            e.className = 'alert alert-success';
+            e.textContent = msg;
+        }
 
-    POSITIONS = j.positions || [];
-    if (!POSITIONS.length) {
-        body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3 small">No open option positions.</td></tr>';
-        syncCloseButton();
-        return;
-    }
-    body.innerHTML = POSITIONS.map((p, i) => `
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c =>
+                ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+        }
+
+        // ── Positions ──────────────────────────────────────────────────
+
+        let POSITIONS = [], CLOSE_PREVIEW = null;
+
+        async function loadPositions() {
+            const j = await getJson('?handler=Positions');
+            const body = $('pos-body');
+            if (!j) {
+                body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3 small">Could not load.</td></tr>';
+                return;
+            }
+
+            POSITIONS = j.positions || [];
+            if (!POSITIONS.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3 small">No open option positions.</td></tr>';
+                syncCloseButton();
+                return;
+            }
+            body.innerHTML = POSITIONS.map((p, i) => `
         <tr>
             <td><input class="form-check-input pos-check" type="checkbox" data-i="${i}" onchange="syncCloseButton()"></td>
             <td><code class="small">${p.symbol}</code>
@@ -1080,155 +1254,244 @@ async function loadPositions() {
             <td class="text-end">${money(p.costBasis)}</td>
             <td class="text-end ${p.unrealized >= 0 ? 'text-success' : 'text-danger'}">${p.unrealized == null ? '—' : money(p.unrealized)}</td>
         </tr>`).join('');
-    syncCloseButton();
-}
+            syncCloseButton();
+        }
 
-function selectedPositions() {
-    return [...document.querySelectorAll('.pos-check:checked')]
-        .map(c => POSITIONS[parseInt(c.dataset.i)]);
-}
-function syncCloseButton() {
-    $('btn-close-sel').disabled = selectedPositions().length === 0;
-}
+        function selectedPositions() {
+            return [...document.querySelectorAll('.pos-check:checked')]
+                .map(c => POSITIONS[parseInt(c.dataset.i)]);
+        }
 
-async function previewClose() {
-    const sel = selectedPositions();
-    if (!sel.length) return;
-    $('btn-close-sel').disabled = true;
-    try {
-        const res = await fetch('?handler=Close', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-            body: JSON.stringify({
-                positions: sel.map(p => ({ symbol: p.symbol, direction: p.direction, quantity: p.quantity })),
-                commissionPerContract: num('f-comm', 0), place: false,
-            }),
-        });
-        const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-        if (j.error) { showErr(j.error); return; }
-        clearErr();
-        CLOSE_PREVIEW = { selection: sel, data: j };
-        showCloseConfirm(j);
-    } finally { syncCloseButton(); }
-}
+        function syncCloseButton() {
+            $('btn-close-sel').disabled = selectedPositions().length === 0;
+        }
 
-function showCloseConfirm(j) {
-    $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
-    $('m-mode').innerHTML = LIVE_ENABLED
-        ? '<strong>LIVE — closing order.</strong> This will be sent to Schwab for execution.'
-        : '<strong>Preview mode.</strong> Live placement is disabled; this close cannot be submitted.';
+        async function previewClose() {
+            const sel = selectedPositions();
+            if (!sel.length) return;
+            $('btn-close-sel').disabled = true;
+            try {
+                const res = await fetch('?handler=Close', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                    body: JSON.stringify({
+                        positions: sel.map(p => ({symbol: p.symbol, direction: p.direction, quantity: p.quantity})),
+                        commissionPerContract: num('f-comm', 0), place: false,
+                    }),
+                });
+                const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+                if (j.error) {
+                    showErr(j.error);
+                    return;
+                }
+                clearErr();
+                CLOSE_PREVIEW = {selection: sel, data: j};
+                showCloseConfirm(j);
+            } finally {
+                syncCloseButton();
+            }
 
-    $('m-legs').innerHTML = j.payload.orderLegCollection.map(l => `
+
+        }
+
+        function showCloseConfirm(j) {
+            $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
+            $('m-mode').innerHTML = LIVE_ENABLED
+                ? '<strong>LIVE — closing order.</strong> This will be sent to Schwab for execution.'
+                : '<strong>Preview mode.</strong> Live placement is disabled; this close cannot be submitted.';
+
+            $('m-legs').innerHTML = j.payload.orderLegCollection.map(l => `
         <tr>
             <td><span class="badge ${l.instruction.startsWith('BUY') ? 'bg-success' : 'bg-danger'}">${l.instruction}</span></td>
             <td><code class="small">${l.instrument.symbol}</code></td>
             <td class="text-end">${l.quantity}</td>
         </tr>`).join('');
 
-    $('m-net').innerHTML = j.proceeds >= 0
-        ? `<span class="text-success">${money(j.proceeds)}</span> <span class="small text-secondary">you receive</span>`
-        : `<span class="text-warning">${money(-j.proceeds)}</span> <span class="small text-secondary">you pay to close</span>`;
-    $('m-loss').textContent = '—';
-    $('m-profit').textContent = '—';
-    $('m-be').textContent = '—';
-    if (j.exitPrice != null) {
-        $('m-legs').innerHTML += `<tr class="table-info">
+            $('m-net').innerHTML = j.proceeds >= 0
+                ? `<span class="text-success">${money(j.proceeds)}</span> <span class="small text-secondary">you receive</span>`
+                : `<span class="text-warning">${money(-j.proceeds)}</span> <span class="small text-secondary">you pay to close</span>`;
+            $('m-loss').textContent = '—';
+            $('m-profit').textContent = '—';
+            $('m-be').textContent = '—';
+            if (j.exitPrice != null) {
+                $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
                 On fill, submit closing order at net <strong>${Number(j.exitPrice).toFixed(2)}</strong>
                 (good till cancelled)</td>
             <td></td></tr>`;
 
-        $('m-profit').innerHTML = j.targetProfit == null ? $('m-profit').innerHTML
-            : `${money(j.targetProfit)}<div class="small text-secondary">if the exit fills`
-              + (j.returnOnRisk != null ? ` · ${Number(j.returnOnRisk).toFixed(0)}% of risk` : '')
-              + `</div>`;
+                $('m-profit').innerHTML = j.targetProfit == null ? $('m-profit').innerHTML
+                    : `${money(j.targetProfit)}<div class="small text-secondary">if the exit fills`
+                    + (j.returnOnRisk != null ? ` · ${Number(j.returnOnRisk).toFixed(0)}% of risk` : '')
+                    + `</div>`;
 
-        if (j.exitUnreachable) {
-            $('m-stale').classList.remove('d-none');
-            $('m-stale').innerHTML =
-                `<strong>This exit can never fill.</strong> The structure cannot be worth more than
+                if (j.exitUnreachable) {
+                    $('m-stale').classList.remove('d-none');
+                    $('m-stale').innerHTML =
+                        `<strong>This exit can never fill.</strong> The structure cannot be worth more than
                  <strong>${Number(j.maxStructureValue).toFixed(2)}</strong> at expiration, but the exit
                  asks for ${Number(j.exitPrice).toFixed(2)}. Lower the exit or widen the structure.`;
-            $('btn-place').disabled = true;
-        }
-    }
+                    $('btn-place').disabled = true;
+                }
+            }
 
-    $('m-broker').innerHTML = j.brokerBody
-        ? `<div class="text-secondary">Schwab preview ${j.brokerOk ? '<span class="text-success">accepted</span>' : '<span class="text-danger">rejected</span>'}:</div>
+            $('m-broker').innerHTML = j.brokerBody
+                ? `<div class="text-secondary">Schwab preview ${j.brokerOk ? '<span class="text-success">accepted</span>' : '<span class="text-danger">rejected</span>'}:</div>
            <pre class="small mb-0" style="max-height:140px; overflow:auto">${escapeHtml(j.brokerBody).slice(0, 2000)}</pre>`
-        : '';
+                : '';
 
-    const btn = $('btn-place');
-    btn.disabled = !LIVE_ENABLED;
-    btn.textContent = 'Place closing order';
-    btn.onclick = placeClose;
+            const btn = $('btn-place');
+            btn.disabled = !LIVE_ENABLED;
+            btn.textContent = 'Place closing order';
+            btn.onclick = placeClose;
 
-    $('m-stale').classList.add('d-none');
-    PREVIEW_AT = Date.now();
-    new bootstrap.Modal($('confirm-modal')).show();
-    clearInterval(AGE_TIMER);
-    AGE_TIMER = setInterval(tickAge, 500);
-    tickAge();
-}
+            $('m-stale').classList.add('d-none');
+            PREVIEW_AT = Date.now();
+            new bootstrap.Modal($('confirm-modal')).show();
+            clearInterval(AGE_TIMER);
+            AGE_TIMER = setInterval(tickAge, 500);
+            tickAge();
+        }
 
-async function placeClose() {
-    if (!CLOSE_PREVIEW || Date.now() - PREVIEW_AT > STALE_AFTER_MS) return;
-    $('btn-place').disabled = true;
-    const res = await fetch('?handler=Close', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-        body: JSON.stringify({
-            positions: CLOSE_PREVIEW.selection.map(p => ({ symbol: p.symbol, direction: p.direction, quantity: p.quantity })),
-            commissionPerContract: num('f-comm', 0), place: true,
-        }),
-    });
-    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-    clearInterval(AGE_TIMER);
-    bootstrap.Modal.getInstance($('confirm-modal'))?.hide();
-    if (j.error) { showErr(j.error); return; }
-    if (j.ok)    { showOk(`Closing order placed${j.orderId ? ' — id ' + j.orderId : ''}.`); loadPositions(); loadRecent(); }
-    else         { showErr('Schwab rejected the closing order: ' + escapeHtml(j.body || '').slice(0, 400)); }
-}
+        async function placeClose() {
+            if (!CLOSE_PREVIEW || Date.now() - PREVIEW_AT > STALE_AFTER_MS) return;
+            $('btn-place').disabled = true;
+            const res = await fetch('?handler=Close', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                body: JSON.stringify({
+                    positions: CLOSE_PREVIEW.selection.map(p => ({
+                        symbol: p.symbol,
+                        direction: p.direction,
+                        quantity: p.quantity
+                    })),
+                    commissionPerContract: num('f-comm', 0), place: true,
+                }),
+            });
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+            clearInterval(AGE_TIMER);
+            bootstrap.Modal.getInstance($('confirm-modal'))?.hide();
+            if (j.error) {
+                showErr(j.error);
+                return;
+            }
+            if (j.ok) {
+                showOk(`Closing order placed${j.orderId ? ' — id ' + j.orderId : ''}.`);
+                loadPositions();
+                loadRecent();
+            } else {
+                showErr('Schwab rejected the closing order: ' + escapeHtml(j.body || '').slice(0, 400));
+            }
 
-// ── Locally recorded structures ────────────────────────────────
-// Schwab returns legs; it does not remember that they were one butterfly with a
-// $54.60 worst case. That intent is only ever recorded here.
 
-function statusClass(s) {
-    if (s === 'Filled')    return 'text-success';
-    if (s === 'Cancelled' || s === 'Rejected' || s === 'Expired') return 'text-secondary';
-    return 'text-info';   // still live at the broker
-}
+        }
 
-/// Cancel a working order. Only offered while the broker says it can still be cancelled,
-/// and the panel is reloaded afterwards so the row reflects the broker rather than hope.
-async function cancelOrder(orderId) {
-    if (!orderId) return;
-    if (!confirm(`Cancel order ${orderId}?`)) return;
+        // ── Locally recorded structures ────────────────────────────────
+        // Schwab returns legs; it does not remember that they were one butterfly with a
+        // $54.60 worst case. That intent is only ever recorded here.
 
-    const res = await fetch('?handler=CancelOrder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
-        body: JSON.stringify({ orderId }),
-    });
-    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
-    if (j.error) { showErr(j.error); return; }
+        /// Ask a question in the app's own dialog. Native confirm() is a browser popup that
+        /// looks nothing like the rest of the page and cannot carry formatted detail.
+        function askConfirm(title, bodyHtml, okLabel, okClass, onConfirm) {
+            $('msg-title').textContent = title;
+            $('msg-body').innerHTML = bodyHtml;
+            $('msg-cancel').classList.remove('d-none');
 
-    showOk(`Cancel requested for ${orderId}.`);
-    await loadRecent();
-    await loadPositions();
-}
+            const ok = $('msg-ok');
+            ok.textContent = okLabel || 'Confirm';
+            ok.className = 'btn ' + (okClass || 'btn-primary');
+            ok.classList.remove('d-none');
 
-async function loadRecent() {
-    const j = await getJson('?handler=RecentOrders');
-    const body = $('recent-body');
-    if (!j) return;
-    const rows = j.orders || [];
-    if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
-        return;
-    }
-    body.innerHTML = rows.map(o => `
+            // Replace the node to drop listeners from any previous question.
+            const fresh = ok.cloneNode(true);
+            ok.parentNode.replaceChild(fresh, ok);
+
+            const modal = new bootstrap.Modal($('msg-modal'));
+            fresh.addEventListener('click', () => {
+                modal.hide();
+                onConfirm();
+            });
+            modal.show();
+        }
+
+        /// Report an outcome in the same dialog. Results of an action taken deep down the page
+        /// must not land in a banner at the top, where they can sit unread off screen.
+        function showMessage(title, bodyHtml) {
+            $('msg-title').textContent = title;
+            $('msg-body').innerHTML = bodyHtml;
+            $('msg-cancel').classList.add('d-none');
+
+            const ok = $('msg-ok');
+            const fresh = ok.cloneNode(true);
+            fresh.textContent = 'Close';
+            fresh.className = 'btn btn-secondary';
+            fresh.setAttribute('data-bs-dismiss', 'modal');
+            ok.parentNode.replaceChild(fresh, ok);
+
+            new bootstrap.Modal($('msg-modal')).show();
+        }
+
+        /// Last loaded rows, so a dialog can describe the order it is about to act on.
+        let SUBMITTED = [];
+
+        function statusClass(s) {
+            if (s === 'Filled') return 'text-success';
+            if (s === 'Cancelled' || s === 'Rejected' || s === 'Expired') return 'text-secondary';
+            return 'text-info';   // still live at the broker
+        }
+
+        /// Cancel a working order. Only offered while the broker says it can still be cancelled,
+        /// and the panel is reloaded afterwards so the row reflects the broker rather than hope.
+        function cancelOrder(orderId) {
+            if (!orderId) return;
+            const row = (SUBMITTED || []).find(o => o.orderId === orderId);
+
+            askConfirm(
+                'Cancel this order?',
+                `<div>Order <code>${escapeHtml(orderId)}</code></div>`
+                + (row ? `<div class="small text-secondary mt-1">
+              ${escapeHtml(row.structure || '')} · ${escapeHtml(row.underlying || '')}
+              · ${row.totalNet >= 0 ? money(row.totalNet) + ' debit' : money(-row.totalNet) + ' credit'}
+              · currently ${escapeHtml(row.status || 'unknown')}</div>` : ''),
+                'Cancel order', 'btn-danger',
+                () => doCancel(orderId));
+        }
+
+        async function doCancel(orderId) {
+            const res = await fetch('?handler=CancelOrder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
+                body: JSON.stringify({orderId}),
+            });
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
+
+            await loadRecent();
+            await loadPositions();
+
+            if (j.error) {
+                showMessage('Cancel failed',
+                    `<div class="text-danger">${escapeHtml(j.error)}</div>
+             <div class="small text-secondary mt-2">The order may still be working — the row above
+             shows what the broker reports.</div>`);
+                return;
+            }
+            showMessage('Cancel requested',
+                `<div>Sent for <code>${escapeHtml(orderId)}</code>.</div>
+         <div class="small text-secondary mt-2">The row above now shows the status the broker
+         reports, which is the authority on whether it actually cancelled.</div>`);
+        }
+
+        async function loadRecent() {
+            const j = await getJson('?handler=RecentOrders');
+            const body = $('recent-body');
+            if (!j) return;
+            const rows = j.orders || [];
+            SUBMITTED = rows;
+            if (!rows.length) {
+                body.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
+                return;
+            }
+            body.innerHTML = rows.map(o => `
         <tr class="${o.accepted ? '' : 'table-danger'}">
             <td class="small">${new Date(o.placedAt).toLocaleString()}</td>
             <td>${escapeHtml(o.underlying || '—')}</td>
@@ -1248,73 +1511,86 @@ async function loadRecent() {
                            onclick="cancelOrder('${o.orderId}')">Cancel</button>`
                 : ''}</td>
         </tr>`).join('');
-}
+        }
 
-// ── Structures that fit a view ─────────────────────────────────
+        // ── Structures that fit a view ─────────────────────────────────
 
-let SUGGESTIONS = [];
-// The expiry the visible suggestions were built from. They are only meaningful for that
-// chain, so anything that changes the chain must invalidate them.
-let SUGGEST_EXPIRY = null;
+        let SUGGESTIONS = [];
+        // The expiry the visible suggestions were built from. They are only meaningful for that
+        // chain, so anything that changes the chain must invalidate them.
+        let SUGGEST_EXPIRY = null;
 
-function clearSuggestions() {
-    SUGGESTIONS = [];
-    SUGGEST_EXPIRY = null;
-    $('suggest-wrap').classList.add('d-none');
-    $('suggest-body').innerHTML = '';
-    $('t-target-hint').textContent = '';
-}
+        function clearSuggestions() {
+            SUGGESTIONS = [];
+            SUGGEST_EXPIRY = null;
+            $('suggest-wrap').classList.add('d-none');
+            $('suggest-body').innerHTML = '';
+            $('t-target-hint').textContent = '';
+        }
 
-async function suggest() {
-    const sym = $('f-symbol').value.trim().toUpperCase();
-    const exp = $('f-expiry').value;
-    const tgt = $('f-target').value;
-    if (!sym || !exp) { showErr('Load a chain first.'); return; }
-    if (tgt === '')   { showErr('Enter the price you expect the underlying to reach.'); return; }
+        async function suggest() {
+            const sym = $('f-symbol').value.trim().toUpperCase();
+            const exp = $('f-expiry').value;
+            const tgt = $('f-target').value;
+            if (!sym || !exp) {
+                showErr('Load a chain first.');
+                return;
+            }
+            if (tgt === '') {
+                showErr('Enter the price you expect the underlying to reach.');
+                return;
+            }
 
-    $('btn-suggest').disabled = true;
-    $('t-target-hint').textContent = 'searching…';
-    try {
-        const j = await getJson(`?handler=Suggest&symbol=${encodeURIComponent(sym)}&expiry=${exp}`
-            + `&target=${encodeURIComponent(tgt)}&commission=${num('f-comm', 0)}`
-            + `&strikeCount=${$('f-strikes').value}&maxSpreadPct=${num('f-spread', 10)}`);
-        if (!j) { $('t-target-hint').textContent = ''; return; }
+            $('btn-suggest').disabled = true;
+            $('t-target-hint').textContent = 'searching…';
+            try {
+                const j = await getJson(`?handler=Suggest&symbol=${encodeURIComponent(sym)}&expiry=${exp}`
+                    + `&target=${encodeURIComponent(tgt)}&commission=${num('f-comm', 0)}`
+                    + `&strikeCount=${$('f-strikes').value}&maxSpreadPct=${num('f-spread', 10)}`);
+                if (!j) {
+                    $('t-target-hint').textContent = '';
+                    return;
+                }
 
-        // The expiry can change while this request is in flight.
-        if ($('f-expiry').value !== exp) return;
+                // The expiry can change while this request is in flight.
+                if ($('f-expiry').value !== exp) return;
 
-        SUGGESTIONS = j.candidates || [];
-        SUGGEST_EXPIRY = exp;
-        const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
-        $('t-target-hint').innerHTML =
-            `spot ${Number(j.underlyingPrice).toFixed(2)} · `
-            + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`;
+                SUGGESTIONS = j.candidates || [];
+                SUGGEST_EXPIRY = exp;
+                const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
+                $('t-target-hint').innerHTML =
+                    `spot ${Number(j.underlyingPrice).toFixed(2)} · `
+                    + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`;
 
-        renderSuggestions(j);
-    } finally { $('btn-suggest').disabled = false; }
-}
+                renderSuggestions(j);
+            } finally {
+                $('btn-suggest').disabled = false;
+            }
 
-function renderSuggestions(j) {
-    const wrap = $('suggest-wrap');
-    if (!SUGGESTIONS.length) {
-        wrap.classList.add('d-none');
-        showErr('No tradeable structures for that target — try a wider spread limit or more strikes.');
-        return;
-    }
-    wrap.classList.remove('d-none');
 
-    const s0 = SUGGESTIONS[0].sensitivity;
-    $('th-lo').textContent  = '@@' + Number(s0[0].x).toFixed(0);
-    $('th-mid').innerHTML   = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>';
-    $('th-hi').textContent  = '@@' + Number(s0[2].x).toFixed(0);
+        }
 
-    const cell = v => `<td class="text-end ${v >= 0 ? 'text-success' : 'text-danger'}">${money(v)}</td>`;
+        function renderSuggestions(j) {
+            const wrap = $('suggest-wrap');
+            if (!SUGGESTIONS.length) {
+                wrap.classList.add('d-none');
+                showErr('No tradeable structures for that target — try a wider spread limit or more strikes.');
+                return;
+            }
+            wrap.classList.remove('d-none');
 
-    $('suggest-body').innerHTML = SUGGESTIONS.map((c, i) => `
+            const s0 = SUGGESTIONS[0].sensitivity;
+            $('th-lo').textContent = '@@' + Number(s0[0].x).toFixed(0);
+            $('th-mid').innerHTML = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>';
+            $('th-hi').textContent = '@@' + Number(s0[2].x).toFixed(0);
+
+            const cell = v => `<td class="text-end ${v >= 0 ? 'text-success' : 'text-danger'}">${money(v)}</td>`;
+
+            $('suggest-body').innerHTML = SUGGESTIONS.map((c, i) => `
         <tr>
             <td>${escapeHtml(c.name)}
                 <div class="small text-secondary">${c.legs.map(l =>
-                    `${l.action === 'Buy' ? '+' : '−'}${l.quantity > 1 ? l.quantity : ''}${l.right[0]}${fmt(l.strike, 0)}`).join(' ')}</div></td>
+                `${l.action === 'Buy' ? '+' : '−'}${l.quantity > 1 ? l.quantity : ''}${l.right[0]}${fmt(l.strike, 0)}`).join(' ')}</div></td>
             <td class="text-end">${c.netDebit >= 0 ? money(c.netDebit) : money(-c.netDebit) + ' cr'}</td>
             <td class="text-end text-danger">${c.maxLoss == null ? 'UNLIMITED' : money(c.maxLoss)}</td>
             ${cell(c.sensitivity[0].y)}
@@ -1325,48 +1601,63 @@ function renderSuggestions(j) {
             <td class="text-end">
                 <button class="btn btn-xs btn-outline-primary py-0 px-2" onclick="useSuggestion(${i})">Use</button></td>
         </tr>`).join('');
-}
+        }
 
-/// Load a candidate into the builder so it can be priced, adjusted and previewed as normal.
-function useSuggestion(i) {
-    const c = SUGGESTIONS[i];
-    if (!c) return;
-    LEGS = c.legs.map(l => ({
-        symbol: l.symbol, action: l.action, right: l.right, strike: l.strike,
-        premium: l.premium, quantity: l.quantity, multiplier: l.multiplier,
-        expiry: $('f-expiry').value, quotedAt: Date.now(),
-    }));
-    renderLegs();
-    $('panel-b').scrollIntoView({ block: 'center' });
-}
+        /// Load a candidate into the builder so it can be priced, adjusted and previewed as normal.
+        function useSuggestion(i) {
+            const c = SUGGESTIONS[i];
+            if (!c) return;
+            LEGS = c.legs.map(l => ({
+                symbol: l.symbol, action: l.action, right: l.right, strike: l.strike,
+                premium: l.premium, quantity: l.quantity, multiplier: l.multiplier,
+                expiry: $('f-expiry').value, quotedAt: Date.now(),
+            }));
+            renderLegs();
+            $('panel-b').scrollIntoView({block: 'center'});
+        }
 
-$('f-symbol').addEventListener('keydown', e => { if (e.key === 'Enter') loadExpirations(); });
-loadPositions();
-loadRecent();
-restoreDraft();
-</script>
-<style>
-.btn-xs { font-size: .7rem; line-height: 1.2; }
+        $('f-symbol').addEventListener('keydown', e => {
+            if (e.key === 'Enter') loadExpirations();
+        });
+        loadPositions();
+        loadRecent();
+        restoreDraft();
+    </script>
+    <style>
+        .btn-xs {
+            font-size: .7rem;
+            line-height: 1.2;
+        }
 
-/* Ticket row: every column is label / control / hint on the same rhythm, so the inputs
-   share a baseline. Aligning the bottoms instead pushes any column that carries a hint
-   line upward relative to the ones that do not. */
-.ticket-row .tk-label,
-.ticket-row .tk-hint {
-    font-size: .75rem;
-    line-height: 1.1rem;
-    min-height: 1.1rem;
-    color: var(--bs-secondary-color);
-}
-.ticket-row .tk-label { margin-bottom: .25rem; }
-.ticket-row .tk-hint  { margin-top: .25rem; }
-/* Read-out columns match the height of a form-control-sm so their values sit on the
-   same line as the inputs beside them. */
-.ticket-row .tk-value {
-    min-height: calc(1.5em + .5rem + 2px);
-    display: flex;
-    align-items: center;
-}
-.ticket-row .text-end .tk-value { justify-content: flex-end; }
-</style>
+        /* Ticket row: every column is label / control / hint on the same rhythm, so the inputs
+           share a baseline. Aligning the bottoms instead pushes any column that carries a hint
+           line upward relative to the ones that do not. */
+        .ticket-row .tk-label,
+        .ticket-row .tk-hint {
+            font-size: .75rem;
+            line-height: 1.1rem;
+            min-height: 1.1rem;
+            color: var(--bs-secondary-color);
+        }
+
+        .ticket-row .tk-label {
+            margin-bottom: .25rem;
+        }
+
+        .ticket-row .tk-hint {
+            margin-top: .25rem;
+        }
+
+        /* Read-out columns match the height of a form-control-sm so their values sit on the
+           same line as the inputs beside them. */
+        .ticket-row .tk-value {
+            min-height: calc(1.5em + .5rem + 2px);
+            display: flex;
+            align-items: center;
+        }
+
+        .ticket-row .text-end .tk-value {
+            justify-content: flex-end;
+        }
+    </style>
 }
