@@ -88,7 +88,7 @@ else
             <thead><tr class="small text-secondary">
                 <th>When</th><th>Underlying</th><th>Structure</th><th>Intent</th>
                 <th class="text-end">Spreads</th><th class="text-end">Net</th>
-                <th class="text-end">Max loss</th><th>Order</th>
+                <th class="text-end">Max loss</th><th>Order</th><th>Status</th><th></th>
             </tr></thead>
             <tbody id="recent-body">
                 <tr><td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>
@@ -1194,13 +1194,38 @@ async function placeClose() {
 // Schwab returns legs; it does not remember that they were one butterfly with a
 // $54.60 worst case. That intent is only ever recorded here.
 
+function statusClass(s) {
+    if (s === 'Filled')    return 'text-success';
+    if (s === 'Cancelled' || s === 'Rejected' || s === 'Expired') return 'text-secondary';
+    return 'text-info';   // still live at the broker
+}
+
+/// Cancel a working order. Only offered while the broker says it can still be cancelled,
+/// and the panel is reloaded afterwards so the row reflects the broker rather than hope.
+async function cancelOrder(orderId) {
+    if (!orderId) return;
+    if (!confirm(`Cancel order ${orderId}?`)) return;
+
+    const res = await fetch('?handler=CancelOrder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
+        body: JSON.stringify({ orderId }),
+    });
+    const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
+    if (j.error) { showErr(j.error); return; }
+
+    showOk(`Cancel requested for ${orderId}.`);
+    await loadRecent();
+    await loadPositions();
+}
+
 async function loadRecent() {
     const j = await getJson('?handler=RecentOrders');
     const body = $('recent-body');
     if (!j) return;
     const rows = j.orders || [];
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
         return;
     }
     body.innerHTML = rows.map(o => `
@@ -1215,6 +1240,13 @@ async function loadRecent() {
             <td class="small">${o.accepted
                 ? `<code>${o.orderId || '—'}</code>`
                 : `<span class="text-danger" title="${escapeHtml(o.error || '')}">rejected</span>`}</td>
+            <td class="small">${o.status
+                ? `<span class="${statusClass(o.status)}">${escapeHtml(o.status)}</span>`
+                : '<span class="text-secondary">—</span>'}</td>
+            <td class="text-end">${o.canCancel
+                ? `<button class="btn btn-xs btn-outline-danger py-0 px-2"
+                           onclick="cancelOrder('${o.orderId}')">Cancel</button>`
+                : ''}</td>
         </tr>`).join('');
 }
 

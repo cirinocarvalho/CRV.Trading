@@ -672,7 +672,65 @@ public class ExplorerModel : PageModel
                 o.Spreads, o.OrderType, o.TotalNet, o.MaxLoss, o.Accepted, o.Error,
             })
             .ToListAsync(ct);
-        return new JsonResult(new { orders = rows });
+
+        // Status is never mirrored locally — the broker owns it. It is fetched here and
+        // joined on, so a row can never claim "working" for an order that has since filled.
+        var live = new Dictionary<string, OrderView>(StringComparer.Ordinal);
+        if (rows.Count > 0 && !string.IsNullOrEmpty(SchwabAccountId))
+        {
+            try
+            {
+                var from = rows.Min(r => r.PlacedAt).ToLocalTime().Date;
+                foreach (var o in await ManualBrokerOps.GetOrdersSchwabAsync(
+                             _schwab, SchwabAccountId, "ALL", from, DateTime.Today, _httpFactory))
+                    live[o.OrderId] = o;
+            }
+            catch (Exception ex)
+            {
+                // A status lookup failure must not hide the local record.
+                _log.LogWarning(ex, "Could not fetch live status for recorded option orders");
+            }
+        }
+
+        return new JsonResult(new
+        {
+            orders = rows.Select(r =>
+            {
+                live.TryGetValue(r.OrderId ?? "", out var l);
+                return new
+                {
+                    r.PlacedAt, r.OrderId, r.Underlying, r.Structure, r.Intent,
+                    r.Spreads, r.OrderType, r.TotalNet, r.MaxLoss, r.Accepted, r.Error,
+                    status      = l?.StatusLabel,
+                    canCancel   = l?.CanCancel ?? false,
+                };
+            }),
+        });
+    }
+
+    // ── AJAX: cancel a working order ──────────────────────────────
+
+    public record CancelRequest(string? OrderId);
+
+    public async Task<IActionResult> OnPostCancelOrderAsync([FromBody] CancelRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req?.OrderId))
+            return BadRequest(new { error = "No order id." });
+        if (string.IsNullOrEmpty(SchwabAccountId))
+            return BadRequest(new { error = "Schwab:AccountId is not configured." });
+
+        try
+        {
+            var result = await ManualBrokerOps.CancelOrderSchwabAsync(
+                _schwab, SchwabAccountId, req.OrderId, _httpFactory);
+            _log.LogInformation("Cancel requested for option order {OrderId}: {Result}", req.OrderId, result);
+            return new JsonResult(new { ok = true, result });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Cancel failed for option order {OrderId}", req.OrderId);
+            return new JsonResult(new { error = ex.Message });
+        }
     }
 
     private (List<OptionLeg>? Legs, string? Error) BuildLegs(OrderRequest? req)
