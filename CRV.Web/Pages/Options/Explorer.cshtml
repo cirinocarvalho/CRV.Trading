@@ -506,6 +506,13 @@ async function loadChain() {
     // Without this a reload leaves the structure priced off a market that has moved.
     repriceLegsFromChain();
     if (LEGS.length) renderLegs(false);   // also refreshes the "different expiry" badges
+
+    // Suggestions belong to the chain they were built from. Leaving them on screen after
+    // an expiry change offers structures from the wrong date, and "Use" would load them.
+    if (SUGGESTIONS.length && SUGGEST_EXPIRY !== exp) {
+        clearSuggestions();
+        if ($('f-target').value !== '') await suggest();   // the view still stands; re-run it here
+    }
 }
 
 /// Refresh any leg present in the current chain view. Returns true if anything changed.
@@ -1214,9 +1221,13 @@ async function loadRecent() {
 // ── Structures that fit a view ─────────────────────────────────
 
 let SUGGESTIONS = [];
+// The expiry the visible suggestions were built from. They are only meaningful for that
+// chain, so anything that changes the chain must invalidate them.
+let SUGGEST_EXPIRY = null;
 
 function clearSuggestions() {
     SUGGESTIONS = [];
+    SUGGEST_EXPIRY = null;
     $('suggest-wrap').classList.add('d-none');
     $('suggest-body').innerHTML = '';
     $('t-target-hint').textContent = '';
@@ -1237,7 +1248,11 @@ async function suggest() {
             + `&strikeCount=${$('f-strikes').value}&maxSpreadPct=${num('f-spread', 10)}`);
         if (!j) { $('t-target-hint').textContent = ''; return; }
 
+        // The expiry can change while this request is in flight.
+        if ($('f-expiry').value !== exp) return;
+
         SUGGESTIONS = j.candidates || [];
+        SUGGEST_EXPIRY = exp;
         const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
         $('t-target-hint').innerHTML =
             `spot ${Number(j.underlyingPrice).toFixed(2)} · `
