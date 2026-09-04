@@ -26,6 +26,12 @@ public sealed record OptionContract
     public required decimal     ImpliedVolatility { get; init; }
     public required decimal     IntrinsicValue    { get; init; }
     public required decimal     ExtrinsicValue    { get; init; }
+
+    /// <summary>
+    /// The broker's model value for the contract — thinkorswim's "Theo Price".
+    /// Comes from the chain response; no pricing model is run locally.
+    /// </summary>
+    public required decimal     TheoreticalValue  { get; init; }
     public required int         Multiplier        { get; init; }
     public required bool        InTheMoney        { get; init; }
     public required bool        NonStandard       { get; init; }
@@ -38,6 +44,13 @@ public sealed record OptionContract
 
     /// <summary>False when nobody is bidding — the position could not be exited at any price.</summary>
     public bool HasBid => Bid > 0m;
+
+    /// <summary>
+    /// Mark minus the model value. Positive means the market is asking more than the model
+    /// says it is worth; negative means it is cheaper than modelled. Meaningless when the
+    /// broker returns no theoretical value.
+    /// </summary>
+    public decimal? MarkVsTheo => TheoreticalValue <= 0m ? null : Mark - TheoreticalValue;
 
     /// <summary>Commission as a percentage of the premium paid at the ask.</summary>
     public decimal CommissionPctOfPremium(decimal perContract)

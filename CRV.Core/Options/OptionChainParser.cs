@@ -59,6 +59,7 @@ public static class OptionChainParser
                         ImpliedVolatility = Dec(c, "volatility"),
                         IntrinsicValue    = Dec(c, "intrinsicValue"),
                         ExtrinsicValue    = Dec(c, "extrinsicValue"),
+                        TheoreticalValue  = Dec(c, "theoreticalOptionValue"),
                         Multiplier        = (int)Dec(c, "multiplier"),
                         InTheMoney        = Bool(c, "inTheMoney"),
                         NonStandard       = Bool(c, "nonStandard"),

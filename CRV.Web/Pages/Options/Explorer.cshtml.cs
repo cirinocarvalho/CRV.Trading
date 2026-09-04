@@ -121,6 +121,8 @@ public class ExplorerModel : PageModel
                     volume       = c.Volume,
                     openInterest = c.OpenInterest,
                     extrinsic    = c.ExtrinsicValue,
+                    theo         = c.TheoreticalValue,
+                    markVsTheo   = c.MarkVsTheo,
                     itm          = c.InTheMoney,
                     nonStandard  = c.NonStandard,
                     multiplier   = c.Multiplier,

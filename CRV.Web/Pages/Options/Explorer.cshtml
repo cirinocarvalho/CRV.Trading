@@ -188,53 +188,60 @@ else
 
     <!-- ── Panel C · Ticket ──────────────────────────────────── -->
     <hr class="my-3">
-    <div class="row g-2 align-items-end">
+    <div class="row g-2 align-items-start ticket-row">
         <div class="col-auto">
-            <label class="form-label small">Spreads</label>
+            <div class="tk-label">Spreads</div>
             <input id="f-spreads" type="number" min="1" step="1" value="1"
                    class="form-control form-control-sm" style="width:90px" oninput="onSpreadsChanged()">
+            <div class="tk-hint"></div>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Duration</label>
+            <div class="tk-label">Duration</div>
             <select id="f-duration" class="form-select form-select-sm" style="width:150px">
                 <option value="Day" selected>Day</option>
                 <option value="GoodTillCancel">GTC</option>
                 <option value="FillOrKill">Fill or kill</option>
             </select>
+            <div class="tk-hint"></div>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Limit <span class="text-secondary">(net/unit)</span></label>
+            <div class="tk-label">Limit <span class="text-secondary">(net/unit)</span></div>
             <input id="f-limit" type="number" step="0.01" class="form-control form-control-sm"
                    style="width:120px" placeholder="market" oninput="onLimitChanged()">
-            <div id="t-limit-hint" class="small text-secondary">&nbsp;</div>
+            <div id="t-limit-hint" class="tk-hint"></div>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Exit at <span class="text-secondary">(net/unit)</span></label>
+            <div class="tk-label">Exit at <span class="text-secondary">(net/unit)</span></div>
             <input id="f-exit" type="number" step="0.01" min="0" class="form-control form-control-sm"
                    style="width:120px" placeholder="none" oninput="renderTicket()">
-            <div class="small text-secondary">sent when the entry fills</div>
+            <div class="tk-hint">sent when the entry fills</div>
         </div>
         <div class="col-auto">
-            <div class="small text-secondary">Order type</div>
-            <div id="t-ordertype" class="fw-bold">&mdash;</div>
-            <div class="small text-secondary">never market</div>
+            <div class="tk-label">Order type</div>
+            <div class="tk-value fw-bold" id="t-ordertype">&mdash;</div>
+            <div class="tk-hint">never market</div>
         </div>
         <div class="col-auto">
-            <div class="small text-secondary">Contracts</div>
-            <div id="t-contracts" class="fw-bold">&mdash;</div>
+            <div class="tk-label">Contracts</div>
+            <div class="tk-value fw-bold" id="t-contracts">&mdash;</div>
+            <div class="tk-hint"></div>
         </div>
         <div class="col-auto ms-auto text-end">
-            <div class="small text-secondary">If the exit fills</div>
-            <div id="t-target" class="fs-5 fw-bold text-success">&mdash;</div>
+            <div class="tk-label">If the exit fills</div>
+            <div class="tk-value fs-5 fw-bold text-success" id="t-target">&mdash;</div>
+            <div class="tk-hint"></div>
         </div>
         <div class="col-auto text-end">
-            <div class="small text-secondary">TOTAL max loss</div>
-            <div id="t-maxloss" class="fs-4 fw-bold text-danger">&mdash;</div>
+            <div class="tk-label">TOTAL max loss</div>
+            <div class="tk-value fs-4 fw-bold text-danger" id="t-maxloss">&mdash;</div>
+            <div class="tk-hint"></div>
         </div>
         <div class="col-auto">
+            <div class="tk-label"></div>
             <button id="btn-preview" class="btn btn-primary" onclick="previewOrder()">
                 <i class="bi bi-eye me-1"></i>Preview
             </button>
+            <div class="tk-hint"></div>
         </div>
     </div>
     <div class="small text-secondary mt-2">
@@ -360,6 +367,7 @@ else
                 <th class="text-end">Spread %</th>
                 <th class="text-end">Delta</th><th class="text-end">Theta</th><th class="text-end">IV</th>
                 <th class="text-end">Vol</th><th class="text-end">OI</th>
+                <th class="text-end">Theo</th><th class="text-end" title="Mark minus theoretical value">Mark&minus;Theo</th>
                 <th class="text-end">Extrinsic</th><th class="text-end">Comm %</th>
                 <th></th><th class="text-center">Add</th>
             </tr>
@@ -520,13 +528,13 @@ function render() {
     const body = $('chain-body');
 
     if (!ROWS.length) {
-        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
+        body.innerHTML = `<tr><td colspan="17" class="text-center text-secondary py-4">
             Enter an underlying and press Load.</td></tr>`;
         return;
     }
     const shown = ROWS.filter(passes);
     if (!shown.length) {
-        body.innerHTML = `<tr><td colspan="15" class="text-center text-secondary py-4">
+        body.innerHTML = `<tr><td colspan="17" class="text-center text-secondary py-4">
             No contracts match these filters.</td></tr>`;
         $('status').textContent = `0 of ${ROWS.length} contracts`;
         return;
@@ -554,6 +562,10 @@ function render() {
             <td class="text-end">${fmt(r.iv, 1)}</td>
             <td class="text-end">${r.volume.toLocaleString()}</td>
             <td class="text-end">${r.openInterest.toLocaleString()}</td>
+            <td class="text-end">${r.theo ? fmt(r.theo) : '—'}</td>
+            <td class="text-end ${r.markVsTheo == null ? '' : r.markVsTheo > 0 ? 'text-warning' : 'text-success'}"
+                title="${r.markVsTheo == null ? '' : r.markVsTheo > 0 ? 'market asking more than the model' : 'cheaper than the model'}">
+                ${r.markVsTheo == null ? '—' : (r.markVsTheo > 0 ? '+' : '') + fmt(r.markVsTheo)}</td>
             <td class="text-end">${fmt(r.extrinsic)}</td>
             <td class="text-end ${commCls}">${commPct === null ? '—' : fmt(commPct, 1)}</td>
             <td>${tradeable
@@ -831,16 +843,16 @@ function renderTicket() {
     const hint = $('t-limit-hint');
     if (lim === null) {
         hint.textContent = `market ${marketNet.toFixed(2)}`;
-        hint.className = 'small text-secondary';
+        hint.className = 'tk-hint';
     } else if (Math.abs(lim - marketNet) < 0.005) {
         hint.textContent = 'at the market';
-        hint.className = 'small text-secondary';
+        hint.className = 'tk-hint';
     } else if (lim < marketNet) {
         hint.textContent = `${(marketNet - lim).toFixed(2)} better than market`;
-        hint.className = 'small text-success';
+        hint.className = 'tk-hint text-success';
     } else {
         hint.textContent = `${(lim - marketNet).toFixed(2)} worse than market`;
-        hint.className = 'small text-warning';
+        hint.className = 'tk-hint text-warning';
     }
 
     // Total, not per-spread. The multiplied number is the one that matters.
@@ -1167,5 +1179,26 @@ restoreDraft();
 </script>
 <style>
 .btn-xs { font-size: .7rem; line-height: 1.2; }
+
+/* Ticket row: every column is label / control / hint on the same rhythm, so the inputs
+   share a baseline. Aligning the bottoms instead pushes any column that carries a hint
+   line upward relative to the ones that do not. */
+.ticket-row .tk-label,
+.ticket-row .tk-hint {
+    font-size: .75rem;
+    line-height: 1.1rem;
+    min-height: 1.1rem;
+    color: var(--bs-secondary-color);
+}
+.ticket-row .tk-label { margin-bottom: .25rem; }
+.ticket-row .tk-hint  { margin-top: .25rem; }
+/* Read-out columns match the height of a form-control-sm so their values sit on the
+   same line as the inputs beside them. */
+.ticket-row .tk-value {
+    min-height: calc(1.5em + .5rem + 2px);
+    display: flex;
+    align-items: center;
+}
+.ticket-row .text-end .tk-value { justify-content: flex-end; }
 </style>
 }
