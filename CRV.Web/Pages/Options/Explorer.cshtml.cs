@@ -209,7 +209,8 @@ public class ExplorerModel : PageModel
             int contracts = legs.Sum(l => l.Quantity);
             int mult      = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
             if (contracts > 0)
-                curveCommission += (lim - SchwabOptionOrder.NetPrice(legs)) * mult / contracts;
+                curveCommission += (lim - SchwabOptionOrder.NetPrice(legs))
+                                 * mult * SchwabOptionOrder.UnitFactor(legs) / contracts;
         }
 
         var curve = PayoffCalculator.Curve(
@@ -284,10 +285,11 @@ public class ExplorerModel : PageModel
     {
         if (limitPrice is not { } limit) return PayoffCalculator.Analyze(legs, commissionPerContract);
 
-        decimal marketNet   = SchwabOptionOrder.NetPrice(legs);
+        decimal marketNet   = SchwabOptionOrder.NetPrice(legs);   // per unit
         int     contracts   = legs.Sum(l => l.Quantity);
         int     multiplier  = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
-        decimal extraCost   = (limit - marketNet) * multiplier;
+        // These legs already carry UnitFactor units, so the per-unit delta scales by it.
+        decimal extraCost   = (limit - marketNet) * multiplier * SchwabOptionOrder.UnitFactor(legs);
 
         return PayoffCalculator.Analyze(
             legs, commissionPerContract + (contracts > 0 ? extraCost / contracts : 0m));
@@ -335,6 +337,9 @@ public class ExplorerModel : PageModel
         int      contracts    = legs!.Sum(l => l.Quantity) * spreads;
         int      multiplier   = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
         decimal  commission   = contracts * req.CommissionPerContract;
+        // Three identical puts is three units of a one-leg structure, so the per-unit
+        // price is multiplied by three — not by the spread count, which is still 1.
+        int      units        = SchwabOptionOrder.TotalUnits(legs!, spreads);
 
         decimal? targetProfit    = null;
         decimal? returnOnRisk    = null;
@@ -344,8 +349,8 @@ public class ExplorerModel : PageModel
         if (req.ExitPrice is { } exitNet)
         {
             // Commission is charged on the way in AND on the way out.
-            decimal entryCost    = entryNet * multiplier * spreads + commission;
-            decimal exitProceeds = exitNet  * multiplier * spreads - commission;
+            decimal entryCost    = entryNet * multiplier * units + commission;
+            decimal exitProceeds = exitNet  * multiplier * units - commission;
             targetProfit = exitProceeds - entryCost;
 
             if (!analysis.LossUnbounded && analysis.MaxLoss > 0m)
@@ -365,6 +370,7 @@ public class ExplorerModel : PageModel
         return new JsonResult(new
         {
             spreads,
+            units,
             targetProfit,
             returnOnRisk,
             maxStructureValue = maxStructureVal,

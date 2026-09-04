@@ -203,13 +203,13 @@ else
             </select>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Limit <span class="text-secondary">(net/spread)</span></label>
+            <label class="form-label small">Limit <span class="text-secondary">(net/unit)</span></label>
             <input id="f-limit" type="number" step="0.01" class="form-control form-control-sm"
                    style="width:120px" placeholder="market" oninput="onLimitChanged()">
             <div id="t-limit-hint" class="small text-secondary">&nbsp;</div>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Exit at <span class="text-secondary">(net/spread)</span></label>
+            <label class="form-label small">Exit at <span class="text-secondary">(net/unit)</span></label>
             <input id="f-exit" type="number" step="0.01" min="0" class="form-control form-control-sm"
                    style="width:120px" placeholder="none" oninput="renderTicket()">
             <div class="small text-secondary">sent when the entry fills</div>
@@ -813,7 +813,12 @@ function renderTicket() {
 
     $('t-contracts').textContent = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
 
-    const marketNet = LEGS.reduce((s, l) => s + (l.action === 'Buy' ? 1 : -1) * l.premium * l.quantity, 0);
+    // Leg quantities carry a count as well as a ratio. Three identical puts is one put
+    // traded three times, and the quoted price must stay per put.
+    const gcd2 = (a, b) => b ? gcd2(b, a % b) : a;
+    const factor = LEGS.reduce((g, l) => gcd2(g, Math.max(1, l.quantity)), 0) || 1;
+    const marketNet = LEGS.reduce(
+        (s, l) => s + (l.action === 'Buy' ? 1 : -1) * l.premium * (l.quantity / factor), 0);
     const lim = limitPrice();
     const net = lim !== null ? lim : marketNet;
 
@@ -847,10 +852,11 @@ function renderTicket() {
     const el = $('t-target');
     if (xp === null) { el.textContent = '—'; el.className = 'fs-5 fw-bold text-secondary'; }
     else {
-        const mult = LEGS[0]?.multiplier || 100;
-        const cts  = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
-        const comm = cts * num('f-comm', 0);
-        const profit = (xp * mult * n - comm) - (net * mult * n + comm);
+        const mult  = LEGS[0]?.multiplier || 100;
+        const cts   = LEGS.reduce((s, l) => s + l.quantity, 0) * n;
+        const comm  = cts * num('f-comm', 0);
+        const units = n * factor;
+        const profit = (xp * mult * units - comm) - (net * mult * units + comm);
         el.textContent = money(profit);
         el.className = 'fs-5 fw-bold ' + (profit >= 0 ? 'text-success' : 'text-danger');
     }

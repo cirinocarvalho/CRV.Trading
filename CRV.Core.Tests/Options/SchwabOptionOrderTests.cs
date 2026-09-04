@@ -285,4 +285,54 @@ public class SchwabOptionOrderTests
         var child = Child(SchwabOptionOrder.BuildPayload(Butterfly(), exit: new AttachedExit(3.00m)));
         Assert.Equal("GOOD_TILL_CANCEL", child["duration"]);
     }
+
+    // ── Leg quantity is a count, not a ratio ───────────────────────
+    // Schwab multiplies the quoted price by the leg quantities it is sent. Quoting three
+    // puts at 3x their price previews at $2,853 against a real cost of $951.
+
+    [Fact]
+    public void ThreeIdenticalContracts_QuoteThePricePerContract()
+    {
+        var p = SchwabOptionOrder.BuildPayload(
+            [Leg(OptionRight.Put, LegAction.Buy, 768m, 3.17m, qty: 3)]);
+
+        Assert.Equal(3.17m, p["price"]);
+        Assert.Equal(3, (int)LegsOf(p).Single()["quantity"]);
+    }
+
+    [Fact]
+    public void ThreeIdenticalContracts_CountAsThreeUnits()
+        => Assert.Equal(3, SchwabOptionOrder.TotalUnits(
+            [Leg(OptionRight.Put, LegAction.Buy, 768m, 3.17m, qty: 3)], spreads: 1));
+
+    [Fact]
+    public void ButterflyRatio_IsOneUnitAndKeepsItsNetPrice()
+    {
+        // 1:2:1 has no common factor — it is genuinely one structure, priced as a whole.
+        Assert.Equal(1, SchwabOptionOrder.UnitFactor(Butterfly()));
+        Assert.Equal(0.52m, SchwabOptionOrder.NetPrice(Butterfly()));
+    }
+
+    [Fact]
+    public void AlreadyMultipliedButterfly_ReducesToTheSameUnitPrice()
+    {
+        // 3:6:3 is three butterflies, not a different structure.
+        var tripled = Butterfly().Select(l => l with { Quantity = l.Quantity * 3 }).ToArray();
+        Assert.Equal(3, SchwabOptionOrder.UnitFactor(tripled));
+        Assert.Equal(0.52m, SchwabOptionOrder.NetPrice(tripled));
+
+        var p = SchwabOptionOrder.BuildPayload(tripled);
+        Assert.Equal(0.52m, p["price"]);
+        Assert.Equal([3, 6, 3], LegsOf(p).Select(l => (int)l["quantity"]));
+    }
+
+    [Fact]
+    public void SpreadCountMultipliesTheFactorAlreadyInTheLegs()
+    {
+        // 3 puts x 2 spreads = 6 contracts, still priced per contract.
+        var p = SchwabOptionOrder.BuildPayload(
+            [Leg(OptionRight.Put, LegAction.Buy, 768m, 3.17m, qty: 3)], spreads: 2);
+        Assert.Equal(3.17m, p["price"]);
+        Assert.Equal(6, (int)LegsOf(p).Single()["quantity"]);
+    }
 }
