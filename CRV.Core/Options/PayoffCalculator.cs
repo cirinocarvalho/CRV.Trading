@@ -27,13 +27,23 @@ public sealed record OptionLeg(
 /// <param name="MaxProfit">Best case in dollars. <see cref="decimal.MaxValue"/> when <paramref name="ProfitUnbounded"/>.</param>
 /// <param name="MaxLoss">Worst case as a POSITIVE dollar amount at risk. <see cref="decimal.MaxValue"/> when <paramref name="LossUnbounded"/>.</param>
 /// <param name="Breakevens">Underlying prices where payoff crosses zero, ascending.</param>
+/// <param name="MaxProfitAt">
+/// Underlying price at which <paramref name="MaxProfit"/> occurs, or null when the profit
+/// is unbounded. A long put's best case is at an underlying of zero — a true bound, but a
+/// meaningless target unless the figure says where it lives.
+/// </param>
+/// <param name="MaxLossAt">
+/// Underlying price at which <paramref name="MaxLoss"/> occurs, or null when unbounded.
+/// </param>
 public sealed record StructureAnalytics(
     decimal NetDebit,
     decimal MaxProfit,
     decimal MaxLoss,
     bool    ProfitUnbounded,
     bool    LossUnbounded,
-    IReadOnlyList<decimal> Breakevens);
+    IReadOnlyList<decimal> Breakevens,
+    decimal? MaxProfitAt = null,
+    decimal? MaxLossAt   = null);
 
 /// <summary>One point on a payoff curve.</summary>
 public readonly record struct PayoffPoint(decimal Underlying, decimal Pnl);
@@ -83,12 +93,17 @@ public static class PayoffCalculator
         bool profitUnbounded = slopeAbove > 0m;
         bool lossUnbounded   = slopeAbove < 0m;
 
-        decimal maxProfit = profitUnbounded ? decimal.MaxValue : pnl.Max();
-        decimal maxLoss   = lossUnbounded   ? decimal.MaxValue : -pnl.Min();
+        int best  = pnl.IndexOf(pnl.Max());
+        int worst = pnl.IndexOf(pnl.Min());
+
+        decimal maxProfit = profitUnbounded ? decimal.MaxValue : pnl[best];
+        decimal maxLoss   = lossUnbounded   ? decimal.MaxValue : -pnl[worst];
 
         return new StructureAnalytics(
             netDebit, maxProfit, maxLoss, profitUnbounded, lossUnbounded,
-            Breakevens(points, pnl, slopeAbove));
+            Breakevens(points, pnl, slopeAbove),
+            MaxProfitAt: profitUnbounded ? null : points[best],
+            MaxLossAt:   lossUnbounded   ? null : points[worst]);
     }
 
     /// <summary>

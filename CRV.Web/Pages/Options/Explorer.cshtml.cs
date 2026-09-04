@@ -221,6 +221,8 @@ public class ExplorerModel : PageModel
             netDebit        = a.NetDebit,
             maxProfit       = a.ProfitUnbounded ? (decimal?)null : a.MaxProfit,
             maxLoss         = a.LossUnbounded   ? (decimal?)null : a.MaxLoss,
+            maxProfitAt     = a.MaxProfitAt,
+            maxLossAt       = a.MaxLossAt,
             profitUnbounded = a.ProfitUnbounded,
             lossUnbounded   = a.LossUnbounded,
             breakevens      = a.Breakevens,

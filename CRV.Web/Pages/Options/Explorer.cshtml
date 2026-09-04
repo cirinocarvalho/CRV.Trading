@@ -708,8 +708,14 @@ async function analyze() {
     $('a-net').innerHTML = j.netDebit >= 0
         ? `<span class="text-warning">${money(j.netDebit)}</span> <span class="small text-secondary">debit</span>`
         : `<span class="text-success">${money(-j.netDebit)}</span> <span class="small text-secondary">credit</span>`;
-    $('a-loss').innerHTML   = j.lossUnbounded   ? 'UNLIMITED' : money(j.maxLoss);
-    $('a-profit').innerHTML = j.profitUnbounded ? 'Unlimited' : money(j.maxProfit);
+    // A bare best/worst case invites the wrong comparison: a long put's max profit is its
+    // value at an underlying of zero, which dwarfs any realistic target. Say where it lives.
+    const at = v => v == null ? '' : `<div class="small text-secondary">at ${Number(v).toFixed(2)}</div>`;
+
+    $('a-loss').innerHTML   = j.lossUnbounded
+        ? 'UNLIMITED' : money(j.maxLoss) + at(j.maxLossAt);
+    $('a-profit').innerHTML = j.profitUnbounded
+        ? 'Unlimited' : money(j.maxProfit) + at(j.maxProfitAt);
     $('a-be').textContent   = j.breakevens.length
         ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 

@@ -240,4 +240,43 @@ public class PayoffCalculatorTests
         var b = withC.Single(p => p.Underlying == 100m).Pnl;
         Assert.Equal(2.60m, a - b);   // 4 contracts * 0.65
     }
+
+    // ── Where the extremes actually occur ──────────────────────────
+
+    [Fact]
+    public void LongPut_BestCaseIsAtAnUnderlyingOfZero()
+    {
+        // The headline figure for a long put is its value if the stock goes to zero.
+        // Correct, and useless unless the display says so.
+        var a = PayoffCalculator.Analyze(
+            [new(OptionRight.Put, LegAction.Buy, Strike: 755m, Premium: 0.11m)]);
+
+        Assert.Equal(75_489m, a.MaxProfit);
+        Assert.Equal(0m, a.MaxProfitAt);
+    }
+
+    [Fact]
+    public void LongButterfly_ReportsTheBodyStrikeAsWhereItPeaks()
+    {
+        var a = PayoffCalculator.Analyze(LongButterfly());
+        Assert.Equal(100m, a.MaxProfitAt);
+    }
+
+    [Fact]
+    public void LongCall_HasNoMaxProfitPriceBecauseProfitIsUnbounded()
+    {
+        var a = PayoffCalculator.Analyze(new[] { LongCall100() });
+        Assert.True(a.ProfitUnbounded);
+        Assert.Null(a.MaxProfitAt);
+    }
+
+    [Fact]
+    public void ShortPut_WorstCaseIsAtAnUnderlyingOfZero()
+        => Assert.Equal(0m, PayoffCalculator.Analyze(
+            [new(OptionRight.Put, LegAction.Sell, Strike: 95m, Premium: 2.00m)]).MaxLossAt);
+
+    [Fact]
+    public void NakedShortCall_HasNoMaxLossPriceBecauseLossIsUnbounded()
+        => Assert.Null(PayoffCalculator.Analyze(
+            [new(OptionRight.Call, LegAction.Sell, Strike: 100m, Premium: 2.50m)]).MaxLossAt);
 }
