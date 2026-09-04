@@ -139,6 +139,50 @@ else
     </div>
 </div>
 
+<!-- ── What fits your view ───────────────────────────────────── -->
+<div class="settings-section mb-3">
+    <div class="row g-2 align-items-start ticket-row">
+        <div class="col-auto">
+            <div class="tk-label">I expect the underlying to reach</div>
+            <input id="f-target" type="number" step="0.01" min="0"
+                   class="form-control form-control-sm" style="width:130px"
+                   placeholder="price" onkeydown="if(event.key==='Enter')suggest()">
+            <div id="t-target-hint" class="tk-hint"></div>
+        </div>
+        <div class="col-auto">
+            <div class="tk-label">&nbsp;</div>
+            <button id="btn-suggest" class="btn btn-sm btn-outline-info" onclick="suggest()">
+                <i class="bi bi-list-stars me-1"></i>Find structures
+            </button>
+            <div class="tk-hint"></div>
+        </div>
+        <div class="col-auto">
+            <div class="tk-label">&nbsp;</div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearSuggestions()">Clear</button>
+            <div class="tk-hint"></div>
+        </div>
+    </div>
+
+    <div id="suggest-wrap" class="table-responsive mt-2 d-none">
+        <table class="table table-sm table-hover align-middle mb-1">
+            <thead><tr class="small text-secondary">
+                <th>Structure</th><th class="text-end">Cost</th><th class="text-end">Max loss</th>
+                <th class="text-end" id="th-lo"></th>
+                <th class="text-end" id="th-mid"></th>
+                <th class="text-end" id="th-hi"></th>
+                <th class="text-end">R/R</th><th class="text-end">Worst spread</th><th></th>
+            </tr></thead>
+            <tbody id="suggest-body"></tbody>
+        </table>
+        <div class="small text-secondary">
+            <i class="bi bi-info-circle me-1"></i>
+            Ranked by profit at your target &mdash; which always flatters structures that only
+            pay at a precise price. The columns either side show whether a candidate wins
+            narrowly or across a range. Nothing here is a recommendation.
+        </div>
+    </div>
+</div>
+
 <!-- ── Panel B · Structure ───────────────────────────────────── -->
 <div id="panel-b" class="settings-section mb-3 d-none" style="position:sticky; top:0; z-index:5;">
     <div class="d-flex align-items-center mb-2 gap-2">
@@ -1165,6 +1209,88 @@ async function loadRecent() {
                 ? `<code>${o.orderId || '—'}</code>`
                 : `<span class="text-danger" title="${escapeHtml(o.error || '')}">rejected</span>`}</td>
         </tr>`).join('');
+}
+
+// ── Structures that fit a view ─────────────────────────────────
+
+let SUGGESTIONS = [];
+
+function clearSuggestions() {
+    SUGGESTIONS = [];
+    $('suggest-wrap').classList.add('d-none');
+    $('suggest-body').innerHTML = '';
+    $('t-target-hint').textContent = '';
+}
+
+async function suggest() {
+    const sym = $('f-symbol').value.trim().toUpperCase();
+    const exp = $('f-expiry').value;
+    const tgt = $('f-target').value;
+    if (!sym || !exp) { showErr('Load a chain first.'); return; }
+    if (tgt === '')   { showErr('Enter the price you expect the underlying to reach.'); return; }
+
+    $('btn-suggest').disabled = true;
+    $('t-target-hint').textContent = 'searching…';
+    try {
+        const j = await getJson(`?handler=Suggest&symbol=${encodeURIComponent(sym)}&expiry=${exp}`
+            + `&target=${encodeURIComponent(tgt)}&commission=${num('f-comm', 0)}`
+            + `&strikeCount=${$('f-strikes').value}&maxSpreadPct=${num('f-spread', 10)}`);
+        if (!j) { $('t-target-hint').textContent = ''; return; }
+
+        SUGGESTIONS = j.candidates || [];
+        const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
+        $('t-target-hint').innerHTML =
+            `spot ${Number(j.underlyingPrice).toFixed(2)} · `
+            + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`;
+
+        renderSuggestions(j);
+    } finally { $('btn-suggest').disabled = false; }
+}
+
+function renderSuggestions(j) {
+    const wrap = $('suggest-wrap');
+    if (!SUGGESTIONS.length) {
+        wrap.classList.add('d-none');
+        showErr('No tradeable structures for that target — try a wider spread limit or more strikes.');
+        return;
+    }
+    wrap.classList.remove('d-none');
+
+    const s0 = SUGGESTIONS[0].sensitivity;
+    $('th-lo').textContent  = '@@' + Number(s0[0].x).toFixed(0);
+    $('th-mid').innerHTML   = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>';
+    $('th-hi').textContent  = '@@' + Number(s0[2].x).toFixed(0);
+
+    const cell = v => `<td class="text-end ${v >= 0 ? 'text-success' : 'text-danger'}">${money(v)}</td>`;
+
+    $('suggest-body').innerHTML = SUGGESTIONS.map((c, i) => `
+        <tr>
+            <td>${escapeHtml(c.name)}
+                <div class="small text-secondary">${c.legs.map(l =>
+                    `${l.action === 'Buy' ? '+' : '−'}${l.quantity > 1 ? l.quantity : ''}${l.right[0]}${fmt(l.strike, 0)}`).join(' ')}</div></td>
+            <td class="text-end">${c.netDebit >= 0 ? money(c.netDebit) : money(-c.netDebit) + ' cr'}</td>
+            <td class="text-end text-danger">${c.maxLoss == null ? 'UNLIMITED' : money(c.maxLoss)}</td>
+            ${cell(c.sensitivity[0].y)}
+            <td class="text-end fw-bold ${c.sensitivity[1].y >= 0 ? 'text-success' : 'text-danger'}">${money(c.sensitivity[1].y)}</td>
+            ${cell(c.sensitivity[2].y)}
+            <td class="text-end">${c.returnOnRisk == null ? '—' : Number(c.returnOnRisk).toFixed(0) + '%'}</td>
+            <td class="text-end ${c.worstSpread > 5 ? 'text-warning' : 'text-secondary'}">${fmt(c.worstSpread, 1)}%</td>
+            <td class="text-end">
+                <button class="btn btn-xs btn-outline-primary py-0 px-2" onclick="useSuggestion(${i})">Use</button></td>
+        </tr>`).join('');
+}
+
+/// Load a candidate into the builder so it can be priced, adjusted and previewed as normal.
+function useSuggestion(i) {
+    const c = SUGGESTIONS[i];
+    if (!c) return;
+    LEGS = c.legs.map(l => ({
+        symbol: l.symbol, action: l.action, right: l.right, strike: l.strike,
+        premium: l.premium, quantity: l.quantity, multiplier: l.multiplier,
+        expiry: $('f-expiry').value, quotedAt: Date.now(),
+    }));
+    renderLegs();
+    $('panel-b').scrollIntoView({ block: 'center' });
 }
 
 $('f-symbol').addEventListener('keydown', e => { if (e.key === 'Enter') loadExpirations(); });

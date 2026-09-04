@@ -231,6 +231,62 @@ public class ExplorerModel : PageModel
         });
     }
 
+    // ── AJAX: structures that fit a stated view ───────────────────
+
+    public async Task<IActionResult> OnGetSuggestAsync(
+        string symbol, string expiry, decimal target, decimal commission,
+        int strikeCount, decimal maxSpreadPct, CancellationToken ct)
+    {
+        symbol = (symbol ?? "").Trim().ToUpperInvariant();
+        if (symbol.Length == 0) return BadRequest(new { error = "Symbol is required." });
+        if (!DateOnly.TryParse(expiry, out var exp))
+            return BadRequest(new { error = "A valid expiry is required." });
+        if (target <= 0m) return BadRequest(new { error = "Enter the price you expect the underlying to reach." });
+
+        if (strikeCount <= 0) strikeCount = 60;
+        strikeCount = Math.Min(strikeCount, 200);
+
+        try
+        {
+            var chain = await SchwabOptionChain.FetchAsync(
+                _schwab, symbol, fromDate: exp, toDate: exp,
+                strikeCount: strikeCount, httpFactory: _httpFactory, ct: ct);
+
+            var gate = new LiquidityGate(MaxSpreadPct: maxSpreadPct > 0m ? maxSpreadPct : 10m);
+            var found = StructureFinder.Find(
+                chain, exp.ToDateTime(TimeOnly.MinValue), target, commission, gate);
+
+            return new JsonResult(new
+            {
+                underlyingPrice = chain.UnderlyingPrice,
+                target,
+                candidates = found.Select(c => new
+                {
+                    c.Name,
+                    netDebit    = c.NetDebit,
+                    maxLoss     = c.MaxLoss,
+                    maxProfit   = c.MaxProfit,
+                    pnlAtTarget = c.PnlAtTarget,
+                    returnOnRisk= c.ReturnOnRisk,
+                    breakevens  = c.Breakevens,
+                    worstSpread = Math.Round(c.WorstSpreadPct, 1),
+                    sensitivity = c.Sensitivity.Select(p => new { x = p.Underlying, y = p.Pnl }),
+                    legs        = c.Legs.Select(l => new
+                    {
+                        symbol     = l.Symbol,
+                        right      = l.Right.ToString(),
+                        action     = l.Action.ToString(),
+                        strike     = l.Strike,
+                        premium    = l.Premium,
+                        quantity   = l.Quantity,
+                        multiplier = l.Multiplier,
+                    }),
+                }),
+            });
+        }
+        catch (Exception ex) { return Fail(ex, symbol); }
+    }
+
     // ── AJAX: re-quote a set of contracts ─────────────────────────
     // Legs are captured from the chain at click time, so their premiums age as soon as
     // the market moves — and survive an expiry change or a chain reload untouched. Every
