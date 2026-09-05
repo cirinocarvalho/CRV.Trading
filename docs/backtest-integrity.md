@@ -25,6 +25,13 @@ cannot validate anything, so nothing downstream of this was trustworthy either.
   the filter can be changed and re-run against fixed data.
 - `SchwabHistoricalLoader` and `TradeStationHistoricalLoader` now throw
   `BarLoadException` when a chunk fails, rather than continuing with a hole.
+- **A request that succeeds and returns nothing is also a failure.** Schwab serves no
+  minute history for expired futures contracts, and says so with HTTP 200 and
+  `{"empty":true,"candles":[]}` rather than an error. That sailed past the
+  failed-chunk guard: the loader yielded zero bars without complaint, and a backtest
+  over such a window would run on no data and report "0 trades" as a result. A range
+  that yields no bars at all now throws. Individual empty chunks are still fine — a
+  holiday week legitimately returns nothing.
 - Bars dropped by the >10% intra-session jump filter are counted and reported as one
   warning per ticker — `N of M bars dropped as anomalous` — instead of only scrolling
   past as individual lines.
@@ -93,4 +100,28 @@ Stated so it is not mistaken for solved:
 - **No queue position, no partial-fill risk, no gap-through-stop beyond the fixed
   tick charge.**
 - **No out-of-sample split and no walk-forward.** Reproducibility is a precondition
-  for those, not a substitute.
+  for those, not a substitute. (Since added — see [validation.md](validation.md).)
+
+## Historical data has an expiry
+
+Schwab serves minute bars only for **live** futures contracts. Once a contract expires
+its history is gone from the API — not thinned, gone: a request for a window when that
+contract was the active front month returns `empty: true`.
+
+Verified 2026-09-05 against every contract the live book traded:
+
+| Symbol | Window | Candles |
+|---|---|---|
+| `/MNQZ26` (current) | Sep 2-4 | 3,000 |
+| `/MNQU26` | Aug 20-22 | 2,640 |
+| `/MNQM26` | **May 20-22, when it was the front month** | **0** |
+| `/MNQM26`, `/MESM26`, `/MGCM26`, `/MCLK26`, `/MYMM26` | Mar 30 - Apr 1 | **0** |
+
+The consequence is structural: **a live trading window can only be re-examined if its
+bars were captured while the contract was alive.** That is what the snapshot store is
+for, and it is why capture happens on every API-sourced run rather than on request.
+The March-April 2026 window predates the snapshot store, so those bars are
+unrecoverable and that period can never be reproduced in backtest.
+
+It also explains part of the historical variance: as a contract approached and passed
+expiry, refetches of the same window returned progressively less data, silently.

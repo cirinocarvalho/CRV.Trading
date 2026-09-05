@@ -106,6 +106,64 @@ public class LoaderFailsLoudTests
         Assert.Equal(new[] { 18000m, 18100m, 18200m }, bars.Select(b => b.Close));
     }
 
+    // ── The gap the reproduction experiment found ─────────────────
+
+    [Fact]
+    public async Task ASuccessfulButEmptyResponseIsAFailureNotAnEmptyResult()
+    {
+        // Schwab serves no minute history for expired futures contracts. It does not
+        // error — it returns HTTP 200 with {"empty":true,"candles":[]}. Every contract
+        // the live book traded now answers this way, and the loader yielded zero bars
+        // without complaint, so a backtest over that window would have run on nothing
+        // and reported "0 trades" as a result.
+        var handler = new StubHandler(
+            () => Ok("{\"symbol\":\"/MNQM26\",\"empty\":true,\"candles\":[]}"),
+            () => Ok("{\"symbol\":\"/MNQM26\",\"empty\":true,\"candles\":[]}"),
+            () => Ok("{\"symbol\":\"/MNQM26\",\"empty\":true,\"candles\":[]}"));
+
+        var loader = new SchwabHistoricalLoader("tok", NullLogger<SchwabHistoricalLoader>.Instance,
+            "https://example.test", new StubFactory(handler));
+
+        var ex = await Assert.ThrowsAsync<BarLoadException>(
+            () => Drain(loader.LoadAsync("/MNQM26", 1, From, To)));
+
+        Assert.Contains("MNQM26", ex.Message);
+        Assert.Contains("no bars", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OneEmptyChunkAmongPopulatedOnesIsFine()
+    {
+        // A range covering a holiday week legitimately returns nothing for that chunk.
+        // Only a request that yields nothing at all is a failure.
+        long mar = new DateTimeOffset(new DateTime(2026, 3, 15, 14, 0, 0, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        long may = new DateTimeOffset(new DateTime(2026, 5, 15, 14, 0, 0, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var handler = new StubHandler(
+            () => Ok(OneCandle(mar, 18000m)),
+            () => Ok("{\"empty\":true,\"candles\":[]}"),
+            () => Ok(OneCandle(may, 18200m)));
+
+        var loader = new SchwabHistoricalLoader("tok", NullLogger<SchwabHistoricalLoader>.Instance,
+            "https://example.test", new StubFactory(handler));
+
+        var bars = await Drain(loader.LoadAsync("/MNQM26", 1, From, To));
+        Assert.Equal(2, bars.Count);
+    }
+
+    [Fact]
+    public async Task TradeStationLoaderAlsoRefusesAnEntirelyEmptyRange()
+    {
+        var handler = new StubHandler(
+            () => Ok("{\"Bars\":[]}"), () => Ok("{\"Bars\":[]}"), () => Ok("{\"Bars\":[]}"));
+
+        var loader = new TradeStationHistoricalLoader("tok", NullLogger<TradeStationHistoricalLoader>.Instance,
+            "https://example.test", new StubFactory(handler));
+
+        var ex = await Assert.ThrowsAsync<BarLoadException>(
+            () => Drain(loader.LoadAsync("MNQM26", 1, From, To)));
+        Assert.Contains("no bars", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task TradeStationLoaderThrowsWhenAChunkFails()
     {
