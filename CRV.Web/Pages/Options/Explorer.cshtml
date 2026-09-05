@@ -417,6 +417,12 @@ else
             <div class="tk-hint">sent when the entry fills</div>
         </div>
         <div class="col-auto">
+            <div class="tk-label">Stop at <span class="text-secondary">(contract)</span></div>
+            <input id="f-stop" type="number" step="0.01" min="0" class="form-control form-control-sm"
+                   style="width:120px" placeholder="none" oninput="renderTicket()">
+            <div class="tk-hint" id="t-stop-hint">single leg only</div>
+        </div>
+        <div class="col-auto">
             <div class="tk-label">Order type</div>
             <div class="tk-value fw-bold" id="t-ordertype">&mdash;</div>
             <div class="tk-hint">never market</div>
@@ -974,6 +980,7 @@ else
                 $('f-spreads').value = 1;
                 $('f-limit').value = '';   // a price meant for the previous structure is meaningless here
                 $('f-exit').value = '';
+                $('f-stop').value = '';
             }
 
             saveDraft();
@@ -1110,10 +1117,16 @@ else
         async function loadIvStanding() {
             const el = $('iv-standing');
             const sym = $('f-symbol').value.trim().toUpperCase();
-            if (!sym) { el.innerHTML = ''; return; }
+            if (!sym) {
+                el.innerHTML = '';
+                return;
+            }
 
             const j = await getJson(`?handler=IvStanding&symbol=${encodeURIComponent(sym)}&lookbackDays=365&targetDte=30`);
-            if (!j) { el.innerHTML = ''; return; }
+            if (!j) {
+                el.innerHTML = '';
+                return;
+            }
 
             if (j.rank == null) {
                 const have = j.sessions || 0;
@@ -1139,21 +1152,23 @@ else
             const price = $('wi-price').value, date = $('wi-date').value;
 
             if (!LEGS.length || price === '' || !date) {
-                out.textContent = '—'; range.textContent = ''; exp.textContent = '—';
+                out.textContent = '—';
+                range.textContent = '';
+                exp.textContent = '—';
                 return;
             }
 
             const seq = ++WHATIF_SEQ;
             const res = await fetch('?handler=WhatIf', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
+                headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN},
                 body: JSON.stringify({
                     legs: LEGS, underlying: parseFloat(price), asOf: date,
                     rate: LAST_RATE, commissionPerContract: num('f-comm', 0),
                     ivShiftPoints: num('wi-iv', 0),
                 }),
             });
-            const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
+            const j = await res.json().catch(() => ({error: 'Malformed response.'}));
             if (seq !== WHATIF_SEQ) return;
 
             if (j.error) {
@@ -1220,6 +1235,12 @@ else
             return $('f-exit').value === '' ? null : num('f-exit', 0);
         }
 
+        /// Contract price that arms the stop. Single-leg only — Schwab has no net-stop
+        /// order type for a spread.
+        function stopPrice() {
+            return $('f-stop').value === '' ? null : num('f-stop', 0);
+        }
+
         function onSpreadsChanged() {
             renderTicket();
         }
@@ -1248,8 +1269,8 @@ else
                 : net > 0 ? 'NET_DEBIT' : net < 0 ? 'NET_CREDIT' : 'NET_ZERO';
             const hasStop = stopPrice() !== null && LEGS.length === 1;
             if (exitPrice() !== null && hasStop) type += ' + OCO exit/stop';
-            else if (exitPrice() !== null)       type += ' + exit';
-            else if (hasStop)                    type += ' + stop';
+            else if (exitPrice() !== null) type += ' + exit';
+            else if (hasStop) type += ' + stop';
             $('t-ordertype').textContent = type;
 
             // A spread has no net-stop order type at Schwab. Saying why beats an input that
@@ -1322,7 +1343,7 @@ else
                     body: JSON.stringify({
                         legs: LEGS, spreads: spreadCount(),
                         commissionPerContract: num('f-comm', 0),
-                        limitPrice: limitPrice(), exitPrice: exitPrice(),
+                        limitPrice: limitPrice(), exitPrice: exitPrice(), stopPrice: stopPrice(),
                     }),
                 });
                 const j = await res.json().catch(() => ({error: 'Malformed response.'}));
@@ -1456,7 +1477,7 @@ else
                     legs: LEGS, spreads: PREVIEW.spreads,
                     commissionPerContract: num('f-comm', 0),
                     limitPrice: PREVIEW.limitPrice, exitPrice: PREVIEW.exitPrice,
-            stopPrice: PREVIEW.stopPrice,
+                    stopPrice: PREVIEW.stopPrice,
                     underlying: $('f-symbol').value.trim().toUpperCase(),
                     structure: structureName(),
                 }),
@@ -1896,7 +1917,7 @@ else
 
         let SUGGESTIONS = [];
         let LAST_EXPECTED_MOVE = null;
-let LAST_RATE = 0;
+        let LAST_RATE = 0;
         // The expiry the visible suggestions were built from. They are only meaningful for that
         // chain, so anything that changes the chain must invalidate them.
         let SUGGEST_EXPIRY = null;
