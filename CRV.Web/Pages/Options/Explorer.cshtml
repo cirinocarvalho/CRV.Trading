@@ -83,6 +83,19 @@ else
     </div>
 </div>
 
+<!-- ── Portfolio exposure ────────────────────────────────────── -->
+<div id="risk-strip" class="settings-section mb-3 d-none">
+    <div class="d-flex align-items-center gap-4 flex-wrap">
+        <strong class="small"><i class="bi bi-shield-exclamation me-1 text-info"></i>Portfolio</strong>
+        <div><div class="tk-label">At risk</div><div id="pr-risk" class="fw-bold">&mdash;</div></div>
+        <div><div class="tk-label">Net delta</div><div id="pr-delta" class="fw-bold">&mdash;</div></div>
+        <div><div class="tk-label">Net vega</div><div id="pr-vega" class="fw-bold">&mdash;</div></div>
+        <div><div class="tk-label">Net theta / day</div><div id="pr-theta" class="fw-bold">&mdash;</div></div>
+        <div><div class="tk-label">Legs</div><div id="pr-legs" class="fw-bold">&mdash;</div></div>
+        <div id="pr-warn" class="ms-auto small"></div>
+    </div>
+</div>
+
 <!-- ── Live at the broker ────────────────────────────────────── -->
 <div class="settings-section mb-3">
     <div class="d-flex align-items-center mb-2 gap-2">
@@ -1505,6 +1518,39 @@ else
         /// thinkorswim conditional rule rests at Schwab and the local record cannot see it.
         let WORKING = [];
 
+        /// Exposure across every open position — the figure a per-trade ceiling cannot see.
+        async function loadPortfolioRisk() {
+            const strip = $('risk-strip');
+            const j = await getJson('?handler=PortfolioRisk');
+            if (!j) return;
+
+            if (j.unknown) {
+                strip.classList.remove('d-none');
+                $('pr-risk').innerHTML = '<span class="text-warning">unknown</span>';
+                ['pr-delta','pr-vega','pr-theta','pr-legs'].forEach(id => $(id).textContent = '—');
+                $('pr-warn').innerHTML =
+                    '<span class="text-warning">Exposure could not be established. '
+                  + 'Orders are refused while a portfolio ceiling is set.</span>';
+                return;
+            }
+            if (!j.legCount) { strip.classList.add('d-none'); return; }
+
+            strip.classList.remove('d-none');
+            const overCeiling = j.ceiling > 0 && j.longAtRisk > j.ceiling;
+            $('pr-risk').innerHTML = `<span class="${overCeiling ? 'text-danger' : ''}">${money(j.longAtRisk)}</span>`
+                + (j.ceiling > 0 ? `<span class="small text-secondary"> / ${money(j.ceiling)}</span>` : '');
+            $('pr-delta').textContent = money(j.netDelta);
+            $('pr-vega').textContent  = money(j.netVega);
+            $('pr-theta').innerHTML   = `<span class="${j.netTheta < 0 ? 'text-danger' : 'text-success'}">${money(j.netTheta)}</span>`;
+            $('pr-legs').textContent  = j.legCount;
+
+            $('pr-warn').innerHTML = j.unbounded
+                ? `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>`
+                  + `${j.unpairedShorts.length} short leg(s) with nothing capping them — `
+                  + `the figure above does not bound your loss.</span>`
+                : '';
+        }
+
         async function loadWorking() {
             const j = await getJson('?handler=WorkingOrders');
             const body = $('working-body');
@@ -1573,6 +1619,7 @@ else
             await loadRecent();
             await loadWorking();
             await loadPositions();
+            await loadPortfolioRisk();
 
             if (j.error) {
                 showMessage('Cancel failed',
@@ -1735,6 +1782,7 @@ else
         loadPositions();
         loadRecent();
         loadWorking();
+        loadPortfolioRisk();
         restoreDraft();
     </script>
     <style>

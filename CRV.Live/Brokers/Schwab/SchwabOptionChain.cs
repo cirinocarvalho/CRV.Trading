@@ -53,8 +53,30 @@ public static class SchwabOptionChain
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
-    /// <summary>Live two-sided market for one option contract.</summary>
-    public record OptionQuote(string Symbol, decimal Bid, decimal Ask, decimal Strike, OptionRight Right);
+    /// <summary>
+    /// Live market and contract detail for one option, from the quotes endpoint. Carries
+    /// greeks, so open positions can be aggregated without pulling a whole chain per symbol.
+    /// </summary>
+    public record OptionQuote(
+        string      Symbol,
+        decimal     Bid,
+        decimal     Ask,
+        decimal     Strike,
+        OptionRight Right,
+        string      Underlying   = "",
+        DateTime    Expiration   = default,
+        int         Multiplier   = 100,
+        decimal     Delta        = 0m,
+        decimal     Gamma        = 0m,
+        decimal     Theta        = 0m,
+        decimal     Vega         = 0m,
+        decimal     Volatility   = 0m,
+        /// <summary>"A" American — can be assigned early; "E" European — cannot.</summary>
+        string      ExerciseType = "")
+    {
+        public decimal Mid => (Bid + Ask) / 2m;
+        public bool IsAmerican => string.Equals(ExerciseType, "A", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Fetch current quotes for specific contracts. Used when closing a position, where
@@ -87,17 +109,37 @@ public static class SchwabOptionChain
                 => el.TryGetProperty(n, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number
                    ? v.GetDecimal() : 0m;
 
-            var right = OptionRight.Call;
-            decimal strike = 0m;
+            var     right       = OptionRight.Call;
+            decimal strike      = 0m;
+            string  underlying  = "";
+            string  exercise    = "";
+            int     multiplier  = 100;
+            DateTime expiration = default;
+
             if (e.TryGetProperty("reference", out var r))
             {
                 strike = Dec(r, "strikePrice");
                 if (r.TryGetProperty("contractType", out var ctv) && ctv.GetString() is "P" or "PUT")
                     right = OptionRight.Put;
+
+                underlying = r.TryGetProperty("underlying",   out var u)  ? u.GetString()  ?? "" : "";
+                exercise   = r.TryGetProperty("exerciseType", out var ex) ? ex.GetString() ?? "" : "";
+
+                var m = (int)Dec(r, "multiplier");
+                if (m > 0) multiplier = m;
+
+                int yy = (int)Dec(r, "expirationYear"),
+                    mm = (int)Dec(r, "expirationMonth"),
+                    dd = (int)Dec(r, "expirationDay");
+                if (yy > 0 && mm is > 0 and <= 12 && dd is > 0 and <= 31)
+                    expiration = new DateTime(yy, mm, dd);
             }
 
             result[entry.Name] = new OptionQuote(
-                entry.Name, Dec(q, "bidPrice"), Dec(q, "askPrice"), strike, right);
+                entry.Name, Dec(q, "bidPrice"), Dec(q, "askPrice"), strike, right,
+                underlying, expiration, multiplier,
+                Dec(q, "delta"), Dec(q, "gamma"), Dec(q, "theta"), Dec(q, "vega"),
+                Dec(q, "volatility"), exercise);
         }
         return result;
     }

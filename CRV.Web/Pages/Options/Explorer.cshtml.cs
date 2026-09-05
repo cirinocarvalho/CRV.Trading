@@ -42,6 +42,13 @@ public class ExplorerModel : PageModel
     /// <summary>Per-trade ceiling in dollars. 0 disables the check.</summary>
     public decimal MaxTradeRisk => _config.GetValue("Options:MaxTradeRisk", 0m);
 
+    /// <summary>
+    /// Ceiling on total premium at risk across all open long option positions plus the
+    /// order being placed. 0 disables it. A per-trade limit does not catch the case that
+    /// actually hurts — many individually compliant positions pointing the same way.
+    /// </summary>
+    public decimal MaxPortfolioRisk => _config.GetValue("Options:MaxPortfolioRisk", 0m);
+
     private string SchwabAccountId => _config["Schwab:AccountId"] ?? "";
 
     /// <summary>Drives the auth banner. Schwab rotates the refresh token on every grant,
@@ -372,6 +379,9 @@ public class ExplorerModel : PageModel
                     : $"Refused: max loss {totalMaxLoss:C} exceeds the configured ceiling of {MaxTradeRisk:C}.",
             });
 
+        if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } breach)
+            return BadRequest(new { error = breach });
+
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
             req.ExitPrice is { } xp ? new AttachedExit(xp) : null);
@@ -478,6 +488,9 @@ public class ExplorerModel : PageModel
         if (MaxTradeRisk > 0m && (analysis.LossUnbounded || totalMaxLoss > MaxTradeRisk))
             return BadRequest(new { error = $"Refused: max loss exceeds the configured ceiling of {MaxTradeRisk:C}." });
 
+        if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } portfolioBreach)
+            return BadRequest(new { error = portfolioBreach });
+
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
             req.ExitPrice is { } xpp ? new AttachedExit(xpp) : null);
@@ -575,6 +588,108 @@ public class ExplorerModel : PageModel
             return new JsonResult(new { positions = opts });
         }
         catch (Exception ex) { return Fail(ex, "positions"); }
+    }
+
+    /// <summary>
+    /// Refusal reason if this order would push total premium at risk past the ceiling,
+    /// otherwise null.
+    /// <para>Fails closed: when exposure cannot be established the order is refused rather
+    /// than waved through. A risk gate that opens on error is not a gate.</para>
+    /// </summary>
+    private async Task<string?> PortfolioCeilingBreachAsync(decimal? orderMaxLoss, CancellationToken ct)
+    {
+        if (MaxPortfolioRisk <= 0m) return null;
+
+        PortfolioRisk? risk;
+        try { risk = await GetPortfolioRiskAsync(ct); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Portfolio exposure lookup failed");
+            return "Refused: current portfolio exposure could not be established, "
+                 + "and a portfolio ceiling is set.";
+        }
+
+        if (risk is null)
+            return "Refused: current portfolio exposure could not be established, "
+                 + "and a portfolio ceiling is set.";
+
+        if (orderMaxLoss is null)
+            return $"Refused: this structure has unlimited downside and a portfolio ceiling of "
+                 + $"{MaxPortfolioRisk:C} is set.";
+
+        decimal after = risk.LongPremiumAtRisk + orderMaxLoss.Value;
+        if (after > MaxPortfolioRisk)
+            return $"Refused: portfolio risk would reach {after:C} "
+                 + $"({risk.LongPremiumAtRisk:C} already open + {orderMaxLoss.Value:C} for this order), "
+                 + $"over the ceiling of {MaxPortfolioRisk:C}.";
+
+        return null;
+    }
+
+    // ── Portfolio exposure ────────────────────────────────────────
+
+    /// <summary>
+    /// Mark every open option position to the market and aggregate. Returns null when the
+    /// exposure cannot be established, which callers must treat as "unknown", never "zero".
+    /// </summary>
+    private async Task<PortfolioRisk?> GetPortfolioRiskAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SchwabAccountId)) return null;
+
+        var positions = (await ManualBrokerOps.GetPositionsSchwabAsync(_schwab, SchwabAccountId, _httpFactory))
+            .Where(p => string.Equals(p.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (positions.Count == 0)
+            return PortfolioRiskCalculator.Aggregate([]);
+
+        var quotes = await SchwabOptionChain.FetchQuotesAsync(
+            _schwab, positions.Select(p => p.Symbol).ToList(), _httpFactory, ct);
+
+        var legs = new List<OptionPositionLeg>();
+        foreach (var p in positions)
+        {
+            if (!quotes.TryGetValue(p.Symbol, out var q)) return null;   // incomplete — not zero
+
+            legs.Add(new OptionPositionLeg(
+                Symbol:     p.Symbol,
+                Underlying: string.IsNullOrEmpty(q.Underlying) ? p.Symbol[..6].Trim() : q.Underlying,
+                Right:      q.Right,
+                Strike:     q.Strike,
+                Expiration: q.Expiration,
+                IsLong:     string.Equals(p.Direction, "LONG", StringComparison.OrdinalIgnoreCase),
+                Quantity:   (int)Math.Abs(p.Quantity),
+                Multiplier: q.Multiplier,
+                Mid:        q.Mid,
+                Delta:      q.Delta,
+                Gamma:      q.Gamma,
+                Theta:      q.Theta,
+                Vega:       q.Vega));
+        }
+        return PortfolioRiskCalculator.Aggregate(legs);
+    }
+
+    public async Task<IActionResult> OnGetPortfolioRiskAsync(CancellationToken ct)
+    {
+        try
+        {
+            var r = await GetPortfolioRiskAsync(ct);
+            if (r is null) return new JsonResult(new { unknown = true });
+
+            return new JsonResult(new
+            {
+                legCount        = r.LegCount,
+                netDelta        = Math.Round(r.NetDeltaDollars, 2),
+                netGamma        = Math.Round(r.NetGammaDollars, 2),
+                netTheta        = Math.Round(r.NetThetaDollars, 2),
+                netVega         = Math.Round(r.NetVegaDollars, 2),
+                longAtRisk      = Math.Round(r.LongPremiumAtRisk, 2),
+                unpairedShorts  = r.UnpairedShorts,
+                unbounded       = r.HasUnboundedRisk,
+                ceiling         = MaxPortfolioRisk,
+            });
+        }
+        catch (Exception ex) { return Fail(ex, "portfolio risk"); }
     }
 
     // ── AJAX: preview / place a closing order ─────────────────────
