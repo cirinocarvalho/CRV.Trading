@@ -21,7 +21,8 @@ public static class OptionChainParser
         return new OptionChain(
             Str(root, "symbol"),
             Dec(root, "underlyingPrice"),
-            contracts);
+            contracts,
+            Dec(root, "interestRate"));
     }
 
     /// <summary>

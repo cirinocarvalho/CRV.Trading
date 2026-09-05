@@ -335,4 +335,85 @@ public class SchwabOptionOrderTests
         Assert.Equal(3.17m, p["price"]);
         Assert.Equal(6, (int)LegsOf(p).Single()["quantity"]);
     }
+
+    // ── Attached stop ──────────────────────────────────────────────
+
+    private static OptionLeg[] LongCall() =>
+        [Leg(OptionRight.Call, LegAction.Buy, 770m, 4.99m)];
+
+    private static List<Dictionary<string, object>> Children(Dictionary<string, object> p)
+        => (List<Dictionary<string, object>>)p["childOrderStrategies"];
+
+    [Fact]
+    public void StopAlone_StillTriggersOffTheEntry()
+    {
+        var p = SchwabOptionOrder.BuildPayload(LongCall(), stop: new AttachedStop(2.50m, 2.30m));
+        Assert.Equal("TRIGGER", p["orderStrategyType"]);
+        var child = Assert.Single(Children(p));
+        Assert.Equal("STOP_LIMIT", child["orderType"]);
+        Assert.Equal(2.50m, child["stopPrice"]);
+        Assert.Equal(2.30m, child["price"]);
+    }
+
+    [Fact]
+    public void TargetAndStopTogether_ArePairedAsOco()
+    {
+        // Without OCO both could fill: the position closes twice, the second time opening
+        // a new one in the opposite direction.
+        var p = SchwabOptionOrder.BuildPayload(
+            LongCall(), exit: new AttachedExit(9.00m), stop: new AttachedStop(2.50m, 2.30m));
+
+        var group = Assert.Single(Children(p));
+        Assert.Equal("OCO", group["orderStrategyType"]);
+
+        var pair = (List<Dictionary<string, object>>)group["childOrderStrategies"];
+        Assert.Equal(2, pair.Count);
+        Assert.Equal(["LIMIT", "STOP_LIMIT"], pair.Select(c => (string)c["orderType"]));
+    }
+
+    [Fact]
+    public void TargetAlone_IsNotWrappedInAnOco()
+    {
+        // A lone child is One-Triggers-Other; wrapping it would misdescribe the order.
+        var p = SchwabOptionOrder.BuildPayload(LongCall(), exit: new AttachedExit(9.00m));
+        var child = Assert.Single(Children(p));
+        Assert.False(child.ContainsKey("orderStrategyType") &&
+                     (string)child["orderStrategyType"] == "OCO");
+    }
+
+    [Fact]
+    public void StopClosesTheLegRatherThanOpeningANewOne()
+    {
+        var p = SchwabOptionOrder.BuildPayload(LongCall(), stop: new AttachedStop(2.50m, 2.30m));
+        var legs = (List<Dictionary<string, object>>)Children(p)[0]["orderLegCollection"];
+        Assert.Equal("SELL_TO_CLOSE", Assert.Single(legs)["instruction"]);
+    }
+
+    [Fact]
+    public void StopIsNeverAPlainMarketStop()
+    {
+        // A STOP becomes a market order the instant it triggers, which on an options book
+        // is exactly when the spread is widest.
+        var p = SchwabOptionOrder.BuildPayload(LongCall(), stop: new AttachedStop(2.50m, 2.30m));
+        Assert.Equal("STOP_LIMIT", Children(p)[0]["orderType"]);
+    }
+
+    [Fact]
+    public void StopOnASpread_IsRefusedRatherThanSilentlyDropped()
+    {
+        // Schwab prices a spread as a net debit or credit, and neither is a stop type.
+        // Quietly omitting the stop would leave the trader believing they had one.
+        Assert.Throws<ArgumentException>(() =>
+            SchwabOptionOrder.BuildPayload(Butterfly(), stop: new AttachedStop(1.00m, 0.90m)));
+    }
+
+    [Fact]
+    public void StopScalesWithTheSpreadCount()
+    {
+        var p = SchwabOptionOrder.BuildPayload(
+            [Leg(OptionRight.Call, LegAction.Buy, 770m, 4.99m, qty: 2)],
+            spreads: 3, stop: new AttachedStop(2.50m, 2.30m));
+        var legs = (List<Dictionary<string, object>>)Children(p)[0]["orderLegCollection"];
+        Assert.Equal(6, (int)Assert.Single(legs)["quantity"]);
+    }
 }

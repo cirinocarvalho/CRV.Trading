@@ -153,6 +153,7 @@ public class ExplorerModel : PageModel
                 symbol          = chain.Underlying,
                 underlyingPrice = chain.UnderlyingPrice,
                 expiry          = exp.ToString("yyyy-MM-dd"),
+                interestRate    = chain.InterestRate,
                 count           = rows.Count,
                 expectedMove,
                 expectedMovePct = expectedMove is { } m && chain.UnderlyingPrice > 0m
@@ -170,13 +171,15 @@ public class ExplorerModel : PageModel
     // order-preview gate enforces later — two implementations could disagree.
 
     public record LegInput(
-        string  Symbol,
-        string  Right,
-        string  Action,
-        decimal Strike,
-        decimal Premium,
-        int     Quantity,
-        int     Multiplier);
+        string   Symbol,
+        string   Right,
+        string   Action,
+        decimal  Strike,
+        decimal  Premium,
+        int      Quantity,
+        int      Multiplier,
+        decimal  ImpliedVolatility = 0m,
+        DateTime Expiration = default);
 
     public record AnalyzeRequest(
         List<LegInput>? Legs,
@@ -201,7 +204,9 @@ public class ExplorerModel : PageModel
                 Premium:    l.Premium,
                 Quantity:   Math.Max(1, l.Quantity),
                 Multiplier: l.Multiplier > 0 ? l.Multiplier : 100,
-                Symbol:     l.Symbol)).ToList();
+                Symbol:     l.Symbol,
+                ImpliedVolatility: l.ImpliedVolatility,
+                Expiration:        l.Expiration)).ToList();
         }
         catch (Exception ex) { return BadRequest(new { error = $"Malformed leg: {ex.Message}" }); }
 
@@ -311,6 +316,55 @@ public class ExplorerModel : PageModel
         catch (Exception ex) { return Fail(ex, symbol); }
     }
 
+    // ── AJAX: value before expiration ─────────────────────────────
+
+    public record WhatIfRequest(
+        List<LegInput>? Legs,
+        decimal         Underlying,
+        DateTime        AsOf,
+        decimal         Rate,
+        decimal         CommissionPerContract,
+        decimal         IvShiftPoints);
+
+    /// <summary>
+    /// What the structure is worth at a price on a date, rather than at settlement.
+    /// <para>Returns three volatility scenarios rather than one number. Implied volatility
+    /// does not hold still — it typically falls as equities rise and collapses after events
+    /// — so a single figure here would be the same false precision the expiration payoff
+    /// already invites.</para>
+    /// </summary>
+    public IActionResult OnPostWhatIf([FromBody] WhatIfRequest req)
+    {
+        var (legs, error) = BuildLegs(new OrderRequest(req?.Legs, 1, req?.CommissionPerContract ?? 0m));
+        if (error is not null) return BadRequest(new { error });
+
+        var asOf = req!.AsOf == default ? DateTime.UtcNow : req.AsOf;
+        decimal rate = req.Rate > 0m ? req.Rate / 100m : 0.04m;
+
+        decimal? Value(decimal shift) => PayoffCalculator.ValueAt(
+            legs!, req.Underlying, asOf, rate, req.CommissionPerContract, shift);
+
+        var mid = Value(req.IvShiftPoints);
+        if (mid is null)
+            return new JsonResult(new
+            {
+                error = "These legs carry no implied volatility or expiry, so they cannot be "
+                      + "valued before expiration. Re-add them from the chain."
+            });
+
+        return new JsonResult(new
+        {
+            asOf       = asOf.ToString("yyyy-MM-dd"),
+            rate       = Math.Round(rate * 100m, 2),
+            atExpiry   = PayoffCalculator.PayoffAt(legs!, req.Underlying, req.CommissionPerContract),
+            value      = Math.Round(mid.Value, 2),
+            ivDown     = Value(req.IvShiftPoints - 5m) is { } d ? Math.Round(d, 2) : (decimal?)null,
+            ivUp       = Value(req.IvShiftPoints + 5m) is { } u ? Math.Round(u, 2) : (decimal?)null,
+            daysToExpiry = legs!.Max(l => l.Expiration) is var e && e != default
+                         ? (int)Math.Max(0, (e - asOf).TotalDays) : 0,
+        });
+    }
+
     // ── AJAX: implied volatility standing ─────────────────────────
 
     /// <summary>
@@ -413,7 +467,24 @@ public class ExplorerModel : PageModel
         string?         Underlying = null,
         string?         Structure  = null,
         decimal?        LimitPrice = null,   // net you will pay/receive to open
-        decimal?        ExitPrice  = null);  // net you want to receive on the way out
+        decimal?        ExitPrice  = null,   // net you want to receive on the way out
+        decimal?        StopPrice  = null);  // contract price that arms the stop
+
+    /// <summary>
+    /// The stop's limit, set through the trigger so a triggered stop can actually fill.
+    /// A stop-limit priced at the trigger frequently does not, which is the failure mode
+    /// that leaves someone believing they were protected.
+    /// </summary>
+    private const decimal StopLimitSlipFraction = 0.10m;
+
+    private static AttachedStop? BuildStop(decimal? trigger, int legCount)
+    {
+        if (trigger is not { } t || t <= 0m) return null;
+        if (legCount != 1) return null;   // no net-stop exists for a spread
+
+        decimal limit = Math.Max(0.01m, Math.Round(t * (1m - StopLimitSlipFraction), 2));
+        return new AttachedStop(t, limit);
+    }
 
     /// <summary>
     /// Payoff analysis that reflects the price actually being bid, not the screen market.
@@ -460,7 +531,8 @@ public class ExplorerModel : PageModel
 
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
-            req.ExitPrice is { } xp ? new AttachedExit(xp) : null);
+            req.ExitPrice is { } xp ? new AttachedExit(xp) : null,
+            BuildStop(req.StopPrice, legs!.Count));
 
         string? brokerBody = null; bool brokerOk = false;
         if (!string.IsNullOrEmpty(SchwabAccountId))
@@ -533,6 +605,9 @@ public class ExplorerModel : PageModel
             marketNetPerSpread = SchwabOptionOrder.NetPrice(legs!),
             limitPrice        = req.LimitPrice,
             exitPrice         = req.ExitPrice,
+            stopPrice         = BuildStop(req.StopPrice, legs!.Count)?.Trigger,
+            stopLimit         = BuildStop(req.StopPrice, legs!.Count)?.Limit,
+            stopUnavailable   = req.StopPrice > 0m && legs!.Count != 1,
             netDebitPerSpread = analysis.NetDebit,
             totalNet          = analysis.NetDebit * spreads,
             totalMaxLoss,
@@ -1081,7 +1156,9 @@ public class ExplorerModel : PageModel
                 Premium:    l.Premium,
                 Quantity:   Math.Max(1, l.Quantity),
                 Multiplier: l.Multiplier > 0 ? l.Multiplier : 100,
-                Symbol:     l.Symbol)).ToList(), null);
+                Symbol:     l.Symbol,
+                ImpliedVolatility: l.ImpliedVolatility,
+                Expiration:        l.Expiration)).ToList(), null);
         }
         catch (Exception ex) { return (null, $"Malformed leg: {ex.Message}"); }
     }

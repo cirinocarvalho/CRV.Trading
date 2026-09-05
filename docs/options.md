@@ -64,8 +64,31 @@ contract.
 `NET_CREDIT` / `NET_ZERO`. A test asserts no payload can contain `MARKET`.
 
 Supported on entry: a custom limit price (the order type follows the sign of the limit, not
-the market) and an attached exit — Schwab's One-Triggers-Other, submitted only once the
-entry fills.
+the market), an attached take-profit, and an attached stop.
+
+### Brackets
+
+| Attached | Structure | Schwab reports |
+|----------|-----------|----------------|
+| Exit only | entry triggers the closing limit | `OTO` |
+| Stop only | entry triggers the stop-limit | `OTO` |
+| Both | entry triggers an **OCO** pair | `OTOCO` |
+
+Both together must be an OCO. Otherwise each can fill: the position closes twice, the second
+time opening a new one in the opposite direction.
+
+**Stops are single-leg only.** Schwab prices a spread as a net debit or credit and neither is
+a stop order type — there is no net-stop for a multi-leg structure, and attempting one is
+rejected with *"Stop price must be populated only for stop orders."* Rather than silently
+omitting the stop, the ticket disables the field and the dialog says why. A defined-risk
+spread already has a bounded worst case; that bound is the stop.
+
+**Stops are emitted as `STOP_LIMIT`, never `STOP`.** A plain stop becomes a market order the
+instant it triggers, and on an options book that is precisely when the spread is widest. The
+limit is placed 10% through the trigger so a triggered stop can actually fill — a stop-limit
+priced at the trigger frequently does not, which is the failure mode that leaves someone
+believing they were protected. This is a real trade-off, not a free improvement: a stop-limit
+can miss entirely in a fast move, and the dialog says so.
 
 ## Safety model
 
@@ -177,8 +200,34 @@ and most option positions are closed before expiry. Every such figure therefore 
 `at expiry` tag, the note names the actual expiry date, and `Net` is tagged `now` because it
 is the one price you can transact at today.
 
-There is no pre-expiry valuation: no Black-Scholes revaluation, no time axis, no vega. A
-question of the form "what if it hits X *on date D*" cannot be answered here yet.
+## Value before expiration
+
+`PayoffCalculator.ValueAt` answers "what if it reaches X **on date D**" — the question the
+expiration figure cannot. It is deliberately parallel to `PayoffAt`; the only difference is
+that a leg is worth its Black-Scholes value rather than its intrinsic value, so as the date
+approaches expiry the two converge. A test pins that convergence to the cent, which is what
+makes the settlement number a special case rather than a separate quantity.
+
+The gap is not small. A long SPY 770 call bought at 6.43 with the underlying unchanged at
+770.19:
+
+| | P&L |
+|---|---|
+| 7 days before expiry | −$97.15 |
+| At expiry, same price | −$624.65 |
+
+Six times worse for an identical underlying price, purely from time value.
+
+**Three volatility scenarios are shown, never one.** Implied volatility does not hold still
+— it typically falls as equities rise and collapses after events — so a single figure would
+be the same false precision the expiration payoff already invites. The same position above
+spans −$309 to +$115 across ±5 volatility points, which is a larger swing than the price
+move being contemplated.
+
+The risk-free rate comes from the chain's own `interestRate` rather than an assumed figure.
+Valuation assumes European exercise; equity and ETF options are American, so the model
+understates a deep in-the-money put and a call before a dividend, and is otherwise the
+standard approximation.
 
 ## Structure finder
 
