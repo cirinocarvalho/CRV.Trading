@@ -161,6 +161,13 @@ Brokers use different symbol formats. `StrategyConfig.Ticker` stores the **canon
 | TradeStation | `NQH26` | TradeStation bar-feed URL, order body |
 | Tradovate | `NQH6` | Tradovate MD WebSocket, order body (1-digit year) |
 
+### Options (`CRV.Core/Options`, `CRV.Live/Brokers/Schwab`)
+
+Independent of the strategy engine — no shared code with `ComposableEngine` or
+`BrokerEventHandler`. `PayoffCalculator`, `OptionChainParser`, `LiquidityGate` and
+`StructureFinder` are pure and unit tested; `SchwabOptionChain` and `SchwabOptionOrder`
+handle transport only. See [Options](options.md).
+
 ### Manual Broker Operations
 
 `ManualBrokerOps` provides broker-agnostic static helpers used by the Manual Trading and Orders pages. Methods cover positions, orders, cancel, flat-at-market, and place-OCO across all three brokers plus mock equivalents.
@@ -177,7 +184,8 @@ Brokers use different symbol formats. `StrategyConfig.Ticker` stores the **canon
 | `/Backtest` | Run backtest + view results |
 | `/Settings/Backtest` | Backtest config + inline results (metric cards, equity curve, trade log) |
 | `/trading/manual` | Manual OCO bracket orders, live positions table, Cancel All |
-| `/trading/orders` | Order list with filters, Cancel button, 30 s auto-refresh |
+| `/trading/orders` | Order list with filters, Cancel button, 30 s auto-refresh; includes options orders |
+| `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
 | `/trading/mock` | Mock broker trade review (day selector, metrics, equity curve, trade log) |
 | `/auth/schwab` | Schwab OAuth2 authorization |
 | `/auth/tradestation` | TradeStation OAuth2 authorization |
@@ -192,6 +200,7 @@ Brokers use different symbol formats. `StrategyConfig.Ticker` stores the **canon
 | `DailyStatsService` | In-memory today's P&L/win stats |
 | `StrategyConfigService` | Loads/saves `StrategyConfig` from SQLite |
 | `SignalREventSink` | Forwards engine signals to browser clients |
+| `BrokerTokenKeepAlive` | Touches Schwab/TradeStation tokens every 12 h so the 7-day refresh window cannot lapse while the app runs |
 
 ### Database
 

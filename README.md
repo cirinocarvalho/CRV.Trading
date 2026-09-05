@@ -25,9 +25,9 @@ ASP.NET Core web application for live and backtested ORB (Opening Range Breakout
 
 | Project | Purpose |
 |---------|---------|
-| `CRV.Core` | Composable strategy engine (`ComposableEngine`, `TickerGroup`, `BrokerEventHandler`), pure signal strategies (`ISetupStrategy`), models, indicators, analytical modules, interfaces, DB context |
+| `CRV.Core` | Composable strategy engine (`ComposableEngine`, `TickerGroup`, `BrokerEventHandler`), pure signal strategies (`ISetupStrategy`), models, indicators, analytical modules, options payoff/chain/structure logic (`CRV.Core/Options`), interfaces, DB context |
 | `CRV.Backtest` | Backtesting engine with `BacktestGroupOrderExecutor` + `BrokerEventHandler` fill simulation, bar loaders (CSV, Schwab, TradeStation, Tradovate) |
-| `CRV.Live` | Broker integrations (single- and multi-ticker bar feeds, group order executors, event streams), real-time bar builder |
+| `CRV.Live` | Broker integrations (single- and multi-ticker bar feeds, group order executors, event streams), option chain/quote/order transport, real-time bar builder |
 | `CRV.Web` | ASP.NET Core Razor Pages UI, SignalR hub, background services, REST API |
 | `CRV.Core.Tests` | xUnit tests covering indicators, strategy, modules, broker simulation, validation |
 
@@ -66,6 +66,11 @@ ASP.NET Core web application for live and backtested ORB (Opening Range Breakout
 - **Dynamic setup cards** — dashboard renders N cards based on basket entries instead of fixed 4 slots; each card shows setup label, instrument, trade state, and per-setup ORB levels
 - **Per-session stats** — Sessions detail page with tabbed per-session trade breakdown and performance metrics
 - **Contract roll calendar** — auto-resolves active contract per broker; no continuous contract symbols used
+- **Options explorer** (`/options/explorer`) — stock, ETF and index options on Schwab, independent of the futures engine; chain browsing with liquidity columns, click-to-build structures, expiration payoff chart, order ticket with preview, open positions, and every option order working at the broker. See [Options](docs/options.md)
+- **Structure finder** — state a target price and it builds every structure the chain supports for that view, prices each at the side you would actually trade, and ranks by profit at the target; each candidate carries a sensitivity row (payoff below/at/above target) because ranking on the target alone always flatters structures that pay only at a precise price
+- **Liquidity gating** — admission is `bid > 0` plus spread as a percentage of mid, not open interest; measured on a live SPY chain, 610 contracts quoted at or below $0.02 carried open interest as high as 10,717 while 62% had no bid at all
+- **Options order safety** — live placement off unless `Options:AllowLiveOrders`; a spread is always one net-priced order (never legged in); leg quantity is a count rather than part of the price; OSI symbols carried verbatim from the chain; never a market order; size resets to 1 on every structure change; preview re-quotes every leg and the confirm dialog locks after 30 seconds
+- **Conditional orders** — a thinkorswim Order Rule rests at Schwab as *Awaiting Condition* and can be seen and cancelled here; the REST API reports that an order awaits a condition but not what the condition is, so these are built in thinkorswim and managed in the app
 - **Structured logging** via Serilog + Seq
 
 ## Quick Start
@@ -145,6 +150,7 @@ gh workflow run deploy.yml          # first real image build
 |----------|----------|
 | [Architecture](docs/architecture.md) | Engine design, tick mode, bar feeds, order executors, symbol conversion, web layer, pages |
 | [Configuration](docs/configuration.md) | Launch profiles, appsettings, EF migrations, full StrategyConfig property reference |
+| [Options](docs/options.md) | Options explorer — payoff/chain/structure types, liquidity gating, order construction, safety model, conditional orders |
 | [Broker Auth](docs/brokers.md) | Schwab/TradeStation/Tradovate authentication setup, token lifecycle, security |
 | [API & SignalR](docs/api.md) | REST endpoints, SignalR hub messages, EngineSnapshot fields, client-side events |
 | [Cloud Deploy](deploy/DEPLOY.md) | End-to-end Azure deployment runbook |

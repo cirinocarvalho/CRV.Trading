@@ -66,6 +66,8 @@ HTTPS dev certificate: `dotnet dev-certs https --check --trust`
 | `Tradovate:MdWssUrl` | No | Market-data WebSocket URL |
 | `Tradovate:AccountId` | No | Account ID |
 | `Tradovate:TokenFile` | No | Token persistence path |
+| `Options:AllowLiveOrders` | No | **Defaults to `false`.** When false the options explorer previews orders against Schwab but cannot submit them. Best set in `appsettings.Development.json` (gitignored) so it arms a workstation without arming a deployment |
+| `Options:MaxTradeRisk` | No | Per-trade dollar ceiling for option structures; `0` disables it. Re-checked on the place call, not only on preview |
 
 > API URLs, `AccountId`, and `RedirectUri` are non-sensitive and live in `appsettings.json`. Credentials must always be in user-secrets or environment variables. Token files are excluded by `.gitignore`.
 
