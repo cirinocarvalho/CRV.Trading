@@ -153,6 +153,7 @@ gh workflow run deploy.yml          # first real image build
 | [Options](docs/options.md) | Options explorer — payoff/chain/structure types, liquidity gating, order construction, safety model, conditional orders |
 | [Backtest Integrity](docs/backtest-integrity.md) | Bar snapshots and reproducibility, numeric storage, the execution/slippage model, and what is still not modelled |
 | [Validation](docs/validation.md) | Confidence intervals and edge verdicts, in/out-of-sample splits, parameter-stability sweeps, filter ablation |
+| [Risk Model](docs/risk.md) | Per-trade cap, portfolio exposure ceiling, daily loss limit, and cross-instrument position sizing |
 | [Broker Auth](docs/brokers.md) | Schwab/TradeStation/Tradovate authentication setup, token lifecycle, security |
 | [API & SignalR](docs/api.md) | REST endpoints, SignalR hub messages, EngineSnapshot fields, client-side events |
 | [Cloud Deploy](deploy/DEPLOY.md) | End-to-end Azure deployment runbook |

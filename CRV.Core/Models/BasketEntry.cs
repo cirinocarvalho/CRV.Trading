@@ -11,8 +11,17 @@ public class BasketEntry
     /// <summary>Unique ID within the basket (e.g. "b-mnq-1", "a-mcl-1").</summary>
     public string Id { get; set; } = "";
 
-    /// <summary>Whether this setup is active. Disabled setups stay in the basket but are skipped by the engine.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>
+    /// Whether this setup is active. Disabled setups stay in the basket but are
+    /// skipped by the engine.
+    /// <para>
+    /// Defaults to <c>false</c>: an entry whose JSON omits the key is disarmed. It
+    /// used to default to true, and in the live config every entry carried
+    /// <c>"Enabled": false</c> except one that omitted the key — so the only setup
+    /// trading was the one nobody had switched on. An absent switch means off.
+    /// </para>
+    /// </summary>
+    public bool Enabled { get; set; }
 
     /// <summary>Display label (e.g. "B — Retest [MNQ]").</summary>
     public string Label { get; set; } = "";

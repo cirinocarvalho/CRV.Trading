@@ -234,6 +234,21 @@ public class StopSlippageReachesTheEngineTests
         await Task.CompletedTask;
     }
 
+    /// <summary>Asserts exactly one trade, and says what was actually there when not.</summary>
+    private static TradeRecord SingleTrade(BacktestResult r, string label)
+    {
+        if (r.Trades.Count == 1) return r.Trades[0];
+
+        string detail = r.Trades.Count == 0
+            ? "none at all"
+            : string.Join("; ", r.Trades.Select(t =>
+                $"{t.EnteredAt:HH:mm}→{t.ExitedAt:HH:mm} {t.Direction} {t.Contracts}ct " +
+                $"entry {t.Entry} stop {t.InitialStop} exit {t.Exit} ({t.ExitReason})"));
+
+        throw new Xunit.Sdk.XunitException(
+            $"Expected exactly one {label} trade from this fixture, got {r.Trades.Count}: {detail}");
+    }
+
     private static async Task<BacktestResult> Run(FillMode mode, int stopTicks) =>
         await new BacktestEngine(Config(), new BacktestConfig
         {
@@ -248,8 +263,11 @@ public class StopSlippageReachesTheEngineTests
         var free    = await Run(FillMode.AtTouch,      stopTicks: 4);
         var charged = await Run(FillMode.WithSlippage, stopTicks: 4);
 
-        var freeTrade    = Assert.Single(free.Trades);
-        var chargedTrade = Assert.Single(charged.Trades);
+        // Spelled out rather than left to Assert.Single: this failed once during
+        // development and could not be reproduced, and a bare "Single() failure"
+        // says nothing about which run misbehaved or how.
+        var freeTrade    = SingleTrade(free,    "frictionless");
+        var chargedTrade = SingleTrade(charged, "with slippage");
 
         Assert.Equal(ExitReason.Stop, freeTrade.ExitReason);
         Assert.Equal(ExitReason.Stop, chargedTrade.ExitReason);

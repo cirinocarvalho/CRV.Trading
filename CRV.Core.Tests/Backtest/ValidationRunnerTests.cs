@@ -234,3 +234,67 @@ public class ValidationRunnerTests : IDisposable
         Assert.Equal(new TimeOnly(10, 30), cfg.OrbEnd);
     }
 }
+
+/// <summary>
+/// Ticker lookups have to survive a contract roll. The live book holds trades on
+/// MCLK26 while the basket carries MCLM26 — the same instrument, a different expiry.
+/// Matching the full ticker missed, fell back to the global point value, and priced
+/// crude at $2 a point: retest-mcl's risk came out as $1.20 a contract instead of $53.
+/// </summary>
+public class SymbolLookupAcrossRollsTests
+{
+    private static StrategyConfig Basket()
+    {
+        var entries = new List<BasketEntry>
+        {
+            new() { Id = "retest-mcl", Ticker = "MCLM26", TickSize = 0.01m, PointValue = 100m },
+            new() { Id = "retest-mnq", Ticker = "MNQM26", TickSize = 0.25m, PointValue = 2m },
+        };
+        return new StrategyConfig
+        {
+            Ticker = "MNQM26", PointValue = 2m, TickSize = 0.25m,
+            BasketJson = System.Text.Json.JsonSerializer.Serialize(entries),
+        };
+    }
+
+    [Theory]
+    [InlineData("MCLM26", 100)]   // exactly the basket's contract
+    [InlineData("MCLK26", 100)]   // an earlier expiry of the same instrument
+    [InlineData("MCLZ25", 100)]
+    [InlineData("/MCLK26", 100)]  // broker-prefixed
+    [InlineData("MNQH26", 2)]
+    public void PointValueMatchesOnTheRootNotTheExpiry(string ticker, decimal expected)
+        => Assert.Equal(expected, Basket().PointValueFor(ticker));
+
+    [Theory]
+    [InlineData("MCLK26", 0.01)]
+    [InlineData("MNQZ25", 0.25)]
+    public void TickSizeMatchesOnTheRootToo(string ticker, decimal expected)
+        => Assert.Equal(expected, Basket().TickSizeFor(ticker));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("MGCM26")]   // a root the basket does not carry
+    public void AnUnknownRootStillFallsBackToTheGlobal(string ticker)
+        => Assert.Equal(2m, Basket().PointValueFor(ticker));
+
+    [Fact]
+    public void AnExactTickerStillWinsOverAMerelyMatchingRoot()
+    {
+        // Two expiries of one instrument configured differently is unusual, but if it
+        // happens the exact match is the one the user meant.
+        var entries = new List<BasketEntry>
+        {
+            new() { Id = "old", Ticker = "MCLK26", TickSize = 0.01m, PointValue = 50m },
+            new() { Id = "new", Ticker = "MCLM26", TickSize = 0.01m, PointValue = 100m },
+        };
+        var cfg = new StrategyConfig
+        {
+            PointValue = 2m,
+            BasketJson = System.Text.Json.JsonSerializer.Serialize(entries),
+        };
+
+        Assert.Equal(50m,  cfg.PointValueFor("MCLK26"));
+        Assert.Equal(100m, cfg.PointValueFor("MCLM26"));
+    }
+}

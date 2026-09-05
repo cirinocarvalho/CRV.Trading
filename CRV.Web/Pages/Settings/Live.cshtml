@@ -27,6 +27,22 @@
     </span>
 </div>
 
+@if (Model.Config.HasNoArmedSetups())
+{
+    <div class="alert alert-warning py-2 small d-flex align-items-start gap-2">
+        <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+        <div>
+            <strong>No setup in the basket is armed — the engine will not place a trade.</strong>
+            <div class="mt-1">
+                A basket entry is enabled only when its <code>Enabled</code> flag is explicitly on.
+                It used to default to on, so an entry that had never been switched on would trade;
+                in this config that was <code>sessionfakeout-mnq</code>, the only setup running.
+                Tick the entries you actually intend to trade below.
+            </div>
+        </div>
+    </div>
+}
+
 <!-- ── Engine Start / Stop ──────────────────────────────────── -->
 <div class="d-flex gap-2 mb-3">
     @if (!Model.IsRunning)
@@ -350,6 +366,17 @@
             <div class="col-4">
                 <label class="form-label small">Commission ($/side)</label>
                 <input name="Config.CommissionPerSide" type="number" step="0.01" value="@Model.Config.CommissionPerSide" class="form-control form-control-sm" />
+            </div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-12">
+                <label class="form-label small">Max Portfolio Risk ($)</label>
+                <input name="Config.MaxPortfolioRisk" type="number" step="50" min="0" value="@Model.Config.MaxPortfolioRisk" class="form-control form-control-sm" />
+                <div class="form-text text-muted small">
+                    Ceiling on dollar risk committed across every open and working position at once.
+                    Sits between the per-trade cap and the daily loss limit, which were the only two gates.
+                    <strong>0 disables it.</strong>
+                </div>
             </div>
         </div>
         <hr class="my-2" />

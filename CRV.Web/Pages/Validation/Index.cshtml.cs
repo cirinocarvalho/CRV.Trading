@@ -1,7 +1,9 @@
 using CRV.Backtest.DataLoaders;
 using CRV.Backtest.Engine;
 using CRV.Backtest.Experiments;
+using CRV.Core.Data;
 using CRV.Core.Models;
+using CRV.Core.Risk;
 using CRV.Core.Statistics;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -20,14 +22,16 @@ namespace CRV.Web.Pages.Validation;
 /// </summary>
 public class IndexModel : PageModel
 {
+    private readonly TradingDbContext   _db;
     private readonly ValidationRunner   _runner;
     private readonly BarSnapshotStore   _snapshots;
     private readonly StrategyConfigService _cfgSvc;
     private readonly ILogger<IndexModel> _log;
 
     public IndexModel(ValidationRunner runner, BarSnapshotStore snapshots,
-        StrategyConfigService cfgSvc, ILogger<IndexModel> log)
+        StrategyConfigService cfgSvc, TradingDbContext db, ILogger<IndexModel> log)
     {
+        _db        = db;
         _runner    = runner;
         _snapshots = snapshots;
         _cfgSvc    = cfgSvc;
@@ -38,6 +42,7 @@ public class IndexModel : PageModel
     [BindProperty(SupportsGet = true)] public string ToStr   { get; set; } = "";
     [BindProperty(SupportsGet = true)] public string Study   { get; set; } = "";
 
+    public RiskProfile?      Risk     { get; private set; }
     public SampleSplit?      Split    { get; private set; }
     public ParameterSurface? Surface  { get; private set; }
     public AblationStudy?    Ablation { get; private set; }
@@ -61,6 +66,24 @@ public class IndexModel : PageModel
         EnabledSetups = tickers.Count;
         SnapshotKey   = BarSnapshotStore.KeyFor(btCfg, tickers);
         HasSnapshot   = _snapshots.Has(SnapshotKey);
+
+        // Position sizing is read off the live trade record, not the bar snapshot,
+        // so it answers without needing a study to have been run.
+        Risk = RiskProfile.FromTrades(
+            _db.Trades.Where(t => t.Source == "live").AsEnumerable(), PointValueFor);
+
+        // The basket first, since it is what the engine trades on, then the symbol
+        // table. The book holds instruments no longer in the basket — MYM has eight
+        // trades and no entry — and pricing those at the global point value put MYM
+        // at $114 a contract when it is $0.50 a point.
+        decimal PointValueFor(string ticker)
+        {
+            decimal fromBasket = cfg.PointValueFor(ticker);
+            if (fromBasket != cfg.PointValue) return fromBasket;
+
+            decimal known = CRV.Live.FuturesSymbol.PointValue(ticker);
+            return known > 0 ? known : fromBasket;
+        }
 
         if (string.IsNullOrEmpty(Study)) return;
 
