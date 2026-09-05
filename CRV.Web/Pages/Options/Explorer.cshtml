@@ -82,6 +82,44 @@ else
     </div>
 </div>
 
+<!-- ── Live at the broker ────────────────────────────────────── -->
+<div class="settings-section mb-3">
+    <div class="d-flex align-items-center mb-2 gap-2">
+        <strong class="small"><i class="bi bi-broadcast me-1 text-info"></i>Working at the broker</strong>
+        <span class="small text-secondary">including rules created in thinkorswim</span>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadWorking()">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+            <tr class="small text-secondary">
+                <th>Placed</th>
+                <th>Contract</th>
+                <th>Action</th>
+                <th class="text-end">Qty</th>
+                <th>Type</th>
+                <th class="text-end">Limit</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="working-body">
+            <tr>
+                <td colspan="8" class="text-center text-secondary py-3 small">Nothing working.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="small text-secondary mt-2">
+        <i class="bi bi-info-circle me-1"></i>
+        A conditional rule built in thinkorswim rests here as <em>Awaiting Condition</em>. The
+        condition lives at Schwab, so it fires whether or not this app is running &mdash; the
+        API reports that an order is waiting, but not what it is waiting for.
+    </div>
+</div>
+
 <!-- ── Locally recorded structures ───────────────────────────── -->
 <div class="settings-section mb-3">
     <div class="d-flex align-items-center mb-2 gap-2">
@@ -1434,6 +1472,40 @@ else
         /// Last loaded rows, so a dialog can describe the order it is about to act on.
         let SUBMITTED = [];
 
+        /// Option orders live at the broker, including ones this app never placed — a
+        /// thinkorswim conditional rule rests at Schwab and the local record cannot see it.
+        let WORKING = [];
+
+        async function loadWorking() {
+            const j = await getJson('?handler=WorkingOrders');
+            const body = $('working-body');
+            if (!j) return;
+            WORKING = j.orders || [];
+
+            if (!WORKING.length) {
+                body.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-3 small">Nothing working.</td></tr>';
+                return;
+            }
+            body.innerHTML = WORKING.map(o => `
+                <tr>
+                    <td class="small">${o.placedTime ? new Date(o.placedTime).toLocaleString() : '—'}</td>
+                    <td class="small"><code>${escapeHtml(o.symbol || '')}</code>
+                        ${o.isMultiLeg && o.legs ? `<div class="small text-secondary">${o.legs.map(l =>
+                `${escapeHtml(l.instruction)} ${l.quantity}`).join(' · ')}</div>` : ''}</td>
+                    <td><span class="badge ${String(o.action).startsWith('BUY') ? 'bg-success' : 'bg-danger'}">${escapeHtml(o.action || '')}</span></td>
+                    <td class="text-end">${o.quantity}</td>
+                    <td class="small ${o.orderType === 'MARKET' ? 'text-warning' : ''}"
+                        title="${o.orderType === 'MARKET' ? 'A market order fills at whatever the spread is when it triggers' : ''}">
+                        ${escapeHtml(o.orderType || '')}</td>
+                    <td class="text-end">${o.limitPrice == null ? '—' : fmt(o.limitPrice)}</td>
+                    <td class="small"><span class="${statusClass(o.status)}">${escapeHtml(o.status || '')}</span></td>
+                    <td class="text-end">${o.canCancel
+                ? `<button class="btn btn-xs btn-outline-danger py-0 px-2"
+                                   onclick="cancelOrder('${o.orderId}')">Cancel</button>`
+                : ''}</td>
+                </tr>`).join('');
+        }
+
         function statusClass(s) {
             if (s === 'Filled') return 'text-success';
             if (s === 'Cancelled' || s === 'Rejected' || s === 'Expired') return 'text-secondary';
@@ -1444,14 +1516,18 @@ else
         /// and the panel is reloaded afterwards so the row reflects the broker rather than hope.
         function cancelOrder(orderId) {
             if (!orderId) return;
-            const row = (SUBMITTED || []).find(o => o.orderId === orderId);
+            const row = (SUBMITTED || []).find(o => o.orderId === orderId)
+                || (WORKING || []).find(o => o.orderId === orderId);
 
             askConfirm(
                 'Cancel this order?',
                 `<div>Order <code>${escapeHtml(orderId)}</code></div>`
                 + (row ? `<div class="small text-secondary mt-1">
-              ${escapeHtml(row.structure || '')} · ${escapeHtml(row.underlying || '')}
-              · ${row.totalNet >= 0 ? money(row.totalNet) + ' debit' : money(-row.totalNet) + ' credit'}
+              ${escapeHtml(row.structure || row.symbol || '')}
+              ${row.underlying ? '· ' + escapeHtml(row.underlying) : ''}
+              ${row.totalNet != null
+                    ? '· ' + (row.totalNet >= 0 ? money(row.totalNet) + ' debit' : money(-row.totalNet) + ' credit')
+                    : (row.action ? '· ' + escapeHtml(row.action) + ' ' + row.quantity : '')}
               · currently ${escapeHtml(row.status || 'unknown')}</div>` : ''),
                 'Cancel order', 'btn-danger',
                 () => doCancel(orderId));
@@ -1466,6 +1542,7 @@ else
             const j = await res.json().catch(() => ({error: 'Malformed response.'}));
 
             await loadRecent();
+            await loadWorking();
             await loadPositions();
 
             if (j.error) {
@@ -1621,6 +1698,7 @@ else
         });
         loadPositions();
         loadRecent();
+        loadWorking();
         restoreDraft();
     </script>
     <style>

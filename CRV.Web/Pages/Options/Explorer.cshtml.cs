@@ -708,6 +708,51 @@ public class ExplorerModel : PageModel
         });
     }
 
+    // ── AJAX: option orders live at the broker ────────────────────
+    // Includes orders this app never placed — a thinkorswim conditional rule rests at
+    // Schwab as AWAITING_CONDITION, and the local record cannot know about it.
+
+    private static readonly string[] FinishedStatuses =
+        ["FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "REPLACED"];
+
+    public async Task<IActionResult> OnGetWorkingOrdersAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SchwabAccountId))
+            return new JsonResult(new { orders = Array.Empty<object>() });
+
+        try
+        {
+            var raw = await ManualBrokerOps.GetOrdersSchwabAsync(
+                _schwab, SchwabAccountId, "ALL",
+                DateTime.Today.AddDays(-7), DateTime.Today, _httpFactory);
+
+            var open = raw
+                .Where(o => string.Equals(o.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase))
+                .Where(o => !FinishedStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase))
+                .Select(o => new
+                {
+                    orderId    = o.OrderId,
+                    symbol     = o.DisplaySymbol,
+                    action     = o.Action,
+                    quantity   = o.Quantity,
+                    orderType  = o.OrderType,
+                    limitPrice = o.LimitPrice,
+                    status     = o.StatusLabel,
+                    canCancel  = o.CanCancel,
+                    placedTime = o.PlacedTime,
+                    isMultiLeg = o.IsMultiLeg,
+                    legs       = o.Legs == null ? null : o.Legs.Select(l => new
+                    {
+                        l.Symbol, l.Instruction, l.Quantity,
+                    }),
+                })
+                .ToList();
+
+            return new JsonResult(new { orders = open });
+        }
+        catch (Exception ex) { return Fail(ex, "working orders"); }
+    }
+
     // ── AJAX: cancel a working order ──────────────────────────────
 
     public record CancelRequest(string? OrderId);
