@@ -86,6 +86,13 @@ public class SchwabHistoricalLoader
         // Schwab market data API requires the leading slash for futures symbols (e.g. /NQH26)
         var apiSymbol = symbol.StartsWith('/') ? symbol : "/" + symbol;
 
+        // A request that comes back successful and empty is the failure mode this
+        // counter exists for: Schwab serves no minute history for expired futures
+        // contracts, and says so with HTTP 200 and {"empty":true,"candles":[]} rather
+        // than an error. Yielding nothing without complaint lets a backtest run on no
+        // data at all and report "0 trades" as though that were a result.
+        int yielded = 0;
+
         foreach (var (cFrom, cTo) in ChunkByMonth(from, to))
         {
             ct.ThrowIfCancellationRequested();
@@ -120,6 +127,7 @@ public class SchwabHistoricalLoader
                 if (tsMs == 0) continue;
                 var t = DateTimeOffset.FromUnixTimeMilliseconds(tsMs).UtcDateTime;
                 if (t < from || t > to) continue;
+                yielded++;
                 yield return new Bar(t,
                     c.TryGetProperty("open",   out var o)  ? o.GetDecimal()  : 0,
                     c.TryGetProperty("high",   out var h)  ? h.GetDecimal()  : 0,
@@ -129,6 +137,14 @@ public class SchwabHistoricalLoader
             }
             await Task.Delay(200, ct);
         }
+
+        // Individual empty chunks are fine — a holiday week returns nothing. An
+        // entirely empty range is not.
+        if (yielded == 0)
+            throw new BarLoadException(
+                $"Schwab returned no bars for {symbol} over {from:u}..{to:u}. The requests " +
+                "succeeded, so this is not a transport failure: the most common cause is an " +
+                "expired futures contract, for which Schwab serves no minute history at all.");
     }
 
     private static IEnumerable<(DateTime, DateTime)> ChunkByMonth(DateTime from, DateTime to)
@@ -162,6 +178,8 @@ public class TradeStationHistoricalLoader
         using var http = _httpFactory?.CreateClient("TradeStation") ?? new HttpClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
 
+        int yielded = 0;
+
         foreach (var (cFrom, cTo) in ChunkByWeeks(from, to, 2))
         {
             ct.ThrowIfCancellationRequested();
@@ -190,12 +208,18 @@ public class TradeStationHistoricalLoader
                 if (!DateTime.TryParse(tsProp.GetString(), CultureInfo.InvariantCulture,
                         DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var t)) continue;
                 if (t < from || t > to) continue;
+                yielded++;
                 yield return new Bar(t,
                     Dec(b, "Open"), Dec(b, "High"), Dec(b, "Low"), Dec(b, "Close"),
                     (long)Dec(b, "TotalVolume"));
             }
             await Task.Delay(200, ct);
         }
+
+        if (yielded == 0)
+            throw new BarLoadException(
+                $"TradeStation returned no bars for {symbol} over {from:u}..{to:u}. The requests " +
+                "succeeded, so this is not a transport failure — check the contract has not expired.");
     }
 
     private static decimal Dec(JsonElement el, string key)
