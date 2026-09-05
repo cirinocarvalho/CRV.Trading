@@ -467,7 +467,24 @@ public class ExplorerModel : PageModel
         string?         Underlying = null,
         string?         Structure  = null,
         decimal?        LimitPrice = null,   // net you will pay/receive to open
-        decimal?        ExitPrice  = null);  // net you want to receive on the way out
+        decimal?        ExitPrice  = null,   // net you want to receive on the way out
+        decimal?        StopPrice  = null);  // contract price that arms the stop
+
+    /// <summary>
+    /// The stop's limit, set through the trigger so a triggered stop can actually fill.
+    /// A stop-limit priced at the trigger frequently does not, which is the failure mode
+    /// that leaves someone believing they were protected.
+    /// </summary>
+    private const decimal StopLimitSlipFraction = 0.10m;
+
+    private static AttachedStop? BuildStop(decimal? trigger, int legCount)
+    {
+        if (trigger is not { } t || t <= 0m) return null;
+        if (legCount != 1) return null;   // no net-stop exists for a spread
+
+        decimal limit = Math.Max(0.01m, Math.Round(t * (1m - StopLimitSlipFraction), 2));
+        return new AttachedStop(t, limit);
+    }
 
     /// <summary>
     /// Payoff analysis that reflects the price actually being bid, not the screen market.
@@ -514,7 +531,8 @@ public class ExplorerModel : PageModel
 
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
-            req.ExitPrice is { } xp ? new AttachedExit(xp) : null);
+            req.ExitPrice is { } xp ? new AttachedExit(xp) : null,
+            BuildStop(req.StopPrice, legs!.Count));
 
         string? brokerBody = null; bool brokerOk = false;
         if (!string.IsNullOrEmpty(SchwabAccountId))
@@ -587,6 +605,9 @@ public class ExplorerModel : PageModel
             marketNetPerSpread = SchwabOptionOrder.NetPrice(legs!),
             limitPrice        = req.LimitPrice,
             exitPrice         = req.ExitPrice,
+            stopPrice         = BuildStop(req.StopPrice, legs!.Count)?.Trigger,
+            stopLimit         = BuildStop(req.StopPrice, legs!.Count)?.Limit,
+            stopUnavailable   = req.StopPrice > 0m && legs!.Count != 1,
             netDebitPerSpread = analysis.NetDebit,
             totalNet          = analysis.NetDebit * spreads,
             totalMaxLoss,

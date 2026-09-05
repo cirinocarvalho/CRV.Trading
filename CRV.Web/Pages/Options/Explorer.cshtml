@@ -1246,8 +1246,25 @@ else
 
             let type = LEGS.length === 1 ? 'LIMIT'
                 : net > 0 ? 'NET_DEBIT' : net < 0 ? 'NET_CREDIT' : 'NET_ZERO';
-            if (exitPrice() !== null) type += ' + exit';
+            const hasStop = stopPrice() !== null && LEGS.length === 1;
+            if (exitPrice() !== null && hasStop) type += ' + OCO exit/stop';
+            else if (exitPrice() !== null)       type += ' + exit';
+            else if (hasStop)                    type += ' + stop';
             $('t-ordertype').textContent = type;
+
+            // A spread has no net-stop order type at Schwab. Saying why beats an input that
+            // silently does nothing — and its worst case is already bounded.
+            const sh = $('t-stop-hint');
+            const stopField = $('f-stop');
+            if (LEGS.length > 1) {
+                stopField.disabled = true;
+                sh.innerHTML = '<span class="text-warning">not available on spreads</span>';
+            } else {
+                stopField.disabled = false;
+                sh.textContent = stopPrice() === null
+                    ? 'single leg only'
+                    : `stop-limit at ${fmt(stopPrice() * 0.9)}`;
+            }
 
             // Say plainly whether this limit is asking the market to come to you.
             const hint = $('t-limit-hint');
@@ -1357,6 +1374,25 @@ else
                         Index options are European and cannot do this.</td></tr>`;
             }
 
+            if (j.stopUnavailable) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>No stop was attached.</strong> Schwab prices a spread as a net debit
+                        or credit and neither is a stop order type, so a spread cannot carry one.
+                        Its worst case is already bounded &mdash; that bound is the stop.</td></tr>`;
+            }
+
+            if (j.stopPrice != null) {
+                $('m-legs').innerHTML += `<tr class="table-danger">
+                    <td colspan="2" class="small"><i class="bi bi-shield-exclamation me-1"></i>
+                        On fill, submit a stop-limit triggering at
+                        <strong>${fmt(j.stopPrice)}</strong>, limit <strong>${fmt(j.stopLimit)}</strong>
+                        ${j.exitPrice != null ? '(OCO with the exit above)' : ''}
+                        <div class="text-secondary">A stop-limit can fail to fill in a fast move.
+                        A plain stop would fill, at whatever the spread is the moment it triggers.</div>
+                    </td><td></td></tr>`;
+            }
+
             if (j.exitPrice != null) {
                 $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
@@ -1420,6 +1456,7 @@ else
                     legs: LEGS, spreads: PREVIEW.spreads,
                     commissionPerContract: num('f-comm', 0),
                     limitPrice: PREVIEW.limitPrice, exitPrice: PREVIEW.exitPrice,
+            stopPrice: PREVIEW.stopPrice,
                     underlying: $('f-symbol').value.trim().toUpperCase(),
                     structure: structureName(),
                 }),
@@ -1552,6 +1589,25 @@ else
                         be assigned at any time before expiry, not only at expiration. Assignment
                         turns the leg into stock and the structure's defined risk with it.
                         Index options are European and cannot do this.</td></tr>`;
+            }
+
+            if (j.stopUnavailable) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>No stop was attached.</strong> Schwab prices a spread as a net debit
+                        or credit and neither is a stop order type, so a spread cannot carry one.
+                        Its worst case is already bounded &mdash; that bound is the stop.</td></tr>`;
+            }
+
+            if (j.stopPrice != null) {
+                $('m-legs').innerHTML += `<tr class="table-danger">
+                    <td colspan="2" class="small"><i class="bi bi-shield-exclamation me-1"></i>
+                        On fill, submit a stop-limit triggering at
+                        <strong>${fmt(j.stopPrice)}</strong>, limit <strong>${fmt(j.stopLimit)}</strong>
+                        ${j.exitPrice != null ? '(OCO with the exit above)' : ''}
+                        <div class="text-secondary">A stop-limit can fail to fill in a fast move.
+                        A plain stop would fill, at whatever the spread is the moment it triggers.</div>
+                    </td><td></td></tr>`;
             }
 
             if (j.exitPrice != null) {

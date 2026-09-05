@@ -64,8 +64,31 @@ contract.
 `NET_CREDIT` / `NET_ZERO`. A test asserts no payload can contain `MARKET`.
 
 Supported on entry: a custom limit price (the order type follows the sign of the limit, not
-the market) and an attached exit — Schwab's One-Triggers-Other, submitted only once the
-entry fills.
+the market), an attached take-profit, and an attached stop.
+
+### Brackets
+
+| Attached | Structure | Schwab reports |
+|----------|-----------|----------------|
+| Exit only | entry triggers the closing limit | `OTO` |
+| Stop only | entry triggers the stop-limit | `OTO` |
+| Both | entry triggers an **OCO** pair | `OTOCO` |
+
+Both together must be an OCO. Otherwise each can fill: the position closes twice, the second
+time opening a new one in the opposite direction.
+
+**Stops are single-leg only.** Schwab prices a spread as a net debit or credit and neither is
+a stop order type — there is no net-stop for a multi-leg structure, and attempting one is
+rejected with *"Stop price must be populated only for stop orders."* Rather than silently
+omitting the stop, the ticket disables the field and the dialog says why. A defined-risk
+spread already has a bounded worst case; that bound is the stop.
+
+**Stops are emitted as `STOP_LIMIT`, never `STOP`.** A plain stop becomes a market order the
+instant it triggers, and on an options book that is precisely when the spread is widest. The
+limit is placed 10% through the trigger so a triggered stop can actually fill — a stop-limit
+priced at the trigger frequently does not, which is the failure mode that leaves someone
+believing they were protected. This is a real trade-off, not a free improvement: a stop-limit
+can miss entirely in a fast move, and the dialog says so.
 
 ## Safety model
 

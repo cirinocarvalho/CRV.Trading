@@ -20,6 +20,21 @@ public enum OrderDuration { Day, GoodTillCancel, FillOrKill }
 public record AttachedExit(decimal NetPrice, OrderDuration Duration = OrderDuration.GoodTillCancel);
 
 /// <summary>
+/// A stop attached to the entry, submitted alongside the take-profit as an OCO pair so the
+/// first to fill cancels the other.
+/// <para>Single-leg only. Schwab prices a spread as a net debit or credit, and those are not
+/// stop order types — there is no net-stop for a multi-leg structure. A defined-risk spread
+/// already has a bounded worst case, which is the more useful way to think about it.</para>
+/// <para>Emitted as STOP_LIMIT rather than STOP. A stop becomes a market order the moment it
+/// triggers, and on an options book that is precisely when the spread is widest. The limit
+/// caps what a stop can cost — at the price of possibly not filling at all, which is a real
+/// trade-off rather than a free improvement.</para>
+/// </summary>
+/// <param name="Trigger">Contract price that arms the stop.</param>
+/// <param name="Limit">Worst price accepted once armed. Must be at or below the trigger for a sale.</param>
+public record AttachedStop(decimal Trigger, decimal Limit, OrderDuration Duration = OrderDuration.GoodTillCancel);
+
+/// <summary>
 /// Builds Schwab option order payloads.
 /// <para>A spread is always ONE order priced as a net debit or credit. Legging in
 /// separately risks a partial fill that leaves a naked short option in place of a
@@ -111,29 +126,60 @@ public static class SchwabOptionOrder
     /// <param name="exit">
     /// Optional take-profit submitted only once the entry fills.
     /// </param>
+    /// <param name="stop">
+    /// Optional stop, paired with <paramref name="exit"/> as an OCO so the first fill
+    /// cancels the other. Single-leg only — see <see cref="AttachedStop"/>.
+    /// </param>
     public static Dictionary<string, object> BuildPayload(
         IReadOnlyList<OptionLeg> legs,
         int spreads = 1,
         OrderDuration duration = OrderDuration.Day,
         decimal? limitPrice = null,
-        AttachedExit? exit = null)
+        AttachedExit? exit = null,
+        AttachedStop? stop = null)
     {
         var order = Build(legs, spreads, duration, closing: false, limitPrice);
-        if (exit is null) return order;
 
-        // One-Triggers-Other: the child is the closing structure, and Schwab only
-        // releases it when the parent fills. Attaching the exit at entry time is the
-        // point — an exit you have to remember to place is one you can forget.
-        var child = Build(
-            legs.Select(l => l with { Action = l.Action == LegAction.Buy ? LegAction.Sell : LegAction.Buy })
-                .ToList(),
-            spreads, exit.Duration, closing: true,
+        if (stop is not null && legs.Count != 1)
+            throw new ArgumentException(
+                "A stop can only be attached to a single-leg structure — Schwab has no net-stop "
+                + "order type for a spread.", nameof(stop));
+
+        if (exit is null && stop is null) return order;
+
+        var closingLegs = legs
+            .Select(l => l with { Action = l.Action == LegAction.Buy ? LegAction.Sell : LegAction.Buy })
+            .ToList();
+
+        var children = new List<Dictionary<string, object>>();
+
+        if (exit is not null)
             // Negated: the exit is stated as cash received, while Build reads a positive
             // limit as cash paid. Without this, "sell at 3" submits as a 3.00 DEBIT.
-            limitPrice: -exit.NetPrice);
+            children.Add(Build(closingLegs, spreads, exit.Duration, closing: true, limitPrice: -exit.NetPrice));
 
-        order["orderStrategyType"]    = "TRIGGER";
-        order["childOrderStrategies"] = new List<Dictionary<string, object>> { child };
+        if (stop is not null)
+        {
+            var stopOrder = Build(closingLegs, spreads, stop.Duration, closing: true, limitPrice: -stop.Limit);
+            stopOrder["orderType"] = "STOP_LIMIT";
+            stopOrder["stopPrice"] = stop.Trigger;
+            children.Add(stopOrder);
+        }
+
+        // One child is One-Triggers-Other. Two are One-Triggers-OCO: the take-profit and the
+        // stop are alternatives, and whichever fills must cancel the other or the position
+        // gets closed twice — the second time opening a new one in the opposite direction.
+        order["orderStrategyType"] = "TRIGGER";
+        order["childOrderStrategies"] = children.Count == 1
+            ? children
+            : new List<Dictionary<string, object>>
+              {
+                  new()
+                  {
+                      ["orderStrategyType"]    = "OCO",
+                      ["childOrderStrategies"] = children,
+                  },
+              };
         return order;
     }
 
