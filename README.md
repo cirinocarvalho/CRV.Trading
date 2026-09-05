@@ -151,6 +151,7 @@ gh workflow run deploy.yml          # first real image build
 | [Architecture](docs/architecture.md) | Engine design, tick mode, bar feeds, order executors, symbol conversion, web layer, pages |
 | [Configuration](docs/configuration.md) | Launch profiles, appsettings, EF migrations, full StrategyConfig property reference |
 | [Options](docs/options.md) | Options explorer — payoff/chain/structure types, liquidity gating, order construction, safety model, conditional orders |
+| [Backtest Integrity](docs/backtest-integrity.md) | Bar snapshots and reproducibility, numeric storage, the execution/slippage model, and what is still not modelled |
 | [Broker Auth](docs/brokers.md) | Schwab/TradeStation/Tradovate authentication setup, token lifecycle, security |
 | [API & SignalR](docs/api.md) | REST endpoints, SignalR hub messages, EngineSnapshot fields, client-side events |
 | [Cloud Deploy](deploy/DEPLOY.md) | End-to-end Azure deployment runbook |

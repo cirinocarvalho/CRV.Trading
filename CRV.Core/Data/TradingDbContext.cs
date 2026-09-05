@@ -17,6 +17,17 @@ public class TradingDbContext : DbContext
     public DbSet<OptionOrderRecord> OptionOrders { get; set; } = null!;
     public DbSet<OptionChainSnapshot> OptionChainSnapshots { get; set; } = null!;
 
+    /// <summary>
+    /// Store every <c>decimal</c> as SQLite REAL rather than EF Core's default TEXT.
+    /// Text storage sorts lexicographically, so MIN/MAX/ORDER BY on money and R-multiple
+    /// columns returned the wrong row: the live book's worst trade read as -$103 when it
+    /// was -$740.70, and its worst R as -0.07 when it was -4.32 — understating the tail
+    /// by 7x, always in the flattering direction. Prices and P&amp;L at these magnitudes sit
+    /// far inside double's 15-significant-digit range, so nothing is lost by the change.
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder cfg)
+        => cfg.Properties<decimal>().HaveConversion<double>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<TradeRecord>(e =>

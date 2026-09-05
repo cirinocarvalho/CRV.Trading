@@ -586,6 +586,25 @@ public class StrategyConfig
         return Math.Max(1, fallbackMinutes ?? ExecutionTFMinutes);
     }
 
+    /// <summary>
+    /// Tick size for a ticker, from its basket entry, falling back to the global one.
+    /// Instruments in one basket differ by more than an order of magnitude — MCL ticks
+    /// at 0.01, MNQ at 0.25 — so anything priced in ticks has to ask per instrument.
+    /// </summary>
+    public decimal TickSizeFor(string ticker)
+    {
+        if (!string.IsNullOrWhiteSpace(ticker))
+        {
+            foreach (var b in EnumerateBasketEntries())
+            {
+                if (b.TickSize > 0 &&
+                    string.Equals(b.Ticker, ticker, StringComparison.OrdinalIgnoreCase))
+                    return b.TickSize;
+            }
+        }
+        return TickSize;
+    }
+
     /// <summary>Largest execution TF across all basket entries and the global default — used for warmup window sizing.</summary>
     public int MaxTfMinutes()
     {

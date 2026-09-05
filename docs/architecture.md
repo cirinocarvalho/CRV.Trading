@@ -211,3 +211,14 @@ SQLite via EF Core. `TradingDbContext` manages:
 | `Trades` | `TradeRecord` | `EnteredAt`, `SessionId`, `Source`, `Ticker`, `ExitReason` |
 | `Configs` | `StrategyConfig` | — |
 | `BacktestRuns` | `BacktestRunRow` | — |
+
+#### Numeric storage
+
+`ConfigureConventions` maps every `decimal` to SQLite `REAL`. EF Core's default is
+`TEXT`, which sorts lexicographically: `MIN(RMultiple)` over the live book returned
+`-0.07` when the true minimum was `-4.32`, and the worst trade read `-$103` when it
+was `-$740.70`. Every SQL-side tail figure was understated roughly sevenfold, always
+in the flattering direction. C# keeps `decimal`; only the column type changes.
+
+Anything added to a model as `decimal` inherits this automatically — do not
+reintroduce a `HasColumnType("TEXT")` on a numeric column.

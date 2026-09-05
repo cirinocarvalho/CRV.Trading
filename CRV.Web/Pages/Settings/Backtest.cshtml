@@ -104,15 +104,24 @@
                 <div class="mb-2">
                     <label class="form-label small">Fill Mode</label>
                     <select name="Config.FillMode" class="form-select form-select-sm">
-                        <option value="AtClose"      selected="@(Model.Config.FillMode == FillMode.AtClose)">At Bar Close (conservative)</option>
-                        <option value="AtTouch"      selected="@(Model.Config.FillMode == FillMode.AtTouch)">At Price Touch (default)</option>
-                        <option value="WithSlippage" selected="@(Model.Config.FillMode == FillMode.WithSlippage)">With Slippage</option>
+                        <option value="WithSlippage" selected="@(Model.Config.FillMode == FillMode.WithSlippage)">With Slippage (default)</option>
+                        <option value="AtTouch"      selected="@(Model.Config.FillMode == FillMode.AtTouch)">At Price Touch (frictionless)</option>
+                        <option value="AtClose"      selected="@(Model.Config.FillMode == FillMode.AtClose)">At Bar Close</option>
                     </select>
+                    <div class="form-text text-muted small">
+                        The frictionless modes book exits at their exact order price — no cost on a stop at all.
+                        Use them to compare runs, not to judge whether a setup is tradeable.
+                    </div>
                 </div>
                 <div class="row g-2">
                     <div class="col-6">
-                        <label class="form-label small">Slippage (ticks)</label>
+                        <label class="form-label small">Entry slippage (ticks)</label>
                         <input name="Config.SlippageTicks" type="number" min="0" max="10" value="@Model.Config.SlippageTicks" class="form-control form-control-sm" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Stop slippage (ticks)</label>
+                        <input name="Config.StopSlippageTicks" type="number" min="0" max="20" value="@Model.Config.StopSlippageTicks" class="form-control form-control-sm" />
+                        <div class="form-text text-muted small">A touched stop is a market order. Live, 16% of stop-outs cost more than 1R.</div>
                     </div>
                     <div class="col-6" id="warmup-row">
                         <label class="form-label small">Warmup Bars <span class="text-muted small">(CSV only)</span></label>

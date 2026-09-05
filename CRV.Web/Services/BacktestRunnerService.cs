@@ -17,13 +17,25 @@ public class BacktestRunnerService
 {
     private readonly IServiceProvider _sp;
     private readonly ILogger          _log;
+    private readonly BarSnapshotStore _snapshots;
 
     public bool IsRunning { get; private set; }
 
-    public BacktestRunnerService(IServiceProvider sp, ILogger<BacktestRunnerService> log)
+    /// <summary>
+    /// Key of the snapshot the most recent run read or wrote. Surfaced so a result
+    /// can say which bars produced it — a run you cannot re-feed is not an experiment.
+    /// </summary>
+    public string? LastSnapshotKey { get; private set; }
+
+    /// <summary>True when the last run replayed a stored snapshot rather than refetching.</summary>
+    public bool LastRunWasReplay { get; private set; }
+
+    public BacktestRunnerService(IServiceProvider sp, ILogger<BacktestRunnerService> log,
+        IHostEnvironment env)
     {
-        _sp  = sp;
-        _log = log;
+        _sp        = sp;
+        _log       = log;
+        _snapshots = BarSnapshotStore.Default(env.ContentRootPath);
     }
 
     public async Task<BacktestResult> RunAsync(
@@ -57,8 +69,30 @@ public class BacktestRunnerService
             }
             else
             {
-                // API sources: fetch bars per distinct ticker, merge chronologically
-                var taggedBars = await LoadMultiTickerBarsAsync(cfg, btCfg, setupTickers, scope, ct);
+                // API sources: fetch bars per distinct ticker, merge chronologically.
+                //
+                // The merged stream is snapshotted to disk under a hash of the run's
+                // inputs, and a later run with the same inputs replays that file instead
+                // of refetching. Refetching every time meant each run measured a slightly
+                // different market: runs 920-922 shared a configuration and disagreed by
+                // 24.6% on net. The snapshot is taken on the raw merged stream, before the
+                // anomaly filter, so the filter itself stays re-runnable against fixed data.
+                var key = BarSnapshotStore.KeyFor(btCfg, setupTickers);
+                LastSnapshotKey  = key;
+                LastRunWasReplay = _snapshots.Has(key);
+
+                if (LastRunWasReplay)
+                    _log.LogInformation("Backtest replaying bar snapshot {Key} from {Path}.",
+                        key, _snapshots.Describe(key));
+                else
+                    _log.LogInformation("Backtest capturing bar snapshot {Key} to {Path}.",
+                        key, _snapshots.Describe(key));
+
+                var taggedBars = _snapshots.Has(key)
+                    ? _snapshots.Replay(key, ct)
+                    : _snapshots.Capture(key,
+                        await LoadMultiTickerBarsAsync(cfg, btCfg, setupTickers, scope, ct), ct);
+
                 var loggedBars = LogTaggedBarsAsync(taggedBars, btCfg, ct);
                 return await engine.RunAsync(loggedBars, ct);
             }
@@ -215,6 +249,7 @@ public class BacktestRunnerService
     {
         var lastByTicker = new Dictionary<string, Bar>(StringComparer.OrdinalIgnoreCase);
         var countByTicker = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var droppedByTicker = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         await foreach (var (ticker, bar) in bars.WithCancellation(ct))
         {
@@ -228,6 +263,7 @@ public class BacktestRunnerService
                     _log.LogWarning(
                         "Data anomaly [{Ticker}]: intra-session price jump {Pct:P1} between {T1:u} and {T2:u}",
                         ticker, pctChange, last.Time, bar.Time);
+                    droppedByTicker[ticker] = droppedByTicker.GetValueOrDefault(ticker) + 1;
                     continue; // skip anomalous bars
                 }
             }
@@ -239,6 +275,14 @@ public class BacktestRunnerService
 
         foreach (var (ticker, count) in countByTicker)
             _log.LogInformation("Backtest data [{Source}/{Ticker}]: {Count} bars loaded.", btCfg.DataSource, ticker, count);
+
+        // Dropped bars change the result, so say so in one line rather than leaving
+        // the reader to total up scattered per-bar warnings.
+        foreach (var (ticker, dropped) in droppedByTicker)
+            _log.LogWarning(
+                "Backtest data [{Source}/{Ticker}]: {Dropped} of {Total} bars dropped as anomalous — " +
+                "this run does not price the full series.",
+                btCfg.DataSource, ticker, dropped, dropped + countByTicker.GetValueOrDefault(ticker));
     }
 
     private IAsyncEnumerable<Bar> LoadCsvBars(

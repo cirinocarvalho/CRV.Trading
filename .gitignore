@@ -41,3 +41,4 @@ sessions.json
 # in the repo (.claude/launch.json IS shared and stays tracked).
 .claude/settings.local.json
 .claude/worktrees/
+*.db.bak-*
