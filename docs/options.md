@@ -95,6 +95,52 @@ broker* as *Awaiting Condition* and can be cancelled. The condition lives at Sch
 fires whether or not this app is running — better than any in-app watcher, which would
 miss the move whenever the process is down.
 
+## Portfolio exposure
+
+A per-trade ceiling does not catch the case that hurts: several individually compliant
+positions all pointing the same way. `PortfolioRiskCalculator` marks every open leg to the
+market and reports net delta, gamma, theta and vega in dollars, plus premium at risk.
+
+Two judgements are built in:
+
+- **Short legs are excluded from "premium at risk"**, not netted into it. Their loss is not
+  bounded by anything derivable from a leg alone, and netting would understate exposure.
+- **Unpaired shorts are detected per underlying, expiry and right.** A long option caps a
+  short one of the same right and cycle whatever the strikes, because past the outer strike
+  the two move one-for-one — but a long put does nothing about a short call, and a later
+  expiry does not protect through this one.
+
+`Options:MaxPortfolioRisk` is checked on both preview and place, and **fails closed**: if
+exposure cannot be established the order is refused, because a risk gate that opens on
+error is not a gate.
+
+## Early assignment
+
+Short **American** legs can be assigned at any time, which turns the leg into stock and the
+structure's defined risk with it. The confirm dialog names how many such legs an order
+carries. Index options are European and cannot do this — one of the few places where the
+index products are structurally safer.
+
+> **Not covered: ex-dividend.** The chain reports a dividend yield but not ex-dividend
+> dates, which is when assignment on a short call is most likely. That gap is real and
+> unaddressed.
+
+## Expected move
+
+`OptionChain.ExpectedMove` returns the at-the-money straddle price — what the options are
+charging for the move by that expiry. It is shown beside the chain and used to qualify a
+stated target: `1.40× expected move` means the target sits beyond what the market is
+pricing, `0.34×` means it is already paid for.
+
+The at-the-money strike is the one nearest spot quoted on **both** sides; pairing a call
+and a put from different strikes is not a straddle. Null when no such strike exists —
+returning zero would read as "the market expects nothing to happen".
+
+> **IV rank and percentile are not available.** They need a history of implied volatility,
+> and the chain reports only the current value. Nothing can backfill this; it requires
+> capturing chain snapshots from now on and waiting. Until then the tool can say what the
+> market expects, but not whether that is historically high or low.
+
 ## Expiration payoff is labelled as such
 
 `PayoffCalculator` computes payoff **at expiration**. Max profit, max loss, breakevens, the

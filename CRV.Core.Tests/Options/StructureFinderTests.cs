@@ -47,6 +47,7 @@ public class StructureFinderTests
                     Multiplier        = 100,
                     InTheMoney        = intrinsic > 0m,
                     NonStandard       = false,
+                    ExerciseType      = "A",
                 });
             }
         }

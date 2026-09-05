@@ -63,6 +63,7 @@ public static class OptionChainParser
                         Multiplier        = (int)Dec(c, "multiplier"),
                         InTheMoney        = Bool(c, "inTheMoney"),
                         NonStandard       = Bool(c, "nonStandard"),
+                        ExerciseType      = Str(c, "exerciseType"),
                     });
         }
     }

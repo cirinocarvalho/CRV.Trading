@@ -39,11 +39,23 @@ public sealed record OptionContract
     public required bool        InTheMoney        { get; init; }
     public required bool        NonStandard       { get; init; }
 
+    /// <summary>
+    /// "A" American — assignable at any time; "E" European — only at expiration.
+    /// Index options are European, which is why a short index leg cannot be taken away early.
+    /// </summary>
+    public required string      ExerciseType      { get; init; }
+
     /// <summary>Midpoint of the quoted market.</summary>
     public decimal Mid => (Bid + Ask) / 2m;
 
     /// <summary>Bid/ask spread as a percentage of mid. <see cref="decimal.MaxValue"/> when there is no market.</summary>
     public decimal SpreadPct => Mid <= 0m ? decimal.MaxValue : (Ask - Bid) / Mid * 100m;
+
+    /// <summary>
+    /// True when this contract can be assigned before expiration. Only matters for legs you
+    /// are short: a long option is a right you choose to exercise, never an obligation.
+    /// </summary>
+    public bool IsAmerican => string.Equals(ExerciseType, "A", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True once the contract can no longer be traded.</summary>
     public bool HasExpired => ExpiresAtUtc <= DateTime.UtcNow;
@@ -87,6 +99,33 @@ public sealed record OptionChain(
     /// <summary>Distinct expirations present in the chain, ascending.</summary>
     public IReadOnlyList<DateTime> Expirations
         => Contracts.Select(c => c.Expiration.Date).Distinct().OrderBy(d => d).ToList();
+
+    /// <summary>
+    /// The market's implied move by an expiration, taken as the at-the-money straddle price.
+    /// <para>This is what the options are charging for the move, so it is the yardstick a
+    /// price target should be judged against: a target inside the expected move is already
+    /// paid for, one well outside it needs the market to be wrong.</para>
+    /// <para>Null when either side of the at-the-money strike is missing a market.</para>
+    /// </summary>
+    public decimal? ExpectedMove(DateTime expiration)
+    {
+        var calls = For(expiration, OptionRight.Call);
+        var puts  = For(expiration, OptionRight.Put);
+        if (calls.Count == 0 || puts.Count == 0 || UnderlyingPrice <= 0m) return null;
+
+        // The at-the-money strike is the one nearest spot that has BOTH rights quoted —
+        // pairing a call and a put from different strikes is not a straddle.
+        var putByStrike = puts.Where(p => p.HasBid).ToDictionary(p => p.Strike);
+
+        var atmCall = calls
+            .Where(c => c.HasBid && putByStrike.ContainsKey(c.Strike))
+            .MinBy(c => Math.Abs(c.Strike - UnderlyingPrice));
+
+        // A missing bid on either leg makes the straddle unpriceable, not cheap.
+        if (atmCall is null) return null;
+
+        return atmCall.Mid + putByStrike[atmCall.Strike].Mid;
+    }
 
     /// <summary>Contracts for one expiration and right, ordered by strike.</summary>
     public IReadOnlyList<OptionContract> For(DateTime expiration, OptionRight right)

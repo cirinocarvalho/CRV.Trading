@@ -134,10 +134,15 @@ public class ExplorerModel : PageModel
                     extrinsic    = c.ExtrinsicValue,
                     itm          = c.InTheMoney,
                     nonStandard  = c.NonStandard,
+                    american     = c.IsAmerican,
                     multiplier   = c.Multiplier,
                     hasBid       = c.HasBid,
                 })
                 .ToList();
+
+            // What the options are charging for the move by this expiry — the yardstick a
+            // price target should be judged against.
+            var expectedMove = chain.ExpectedMove(exp.ToDateTime(TimeOnly.MinValue));
 
             return new JsonResult(new
             {
@@ -145,6 +150,10 @@ public class ExplorerModel : PageModel
                 underlyingPrice = chain.UnderlyingPrice,
                 expiry          = exp.ToString("yyyy-MM-dd"),
                 count           = rows.Count,
+                expectedMove,
+                expectedMovePct = expectedMove is { } m && chain.UnderlyingPrice > 0m
+                                ? Math.Round(m / chain.UnderlyingPrice * 100m, 2)
+                                : (decimal?)null,
                 rows,
             });
         }
@@ -437,10 +446,18 @@ public class ExplorerModel : PageModel
             }
         }
 
+        // Only short legs matter: a long option is a right you choose to exercise, never an
+        // obligation someone can impose on you.
+        var assignable = req.Legs!
+            .Where(l => string.Equals(l.Action, "Sell", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l.Symbol)
+            .ToList();
+
         return new JsonResult(new
         {
             spreads,
             units,
+            shortLegs = assignable,
             targetProfit,
             returnOnRisk,
             maxStructureValue = maxStructureVal,

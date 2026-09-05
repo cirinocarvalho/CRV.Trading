@@ -87,11 +87,26 @@ else
 <div id="risk-strip" class="settings-section mb-3 d-none">
     <div class="d-flex align-items-center gap-4 flex-wrap">
         <strong class="small"><i class="bi bi-shield-exclamation me-1 text-info"></i>Portfolio</strong>
-        <div><div class="tk-label">At risk</div><div id="pr-risk" class="fw-bold">&mdash;</div></div>
-        <div><div class="tk-label">Net delta</div><div id="pr-delta" class="fw-bold">&mdash;</div></div>
-        <div><div class="tk-label">Net vega</div><div id="pr-vega" class="fw-bold">&mdash;</div></div>
-        <div><div class="tk-label">Net theta / day</div><div id="pr-theta" class="fw-bold">&mdash;</div></div>
-        <div><div class="tk-label">Legs</div><div id="pr-legs" class="fw-bold">&mdash;</div></div>
+        <div>
+            <div class="tk-label">At risk</div>
+            <div id="pr-risk" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net delta</div>
+            <div id="pr-delta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net vega</div>
+            <div id="pr-vega" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net theta / day</div>
+            <div id="pr-theta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Legs</div>
+            <div id="pr-legs" class="fw-bold">&mdash;</div>
+        </div>
         <div id="pr-warn" class="ms-auto small"></div>
     </div>
 </div>
@@ -205,7 +220,8 @@ else
                 <option value="200">200</option>
             </select>
         </div>
-        <div class="col-auto ms-auto">
+        <div class="col-auto ms-auto text-end">
+            <div id="expected-move" class="small"></div>
             <span id="status" class="small text-secondary"></span>
         </div>
     </div>
@@ -653,6 +669,14 @@ else
 
             ROWS = j.rows;
             UNDERLYING = j.underlyingPrice;
+
+            // Shown beside the chain because a target inside the expected move is already
+            // priced in; one well outside it needs the market to be wrong.
+            LAST_EXPECTED_MOVE = j.expectedMove;
+            $('expected-move').innerHTML = j.expectedMove == null
+                ? '<span class="text-secondary">expected move unavailable</span>'
+                : `expected move <span class="text-info">±${fmt(j.expectedMove)}</span>`
+                + `<span class="text-secondary"> (±${fmt(j.expectedMovePct, 1)}%) by expiry</span>`;
             $('underlying-badge').textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
             render();
 
@@ -818,6 +842,7 @@ else
                 symbol, action, right: r.right, strike: r.strike,
                 premium: action === 'Buy' ? r.ask : r.bid,
                 quantity: 1, multiplier: r.multiplier,
+                american: r.american,
                 expiry: $('f-expiry').value,
                 quotedAt: Date.now(),
             });
@@ -1208,6 +1233,18 @@ else
             $('m-be').textContent = j.breakevens.length
                 ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 
+            // Early assignment is a risk you accept at submission, so it belongs in the
+            // dialog rather than buried in a chain column.
+            const shortAmerican = LEGS.filter(l => l.action === 'Sell' && l.american !== false);
+            if (shortAmerican.length) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>${shortAmerican.length} short American leg(s)</strong> &mdash; these can
+                        be assigned at any time before expiry, not only at expiration. Assignment
+                        turns the leg into stock and the structure's defined risk with it.
+                        Index options are European and cannot do this.</td></tr>`;
+            }
+
             if (j.exitPrice != null) {
                 $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
@@ -1393,6 +1430,18 @@ else
             $('m-loss').textContent = '—';
             $('m-profit').textContent = '—';
             $('m-be').textContent = '—';
+            // Early assignment is a risk you accept at submission, so it belongs in the
+            // dialog rather than buried in a chain column.
+            const shortAmerican = LEGS.filter(l => l.action === 'Sell' && l.american !== false);
+            if (shortAmerican.length) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>${shortAmerican.length} short American leg(s)</strong> &mdash; these can
+                        be assigned at any time before expiry, not only at expiration. Assignment
+                        turns the leg into stock and the structure's defined risk with it.
+                        Index options are European and cannot do this.</td></tr>`;
+            }
+
             if (j.exitPrice != null) {
                 $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
@@ -1527,27 +1576,30 @@ else
             if (j.unknown) {
                 strip.classList.remove('d-none');
                 $('pr-risk').innerHTML = '<span class="text-warning">unknown</span>';
-                ['pr-delta','pr-vega','pr-theta','pr-legs'].forEach(id => $(id).textContent = '—');
+                ['pr-delta', 'pr-vega', 'pr-theta', 'pr-legs'].forEach(id => $(id).textContent = '—');
                 $('pr-warn').innerHTML =
                     '<span class="text-warning">Exposure could not be established. '
-                  + 'Orders are refused while a portfolio ceiling is set.</span>';
+                    + 'Orders are refused while a portfolio ceiling is set.</span>';
                 return;
             }
-            if (!j.legCount) { strip.classList.add('d-none'); return; }
+            if (!j.legCount) {
+                strip.classList.add('d-none');
+                return;
+            }
 
             strip.classList.remove('d-none');
             const overCeiling = j.ceiling > 0 && j.longAtRisk > j.ceiling;
             $('pr-risk').innerHTML = `<span class="${overCeiling ? 'text-danger' : ''}">${money(j.longAtRisk)}</span>`
                 + (j.ceiling > 0 ? `<span class="small text-secondary"> / ${money(j.ceiling)}</span>` : '');
             $('pr-delta').textContent = money(j.netDelta);
-            $('pr-vega').textContent  = money(j.netVega);
-            $('pr-theta').innerHTML   = `<span class="${j.netTheta < 0 ? 'text-danger' : 'text-success'}">${money(j.netTheta)}</span>`;
-            $('pr-legs').textContent  = j.legCount;
+            $('pr-vega').textContent = money(j.netVega);
+            $('pr-theta').innerHTML = `<span class="${j.netTheta < 0 ? 'text-danger' : 'text-success'}">${money(j.netTheta)}</span>`;
+            $('pr-legs').textContent = j.legCount;
 
             $('pr-warn').innerHTML = j.unbounded
                 ? `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>`
-                  + `${j.unpairedShorts.length} short leg(s) with nothing capping them — `
-                  + `the figure above does not bound your loss.</span>`
+                + `${j.unpairedShorts.length} short leg(s) with nothing capping them — `
+                + `the figure above does not bound your loss.</span>`
                 : '';
         }
 
@@ -1663,8 +1715,8 @@ else
                 ? '<span class="text-secondary">—</span>'
                 : `<span class="${o.slipVsMid > 0 ? 'text-danger' : 'text-success'}"
                          title="filled ${fmt(o.filledNet)} vs mid ${fmt(o.midNet)}">${
-                       o.slipVsMid == null ? fmt(o.filledNet)
-                         : (o.slipVsMid > 0 ? '+' : '') + fmt(o.slipVsMid)}</span>`}</td>
+                    o.slipVsMid == null ? fmt(o.filledNet)
+                        : (o.slipVsMid > 0 ? '+' : '') + fmt(o.slipVsMid)}</span>`}</td>
             <td class="text-end">${o.canCancel
                 ? `<button class="btn btn-xs btn-outline-danger py-0 px-2"
                            onclick="cancelOrder('${o.orderId}')">Cancel</button>`
@@ -1675,6 +1727,7 @@ else
         // ── Structures that fit a view ─────────────────────────────────
 
         let SUGGESTIONS = [];
+        let LAST_EXPECTED_MOVE = null;
         // The expiry the visible suggestions were built from. They are only meaningful for that
         // chain, so anything that changes the chain must invalidate them.
         let SUGGEST_EXPIRY = null;
@@ -1717,9 +1770,19 @@ else
                 SUGGESTIONS = j.candidates || [];
                 SUGGEST_EXPIRY = exp;
                 const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
+
+                // A target inside the expected move is already priced in; one well outside
+                // it needs the market to be wrong. Saying which is more use than a percentage.
+                const dist = Math.abs(j.target - j.underlyingPrice);
+                const vsEm = LAST_EXPECTED_MOVE ? dist / LAST_EXPECTED_MOVE : null;
+
                 $('t-target-hint').innerHTML =
                     `spot ${Number(j.underlyingPrice).toFixed(2)} · `
-                    + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`;
+                    + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`
+                    + (vsEm == null ? ''
+                        : ` · <span class="${vsEm > 1 ? 'text-warning' : 'text-secondary'}" `
+                        + `title="Inside the expected move is already priced in; beyond it needs the market to be wrong">`
+                        + `${vsEm.toFixed(2)}× expected move</span>`);
 
                 renderSuggestions(j);
             } finally {
@@ -1740,9 +1803,9 @@ else
 
             const s0 = SUGGESTIONS[0].sensitivity;
             const expTag = '<div class="lbl-exp">at expiry</div>';
-            $('th-lo').innerHTML  = '@@' + Number(s0[0].x).toFixed(0) + expTag;
+            $('th-lo').innerHTML = '@@' + Number(s0[0].x).toFixed(0) + expTag;
             $('th-mid').innerHTML = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>' + expTag;
-            $('th-hi').innerHTML  = '@@' + Number(s0[2].x).toFixed(0) + expTag;
+            $('th-hi').innerHTML = '@@' + Number(s0[2].x).toFixed(0) + expTag;
 
             const cell = v => `<td class="text-end ${v >= 0 ? 'text-success' : 'text-danger'}">${money(v)}</td>`;
 
