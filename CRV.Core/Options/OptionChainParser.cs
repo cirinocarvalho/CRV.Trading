@@ -47,6 +47,7 @@ public static class OptionChainParser
                         Strike            = Dec(c, "strikePrice"),
                         Expiration        = expiration,
                         DaysToExpiration  = dteFromKey ?? (int)Dec(c, "daysToExpiration"),
+                        ExpiresAtUtc      = ExpiryInstant(c, expiration),
                         Bid               = Dec(c, "bid"),
                         Ask               = Dec(c, "ask"),
                         Mark              = Dec(c, "mark"),
@@ -62,8 +63,24 @@ public static class OptionChainParser
                         Multiplier        = (int)Dec(c, "multiplier"),
                         InTheMoney        = Bool(c, "inTheMoney"),
                         NonStandard       = Bool(c, "nonStandard"),
+                        ExerciseType      = Str(c, "exerciseType"),
                     });
         }
+    }
+
+    /// <summary>
+    /// The contract's own expiry instant. Falls back to the end of the expiry date when the
+    /// broker omits it — never earlier, so a contract is not hidden on a missing field.
+    /// </summary>
+    private static DateTime ExpiryInstant(System.Text.Json.JsonElement c, DateTime expirationDate)
+    {
+        if (c.TryGetProperty("expirationDate", out var v) &&
+            v.ValueKind == System.Text.Json.JsonValueKind.String &&
+            DateTimeOffset.TryParse(v.GetString(), CultureInfo.InvariantCulture,
+                                    DateTimeStyles.RoundtripKind, out var dto))
+            return dto.UtcDateTime;
+
+        return expirationDate.Date.AddDays(1).AddTicks(-1);
     }
 
     private static (DateTime Expiration, int? Dte) ParseExpiryKey(string key)

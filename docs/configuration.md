@@ -68,6 +68,7 @@ HTTPS dev certificate: `dotnet dev-certs https --check --trust`
 | `Tradovate:TokenFile` | No | Token persistence path |
 | `Options:AllowLiveOrders` | No | **Defaults to `false`.** When false the options explorer previews orders against Schwab but cannot submit them. Best set in `appsettings.Development.json` (gitignored) so it arms a workstation without arming a deployment |
 | `Options:MaxTradeRisk` | No | Per-trade dollar ceiling for option structures; `0` disables it. Re-checked on the place call, not only on preview |
+| `Options:MaxPortfolioRisk` | No | Ceiling on total premium at risk across all open long option positions **plus** the order being placed; `0` disables it. Fails closed — when exposure cannot be established the order is refused, because a risk gate that opens on error is not a gate |
 
 > API URLs, `AccountId`, and `RedirectUri` are non-sensitive and live in `appsettings.json`. Credentials must always be in user-secrets or environment variables. Token files are excluded by `.gitignore`.
 

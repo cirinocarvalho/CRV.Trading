@@ -4,6 +4,7 @@
 @{
     ViewData["Title"] = "Options Explorer";
     ViewData["Page"] = "options-explorer";
+    ViewData["Section"] = "options";
     Layout = "~/Pages/Shared/_Layout.cshtml";
 }
 
@@ -82,6 +83,34 @@ else
     </div>
 </div>
 
+<!-- ── Portfolio exposure ────────────────────────────────────── -->
+<div id="risk-strip" class="settings-section mb-3 d-none">
+    <div class="d-flex align-items-center gap-4 flex-wrap">
+        <strong class="small"><i class="bi bi-shield-exclamation me-1 text-info"></i>Portfolio</strong>
+        <div>
+            <div class="tk-label">At risk</div>
+            <div id="pr-risk" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net delta</div>
+            <div id="pr-delta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net vega</div>
+            <div id="pr-vega" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net theta / day</div>
+            <div id="pr-theta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Legs</div>
+            <div id="pr-legs" class="fw-bold">&mdash;</div>
+        </div>
+        <div id="pr-warn" class="ms-auto small"></div>
+    </div>
+</div>
+
 <!-- ── Live at the broker ────────────────────────────────────── -->
 <div class="settings-section mb-3">
     <div class="d-flex align-items-center mb-2 gap-2">
@@ -142,6 +171,7 @@ else
                 <th class="text-end">Max loss</th>
                 <th>Order</th>
                 <th>Status</th>
+                <th class="text-end" title="Realized net per unit against the mid at submission">Slippage</th>
                 <th></th>
             </tr>
             </thead>
@@ -190,7 +220,9 @@ else
                 <option value="200">200</option>
             </select>
         </div>
-        <div class="col-auto ms-auto">
+        <div class="col-auto ms-auto text-end">
+            <div id="expected-move" class="small"></div>
+            <div id="iv-standing" class="small"></div>
             <span id="status" class="small text-secondary"></span>
         </div>
     </div>
@@ -238,10 +270,21 @@ else
             <tbody id="suggest-body"></tbody>
         </table>
         <div class="small text-secondary">
-            <i class="bi bi-info-circle me-1"></i>
-            Ranked by profit at your target &mdash; which always flatters structures that only
-            pay at a precise price. The columns either side show whether a candidate wins
-            narrowly or across a range. Nothing here is a recommendation.
+            <div>
+                <i class="bi bi-info-circle me-1"></i>
+                Ranked by profit at your target &mdash; which always flatters structures that only
+                pay at a precise price. The columns either side show whether a candidate wins
+                narrowly or across a range. Nothing here is a recommendation.
+            </div>
+            @* Without this the price columns read as "if it gets there", which is the wrong
+               question for anything held less than to settlement. *@
+            <div class="mt-1">
+                <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
+                The three price columns are values <span class="lbl-exp">at expiry</span> &mdash;
+                what each structure is worth if the underlying <em>settles</em> there. If it
+                reaches your target earlier the result differs, often a lot, because time value
+                remains. <strong>Cost</strong> and <strong>Max loss</strong> are what you commit today.
+            </div>
         </div>
     </div>
 </div>
@@ -275,25 +318,38 @@ else
 
             <div class="row g-2" id="analytics">
                 <div class="col-6 col-xl-3">
-                    <div class="small text-secondary">Net</div>
+                    <div class="small text-secondary">Net <span class="lbl-now">now</span></div>
                     <div id="a-net" class="fs-6 fw-bold">—</div>
                 </div>
                 <div class="col-6 col-xl-3">
-                    <div class="small text-secondary">Max loss</div>
+                    <div class="small text-secondary">Max loss <span class="lbl-exp">at expiry</span></div>
                     <div id="a-loss" class="fs-6 fw-bold text-danger">—</div>
                 </div>
                 <div class="col-6 col-xl-3">
-                    <div class="small text-secondary">Max profit</div>
+                    <div class="small text-secondary">Max profit <span class="lbl-exp">at expiry</span></div>
                     <div id="a-profit" class="fs-6 fw-bold text-success">—</div>
                 </div>
                 <div class="col-6 col-xl-3">
-                    <div class="small text-secondary">Breakeven</div>
+                    <div class="small text-secondary">Breakeven <span class="lbl-exp">at expiry</span></div>
                     <div id="a-be" class="fs-6 fw-bold">—</div>
                 </div>
+            </div>
+
+            @* The figures above are settlement values. Saying so once, plainly, is the
+               difference between a number that informs a decision and one that misleads it. *@
+            <div class="small text-secondary mt-2">
+                <i class="bi bi-info-circle me-1"></i>
+                Marked <span class="lbl-exp">at expiry</span> means the value if the underlying
+                <em>settles</em> there on <span id="exp-note" class="text-info">the expiry date</span>.
+                Reaching that price sooner pays differently &mdash; the contract still holds time
+                value. Only <strong>Net</strong> is a price you can transact at right now.
             </div>
         </div>
 
         <div class="col-lg-6">
+            <div class="small text-secondary mb-1">
+                Payoff <span class="lbl-exp">at expiry</span>
+            </div>
             <svg id="payoff" viewBox="0 0 520 240" style="width:100%; height:240px;"></svg>
         </div>
     </div>
@@ -405,15 +461,15 @@ else
                         <div id="m-net" class="fw-bold"></div>
                     </div>
                     <div class="col-6 col-md-3">
-                        <div class="small text-secondary">Max loss</div>
+                        <div class="small text-secondary">Max loss <span class="lbl-exp">at expiry</span></div>
                         <div id="m-loss" class="fw-bold text-danger"></div>
                     </div>
                     <div class="col-6 col-md-3">
-                        <div class="small text-secondary">Max profit</div>
+                        <div class="small text-secondary">Max profit <span class="lbl-exp">at expiry</span></div>
                         <div id="m-profit" class="fw-bold text-success"></div>
                     </div>
                     <div class="col-6 col-md-3">
-                        <div class="small text-secondary">Breakeven</div>
+                        <div class="small text-secondary">Breakeven <span class="lbl-exp">at expiry</span></div>
                         <div id="m-be" class="fw-bold"></div>
                     </div>
                 </div>
@@ -614,6 +670,15 @@ else
 
             ROWS = j.rows;
             UNDERLYING = j.underlyingPrice;
+
+            // Shown beside the chain because a target inside the expected move is already
+            // priced in; one well outside it needs the market to be wrong.
+            LAST_EXPECTED_MOVE = j.expectedMove;
+            loadIvStanding();
+            $('expected-move').innerHTML = j.expectedMove == null
+                ? '<span class="text-secondary">expected move unavailable</span>'
+                : `expected move <span class="text-info">±${fmt(j.expectedMove)}</span>`
+                + `<span class="text-secondary"> (±${fmt(j.expectedMovePct, 1)}%) by expiry</span>`;
             $('underlying-badge').textContent = `${j.symbol} ${Number(j.underlyingPrice).toFixed(2)}`;
             render();
 
@@ -779,6 +844,7 @@ else
                 symbol, action, right: r.right, strike: r.strike,
                 premium: action === 'Buy' ? r.ask : r.bid,
                 quantity: 1, multiplier: r.multiplier,
+                american: r.american,
                 expiry: $('f-expiry').value,
                 quotedAt: Date.now(),
             });
@@ -934,6 +1000,9 @@ else
                 ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 
             LAST_ANALYSIS = j;
+            const exp = LEGS.length ? LEGS[0].expiry : $('f-expiry').value;
+            const en = $('exp-note');
+            if (en) en.textContent = exp || 'the expiry date';
             renderTicket();
             drawChart(j.curve, j.breakevens);
         }
@@ -988,6 +1057,31 @@ else
             svg += `<text x="${W - R}" y="${H - 6}" fill="#adb5bd" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
 
             $('payoff').innerHTML = svg;
+        }
+
+        /// IV against its own history, as a constant-maturity series — one reading per
+        /// session. Silent about rank until enough sessions exist: a rank computed from a
+        /// few days is not a rank, and showing one invites the confidence it has not earned.
+        async function loadIvStanding() {
+            const el = $('iv-standing');
+            const sym = $('f-symbol').value.trim().toUpperCase();
+            if (!sym) { el.innerHTML = ''; return; }
+
+            const j = await getJson(`?handler=IvStanding&symbol=${encodeURIComponent(sym)}&lookbackDays=365&targetDte=30`);
+            if (!j) { el.innerHTML = ''; return; }
+
+            if (j.rank == null) {
+                const have = j.sessions || 0;
+                el.innerHTML = `<span class="text-secondary" `
+                    + `title="IV history cannot be backfilled — it accumulates from the day capture starts">`
+                    + (j.currentIv != null ? `IV ${j.currentIv} · ` : '')
+                    + `rank needs ${j.needed || 20} sessions, have ${have}</span>`;
+                return;
+            }
+            const tone = j.rank >= 70 ? 'text-danger' : j.rank <= 30 ? 'text-success' : 'text-warning';
+            el.innerHTML = `IV <span class="${tone}">${j.currentIv}</span>`
+                + `<span class="text-secondary"> · rank ${j.rank} · pctile ${j.percentile} `
+                + `(${j.low}–${j.high} over ${j.sessions} sessions)</span>`;
         }
 
         // ── Panel C · ticket ───────────────────────────────────────────
@@ -1165,6 +1259,18 @@ else
             $('m-profit').textContent = j.profitUnbounded ? 'Unlimited' : money(j.totalMaxProfit);
             $('m-be').textContent = j.breakevens.length
                 ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
+
+            // Early assignment is a risk you accept at submission, so it belongs in the
+            // dialog rather than buried in a chain column.
+            const shortAmerican = LEGS.filter(l => l.action === 'Sell' && l.american !== false);
+            if (shortAmerican.length) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>${shortAmerican.length} short American leg(s)</strong> &mdash; these can
+                        be assigned at any time before expiry, not only at expiration. Assignment
+                        turns the leg into stock and the structure's defined risk with it.
+                        Index options are European and cannot do this.</td></tr>`;
+            }
 
             if (j.exitPrice != null) {
                 $('m-legs').innerHTML += `<tr class="table-info">
@@ -1351,6 +1457,18 @@ else
             $('m-loss').textContent = '—';
             $('m-profit').textContent = '—';
             $('m-be').textContent = '—';
+            // Early assignment is a risk you accept at submission, so it belongs in the
+            // dialog rather than buried in a chain column.
+            const shortAmerican = LEGS.filter(l => l.action === 'Sell' && l.american !== false);
+            if (shortAmerican.length) {
+                $('m-legs').innerHTML += `<tr class="table-warning">
+                    <td colspan="3" class="small"><i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>${shortAmerican.length} short American leg(s)</strong> &mdash; these can
+                        be assigned at any time before expiry, not only at expiration. Assignment
+                        turns the leg into stock and the structure's defined risk with it.
+                        Index options are European and cannot do this.</td></tr>`;
+            }
+
             if (j.exitPrice != null) {
                 $('m-legs').innerHTML += `<tr class="table-info">
             <td colspan="2" class="small"><i class="bi bi-arrow-return-right me-1"></i>
@@ -1476,6 +1594,42 @@ else
         /// thinkorswim conditional rule rests at Schwab and the local record cannot see it.
         let WORKING = [];
 
+        /// Exposure across every open position — the figure a per-trade ceiling cannot see.
+        async function loadPortfolioRisk() {
+            const strip = $('risk-strip');
+            const j = await getJson('?handler=PortfolioRisk');
+            if (!j) return;
+
+            if (j.unknown) {
+                strip.classList.remove('d-none');
+                $('pr-risk').innerHTML = '<span class="text-warning">unknown</span>';
+                ['pr-delta', 'pr-vega', 'pr-theta', 'pr-legs'].forEach(id => $(id).textContent = '—');
+                $('pr-warn').innerHTML =
+                    '<span class="text-warning">Exposure could not be established. '
+                    + 'Orders are refused while a portfolio ceiling is set.</span>';
+                return;
+            }
+            if (!j.legCount) {
+                strip.classList.add('d-none');
+                return;
+            }
+
+            strip.classList.remove('d-none');
+            const overCeiling = j.ceiling > 0 && j.longAtRisk > j.ceiling;
+            $('pr-risk').innerHTML = `<span class="${overCeiling ? 'text-danger' : ''}">${money(j.longAtRisk)}</span>`
+                + (j.ceiling > 0 ? `<span class="small text-secondary"> / ${money(j.ceiling)}</span>` : '');
+            $('pr-delta').textContent = money(j.netDelta);
+            $('pr-vega').textContent = money(j.netVega);
+            $('pr-theta').innerHTML = `<span class="${j.netTheta < 0 ? 'text-danger' : 'text-success'}">${money(j.netTheta)}</span>`;
+            $('pr-legs').textContent = j.legCount;
+
+            $('pr-warn').innerHTML = j.unbounded
+                ? `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>`
+                + `${j.unpairedShorts.length} short leg(s) with nothing capping them — `
+                + `the figure above does not bound your loss.</span>`
+                : '';
+        }
+
         async function loadWorking() {
             const j = await getJson('?handler=WorkingOrders');
             const body = $('working-body');
@@ -1544,6 +1698,7 @@ else
             await loadRecent();
             await loadWorking();
             await loadPositions();
+            await loadPortfolioRisk();
 
             if (j.error) {
                 showMessage('Cancel failed',
@@ -1565,7 +1720,7 @@ else
             const rows = j.orders || [];
             SUBMITTED = rows;
             if (!rows.length) {
-                body.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
+                body.innerHTML = '<tr><td colspan="11" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
                 return;
             }
             body.innerHTML = rows.map(o => `
@@ -1583,6 +1738,12 @@ else
             <td class="small">${o.status
                 ? `<span class="${statusClass(o.status)}">${escapeHtml(o.status)}</span>`
                 : '<span class="text-secondary">—</span>'}</td>
+            <td class="text-end small">${o.filledNet == null
+                ? '<span class="text-secondary">—</span>'
+                : `<span class="${o.slipVsMid > 0 ? 'text-danger' : 'text-success'}"
+                         title="filled ${fmt(o.filledNet)} vs mid ${fmt(o.midNet)}">${
+                    o.slipVsMid == null ? fmt(o.filledNet)
+                        : (o.slipVsMid > 0 ? '+' : '') + fmt(o.slipVsMid)}</span>`}</td>
             <td class="text-end">${o.canCancel
                 ? `<button class="btn btn-xs btn-outline-danger py-0 px-2"
                            onclick="cancelOrder('${o.orderId}')">Cancel</button>`
@@ -1593,6 +1754,7 @@ else
         // ── Structures that fit a view ─────────────────────────────────
 
         let SUGGESTIONS = [];
+        let LAST_EXPECTED_MOVE = null;
         // The expiry the visible suggestions were built from. They are only meaningful for that
         // chain, so anything that changes the chain must invalidate them.
         let SUGGEST_EXPIRY = null;
@@ -1635,9 +1797,19 @@ else
                 SUGGESTIONS = j.candidates || [];
                 SUGGEST_EXPIRY = exp;
                 const move = ((j.target - j.underlyingPrice) / j.underlyingPrice * 100);
+
+                // A target inside the expected move is already priced in; one well outside
+                // it needs the market to be wrong. Saying which is more use than a percentage.
+                const dist = Math.abs(j.target - j.underlyingPrice);
+                const vsEm = LAST_EXPECTED_MOVE ? dist / LAST_EXPECTED_MOVE : null;
+
                 $('t-target-hint').innerHTML =
                     `spot ${Number(j.underlyingPrice).toFixed(2)} · `
-                    + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`;
+                    + `<span class="${move >= 0 ? 'text-success' : 'text-danger'}">${move >= 0 ? '+' : ''}${move.toFixed(1)}%</span>`
+                    + (vsEm == null ? ''
+                        : ` · <span class="${vsEm > 1 ? 'text-warning' : 'text-secondary'}" `
+                        + `title="Inside the expected move is already priced in; beyond it needs the market to be wrong">`
+                        + `${vsEm.toFixed(2)}× expected move</span>`);
 
                 renderSuggestions(j);
             } finally {
@@ -1657,9 +1829,10 @@ else
             wrap.classList.remove('d-none');
 
             const s0 = SUGGESTIONS[0].sensitivity;
-            $('th-lo').textContent = '@@' + Number(s0[0].x).toFixed(0);
-            $('th-mid').innerHTML = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>';
-            $('th-hi').textContent = '@@' + Number(s0[2].x).toFixed(0);
+            const expTag = '<div class="lbl-exp">at expiry</div>';
+            $('th-lo').innerHTML = '@@' + Number(s0[0].x).toFixed(0) + expTag;
+            $('th-mid').innerHTML = '@@' + Number(s0[1].x).toFixed(0) + ' <span class="text-info">★</span>' + expTag;
+            $('th-hi').innerHTML = '@@' + Number(s0[2].x).toFixed(0) + expTag;
 
             const cell = v => `<td class="text-end ${v >= 0 ? 'text-success' : 'text-danger'}">${money(v)}</td>`;
 
@@ -1699,6 +1872,7 @@ else
         loadPositions();
         loadRecent();
         loadWorking();
+        loadPortfolioRisk();
         restoreDraft();
     </script>
     <style>

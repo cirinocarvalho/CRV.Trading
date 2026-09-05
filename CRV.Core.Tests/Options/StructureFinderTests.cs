@@ -31,6 +31,7 @@ public class StructureFinderTests
                     Strike            = k,
                     Expiration        = Exp,
                     DaysToExpiration  = 14,
+                    ExpiresAtUtc      = Exp.AddHours(20),
                     Bid               = mid - 0.02m,
                     Ask               = mid + 0.02m,
                     Mark              = mid,
@@ -46,6 +47,7 @@ public class StructureFinderTests
                     Multiplier        = 100,
                     InTheMoney        = intrinsic > 0m,
                     NonStandard       = false,
+                    ExerciseType      = "A",
                 });
             }
         }

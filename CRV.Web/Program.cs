@@ -162,6 +162,12 @@ builder.Services.AddSingleton<SnapshotBroadcastService>();
 // Keeps Schwab/TradeStation refresh tokens from lapsing while the app is up.
 builder.Services.AddHostedService<CRV.Web.Services.BrokerTokenKeepAlive>();
 
+// Records implied volatility daily. IV history cannot be backfilled, so the cost of not
+// starting is measured in months.
+builder.Services.AddSingleton<CRV.Web.Services.OptionChainSnapshotService>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<CRV.Web.Services.OptionChainSnapshotService>());
+
 // ── Backtest ──────────────────────────────────────────────────
 builder.Services.AddSingleton<BacktestRunnerService>();
 builder.Services.AddScoped<CRV.Backtest.DataLoaders.CsvBarLoader>();

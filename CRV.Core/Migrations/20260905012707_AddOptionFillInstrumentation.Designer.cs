@@ -3,6 +3,7 @@ using System;
 using CRV.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CRV.Core.Migrations
 {
     [DbContext(typeof(TradingDbContext))]
-    partial class TradingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260905012707_AddOptionFillInstrumentation")]
+    partial class AddOptionFillInstrumentation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -165,50 +168,6 @@ namespace CRV.Core.Migrations
                     b.HasIndex("SetupId");
 
                     b.ToTable("GroupOrders");
-                });
-
-            modelBuilder.Entity("CRV.Core.Models.OptionChainSnapshot", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double>("AtmImpliedVol")
-                        .HasColumnType("REAL");
-
-                    b.Property<double>("AtmStrike")
-                        .HasColumnType("REAL");
-
-                    b.Property<DateTime>("CapturedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("DaysToExpiration")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("ExpectedMove")
-                        .HasColumnType("REAL");
-
-                    b.Property<DateOnly>("Expiration")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateOnly>("TradeDate")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Underlying")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("UnderlyingPrice")
-                        .HasColumnType("REAL");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TradeDate");
-
-                    b.HasIndex("Underlying", "Expiration", "TradeDate")
-                        .IsUnique();
-
-                    b.ToTable("OptionChainSnapshots");
                 });
 
             modelBuilder.Entity("CRV.Core.Models.OptionOrderRecord", b =>

@@ -3,6 +3,9 @@
 @{
     ViewData["Title"] = "Manual Trade";
     ViewData["Page"]  = "manual-trade";
+    // Shared between sections — the link carries which one the user came from,
+    // so landing here from Options does not flip the nav back to Futures.
+    ViewData["Section"] = Request.Query["section"] == "options" ? "options" : "futures";
     Layout = "~/Pages/Shared/_Layout.cshtml";
 
     // Determine which mode class to pre-show on server render (after a POST with errors)

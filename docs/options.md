@@ -95,6 +95,91 @@ broker* as *Awaiting Condition* and can be cancelled. The condition lives at Sch
 fires whether or not this app is running — better than any in-app watcher, which would
 miss the move whenever the process is down.
 
+## Portfolio exposure
+
+A per-trade ceiling does not catch the case that hurts: several individually compliant
+positions all pointing the same way. `PortfolioRiskCalculator` marks every open leg to the
+market and reports net delta, gamma, theta and vega in dollars, plus premium at risk.
+
+Two judgements are built in:
+
+- **Short legs are excluded from "premium at risk"**, not netted into it. Their loss is not
+  bounded by anything derivable from a leg alone, and netting would understate exposure.
+- **Unpaired shorts are detected per underlying, expiry and right.** A long option caps a
+  short one of the same right and cycle whatever the strikes, because past the outer strike
+  the two move one-for-one — but a long put does nothing about a short call, and a later
+  expiry does not protect through this one.
+
+`Options:MaxPortfolioRisk` is checked on both preview and place, and **fails closed**: if
+exposure cannot be established the order is refused, because a risk gate that opens on
+error is not a gate.
+
+## Early assignment
+
+Short **American** legs can be assigned at any time, which turns the leg into stock and the
+structure's defined risk with it. The confirm dialog names how many such legs an order
+carries. Index options are European and cannot do this — one of the few places where the
+index products are structurally safer.
+
+> **Not covered: ex-dividend.** The chain reports a dividend yield but not ex-dividend
+> dates, which is when assignment on a short call is most likely. That gap is real and
+> unaddressed.
+
+## Expected move
+
+`OptionChain.ExpectedMove` returns the at-the-money straddle price — what the options are
+charging for the move by that expiry. It is shown beside the chain and used to qualify a
+stated target: `1.40× expected move` means the target sits beyond what the market is
+pricing, `0.34×` means it is already paid for.
+
+The at-the-money pair is chosen by `OptionChain.AtTheMoneyPair`: nearest spot, quoted on
+both sides, **and from the same series**. Index expirations list more than one series at a
+strike — SPX settles in the morning, SPXW in the afternoon — so pairing on strike alone
+both collides and risks quoting a straddle across two different products. Ties on distance
+break to the tighter combined spread. Null when no such pair exists, since zero would read
+as "the market expects nothing to happen".
+
+## Implied volatility history
+
+`OptionChainSnapshotService` records one at-the-money IV reading per underlying per expiry
+per session, into `OptionChainSnapshots`. It exists because **IV history cannot be bought
+back**: the chain reports what IV is now and nothing about what it has been, so "is this
+expensive?" stays unanswerable until readings accumulate. Starting costs a few kilobytes a
+day; not starting costs however long you wait.
+
+Configure with `Options:SnapshotSymbols` and `Options:SnapshotHourEastern`. Deliberately
+small — the at-the-money IV and straddle per expiry, not the chain. Full chains would be
+the only route to backtesting structures later, but at ~4 MB per symbol per capture that
+is a separate decision with a real storage cost.
+
+`IvStatistics.Standing` reports both **rank** (position between the window's low and high)
+and **percentile** (share of sessions below today). Reporting both matters: one volatility
+spike dominates a range for a year, so rank alone can call an elevated reading cheap while
+percentile still calls it high.
+
+Two things that are easy to get wrong and are handled:
+
+- **Ranked against a constant-maturity series** — one reading per session, the expiry
+  nearest 30 days — not against every expiry recorded. A single session records dozens of
+  expiries, and ranking today's number against today's *term structure* yields a
+  confident-looking figure that means nothing.
+- **Silent below 20 sessions.** A rank from a handful of readings is noise wearing the
+  costume of a statistic. The strip says how many sessions exist instead.
+
+## Expiration payoff is labelled as such
+
+`PayoffCalculator` computes payoff **at expiration**. Max profit, max loss, breakevens, the
+chart and the structure finder's price columns are all settlement values — what a structure
+is worth if the underlying *settles* there.
+
+Reaching that price earlier pays differently, because the contract still holds time value,
+and most option positions are closed before expiry. Every such figure therefore carries an
+`at expiry` tag, the note names the actual expiry date, and `Net` is tagged `now` because it
+is the one price you can transact at today.
+
+There is no pre-expiry valuation: no Black-Scholes revaluation, no time axis, no vega. A
+question of the form "what if it hits X *on date D*" cannot be answered here yet.
+
 ## Structure finder
 
 Given a target price, it builds every structure the chain supports for that view, prices
@@ -107,6 +192,34 @@ live SPY with a +2% target the butterfly showed the best return on risk (211%) a
 
 No probability figure is shown, and nothing is labelled "recommended". The ordering is a
 function of a target you supply; the columns do the arguing.
+
+## Execution measurement
+
+Slippage is the largest and least visible cost in options, and it cannot be reconstructed
+after the fact — the market at the moment you submitted is gone. So it is captured then:
+
+| Recorded | When |
+|----------|------|
+| `MarketAtSubmitJson` | Two-sided market per leg, snapshotted immediately before submitting |
+| `MidNetPrice` | Net per unit at the mid — the execution benchmark |
+| `NetPrice` | What was actually asked for |
+| `FilledNetPrice` | Realized net per unit, backfilled once the broker reports a fill |
+
+`SlippageVsMid` is signed so positive is always worse: a debit filled above the mid, or a
+credit filled below it. `SlippageVsAsked` shows how far the fill landed from the limit.
+
+Without the market snapshot a fill price says nothing — $3.60 is excellent against a
+3.55/3.75 market and poor against 3.50/3.60.
+
+The backfill runs only for orders the broker reports as filled that carry no fill yet, so
+it is bounded and idempotent. Failing to snapshot the market never blocks an order, and
+failing to read a fill never hides the local record.
+
+> **Unverified against a live fill.** No order placed by this app has executed. The parser
+> is tested against payloads shaped from Schwab's documented order schema, which pins the
+> arithmetic — weighted averaging across partial fills, leg ratios, sign by side, and
+> refusing to report a net for a spread filled on only one leg — but does not prove the
+> field names match production. The first real fill is also the first test of that.
 
 ## Local record
 
@@ -133,5 +246,10 @@ there is no early assignment on short legs.
   banner offers reconnection when it has lapsed.
 - **Options cannot be flattened from the Manual page.** Its Flat button posts a `MARKET`
   order tagged `assetType: FUTURE`; options are closed from the explorer instead.
+- **Expired expiries are hidden.** Schwab keeps listing an expiry after its contracts stop
+  trading, so today's 0DTE is still offered all evening; selecting it only earns a
+  "Symbol is expired" rejection. The picker drops anything past the contract's own
+  `expirationDate`, which keeps index options right (SPXW trades past the equity close)
+  without a hard-coded 4pm rule.
 - **No options backtesting.** There is no chain history, so structures can be researched
   and forward-tested but not backtested.

@@ -1,46 +1,74 @@
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>CRV Trading — @ViewData["Title"]</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     @* asp-append-version emits a content hash, so a changed stylesheet actually reaches
        the browser instead of being served from cache indefinitely. *@
-    <link rel="stylesheet" href="~/css/crv.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/crv.css" asp-append-version="true"/>
 </head>
+@{
+    // Nav is data rather than markup so a page can appear in more than one section.
+    // Manual and Orders are genuinely shared — both list futures and options — so they
+    // are listed under both rather than arbitrarily assigned to one.
+    var page = ViewData["Page"]?.ToString() ?? "";
+    var section = ViewData["Section"]?.ToString() ?? "futures";
+
+    var navItems = new (string Section, string Key, string Href, string Icon, string Label)[]
+    {
+        ("futures", "dashboard", "/dashboard", "bi-speedometer2", "Dashboard"),
+        ("futures", "sessions", "/dashboard/sessions", "bi-clock-history", "Sessions"),
+        ("futures", "prospectus", "/dashboard/prospectus", "bi-graph-up-arrow", "Prospectus"),
+        ("futures", "manual-trade", "/trading/manual", "bi-lightning-charge-fill", "Manual"),
+        ("futures", "orders", "/trading/orders", "bi-list-ul", "Orders"),
+        ("futures", "mock-broker", "/trading/mock", "bi-robot", "Mock"),
+        ("futures", "live-settings", "/settings/live", "bi-sliders", "Live Settings"),
+        ("futures", "backtest-settings", "/settings/backtest", "bi-clock-history", "Backtest"),
+        ("futures", "performance", "/performance", "bi-bar-chart-line", "Performance"),
+
+        ("options", "options-explorer", "/options/explorer", "bi-diagram-3", "Explorer"),
+        ("options", "manual-trade", "/trading/manual?section=options", "bi-wallet2", "Positions"),
+        ("options", "orders", "/trading/orders?section=options", "bi-list-ul", "Orders"),
+    };
+
+    var sections = new (string Key, string Icon, string Label)[]
+    {
+        ("futures", "bi-graph-up", "Futures"),
+        ("options", "bi-diagram-3", "Options"),
+    };
+}
 <body class="d-flex flex-column min-vh-100">
-<nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
-    <div class="container-fluid px-4">
-        <a class="navbar-brand fw-bold text-warning" href="/">
-            <i class="bi bi-activity me-1"></i>CRV TRADING
-        </a>
-        <div class="navbar-nav flex-row gap-3 ms-4">
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="dashboard"?"active text-warning":"")"
-               href="/dashboard"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="sessions"?"active text-warning":"")"
-               href="/dashboard/sessions"><i class="bi bi-clock-history me-1"></i>Sessions</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="prospectus"?"active text-warning":"")"
-               href="/dashboard/prospectus"><i class="bi bi-graph-up-arrow me-1"></i>Prospectus</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="manual-trade"?"active text-warning":"")"
-               href="/trading/manual"><i class="bi bi-lightning-charge-fill me-1"></i>Manual</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="orders"?"active text-warning":"")"
-               href="/trading/orders"><i class="bi bi-list-ul me-1"></i>Orders</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="mock-broker"?"active text-warning":"")"
-               href="/trading/mock"><i class="bi bi-robot me-1"></i>Mock</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="options-explorer"?"active text-warning":"")"
-               href="/options/explorer"><i class="bi bi-diagram-3 me-1"></i>Options</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="live-settings"?"active text-warning":"")"
-               href="/settings/live"><i class="bi bi-sliders me-1"></i>Live Settings</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="backtest-settings"?"active text-warning":"")"
-               href="/settings/backtest"><i class="bi bi-clock-history me-1"></i>Backtest</a>
-            <a class="nav-link @(ViewData["Page"]?.ToString()=="performance"?"active text-warning":"")"
-               href="/performance"><i class="bi bi-bar-chart-line me-1"></i>Performance</a>
+<nav class="navbar navbar-dark bg-black border-bottom border-secondary py-0">
+    <div class="container-fluid px-4 flex-column align-items-stretch">
+
+        <div class="d-flex align-items-center w-100 pt-2">
+            <a class="navbar-brand fw-bold text-warning me-4" href="/">
+                <i class="bi bi-activity me-1"></i>CRV TRADING
+            </a>
+            <div class="nav nav-sections">
+                @foreach (var s in sections)
+                {
+                    <a class="nav-link section-link @(section == s.Key ? "active" : "")"
+                       href="@navItems.First(n => n.Section == s.Key).Href">
+                        <i class="bi @s.Icon me-1"></i>@s.Label
+                    </a>
+                }
+            </div>
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <span id="nav-ticker" class="text-muted small font-monospace"></span>
+                <span id="nav-status" class="badge bg-secondary">OFFLINE</span>
+            </div>
         </div>
-        <div class="ms-auto d-flex align-items-center gap-3">
-            <span id="nav-ticker" class="text-muted small font-monospace"></span>
-            <span id="nav-status" class="badge bg-secondary">OFFLINE</span>
+
+        <div class="navbar-nav flex-row gap-3 pb-1">
+            @foreach (var n in navItems.Where(n => n.Section == section))
+            {
+                <a class="nav-link @(page == n.Key ? "active text-warning" : "")"
+                   href="@n.Href"><i class="bi @n.Icon me-1"></i>@n.Label</a>
+            }
         </div>
     </div>
 </nav>

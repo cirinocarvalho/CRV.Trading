@@ -3,6 +3,7 @@ using System;
 using CRV.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CRV.Core.Migrations
 {
     [DbContext(typeof(TradingDbContext))]
-    partial class TradingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260905014848_AddOptionChainSnapshots")]
+    partial class AddOptionChainSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -173,11 +176,11 @@ namespace CRV.Core.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<double>("AtmImpliedVol")
-                        .HasColumnType("REAL");
+                    b.Property<decimal>("AtmImpliedVol")
+                        .HasColumnType("TEXT");
 
-                    b.Property<double>("AtmStrike")
-                        .HasColumnType("REAL");
+                    b.Property<decimal>("AtmStrike")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CapturedAtUtc")
                         .HasColumnType("TEXT");
@@ -185,8 +188,8 @@ namespace CRV.Core.Migrations
                     b.Property<int>("DaysToExpiration")
                         .HasColumnType("INTEGER");
 
-                    b.Property<double?>("ExpectedMove")
-                        .HasColumnType("REAL");
+                    b.Property<decimal?>("ExpectedMove")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateOnly>("Expiration")
                         .HasColumnType("TEXT");
@@ -198,8 +201,8 @@ namespace CRV.Core.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<double>("UnderlyingPrice")
-                        .HasColumnType("REAL");
+                    b.Property<decimal>("UnderlyingPrice")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

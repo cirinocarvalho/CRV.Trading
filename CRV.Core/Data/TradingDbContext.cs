@@ -15,6 +15,7 @@ public class TradingDbContext : DbContext
     public DbSet<OrderLeg>      OrderLegs   { get; set; } = null!;
     public DbSet<StrategyLog>  StrategyLogs { get; set; } = null!;
     public DbSet<OptionOrderRecord> OptionOrders { get; set; } = null!;
+    public DbSet<OptionChainSnapshot> OptionChainSnapshots { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -42,6 +43,15 @@ public class TradingDbContext : DbContext
             e.HasIndex(o => o.Broker);
             e.HasIndex(o => o.PlacedAt);
             e.HasIndex(o => o.OrderId);
+        });
+
+        b.Entity<OptionChainSnapshot>(e =>
+        {
+            e.HasKey(o => o.Id);
+            // One reading per underlying, expiry and session — re-running a capture
+            // updates rather than duplicates.
+            e.HasIndex(o => new { o.Underlying, o.Expiration, o.TradeDate }).IsUnique();
+            e.HasIndex(o => o.TradeDate);
         });
 
         b.Entity<OptionOrderRecord>(e =>

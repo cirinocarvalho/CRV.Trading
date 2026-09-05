@@ -7,6 +7,7 @@ using CRV.Core.Options;
 using Microsoft.EntityFrameworkCore;
 using CRV.Live;
 using CRV.Live.Brokers.Schwab;
+using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -16,6 +17,7 @@ public class ExplorerModel : PageModel
     private readonly IHttpClientFactory   _httpFactory;
     private readonly IConfiguration       _config;
     private readonly TradingDbContext     _db;
+    private readonly OptionChainSnapshotService _snapshots;
     private readonly ILogger<ExplorerModel> _log;
 
     public ExplorerModel(
@@ -23,12 +25,14 @@ public class ExplorerModel : PageModel
         IHttpClientFactory httpFactory,
         IConfiguration config,
         TradingDbContext db,
+        OptionChainSnapshotService snapshots,
         ILogger<ExplorerModel> log)
     {
         _schwab      = schwab;
         _httpFactory = httpFactory;
         _config      = config;
         _db          = db;
+        _snapshots   = snapshots;
         _log         = log;
     }
 
@@ -41,6 +45,13 @@ public class ExplorerModel : PageModel
 
     /// <summary>Per-trade ceiling in dollars. 0 disables the check.</summary>
     public decimal MaxTradeRisk => _config.GetValue("Options:MaxTradeRisk", 0m);
+
+    /// <summary>
+    /// Ceiling on total premium at risk across all open long option positions plus the
+    /// order being placed. 0 disables it. A per-trade limit does not catch the case that
+    /// actually hurts — many individually compliant positions pointing the same way.
+    /// </summary>
+    public decimal MaxPortfolioRisk => _config.GetValue("Options:MaxPortfolioRisk", 0m);
 
     private string SchwabAccountId => _config["Schwab:AccountId"] ?? "";
 
@@ -65,7 +76,11 @@ public class ExplorerModel : PageModel
             var chain = await SchwabOptionChain.FetchAsync(
                 _schwab, symbol, strikeCount: 1, httpFactory: _httpFactory, ct: ct);
 
+            // Schwab keeps listing an expiry after its contracts stop trading, so today's
+            // 0DTE is still offered all evening. Selecting it only earns a "Symbol is
+            // expired" rejection, so drop anything already past its expiry instant.
             var byDate = chain.Contracts
+                .Where(c => !c.HasExpired)
                 .GroupBy(c => c.Expiration.Date)
                 .OrderBy(g => g.Key)
                 .Select(g => new
@@ -123,10 +138,15 @@ public class ExplorerModel : PageModel
                     extrinsic    = c.ExtrinsicValue,
                     itm          = c.InTheMoney,
                     nonStandard  = c.NonStandard,
+                    american     = c.IsAmerican,
                     multiplier   = c.Multiplier,
                     hasBid       = c.HasBid,
                 })
                 .ToList();
+
+            // What the options are charging for the move by this expiry — the yardstick a
+            // price target should be judged against.
+            var expectedMove = chain.ExpectedMove(exp.ToDateTime(TimeOnly.MinValue));
 
             return new JsonResult(new
             {
@@ -134,6 +154,10 @@ public class ExplorerModel : PageModel
                 underlyingPrice = chain.UnderlyingPrice,
                 expiry          = exp.ToString("yyyy-MM-dd"),
                 count           = rows.Count,
+                expectedMove,
+                expectedMovePct = expectedMove is { } m && chain.UnderlyingPrice > 0m
+                                ? Math.Round(m / chain.UnderlyingPrice * 100m, 2)
+                                : (decimal?)null,
                 rows,
             });
         }
@@ -287,6 +311,69 @@ public class ExplorerModel : PageModel
         catch (Exception ex) { return Fail(ex, symbol); }
     }
 
+    // ── AJAX: implied volatility standing ─────────────────────────
+
+    /// <summary>
+    /// Where implied volatility sits against its own recorded history.
+    /// <para>Ranked against a constant-maturity series — one reading per session, the expiry
+    /// nearest <c>targetDte</c> days out — not against every expiry recorded. A single day
+    /// records dozens of expiries, and ranking today's number against today's term structure
+    /// produces a confident-looking figure that means nothing.</para>
+    /// <para>Reports how many sessions were used, so a thin history reads as "not yet".</para>
+    /// </summary>
+    public async Task<IActionResult> OnGetIvStandingAsync(
+        string symbol, int lookbackDays, int targetDte, CancellationToken ct)
+    {
+        symbol = (symbol ?? "").Trim().ToUpperInvariant();
+        if (symbol.Length == 0) return new JsonResult(new { sessions = 0 });
+
+        if (lookbackDays <= 0) lookbackDays = 365;
+        if (targetDte    <= 0) targetDte    = 30;
+        var since = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(-lookbackDays));
+
+        var readings = await _db.OptionChainSnapshots.AsNoTracking()
+            .Where(s => s.Underlying == symbol && s.TradeDate >= since && s.AtmImpliedVol > 0)
+            .Select(s => new { s.TradeDate, s.DaysToExpiration, s.AtmImpliedVol })
+            .ToListAsync(ct);
+
+        // One value per session: the expiry closest to the target maturity.
+        var series = readings
+            .GroupBy(r => r.TradeDate)
+            .OrderBy(g => g.Key)
+            .Select(g => g.MinBy(r => Math.Abs(r.DaysToExpiration - targetDte))!.AtmImpliedVol)
+            .ToList();
+
+        if (series.Count == 0) return new JsonResult(new { sessions = 0, needed = 20 });
+
+        decimal current = (decimal)series[^1];
+        var standing = IvStatistics.Standing(current, series.Select(v => (decimal)v).ToList());
+
+        if (standing is null)
+            return new JsonResult(new { sessions = series.Count, needed = 20, currentIv = Math.Round(current, 1) });
+
+        return new JsonResult(new
+        {
+            sessions   = standing.Observations,
+            targetDte,
+            currentIv  = Math.Round(current, 1),
+            rank       = standing.Rank,
+            percentile = standing.Percentile,
+            low        = Math.Round(standing.Low, 1),
+            high       = Math.Round(standing.High, 1),
+        });
+    }
+
+    /// <summary>Capture today's readings now instead of waiting for the schedule.</summary>
+    public async Task<IActionResult> OnPostCaptureSnapshotAsync(CancellationToken ct)
+    {
+        try
+        {
+            int written = await _snapshots.CaptureNowAsync(ct);
+            return new JsonResult(new { ok = true, written });
+        }
+        catch (Exception ex) { return Fail(ex, "snapshot"); }
+    }
+
     // ── AJAX: re-quote a set of contracts ─────────────────────────
     // Legs are captured from the chain at click time, so their premiums age as soon as
     // the market moves — and survive an expiry change or a chain reload untouched. Every
@@ -368,6 +455,9 @@ public class ExplorerModel : PageModel
                     : $"Refused: max loss {totalMaxLoss:C} exceeds the configured ceiling of {MaxTradeRisk:C}.",
             });
 
+        if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } breach)
+            return BadRequest(new { error = breach });
+
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
             req.ExitPrice is { } xp ? new AttachedExit(xp) : null);
@@ -423,10 +513,18 @@ public class ExplorerModel : PageModel
             }
         }
 
+        // Only short legs matter: a long option is a right you choose to exercise, never an
+        // obligation someone can impose on you.
+        var assignable = req.Legs!
+            .Where(l => string.Equals(l.Action, "Sell", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l.Symbol)
+            .ToList();
+
         return new JsonResult(new
         {
             spreads,
             units,
+            shortLegs = assignable,
             targetProfit,
             returnOnRisk,
             maxStructureValue = maxStructureVal,
@@ -474,9 +572,45 @@ public class ExplorerModel : PageModel
         if (MaxTradeRisk > 0m && (analysis.LossUnbounded || totalMaxLoss > MaxTradeRisk))
             return BadRequest(new { error = $"Refused: max loss exceeds the configured ceiling of {MaxTradeRisk:C}." });
 
+        if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } portfolioBreach)
+            return BadRequest(new { error = portfolioBreach });
+
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
             req.ExitPrice is { } xpp ? new AttachedExit(xpp) : null);
+
+        // Snapshot the two-sided market before submitting. A fill price is uninterpretable
+        // without it — $3.60 is excellent against 3.55/3.75 and poor against 3.50/3.60.
+        string?  marketJson = null;
+        decimal? midNet     = null;
+        try
+        {
+            var quotes = await SchwabOptionChain.FetchQuotesAsync(
+                _schwab, legs!.Select(l => l.Symbol).ToList(), _httpFactory, ct);
+
+            if (legs!.All(l => quotes.ContainsKey(l.Symbol)))
+            {
+                marketJson = JsonSerializer.Serialize(legs!.Select(l => new
+                {
+                    symbol = l.Symbol,
+                    bid    = quotes[l.Symbol].Bid,
+                    ask    = quotes[l.Symbol].Ask,
+                    mid    = (quotes[l.Symbol].Bid + quotes[l.Symbol].Ask) / 2m,
+                }));
+
+                midNet = SchwabOptionOrder.NetPrice(
+                    legs!.Select(l => l with
+                    {
+                        Premium = (quotes[l.Symbol].Bid + quotes[l.Symbol].Ask) / 2m,
+                    }).ToList());
+            }
+        }
+        catch (Exception ex)
+        {
+            // Losing the benchmark must not stop the order.
+            _log.LogWarning(ex, "Could not snapshot the market before submitting");
+        }
+
         try
         {
             var r = await SchwabOptionOrder.PlaceAsync(_schwab, SchwabAccountId, payload, _httpFactory, ct);
@@ -496,6 +630,8 @@ public class ExplorerModel : PageModel
                 MaxLoss    = analysis.LossUnbounded   ? null : analysis.MaxLoss   * spreads,
                 MaxProfit  = analysis.ProfitUnbounded ? null : analysis.MaxProfit * spreads,
                 Breakevens = string.Join(",", analysis.Breakevens),
+                MarketAtSubmitJson = marketJson,
+                MidNetPrice        = midNet,
                 LegsJson   = JsonSerializer.Serialize(payload["orderLegCollection"]),
                 Accepted   = r.Ok,
                 Error      = r.Ok ? null : Trim(r.Body, 1000),
@@ -536,6 +672,108 @@ public class ExplorerModel : PageModel
             return new JsonResult(new { positions = opts });
         }
         catch (Exception ex) { return Fail(ex, "positions"); }
+    }
+
+    /// <summary>
+    /// Refusal reason if this order would push total premium at risk past the ceiling,
+    /// otherwise null.
+    /// <para>Fails closed: when exposure cannot be established the order is refused rather
+    /// than waved through. A risk gate that opens on error is not a gate.</para>
+    /// </summary>
+    private async Task<string?> PortfolioCeilingBreachAsync(decimal? orderMaxLoss, CancellationToken ct)
+    {
+        if (MaxPortfolioRisk <= 0m) return null;
+
+        PortfolioRisk? risk;
+        try { risk = await GetPortfolioRiskAsync(ct); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Portfolio exposure lookup failed");
+            return "Refused: current portfolio exposure could not be established, "
+                 + "and a portfolio ceiling is set.";
+        }
+
+        if (risk is null)
+            return "Refused: current portfolio exposure could not be established, "
+                 + "and a portfolio ceiling is set.";
+
+        if (orderMaxLoss is null)
+            return $"Refused: this structure has unlimited downside and a portfolio ceiling of "
+                 + $"{MaxPortfolioRisk:C} is set.";
+
+        decimal after = risk.LongPremiumAtRisk + orderMaxLoss.Value;
+        if (after > MaxPortfolioRisk)
+            return $"Refused: portfolio risk would reach {after:C} "
+                 + $"({risk.LongPremiumAtRisk:C} already open + {orderMaxLoss.Value:C} for this order), "
+                 + $"over the ceiling of {MaxPortfolioRisk:C}.";
+
+        return null;
+    }
+
+    // ── Portfolio exposure ────────────────────────────────────────
+
+    /// <summary>
+    /// Mark every open option position to the market and aggregate. Returns null when the
+    /// exposure cannot be established, which callers must treat as "unknown", never "zero".
+    /// </summary>
+    private async Task<PortfolioRisk?> GetPortfolioRiskAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SchwabAccountId)) return null;
+
+        var positions = (await ManualBrokerOps.GetPositionsSchwabAsync(_schwab, SchwabAccountId, _httpFactory))
+            .Where(p => string.Equals(p.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (positions.Count == 0)
+            return PortfolioRiskCalculator.Aggregate([]);
+
+        var quotes = await SchwabOptionChain.FetchQuotesAsync(
+            _schwab, positions.Select(p => p.Symbol).ToList(), _httpFactory, ct);
+
+        var legs = new List<OptionPositionLeg>();
+        foreach (var p in positions)
+        {
+            if (!quotes.TryGetValue(p.Symbol, out var q)) return null;   // incomplete — not zero
+
+            legs.Add(new OptionPositionLeg(
+                Symbol:     p.Symbol,
+                Underlying: string.IsNullOrEmpty(q.Underlying) ? p.Symbol[..6].Trim() : q.Underlying,
+                Right:      q.Right,
+                Strike:     q.Strike,
+                Expiration: q.Expiration,
+                IsLong:     string.Equals(p.Direction, "LONG", StringComparison.OrdinalIgnoreCase),
+                Quantity:   (int)Math.Abs(p.Quantity),
+                Multiplier: q.Multiplier,
+                Mid:        q.Mid,
+                Delta:      q.Delta,
+                Gamma:      q.Gamma,
+                Theta:      q.Theta,
+                Vega:       q.Vega));
+        }
+        return PortfolioRiskCalculator.Aggregate(legs);
+    }
+
+    public async Task<IActionResult> OnGetPortfolioRiskAsync(CancellationToken ct)
+    {
+        try
+        {
+            var r = await GetPortfolioRiskAsync(ct);
+            if (r is null) return new JsonResult(new { unknown = true });
+
+            return new JsonResult(new
+            {
+                legCount        = r.LegCount,
+                netDelta        = Math.Round(r.NetDeltaDollars, 2),
+                netGamma        = Math.Round(r.NetGammaDollars, 2),
+                netTheta        = Math.Round(r.NetThetaDollars, 2),
+                netVega         = Math.Round(r.NetVegaDollars, 2),
+                longAtRisk      = Math.Round(r.LongPremiumAtRisk, 2),
+                unpairedShorts  = r.UnpairedShorts,
+                unbounded       = r.HasUnboundedRisk,
+                ceiling         = MaxPortfolioRisk,
+            });
+        }
+        catch (Exception ex) { return Fail(ex, "portfolio risk"); }
     }
 
     // ── AJAX: preview / place a closing order ─────────────────────
@@ -692,20 +930,70 @@ public class ExplorerModel : PageModel
             }
         }
 
+        await BackfillFillsAsync(live, ct);
+
+        // Re-read so a just-backfilled fill is included in this response rather than the next.
+        var withFills = await _db.OptionOrders.AsNoTracking()
+            .Where(o => o.OrderId != null)
+            .ToDictionaryAsync(o => o.OrderId!, o => o, ct);
+
         return new JsonResult(new
         {
             orders = rows.Select(r =>
             {
                 live.TryGetValue(r.OrderId ?? "", out var l);
+                withFills.TryGetValue(r.OrderId ?? "", out var stored);
                 return new
                 {
                     r.PlacedAt, r.OrderId, r.Underlying, r.Structure, r.Intent,
                     r.Spreads, r.OrderType, r.TotalNet, r.MaxLoss, r.Accepted, r.Error,
                     status      = l?.StatusLabel,
                     canCancel   = l?.CanCancel ?? false,
+                    filledNet   = stored?.FilledNetPrice,
+                    midNet      = stored?.MidNetPrice,
+                    slipVsMid   = stored?.SlippageVsMid,
+                    slipVsAsked = stored?.SlippageVsAsked,
                 };
             }),
         });
+    }
+
+    /// <summary>
+    /// Record what filled orders actually executed at. Runs only for rows the broker reports
+    /// as filled and that carry no fill yet, so it is bounded and idempotent.
+    /// </summary>
+    private async Task BackfillFillsAsync(Dictionary<string, OrderView> live, CancellationToken ct)
+    {
+        var pending = await _db.OptionOrders
+            .Where(o => o.OrderId != null && o.Accepted && o.FilledNetPrice == null)
+            .ToListAsync(ct);
+
+        foreach (var rec in pending)
+        {
+            if (!live.TryGetValue(rec.OrderId!, out var l) ||
+                !string.Equals(l.Status, "FILLED", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                var json = await SchwabOptionOrder.FetchOrderAsync(
+                    _schwab, SchwabAccountId, rec.OrderId!, _httpFactory, ct);
+                if (json is null) continue;
+
+                var fill = SchwabOptionOrder.ParseRealizedFill(json);
+                if (fill is null) continue;
+
+                rec.FilledNetPrice = fill.NetPerUnit;
+                rec.FilledAt       = fill.FilledAtUtc ?? DateTime.UtcNow;
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Could not read the fill for option order {OrderId}", rec.OrderId);
+            }
+        }
+
+        if (_db.ChangeTracker.HasChanges())
+            await _db.SaveChangesAsync(ct);
     }
 
     // ── AJAX: option orders live at the broker ────────────────────
