@@ -94,7 +94,10 @@ public sealed record LiquidityGate(
 public sealed record OptionChain(
     string  Underlying,
     decimal UnderlyingPrice,
-    IReadOnlyList<OptionContract> Contracts)
+    IReadOnlyList<OptionContract> Contracts,
+    /// <summary>Risk-free rate the broker is using, as a percentage. Used when valuing
+    /// before expiration rather than assuming a figure.</summary>
+    decimal InterestRate = 0m)
 {
     /// <summary>Distinct expirations present in the chain, ascending.</summary>
     public IReadOnlyList<DateTime> Expirations

@@ -177,8 +177,34 @@ and most option positions are closed before expiry. Every such figure therefore 
 `at expiry` tag, the note names the actual expiry date, and `Net` is tagged `now` because it
 is the one price you can transact at today.
 
-There is no pre-expiry valuation: no Black-Scholes revaluation, no time axis, no vega. A
-question of the form "what if it hits X *on date D*" cannot be answered here yet.
+## Value before expiration
+
+`PayoffCalculator.ValueAt` answers "what if it reaches X **on date D**" — the question the
+expiration figure cannot. It is deliberately parallel to `PayoffAt`; the only difference is
+that a leg is worth its Black-Scholes value rather than its intrinsic value, so as the date
+approaches expiry the two converge. A test pins that convergence to the cent, which is what
+makes the settlement number a special case rather than a separate quantity.
+
+The gap is not small. A long SPY 770 call bought at 6.43 with the underlying unchanged at
+770.19:
+
+| | P&L |
+|---|---|
+| 7 days before expiry | −$97.15 |
+| At expiry, same price | −$624.65 |
+
+Six times worse for an identical underlying price, purely from time value.
+
+**Three volatility scenarios are shown, never one.** Implied volatility does not hold still
+— it typically falls as equities rise and collapses after events — so a single figure would
+be the same false precision the expiration payoff already invites. The same position above
+spans −$309 to +$115 across ±5 volatility points, which is a larger swing than the price
+move being contemplated.
+
+The risk-free rate comes from the chain's own `interestRate` rather than an assumed figure.
+Valuation assumes European exercise; equity and ETF options are American, so the model
+understates a deep in-the-money put and a call before a dividend, and is otherwise the
+standard approximation.
 
 ## Structure finder
 

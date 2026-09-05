@@ -335,6 +335,38 @@ else
                 </div>
             </div>
 
+            <hr class="my-3">
+            <div class="row g-2 align-items-start ticket-row">
+                <div class="col-auto">
+                    <div class="tk-label">If price reaches</div>
+                    <input id="wi-price" type="number" step="0.01" class="form-control form-control-sm"
+                           style="width:110px" oninput="whatIf()">
+                    <div class="tk-hint"></div>
+                </div>
+                <div class="col-auto">
+                    <div class="tk-label">On</div>
+                    <input id="wi-date" type="date" class="form-control form-control-sm"
+                           style="width:150px" oninput="whatIf()">
+                    <div class="tk-hint" id="wi-dte"></div>
+                </div>
+                <div class="col-auto">
+                    <div class="tk-label">IV shift</div>
+                    <input id="wi-iv" type="number" step="1" value="0" class="form-control form-control-sm"
+                           style="width:90px" oninput="whatIf()">
+                    <div class="tk-hint">vol points</div>
+                </div>
+                <div class="col-auto">
+                    <div class="tk-label">P&amp;L <span class="lbl-now">then</span></div>
+                    <div id="wi-value" class="tk-value fs-5 fw-bold">&mdash;</div>
+                    <div class="tk-hint" id="wi-range"></div>
+                </div>
+                <div class="col-auto">
+                    <div class="tk-label">Same price <span class="lbl-exp">at expiry</span></div>
+                    <div id="wi-expiry" class="tk-value fw-bold text-secondary">&mdash;</div>
+                    <div class="tk-hint"></div>
+                </div>
+            </div>
+
             @* The figures above are settlement values. Saying so once, plainly, is the
                difference between a number that informs a decision and one that misleads it. *@
             <div class="small text-secondary mt-2">
@@ -674,6 +706,7 @@ else
             // Shown beside the chain because a target inside the expected move is already
             // priced in; one well outside it needs the market to be wrong.
             LAST_EXPECTED_MOVE = j.expectedMove;
+            LAST_RATE = j.interestRate || 0;
             loadIvStanding();
             $('expected-move').innerHTML = j.expectedMove == null
                 ? '<span class="text-secondary">expected move unavailable</span>'
@@ -845,6 +878,8 @@ else
                 premium: action === 'Buy' ? r.ask : r.bid,
                 quantity: 1, multiplier: r.multiplier,
                 american: r.american,
+                impliedVolatility: r.iv,
+                expiration: $('f-expiry').value,
                 expiry: $('f-expiry').value,
                 quotedAt: Date.now(),
             });
@@ -1000,6 +1035,16 @@ else
                 ? j.breakevens.map(b => Number(b).toFixed(2)).join(' / ') : '—';
 
             LAST_ANALYSIS = j;
+
+            // Seed the what-if with something meaningful: spot today, halfway to expiry.
+            if ($('wi-price').value === '' && UNDERLYING) $('wi-price').value = UNDERLYING.toFixed(2);
+            if ($('wi-date').value === '' && LEGS.length && LEGS[0].expiration) {
+                const e = new Date(LEGS[0].expiration + 'T00:00:00');
+                const mid = new Date((Date.now() + e.getTime()) / 2);
+                $('wi-date').value = mid.toISOString().slice(0, 10);
+            }
+            whatIf();
+
             const exp = LEGS.length ? LEGS[0].expiry : $('f-expiry').value;
             const en = $('exp-note');
             if (en) en.textContent = exp || 'the expiry date';
@@ -1082,6 +1127,46 @@ else
             el.innerHTML = `IV <span class="${tone}">${j.currentIv}</span>`
                 + `<span class="text-secondary"> · rank ${j.rank} · pctile ${j.percentile} `
                 + `(${j.low}–${j.high} over ${j.sessions} sessions)</span>`;
+        }
+
+        /// What the structure is worth at a price on a date, rather than at settlement.
+        /// Three volatility scenarios, because a single figure would be the same false
+        /// precision the expiration number already invites.
+        let WHATIF_SEQ = 0;
+
+        async function whatIf() {
+            const out = $('wi-value'), range = $('wi-range'), exp = $('wi-expiry');
+            const price = $('wi-price').value, date = $('wi-date').value;
+
+            if (!LEGS.length || price === '' || !date) {
+                out.textContent = '—'; range.textContent = ''; exp.textContent = '—';
+                return;
+            }
+
+            const seq = ++WHATIF_SEQ;
+            const res = await fetch('?handler=WhatIf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
+                body: JSON.stringify({
+                    legs: LEGS, underlying: parseFloat(price), asOf: date,
+                    rate: LAST_RATE, commissionPerContract: num('f-comm', 0),
+                    ivShiftPoints: num('wi-iv', 0),
+                }),
+            });
+            const j = await res.json().catch(() => ({ error: 'Malformed response.' }));
+            if (seq !== WHATIF_SEQ) return;
+
+            if (j.error) {
+                out.textContent = '—';
+                range.innerHTML = `<span class="text-warning">${escapeHtml(j.error)}</span>`;
+                return;
+            }
+
+            out.innerHTML = `<span class="${j.value >= 0 ? 'text-success' : 'text-danger'}">${money(j.value)}</span>`;
+            range.innerHTML = j.ivDown == null ? ''
+                : `IV ±5: <span class="text-secondary">${money(j.ivDown)} … ${money(j.ivUp)}</span>`;
+            exp.textContent = money(j.atExpiry);
+            $('wi-dte').textContent = `${j.daysToExpiry}d to expiry`;
         }
 
         // ── Panel C · ticket ───────────────────────────────────────────
@@ -1755,6 +1840,7 @@ else
 
         let SUGGESTIONS = [];
         let LAST_EXPECTED_MOVE = null;
+let LAST_RATE = 0;
         // The expiry the visible suggestions were built from. They are only meaningful for that
         // chain, so anything that changes the chain must invalidate them.
         let SUGGEST_EXPIRY = null;

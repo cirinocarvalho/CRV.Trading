@@ -279,4 +279,85 @@ public class PayoffCalculatorTests
     public void NakedShortCall_HasNoMaxLossPriceBecauseLossIsUnbounded()
         => Assert.Null(PayoffCalculator.Analyze(
             [new(OptionRight.Call, LegAction.Sell, Strike: 100m, Premium: 2.50m)]).MaxLossAt);
+
+    // ── Value before expiration ────────────────────────────────────
+
+    private static readonly DateTime Expiry = new(2026, 12, 18);
+
+    private static OptionLeg Dated(OptionRight right, LegAction action, decimal k, decimal prem,
+                                   decimal iv = 20m, int qty = 1)
+        => new(right, action, k, prem, qty, 100, $"T {k}", iv, Expiry);
+
+    [Fact]
+    public void ValueAt_ConvergesOnTheExpirationPayoff()
+    {
+        // The invariant that ties the two together: with no time left, an option is worth
+        // its intrinsic value, so this must agree with PayoffAt to the cent.
+        var legs = new[] { Dated(OptionRight.Call, LegAction.Buy, 100m, 2.50m) };
+
+        foreach (var price in new[] { 80m, 100m, 110m, 130m })
+        {
+            var atExpiry = PayoffCalculator.PayoffAt(legs, price);
+            var valued   = PayoffCalculator.ValueAt(legs, price, Expiry);
+            Assert.Equal((double)atExpiry, (double)valued!.Value, 2);
+        }
+    }
+
+    [Fact]
+    public void BeforeExpiry_AnAtTheMoneyLongIsWorthMoreThanItsExpirationPayoff()
+    {
+        // At the money the expiration payoff is just the premium lost. Reading that as
+        // "what I get if it trades there" is exactly the error this method exists to fix.
+        var legs = new[] { Dated(OptionRight.Call, LegAction.Buy, 100m, 2.50m) };
+
+        var atExpiry = PayoffCalculator.PayoffAt(legs, 100m);
+        var earlier  = PayoffCalculator.ValueAt(legs, 100m, Expiry.AddMonths(-3))!.Value;
+
+        Assert.Equal(-250m, atExpiry);
+        Assert.True(earlier > atExpiry, $"time value should soften the loss: {earlier} vs {atExpiry}");
+    }
+
+    [Fact]
+    public void RaisingVolatility_HelpsALongAndHurtsAShort()
+    {
+        var asOf = Expiry.AddMonths(-3);
+        var lng  = new[] { Dated(OptionRight.Call, LegAction.Buy,  100m, 2.50m) };
+        var shrt = new[] { Dated(OptionRight.Call, LegAction.Sell, 100m, 2.50m) };
+
+        Assert.True(PayoffCalculator.ValueAt(lng,  100m, asOf, ivShiftPoints: 10m)
+                  > PayoffCalculator.ValueAt(lng,  100m, asOf));
+        Assert.True(PayoffCalculator.ValueAt(shrt, 100m, asOf, ivShiftPoints: 10m)
+                  < PayoffCalculator.ValueAt(shrt, 100m, asOf));
+    }
+
+    [Fact]
+    public void ValueAt_IsNullWhenALegCannotBeValued()
+    {
+        // A leg with no volatility or no expiry cannot be priced. Returning zero would be
+        // indistinguishable from "worth nothing".
+        Assert.Null(PayoffCalculator.ValueAt(
+            [new(OptionRight.Call, LegAction.Buy, 100m, 2.50m)], 110m, DateTime.UtcNow));
+
+        Assert.Null(PayoffCalculator.ValueAt(
+            [Dated(OptionRight.Call, LegAction.Buy, 100m, 2.50m, iv: 0m)], 110m, Expiry.AddMonths(-1)));
+    }
+
+    [Fact]
+    public void ButterflyBeforeExpiry_IsFlatterThanAtExpiry()
+    {
+        // A butterfly's peak only materialises as time runs out; early on it is muted.
+        // Anyone sizing on the expiration peak is assuming they hold to settlement.
+        OptionLeg[] fly =
+        [
+            Dated(OptionRight.Call, LegAction.Buy,   95m, 7.00m),
+            Dated(OptionRight.Call, LegAction.Sell, 100m, 3.50m, qty: 2),
+            Dated(OptionRight.Call, LegAction.Buy,  105m, 1.50m),
+        ];
+
+        var peakAtExpiry = PayoffCalculator.PayoffAt(fly, 100m);
+        var peakEarlier  = PayoffCalculator.ValueAt(fly, 100m, Expiry.AddMonths(-3))!.Value;
+
+        Assert.True(peakEarlier < peakAtExpiry,
+            $"early peak {peakEarlier} should be below the expiration peak {peakAtExpiry}");
+    }
 }

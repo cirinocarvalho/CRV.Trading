@@ -17,7 +17,12 @@ public sealed record OptionLeg(
     decimal     Premium,
     int         Quantity   = 1,
     int         Multiplier = 100,
-    string      Symbol     = "");
+    string      Symbol     = "",
+    /// <summary>Implied volatility as a percentage, as the chain reports it. Only needed to
+    /// value the leg before expiration.</summary>
+    decimal     ImpliedVolatility = 0m,
+    /// <summary>Expiration date. Only needed to value the leg before expiration.</summary>
+    DateTime    Expiration = default);
 
 /// <summary>
 /// Expiration-payoff properties of a structure. All money values are in dollars
@@ -104,6 +109,44 @@ public static class PayoffCalculator
             Breakevens(points, pnl, slopeAbove),
             MaxProfitAt: profitUnbounded ? null : points[best],
             MaxLossAt:   lossUnbounded   ? null : points[worst]);
+    }
+
+    /// <summary>
+    /// Structure P&amp;L in dollars if the underlying is at <paramref name="underlying"/> on
+    /// <paramref name="asOf"/> — before expiration, where remaining time value still counts.
+    /// <para>Deliberately parallel to <see cref="PayoffAt"/>: the only difference is that a
+    /// leg is worth its Black-Scholes value rather than its intrinsic value. As
+    /// <paramref name="asOf"/> approaches expiry the two converge, which is what makes the
+    /// expiration figure a special case of this one rather than a different quantity.</para>
+    /// <para>Returns null when any leg lacks the volatility or expiry needed to value it —
+    /// never a number that looks computed but is not.</para>
+    /// </summary>
+    /// <param name="rate">Risk-free rate as a decimal (0.04 = 4%).</param>
+    /// <param name="ivShiftPoints">
+    /// Volatility points added to every leg. Implied volatility does not stay put — it
+    /// typically falls as equities rise and collapses after events — so the honest use of
+    /// this model is to look at a range, not a point.
+    /// </param>
+    public static decimal? ValueAt(
+        IReadOnlyList<OptionLeg> legs, decimal underlying, DateTime asOf,
+        decimal rate = 0.04m, decimal commissionPerContract = 0m, decimal ivShiftPoints = 0m)
+    {
+        decimal total = 0m;
+        foreach (var leg in legs)
+        {
+            if (leg.Expiration == default) return null;
+
+            double vol = (double)(leg.ImpliedVolatility + ivShiftPoints) / 100d;
+            if (vol <= 0d) return null;
+
+            double years = (leg.Expiration - asOf).TotalDays / 365d;
+
+            double value = BlackScholes.Price(
+                leg.Right, (double)underlying, (double)leg.Strike, years, (double)rate, vol);
+
+            total += Sign(leg) * ((decimal)value - leg.Premium) * leg.Quantity * leg.Multiplier;
+        }
+        return total - Commission(legs, commissionPerContract);
     }
 
     /// <summary>
