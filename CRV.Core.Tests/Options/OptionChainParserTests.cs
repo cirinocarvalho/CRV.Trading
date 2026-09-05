@@ -163,4 +163,36 @@ public class OptionChainParserTests
         var calls = chain.For(chain.Expirations.Single(), OptionRight.Call);
         Assert.Equal([500m, 767m, 810m], calls.Select(c => c.Strike));
     }
+
+    // ── Expiry instant ─────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_ReadsTheContractsOwnExpiryInstant()
+    {
+        // 2026-08-28T20:00:00Z is the 4pm ET close. Taking the instant from the broker
+        // rather than assuming 4pm keeps index options and early closes correct.
+        Assert.Equal(new DateTime(2026, 8, 28, 20, 0, 0, DateTimeKind.Utc),
+                     BySymbol(AtmCall).ExpiresAtUtc);
+    }
+
+    [Fact]
+    public void HasExpired_IsTrueOnceThatInstantHasPassed()
+        => Assert.True(BySymbol(AtmCall).HasExpired);   // fixture is from August 2026
+
+    [Fact]
+    public void Parse_FallsBackToEndOfDayWhenTheBrokerOmitsTheInstant()
+    {
+        // Never earlier than the date itself — a missing field must not hide a live contract.
+        const string json = """
+        {"symbol":"XYZ","underlyingPrice":50.0,
+         "callExpDateMap":{"2099-09-18:23":{"55.0":[{
+            "symbol":"XYZ   990918C00055000","putCall":"CALL","strikePrice":55.0,
+            "bid":0.10,"ask":0.15,"mark":0.12,"multiplier":100.0,
+            "daysToExpiration":23,"inTheMoney":false,"nonStandard":false}]}},
+         "putExpDateMap":{}}
+        """;
+        var c = Assert.Single(OptionChainParser.Parse(json).Contracts);
+        Assert.Equal(new DateTime(2099, 9, 18), c.ExpiresAtUtc.Date);
+        Assert.False(c.HasExpired);
+    }
 }

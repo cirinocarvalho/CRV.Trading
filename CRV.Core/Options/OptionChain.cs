@@ -14,6 +14,14 @@ public sealed record OptionContract
     public required decimal     Strike            { get; init; }
     public required DateTime    Expiration        { get; init; }
     public required int         DaysToExpiration  { get; init; }
+
+    /// <summary>
+    /// When the contract stops trading, in UTC, taken from the broker's own
+    /// <c>expirationDate</c>. Using the reported instant rather than a hard-coded
+    /// 4pm rule keeps index options right — SPXW trades past the equity close — and
+    /// handles early-close days without a calendar.
+    /// </summary>
+    public required DateTime     ExpiresAtUtc      { get; init; }
     public required decimal     Bid               { get; init; }
     public required decimal     Ask               { get; init; }
     public required decimal     Mark              { get; init; }
@@ -36,6 +44,9 @@ public sealed record OptionContract
 
     /// <summary>Bid/ask spread as a percentage of mid. <see cref="decimal.MaxValue"/> when there is no market.</summary>
     public decimal SpreadPct => Mid <= 0m ? decimal.MaxValue : (Ask - Bid) / Mid * 100m;
+
+    /// <summary>True once the contract can no longer be traded.</summary>
+    public bool HasExpired => ExpiresAtUtc <= DateTime.UtcNow;
 
     /// <summary>False when nobody is bidding — the position could not be exited at any price.</summary>
     public bool HasBid => Bid > 0m;

@@ -65,7 +65,11 @@ public class ExplorerModel : PageModel
             var chain = await SchwabOptionChain.FetchAsync(
                 _schwab, symbol, strikeCount: 1, httpFactory: _httpFactory, ct: ct);
 
+            // Schwab keeps listing an expiry after its contracts stop trading, so today's
+            // 0DTE is still offered all evening. Selecting it only earns a "Symbol is
+            // expired" rejection, so drop anything already past its expiry instant.
             var byDate = chain.Contracts
+                .Where(c => !c.HasExpired)
                 .GroupBy(c => c.Expiration.Date)
                 .OrderBy(g => g.Key)
                 .Select(g => new

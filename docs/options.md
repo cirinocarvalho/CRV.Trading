@@ -133,5 +133,10 @@ there is no early assignment on short legs.
   banner offers reconnection when it has lapsed.
 - **Options cannot be flattened from the Manual page.** Its Flat button posts a `MARKET`
   order tagged `assetType: FUTURE`; options are closed from the explorer instead.
+- **Expired expiries are hidden.** Schwab keeps listing an expiry after its contracts stop
+  trading, so today's 0DTE is still offered all evening; selecting it only earns a
+  "Symbol is expired" rejection. The picker drops anything past the contract's own
+  `expirationDate`, which keeps index options right (SPXW trades past the equity close)
+  without a hard-coded 4pm rule.
 - **No options backtesting.** There is no chain history, so structures can be researched
   and forward-tested but not backtested.
