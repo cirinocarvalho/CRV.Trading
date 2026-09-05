@@ -12,8 +12,23 @@ public class BacktestConfig
 {
     public DateTime From             { get; set; } = DateTime.UtcNow.AddMonths(-6);
     public DateTime To               { get; set; } = DateTime.UtcNow;
-    public FillMode FillMode         { get; set; } = FillMode.AtTouch;
+    /// <summary>
+    /// Defaults to <see cref="FillMode.WithSlippage"/>. <see cref="FillMode.AtTouch"/>
+    /// books exact-price fills with no cost on the exit side at all, which is what let
+    /// the backtest disagree with the live book by roughly $380 on execution alone.
+    /// The frictionless modes remain available for comparing one run against another.
+    /// </summary>
+    public FillMode FillMode         { get; set; } = FillMode.WithSlippage;
+
+    /// <summary>Ticks of adverse slippage on a market entry.</summary>
     public int      SlippageTicks    { get; set; } = 1;
+
+    /// <summary>
+    /// Ticks of adverse slippage when a stop is hit. Larger than entry slippage
+    /// because a stop fires into a market that is already moving against the position:
+    /// live, 16% of stop-outs cost more than the 1R they were sized for.
+    /// </summary>
+    public int      StopSlippageTicks { get; set; } = 4;
     public string   DataSource       { get; set; } = "CSV";
     public string?  CsvPath          { get; set; } = "";
     public int      WarmupBars       { get; set; } = 0;
@@ -333,6 +348,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
 {
     private readonly BacktestConfig _btCfg;
     private readonly StrategyConfig _cfg;
+    private readonly ExecutionModel _exec;
 
     /// <summary>Synchronous event delivery callback (replaces async Channel).</summary>
     public Func<OrderEvent, Task>? OnEvent { get; set; }
@@ -368,7 +384,7 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
     }
 
     public BacktestGroupOrderExecutor(BacktestConfig btCfg, StrategyConfig cfg)
-    { _btCfg = btCfg; _cfg = cfg; }
+    { _btCfg = btCfg; _cfg = cfg; _exec = new ExecutionModel(btCfg, cfg.TickSizeFor); }
 
     public Task<GroupOrder?> OnEntrySignalAsync(EntrySignal sig)
     {
@@ -450,8 +466,9 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         _ordersByGroup[groupId] = legs;
         _groupTickers[groupId] = ticker;
 
-        // Apply slippage to entry fill price
-        var fillPrice = ApplySlip(sig.Entry, isLong);
+        // Only the market branch below uses this: a limit entry fills at its limit
+        // when EvaluateFills sees the price, and never worse.
+        var fillPrice = _exec.EntryFill(sig.Entry, isBuy: isLong, isLimit: false, ticker);
 
         // Market: fill immediately at sig.Entry.
         // Limit (all modes including Conservative): stay pending until
@@ -574,8 +591,12 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                 if (!fills) continue;
 
                 leg.Status = "FILLED";
-                // Fill at the order level (not tick price) for realistic backtest P&L
-                var fillPrice = leg.LimitPrice ?? leg.StopPrice ?? price;
+                // Fill at the order level rather than the tick that triggered it, then
+                // charge the stop its slippage: a touched stop is a market order.
+                var orderLevel = leg.LimitPrice ?? leg.StopPrice ?? price;
+                var fillPrice  = leg.StopPrice.HasValue && !leg.LimitPrice.HasValue
+                    ? _exec.ExitFill(leg.LegType, leg.Action == "BUY", orderLevel, ticker)
+                    : orderLevel;
 
                 // Safety net: if a later target is about to fill but an earlier
                 // target in the sequence is still WORKING, force-fill the earlier
@@ -676,12 +697,6 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         }
     }
 
-    private decimal ApplySlip(decimal price, bool isBuy)
-    {
-        if (_btCfg.FillMode != FillMode.WithSlippage) return price;
-        decimal slip = _btCfg.SlippageTicks * _cfg.TickSize;
-        return isBuy ? price + slip : price - slip;
-    }
 }
 
 // ── Event Sink ────────────────────────────────────────────────

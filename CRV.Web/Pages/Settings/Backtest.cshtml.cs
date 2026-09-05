@@ -46,8 +46,9 @@ public class BacktestSettingsModel : PageModel
             From               = DateTime.UtcNow.AddDays(-7).Date,
             To                 = DateTime.UtcNow.Date,
             DataSource         = "CSV",
-            FillMode           = FillMode.AtTouch,
+            FillMode           = FillMode.WithSlippage,
             SlippageTicks      = 1,
+            StopSlippageTicks  = 4,
             CsvPath            = TempData["bt_CsvPath"] as string ?? "",
             ExecutionTFMinutes = _cfgSvc.Current.ExecutionTFMinutes,  // seed from live config
         };

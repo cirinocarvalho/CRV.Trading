@@ -95,10 +95,20 @@ public class SchwabHistoricalLoader
             // extended hours flag is for equities only.
             var url = $"{_apiBaseUrl}/marketdata/v1/pricehistory?symbol={Uri.EscapeDataString(apiSymbol)}" +
                       $"&periodType=day&frequencyType=minute&frequency={tf}&startDate={sMs}&endDate={eMs}&needExtendedHoursData=false";
+            // A chunk that cannot be fetched is a hole in the series, not a minor
+            // inconvenience: skipping it silently produced backtests of the same
+            // configuration that disagreed by 24.6%. Stop the run instead.
             HttpResponseMessage resp;
             try { resp = await http.GetAsync(url, ct); }
-            catch (Exception ex) { _log.LogError(ex, "Schwab history failed"); continue; }
-            if (!resp.IsSuccessStatusCode) { _log.LogWarning("Schwab history HTTP {C}", resp.StatusCode); continue; }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                throw new BarLoadException(
+                    $"Schwab history request failed for {symbol} {cFrom:u}..{cTo:u}.", ex);
+            }
+            if (!resp.IsSuccessStatusCode)
+                throw new BarLoadException(
+                    $"Schwab history returned HTTP {(int)resp.StatusCode} for {symbol} {cFrom:u}..{cTo:u}.");
 
             var json = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
@@ -160,8 +170,15 @@ public class TradeStationHistoricalLoader
 
             HttpResponseMessage resp;
             try { resp = await http.GetAsync(url, ct); }
-            catch (Exception ex) { _log.LogError(ex, "TS history failed"); continue; }
-            if (!resp.IsSuccessStatusCode) { _log.LogWarning("TS history HTTP {C}", resp.StatusCode); continue; }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                throw new BarLoadException(
+                    $"TradeStation history request failed for {symbol} {cFrom:u}..{cTo:u}.", ex);
+            }
+            if (!resp.IsSuccessStatusCode)
+                throw new BarLoadException(
+                    $"TradeStation history returned HTTP {(int)resp.StatusCode} for {symbol} {cFrom:u}..{cTo:u}.");
 
             var json = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
