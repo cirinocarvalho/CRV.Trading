@@ -77,6 +77,7 @@ public sealed class BarSnapshotStore
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         Directory.CreateDirectory(_root);
+        SweepStaleTemporaries();
         var final = PathFor(key);
         var temp  = final + "." + Guid.NewGuid().ToString("N")[..8] + ".partial";
 
@@ -97,6 +98,24 @@ public sealed class BarSnapshotStore
         {
             await writer.DisposeAsync();
             if (File.Exists(temp)) File.Delete(temp);
+        }
+    }
+
+    /// <summary>
+    /// Removes leftover temporary files from runs that were killed outright, where
+    /// the cleanup below never got to run. Anything recent is left alone — it may
+    /// belong to a capture still in progress.
+    /// </summary>
+    private void SweepStaleTemporaries()
+    {
+        var cutoff = DateTime.UtcNow - TimeSpan.FromHours(6);
+        foreach (var f in Directory.EnumerateFiles(_root, "*.partial"))
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f);
+            }
+            catch { /* another run may own it; leaving it costs a few bytes */ }
         }
     }
 

@@ -549,6 +549,34 @@ public class StrategyConfig
         return configs;
     }
 
+    /// <summary>
+    /// Applies a change to every basket entry and writes the basket back.
+    /// <para>
+    /// The basket lives as JSON on this record, so mutating the objects returned by
+    /// <see cref="ToSetupConfigs"/> changes nothing — they are projections. Callers
+    /// that need to vary a per-entry setting (a filter sweep, say) have to round-trip,
+    /// and the lenient converters that make that safe are private to this class.
+    /// </para>
+    /// </summary>
+    public void MapBasketEntries(Action<BasketEntry> change)
+    {
+        if (string.IsNullOrEmpty(BasketJson)) return;
+
+        List<BasketEntry>? basket;
+        try { basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, BasketJsonOptions); }
+        catch { return; }
+        if (basket is null || basket.Count == 0) return;
+
+        foreach (var e in basket) change(e);
+        BasketJson = System.Text.Json.JsonSerializer.Serialize(basket);
+    }
+
+    private static System.Text.Json.JsonSerializerOptions BasketJsonOptions => new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
+    };
+
     /// <summary>Parse EMA21 basket JSON into setup configs. Returns empty list if no basket.</summary>
     public List<StrategySetupConfig> ToEma21SetupConfigs()
     {

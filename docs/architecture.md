@@ -183,6 +183,7 @@ handle transport only. See [Options](options.md).
 | `/Settings/Live` | Start/stop engine, broker + strategy config |
 | `/Backtest` | Run backtest + view results |
 | `/Settings/Backtest` | Backtest config + inline results (metric cards, equity curve, trade log) |
+| `/Validation` | In/out-of-sample split, ORB duration sweep, filter ablation — see [validation.md](validation.md) |
 | `/trading/manual` | Manual OCO bracket orders, live positions table, Cancel All |
 | `/trading/orders` | Order list with filters, Cancel button, 30 s auto-refresh; includes options orders |
 | `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
@@ -197,6 +198,7 @@ handle transport only. See [Options](options.md).
 |---------|---------|
 | `LiveEngineOrchestrator` | Live engine lifecycle, multi-ticker feed creation, broker fallback alerting |
 | `BacktestRunnerService` | On-demand backtests |
+| `ValidationRunner` | Replays a bar snapshot through varied configs for the validation studies |
 | `DailyStatsService` | In-memory today's P&L/win stats |
 | `StrategyConfigService` | Loads/saves `StrategyConfig` from SQLite |
 | `SignalREventSink` | Forwards engine signals to browser clients |

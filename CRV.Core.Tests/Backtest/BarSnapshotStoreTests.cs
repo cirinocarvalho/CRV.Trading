@@ -112,6 +112,35 @@ public class BarSnapshotStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task StaleTemporaryFilesAreSweptUpOnTheNextCapture()
+    {
+        // A process killed outright cannot run its cleanup, so a .partial survives.
+        // It is never mistaken for a snapshot, but it should not pile up either.
+        var store = Store();
+        Directory.CreateDirectory(_dir);
+        var orphan = Path.Combine(_dir, "deadbeef.csv.abcd1234.partial");
+        await File.WriteAllTextAsync(orphan, "ticker,time,open,high,low,close,volume\n");
+        File.SetLastWriteTimeUtc(orphan, DateTime.UtcNow.AddDays(-2));
+
+        await Drain(store.Capture(BarSnapshotStore.KeyFor(Cfg(), new[] { "MNQ" }), Sample()));
+
+        Assert.False(File.Exists(orphan));
+    }
+
+    [Fact]
+    public async Task ATemporaryFileFromARunStillInFlightIsLeftAlone()
+    {
+        var store = Store();
+        Directory.CreateDirectory(_dir);
+        var live = Path.Combine(_dir, "cafebabe.csv.99887766.partial");
+        await File.WriteAllTextAsync(live, "in progress");
+
+        await Drain(store.Capture(BarSnapshotStore.KeyFor(Cfg(), new[] { "MES" }), Sample()));
+
+        Assert.True(File.Exists(live));
+    }
+
+    [Fact]
     public async Task HasIsFalseForAKeyThatWasNeverCaptured()
     {
         Assert.False(Store().Has(BarSnapshotStore.KeyFor(Cfg(), new[] { "MCL" })));
