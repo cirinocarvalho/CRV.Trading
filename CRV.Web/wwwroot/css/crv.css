@@ -152,3 +152,25 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
 .pv-stop    .pv-lbl small,
 .pv-partial .pv-lbl small,
 .pv-target  .pv-lbl small { color: #7a8393; }
+
+/* Settlement-value marker. Expiration payoff and a price you can transact at today are
+   different quantities; the tool shows both, so each is tagged rather than left to be
+   inferred from context. */
+.lbl-exp {
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: #d9a441;
+    background: rgba(217, 164, 65, .12);
+    border-radius: 3px;
+    padding: 0 .3rem;
+    white-space: nowrap;
+}
+.lbl-now {
+    font-size: .68rem;
+    font-weight: 600;
+    color: #6fbf8b;
+    background: rgba(111, 191, 139, .12);
+    border-radius: 3px;
+    padding: 0 .3rem;
+}

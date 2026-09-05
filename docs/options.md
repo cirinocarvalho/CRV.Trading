@@ -95,6 +95,20 @@ broker* as *Awaiting Condition* and can be cancelled. The condition lives at Sch
 fires whether or not this app is running — better than any in-app watcher, which would
 miss the move whenever the process is down.
 
+## Expiration payoff is labelled as such
+
+`PayoffCalculator` computes payoff **at expiration**. Max profit, max loss, breakevens, the
+chart and the structure finder's price columns are all settlement values — what a structure
+is worth if the underlying *settles* there.
+
+Reaching that price earlier pays differently, because the contract still holds time value,
+and most option positions are closed before expiry. Every such figure therefore carries an
+`at expiry` tag, the note names the actual expiry date, and `Net` is tagged `now` because it
+is the one price you can transact at today.
+
+There is no pre-expiry valuation: no Black-Scholes revaluation, no time axis, no vega. A
+question of the form "what if it hits X *on date D*" cannot be answered here yet.
+
 ## Structure finder
 
 Given a target price, it builds every structure the chain supports for that view, prices
