@@ -132,14 +132,39 @@ charging for the move by that expiry. It is shown beside the chain and used to q
 stated target: `1.40× expected move` means the target sits beyond what the market is
 pricing, `0.34×` means it is already paid for.
 
-The at-the-money strike is the one nearest spot quoted on **both** sides; pairing a call
-and a put from different strikes is not a straddle. Null when no such strike exists —
-returning zero would read as "the market expects nothing to happen".
+The at-the-money pair is chosen by `OptionChain.AtTheMoneyPair`: nearest spot, quoted on
+both sides, **and from the same series**. Index expirations list more than one series at a
+strike — SPX settles in the morning, SPXW in the afternoon — so pairing on strike alone
+both collides and risks quoting a straddle across two different products. Ties on distance
+break to the tighter combined spread. Null when no such pair exists, since zero would read
+as "the market expects nothing to happen".
 
-> **IV rank and percentile are not available.** They need a history of implied volatility,
-> and the chain reports only the current value. Nothing can backfill this; it requires
-> capturing chain snapshots from now on and waiting. Until then the tool can say what the
-> market expects, but not whether that is historically high or low.
+## Implied volatility history
+
+`OptionChainSnapshotService` records one at-the-money IV reading per underlying per expiry
+per session, into `OptionChainSnapshots`. It exists because **IV history cannot be bought
+back**: the chain reports what IV is now and nothing about what it has been, so "is this
+expensive?" stays unanswerable until readings accumulate. Starting costs a few kilobytes a
+day; not starting costs however long you wait.
+
+Configure with `Options:SnapshotSymbols` and `Options:SnapshotHourEastern`. Deliberately
+small — the at-the-money IV and straddle per expiry, not the chain. Full chains would be
+the only route to backtesting structures later, but at ~4 MB per symbol per capture that
+is a separate decision with a real storage cost.
+
+`IvStatistics.Standing` reports both **rank** (position between the window's low and high)
+and **percentile** (share of sessions below today). Reporting both matters: one volatility
+spike dominates a range for a year, so rank alone can call an elevated reading cheap while
+percentile still calls it high.
+
+Two things that are easy to get wrong and are handled:
+
+- **Ranked against a constant-maturity series** — one reading per session, the expiry
+  nearest 30 days — not against every expiry recorded. A single session records dozens of
+  expiries, and ranking today's number against today's *term structure* yields a
+  confident-looking figure that means nothing.
+- **Silent below 20 sessions.** A rank from a handful of readings is noise wearing the
+  costume of a statistic. The strip says how many sessions exist instead.
 
 ## Expiration payoff is labelled as such
 

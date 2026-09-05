@@ -7,6 +7,7 @@ using CRV.Core.Options;
 using Microsoft.EntityFrameworkCore;
 using CRV.Live;
 using CRV.Live.Brokers.Schwab;
+using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -16,6 +17,7 @@ public class ExplorerModel : PageModel
     private readonly IHttpClientFactory   _httpFactory;
     private readonly IConfiguration       _config;
     private readonly TradingDbContext     _db;
+    private readonly OptionChainSnapshotService _snapshots;
     private readonly ILogger<ExplorerModel> _log;
 
     public ExplorerModel(
@@ -23,12 +25,14 @@ public class ExplorerModel : PageModel
         IHttpClientFactory httpFactory,
         IConfiguration config,
         TradingDbContext db,
+        OptionChainSnapshotService snapshots,
         ILogger<ExplorerModel> log)
     {
         _schwab      = schwab;
         _httpFactory = httpFactory;
         _config      = config;
         _db          = db;
+        _snapshots   = snapshots;
         _log         = log;
     }
 
@@ -305,6 +309,69 @@ public class ExplorerModel : PageModel
             });
         }
         catch (Exception ex) { return Fail(ex, symbol); }
+    }
+
+    // ── AJAX: implied volatility standing ─────────────────────────
+
+    /// <summary>
+    /// Where implied volatility sits against its own recorded history.
+    /// <para>Ranked against a constant-maturity series — one reading per session, the expiry
+    /// nearest <c>targetDte</c> days out — not against every expiry recorded. A single day
+    /// records dozens of expiries, and ranking today's number against today's term structure
+    /// produces a confident-looking figure that means nothing.</para>
+    /// <para>Reports how many sessions were used, so a thin history reads as "not yet".</para>
+    /// </summary>
+    public async Task<IActionResult> OnGetIvStandingAsync(
+        string symbol, int lookbackDays, int targetDte, CancellationToken ct)
+    {
+        symbol = (symbol ?? "").Trim().ToUpperInvariant();
+        if (symbol.Length == 0) return new JsonResult(new { sessions = 0 });
+
+        if (lookbackDays <= 0) lookbackDays = 365;
+        if (targetDte    <= 0) targetDte    = 30;
+        var since = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(-lookbackDays));
+
+        var readings = await _db.OptionChainSnapshots.AsNoTracking()
+            .Where(s => s.Underlying == symbol && s.TradeDate >= since && s.AtmImpliedVol > 0)
+            .Select(s => new { s.TradeDate, s.DaysToExpiration, s.AtmImpliedVol })
+            .ToListAsync(ct);
+
+        // One value per session: the expiry closest to the target maturity.
+        var series = readings
+            .GroupBy(r => r.TradeDate)
+            .OrderBy(g => g.Key)
+            .Select(g => g.MinBy(r => Math.Abs(r.DaysToExpiration - targetDte))!.AtmImpliedVol)
+            .ToList();
+
+        if (series.Count == 0) return new JsonResult(new { sessions = 0, needed = 20 });
+
+        decimal current = (decimal)series[^1];
+        var standing = IvStatistics.Standing(current, series.Select(v => (decimal)v).ToList());
+
+        if (standing is null)
+            return new JsonResult(new { sessions = series.Count, needed = 20, currentIv = Math.Round(current, 1) });
+
+        return new JsonResult(new
+        {
+            sessions   = standing.Observations,
+            targetDte,
+            currentIv  = Math.Round(current, 1),
+            rank       = standing.Rank,
+            percentile = standing.Percentile,
+            low        = Math.Round(standing.Low, 1),
+            high       = Math.Round(standing.High, 1),
+        });
+    }
+
+    /// <summary>Capture today's readings now instead of waiting for the schedule.</summary>
+    public async Task<IActionResult> OnPostCaptureSnapshotAsync(CancellationToken ct)
+    {
+        try
+        {
+            int written = await _snapshots.CaptureNowAsync(ct);
+            return new JsonResult(new { ok = true, written });
+        }
+        catch (Exception ex) { return Fail(ex, "snapshot"); }
     }
 
     // ── AJAX: re-quote a set of contracts ─────────────────────────

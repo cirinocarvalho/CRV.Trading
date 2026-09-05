@@ -269,4 +269,33 @@ public class OptionChainParserTests
         // zero would read as "the market expects nothing to happen".
         Assert.Null(Chain().ExpectedMove(new DateTime(2026, 8, 28)));
     }
+
+    [Fact]
+    public void ExpectedMove_HandlesTwoSeriesAtTheSameStrike()
+    {
+        // Index expirations list an AM-settled and a PM-settled series together. Keying on
+        // strike alone throws on the duplicate — and pairing across the two would quote a
+        // straddle spanning different products.
+        var baseChain = Straddleable();
+        var dup = baseChain.Contracts
+            .Select(c => c with { Symbol = "SPXW  " + c.Symbol[6..], Bid = 4.90m, Ask = 5.10m })
+            .ToList();
+
+        var mixed = new OptionChain("SPX", 100m, [.. baseChain.Contracts, .. dup]);
+
+        var move = mixed.ExpectedMove(new DateTime(2026, 9, 18));
+        Assert.NotNull(move);
+
+        // Whichever series wins, both legs must come from it — 6.00 or 10.00, never 8.00.
+        Assert.True(move is 6.00m or 10.00m, $"straddle spans two series: {move}");
+    }
+
+    [Fact]
+    public void AtTheMoneyPair_ReturnsBothLegsFromOneSeries()
+    {
+        var pair = Straddleable().AtTheMoneyPair(new DateTime(2026, 9, 18));
+        Assert.NotNull(pair);
+        Assert.Equal(pair!.Value.Call.Strike, pair.Value.Put.Strike);
+        Assert.Equal(pair.Value.Call.Symbol[..6], pair.Value.Put.Symbol[..6]);
+    }
 }

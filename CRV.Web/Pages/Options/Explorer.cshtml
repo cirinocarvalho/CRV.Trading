@@ -222,6 +222,7 @@ else
         </div>
         <div class="col-auto ms-auto text-end">
             <div id="expected-move" class="small"></div>
+            <div id="iv-standing" class="small"></div>
             <span id="status" class="small text-secondary"></span>
         </div>
     </div>
@@ -673,6 +674,7 @@ else
             // Shown beside the chain because a target inside the expected move is already
             // priced in; one well outside it needs the market to be wrong.
             LAST_EXPECTED_MOVE = j.expectedMove;
+            loadIvStanding();
             $('expected-move').innerHTML = j.expectedMove == null
                 ? '<span class="text-secondary">expected move unavailable</span>'
                 : `expected move <span class="text-info">±${fmt(j.expectedMove)}</span>`
@@ -1055,6 +1057,31 @@ else
             svg += `<text x="${W - R}" y="${H - 6}" fill="#adb5bd" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
 
             $('payoff').innerHTML = svg;
+        }
+
+        /// IV against its own history, as a constant-maturity series — one reading per
+        /// session. Silent about rank until enough sessions exist: a rank computed from a
+        /// few days is not a rank, and showing one invites the confidence it has not earned.
+        async function loadIvStanding() {
+            const el = $('iv-standing');
+            const sym = $('f-symbol').value.trim().toUpperCase();
+            if (!sym) { el.innerHTML = ''; return; }
+
+            const j = await getJson(`?handler=IvStanding&symbol=${encodeURIComponent(sym)}&lookbackDays=365&targetDte=30`);
+            if (!j) { el.innerHTML = ''; return; }
+
+            if (j.rank == null) {
+                const have = j.sessions || 0;
+                el.innerHTML = `<span class="text-secondary" `
+                    + `title="IV history cannot be backfilled — it accumulates from the day capture starts">`
+                    + (j.currentIv != null ? `IV ${j.currentIv} · ` : '')
+                    + `rank needs ${j.needed || 20} sessions, have ${have}</span>`;
+                return;
+            }
+            const tone = j.rank >= 70 ? 'text-danger' : j.rank <= 30 ? 'text-success' : 'text-warning';
+            el.innerHTML = `IV <span class="${tone}">${j.currentIv}</span>`
+                + `<span class="text-secondary"> · rank ${j.rank} · pctile ${j.percentile} `
+                + `(${j.low}–${j.high} over ${j.sessions} sessions)</span>`;
         }
 
         // ── Panel C · ticket ───────────────────────────────────────────
