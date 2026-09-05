@@ -171,6 +171,13 @@ builder.Services.AddHostedService(sp =>
 // ── Backtest ──────────────────────────────────────────────────
 builder.Services.AddSingleton<BacktestRunnerService>();
 builder.Services.AddScoped<CRV.Backtest.DataLoaders.CsvBarLoader>();
+
+// Validation studies replay the bars a backtest already captured, so both sides
+// have to agree on where those live.
+builder.Services.AddSingleton(sp =>
+    CRV.Backtest.DataLoaders.BarSnapshotStore.Default(
+        sp.GetRequiredService<IHostEnvironment>().ContentRootPath));
+builder.Services.AddSingleton<CRV.Backtest.Experiments.ValidationRunner>();
 builder.Services.AddScoped<CRV.Web.Services.TradeRepository>();
 
 var app = builder.Build();

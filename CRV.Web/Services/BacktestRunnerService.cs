@@ -31,11 +31,11 @@ public class BacktestRunnerService
     public bool LastRunWasReplay { get; private set; }
 
     public BacktestRunnerService(IServiceProvider sp, ILogger<BacktestRunnerService> log,
-        IHostEnvironment env)
+        BarSnapshotStore snapshots)
     {
         _sp        = sp;
         _log       = log;
-        _snapshots = BarSnapshotStore.Default(env.ContentRootPath);
+        _snapshots = snapshots;
     }
 
     public async Task<BacktestResult> RunAsync(
