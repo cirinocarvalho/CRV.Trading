@@ -481,6 +481,39 @@ public class ExplorerModel : PageModel
         var payload = SchwabOptionOrder.BuildPayload(
             legs!, spreads, OrderDuration.Day, req.LimitPrice,
             req.ExitPrice is { } xpp ? new AttachedExit(xpp) : null);
+
+        // Snapshot the two-sided market before submitting. A fill price is uninterpretable
+        // without it — $3.60 is excellent against 3.55/3.75 and poor against 3.50/3.60.
+        string?  marketJson = null;
+        decimal? midNet     = null;
+        try
+        {
+            var quotes = await SchwabOptionChain.FetchQuotesAsync(
+                _schwab, legs!.Select(l => l.Symbol).ToList(), _httpFactory, ct);
+
+            if (legs!.All(l => quotes.ContainsKey(l.Symbol)))
+            {
+                marketJson = JsonSerializer.Serialize(legs!.Select(l => new
+                {
+                    symbol = l.Symbol,
+                    bid    = quotes[l.Symbol].Bid,
+                    ask    = quotes[l.Symbol].Ask,
+                    mid    = (quotes[l.Symbol].Bid + quotes[l.Symbol].Ask) / 2m,
+                }));
+
+                midNet = SchwabOptionOrder.NetPrice(
+                    legs!.Select(l => l with
+                    {
+                        Premium = (quotes[l.Symbol].Bid + quotes[l.Symbol].Ask) / 2m,
+                    }).ToList());
+            }
+        }
+        catch (Exception ex)
+        {
+            // Losing the benchmark must not stop the order.
+            _log.LogWarning(ex, "Could not snapshot the market before submitting");
+        }
+
         try
         {
             var r = await SchwabOptionOrder.PlaceAsync(_schwab, SchwabAccountId, payload, _httpFactory, ct);
@@ -500,6 +533,8 @@ public class ExplorerModel : PageModel
                 MaxLoss    = analysis.LossUnbounded   ? null : analysis.MaxLoss   * spreads,
                 MaxProfit  = analysis.ProfitUnbounded ? null : analysis.MaxProfit * spreads,
                 Breakevens = string.Join(",", analysis.Breakevens),
+                MarketAtSubmitJson = marketJson,
+                MidNetPrice        = midNet,
                 LegsJson   = JsonSerializer.Serialize(payload["orderLegCollection"]),
                 Accepted   = r.Ok,
                 Error      = r.Ok ? null : Trim(r.Body, 1000),
@@ -696,20 +731,70 @@ public class ExplorerModel : PageModel
             }
         }
 
+        await BackfillFillsAsync(live, ct);
+
+        // Re-read so a just-backfilled fill is included in this response rather than the next.
+        var withFills = await _db.OptionOrders.AsNoTracking()
+            .Where(o => o.OrderId != null)
+            .ToDictionaryAsync(o => o.OrderId!, o => o, ct);
+
         return new JsonResult(new
         {
             orders = rows.Select(r =>
             {
                 live.TryGetValue(r.OrderId ?? "", out var l);
+                withFills.TryGetValue(r.OrderId ?? "", out var stored);
                 return new
                 {
                     r.PlacedAt, r.OrderId, r.Underlying, r.Structure, r.Intent,
                     r.Spreads, r.OrderType, r.TotalNet, r.MaxLoss, r.Accepted, r.Error,
                     status      = l?.StatusLabel,
                     canCancel   = l?.CanCancel ?? false,
+                    filledNet   = stored?.FilledNetPrice,
+                    midNet      = stored?.MidNetPrice,
+                    slipVsMid   = stored?.SlippageVsMid,
+                    slipVsAsked = stored?.SlippageVsAsked,
                 };
             }),
         });
+    }
+
+    /// <summary>
+    /// Record what filled orders actually executed at. Runs only for rows the broker reports
+    /// as filled and that carry no fill yet, so it is bounded and idempotent.
+    /// </summary>
+    private async Task BackfillFillsAsync(Dictionary<string, OrderView> live, CancellationToken ct)
+    {
+        var pending = await _db.OptionOrders
+            .Where(o => o.OrderId != null && o.Accepted && o.FilledNetPrice == null)
+            .ToListAsync(ct);
+
+        foreach (var rec in pending)
+        {
+            if (!live.TryGetValue(rec.OrderId!, out var l) ||
+                !string.Equals(l.Status, "FILLED", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                var json = await SchwabOptionOrder.FetchOrderAsync(
+                    _schwab, SchwabAccountId, rec.OrderId!, _httpFactory, ct);
+                if (json is null) continue;
+
+                var fill = SchwabOptionOrder.ParseRealizedFill(json);
+                if (fill is null) continue;
+
+                rec.FilledNetPrice = fill.NetPerUnit;
+                rec.FilledAt       = fill.FilledAtUtc ?? DateTime.UtcNow;
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Could not read the fill for option order {OrderId}", rec.OrderId);
+            }
+        }
+
+        if (_db.ChangeTracker.HasChanges())
+            await _db.SaveChangesAsync(ct);
     }
 
     // ── AJAX: option orders live at the broker ────────────────────

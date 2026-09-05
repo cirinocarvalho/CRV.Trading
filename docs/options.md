@@ -122,6 +122,34 @@ live SPY with a +2% target the butterfly showed the best return on risk (211%) a
 No probability figure is shown, and nothing is labelled "recommended". The ordering is a
 function of a target you supply; the columns do the arguing.
 
+## Execution measurement
+
+Slippage is the largest and least visible cost in options, and it cannot be reconstructed
+after the fact — the market at the moment you submitted is gone. So it is captured then:
+
+| Recorded | When |
+|----------|------|
+| `MarketAtSubmitJson` | Two-sided market per leg, snapshotted immediately before submitting |
+| `MidNetPrice` | Net per unit at the mid — the execution benchmark |
+| `NetPrice` | What was actually asked for |
+| `FilledNetPrice` | Realized net per unit, backfilled once the broker reports a fill |
+
+`SlippageVsMid` is signed so positive is always worse: a debit filled above the mid, or a
+credit filled below it. `SlippageVsAsked` shows how far the fill landed from the limit.
+
+Without the market snapshot a fill price says nothing — $3.60 is excellent against a
+3.55/3.75 market and poor against 3.50/3.60.
+
+The backfill runs only for orders the broker reports as filled that carry no fill yet, so
+it is bounded and idempotent. Failing to snapshot the market never blocks an order, and
+failing to read a fill never hides the local record.
+
+> **Unverified against a live fill.** No order placed by this app has executed. The parser
+> is tested against payloads shaped from Schwab's documented order schema, which pins the
+> arithmetic — weighted averaging across partial fills, leg ratios, sign by side, and
+> refusing to report a net for a spread filled on only one leg — but does not prove the
+> field names match production. The first real fill is also the first test of that.
+
 ## Local record
 
 `OptionOrderRecord` (table `OptionOrders`, migration `AddOptionOrders`) keeps what the

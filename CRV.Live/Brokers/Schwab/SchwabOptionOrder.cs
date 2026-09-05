@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -238,5 +239,119 @@ public static class SchwabOptionOrder
             orderId = loc.Segments.LastOrDefault()?.Trim('/');
 
         return new OrderResult(res.IsSuccessStatusCode, body, orderId);
+    }
+
+    /// <summary>Fetch one order's full document, for reading back what it executed at.</summary>
+    public static async Task<string?> FetchOrderAsync(
+        SchwabAuthService auth, string accountId, string orderId,
+        IHttpClientFactory? httpFactory = null, CancellationToken ct = default)
+    {
+        var token = await auth.GetAccessTokenAsync();
+        using var http = httpFactory?.CreateClient("Schwab") ?? new HttpClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var res = await http.GetAsync($"{auth.ApiBaseUrl}/trader/v1/accounts/{accountId}/orders/{orderId}", ct);
+        return res.IsSuccessStatusCode ? await res.Content.ReadAsStringAsync(ct) : null;
+    }
+
+    // ── realized execution ───────────────────────────────────────
+
+    /// <summary>What an order actually filled at, as opposed to what it asked for.</summary>
+    /// <param name="NetPerUnit">
+    /// Signed net premium per unit of the structure: positive is a debit paid, negative a
+    /// credit received — the same convention as <see cref="NetPrice"/>, so subtracting the
+    /// two gives slippage directly.
+    /// </param>
+    public record RealizedFill(decimal NetPerUnit, int UnitsFilled, DateTime? FilledAtUtc);
+
+    /// <summary>
+    /// Extract the realized fill from a Schwab order document, or null if it has not filled.
+    /// <para>Execution legs report a price per contract keyed by <c>legId</c>. The side and
+    /// the ratio have to come from the order's own leg collection — an execution price alone
+    /// does not say whether it was paid or received, nor how many of it make one spread.</para>
+    /// </summary>
+    public static RealizedFill? ParseRealizedFill(string orderJson)
+    {
+        using var doc = JsonDocument.Parse(orderJson);
+        var root = doc.RootElement;
+
+        static decimal Num(JsonElement el, string name)
+            => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+               ? v.GetDecimal() : 0m;
+
+        // legId → side and ordered quantity.
+        var legs = new Dictionary<int, (decimal Sign, decimal Qty)>();
+        if (root.TryGetProperty("orderLegCollection", out var legCol) &&
+            legCol.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var l in legCol.EnumerateArray())
+            {
+                int id = (int)Num(l, "legId");
+                var instr = l.TryGetProperty("instruction", out var i) ? i.GetString() ?? "" : "";
+                legs[id] = (instr.StartsWith("BUY", StringComparison.Ordinal) ? 1m : -1m, Num(l, "quantity"));
+            }
+        }
+        if (legs.Count == 0) return null;
+
+        // Ratios: leg quantities divided by their common factor, so results are per unit.
+        int gcd = legs.Values.Select(v => (int)Math.Abs(v.Qty)).Where(q => q > 0).DefaultIfEmpty(1).Aggregate(Gcd);
+        if (gcd <= 0) gcd = 1;
+
+        // Quantity-weighted average execution price per leg — a leg can fill in pieces.
+        var filledQty   = new Dictionary<int, decimal>();
+        var weightedSum = new Dictionary<int, decimal>();
+        DateTime? filledAt = null;
+
+        if (root.TryGetProperty("orderActivityCollection", out var acts) &&
+            acts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var a in acts.EnumerateArray())
+            {
+                if (a.TryGetProperty("executionType", out var et) &&
+                    !string.Equals(et.GetString(), "FILL", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!a.TryGetProperty("executionLegs", out var xl) || xl.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                foreach (var x in xl.EnumerateArray())
+                {
+                    int id = (int)Num(x, "legId");
+                    if (!legs.ContainsKey(id)) continue;
+
+                    decimal qty = Num(x, "quantity"), price = Num(x, "price");
+                    if (qty <= 0m) continue;
+
+                    filledQty[id]   = filledQty.GetValueOrDefault(id) + qty;
+                    weightedSum[id] = weightedSum.GetValueOrDefault(id) + qty * price;
+
+                    if (x.TryGetProperty("time", out var t) && t.ValueKind == JsonValueKind.String &&
+                        DateTimeOffset.TryParse(t.GetString(), CultureInfo.InvariantCulture,
+                                                DateTimeStyles.RoundtripKind, out var dto) &&
+                        (filledAt is null || dto.UtcDateTime > filledAt))
+                        filledAt = dto.UtcDateTime;
+                }
+            }
+        }
+
+        if (filledQty.Count == 0) return null;
+
+        decimal net = 0m;
+        decimal units = decimal.MaxValue;
+        foreach (var (id, leg) in legs)
+        {
+            if (!filledQty.TryGetValue(id, out var qty) || qty <= 0m) return null;   // partial across legs
+
+            decimal ratio = leg.Qty / gcd;
+            net   += leg.Sign * (weightedSum[id] / qty) * ratio;
+            units  = Math.Min(units, ratio > 0m ? qty / ratio : 0m);
+        }
+
+        return new RealizedFill(net, (int)Math.Round(units), filledAt);
+    }
+
+    private static int Gcd(int a, int b)
+    {
+        while (b != 0) (a, b) = (b, a % b);
+        return a == 0 ? 1 : a;
     }
 }

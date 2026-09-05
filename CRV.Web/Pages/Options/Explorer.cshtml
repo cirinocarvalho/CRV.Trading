@@ -143,6 +143,7 @@ else
                 <th class="text-end">Max loss</th>
                 <th>Order</th>
                 <th>Status</th>
+                <th class="text-end" title="Realized net per unit against the mid at submission">Slippage</th>
                 <th></th>
             </tr>
             </thead>
@@ -1593,7 +1594,7 @@ else
             const rows = j.orders || [];
             SUBMITTED = rows;
             if (!rows.length) {
-                body.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
+                body.innerHTML = '<tr><td colspan="11" class="text-center text-secondary py-3 small">Nothing submitted yet.</td></tr>';
                 return;
             }
             body.innerHTML = rows.map(o => `
@@ -1611,6 +1612,12 @@ else
             <td class="small">${o.status
                 ? `<span class="${statusClass(o.status)}">${escapeHtml(o.status)}</span>`
                 : '<span class="text-secondary">—</span>'}</td>
+            <td class="text-end small">${o.filledNet == null
+                ? '<span class="text-secondary">—</span>'
+                : `<span class="${o.slipVsMid > 0 ? 'text-danger' : 'text-success'}"
+                         title="filled ${fmt(o.filledNet)} vs mid ${fmt(o.midNet)}">${
+                       o.slipVsMid == null ? fmt(o.filledNet)
+                         : (o.slipVsMid > 0 ? '+' : '') + fmt(o.slipVsMid)}</span>`}</td>
             <td class="text-end">${o.canCancel
                 ? `<button class="btn btn-xs btn-outline-danger py-0 px-2"
                            onclick="cancelOrder('${o.orderId}')">Cancel</button>`
