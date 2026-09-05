@@ -4,6 +4,9 @@
 @{
     ViewData["Title"] = "Orders";
     ViewData["Page"]  = "orders";
+    // Shared between sections — the link carries which one the user came from,
+    // so landing here from Options does not flip the nav back to Futures.
+    ViewData["Section"] = Request.Query["section"] == "options" ? "options" : "futures";
     Layout = "~/Pages/Shared/_Layout.cshtml";
 }
 

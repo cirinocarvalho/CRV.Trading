@@ -6,6 +6,7 @@
 @{
     ViewData["Title"] = "Backtest";
     ViewData["Page"]  = "backtest-settings";
+    ViewData["Section"] = "futures";
     Layout = "~/Pages/Shared/_Layout.cshtml";
 
     string PnlCls(decimal v) => v > 0 ? "pnl-pos" : v < 0 ? "pnl-neg" : "pnl-zero";
