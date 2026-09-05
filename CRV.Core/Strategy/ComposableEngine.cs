@@ -184,6 +184,24 @@ public class ComposableEngine
             if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode))
                 continue;
 
+            // Concurrent exposure ceiling. The per-trade cap and the daily loss limit
+            // say nothing about how much is committed right now across every setup,
+            // and correlated instruments move together.
+            if (_brokerHandler != null && _config.MaxPortfolioRisk > 0)
+            {
+                var openGroups     = _brokerHandler.GetAllActiveGroups();
+                decimal candidate  = CRV.Core.Risk.PortfolioExposure.CandidateRisk(esig);
+
+                if (!CRV.Core.Risk.PortfolioExposure.Admits(openGroups, candidate, _config.MaxPortfolioRisk))
+                {
+                    AddAlert("RISK", setup,
+                        CRV.Core.Risk.PortfolioExposure.Describe(openGroups, candidate, _config.MaxPortfolioRisk),
+                        "orange", label, esig.Ticker);
+                    sig.Strategy.RevertEntry();
+                    continue;
+                }
+            }
+
             if (_brokerHandler != null)
                 await _brokerHandler.PlaceEntryAsync(esig, sig.Strategy);
             else

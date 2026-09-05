@@ -30,6 +30,9 @@ public class EngineConfig
     // ── Risk ────────────────────────────────────────────────────
     public bool           UseDailyLossLimit  { get; set; } = true;
     public decimal        MaxDailyLoss       { get; set; } = 500m;
+
+    /// <summary>Ceiling on dollar risk across all open and working positions. Zero disables it.</summary>
+    public decimal MaxPortfolioRisk   { get; set; } = 0m;
     public DailyLossMode  DailyLossMode      { get; set; } = DailyLossMode.Floor;
 
     // ── ATR Filter ──────────────────────────────────────────────

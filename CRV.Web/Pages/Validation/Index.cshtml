@@ -56,6 +56,78 @@
     <div class="alert alert-danger py-2 small">@Model.Error</div>
 }
 
+@* ── P2-1 · position sizing, measured from the live book ────────── *@
+@if (Model.Risk is { Entries.Count: > 0 } risk)
+{
+    <div class="card bg-black border-secondary mb-3">
+        <div class="card-header border-secondary py-2">
+            <strong>Risk committed per trade</strong>
+            <span class="text-muted small ms-2">
+                Read off the fills, not the settings. Config saying "3 contracts" for several
+                setups reads as equal exposure; stop distance times point value says otherwise.
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-dark mb-0 font-monospace small">
+                <thead><tr>
+                    <th>Setup</th><th>Instrument</th><th class="text-end">Trades</th>
+                    <th class="text-end">$/contract</th><th class="text-end">Contracts</th>
+                    <th class="text-end">$/trade</th>
+                    <th class="text-end">At $@risk.SuggestedTarget.ToString("F0")</th>
+                </tr></thead>
+                <tbody>
+                @foreach (var e in risk.Entries)
+                {
+                    var suggested = risk.SuggestedContracts(e, risk.SuggestedTarget);
+                    var heavy = e == risk.DispersionHeaviest && !risk.IsNormalised;
+                    var thin  = e.Trades < CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion;
+                    <tr class="@(heavy ? "table-active" : "")">
+                        <td>@e.Setup</td>
+                        <td class="text-muted">@e.Ticker</td>
+                        <td class="text-end @(thin ? "text-muted" : "")">
+                            @e.Trades@(thin ? "*" : "")
+                        </td>
+                        <td class="text-end">$@e.RiskPerContract.ToString("N2")</td>
+                        <td class="text-end">@e.MedianContracts</td>
+                        <td class="text-end @(heavy ? "text-danger fw-bold" : "")">$@e.RiskPerTrade.ToString("N2")</td>
+                        <td class="text-end @(suggested != e.MedianContracts ? "text-warning" : "text-muted")">
+                            @(suggested == 0 ? "—" : suggested.ToString())
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer border-secondary py-2 small">
+            @if (risk.Entries.Any(e => e.Trades < CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion))
+            {
+                <div class="text-muted mb-1">
+                    * fewer than @CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion fills — listed, but not
+                    used to judge the spread. One trade is not a sizing policy.
+                </div>
+            }
+            @if (risk.IsNormalised)
+            {
+                <span class="text-success">
+                    <i class="bi bi-check-circle me-1"></i>
+                    Risk is level within @risk.Dispersion.ToString("F2")x across the book.
+                </span>
+            }
+            else
+            {
+                <span class="text-danger">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    <strong>@risk.DispersionHeaviest!.Setup</strong> risks @risk.Dispersion.ToString("F2")x what
+                    <strong>@risk.DispersionLightest!.Setup</strong> does
+                    ($@risk.DispersionHeaviest.RiskPerTrade.ToString("N0") against $@risk.DispersionLightest.RiskPerTrade.ToString("N0")).
+                    Position size, not signal, is deciding this book's result — the last column levels it
+                    without changing total exposure.
+                </span>
+            }
+        </div>
+    </div>
+}
+
 @* ── P1-1 · in-sample / out-of-sample ───────────────────────────── *@
 @if (Model.Split is { } split)
 {

@@ -115,6 +115,18 @@ public class StrategyConfig
     public decimal MaxDailyLoss    { get; set; } = 500m;
     /// <summary>Floor = absolute PnL floor (blocks at -MaxDailyLoss). Peak = drawdown from daily high-water mark.</summary>
     public DailyLossMode DailyLossMode { get; set; } = DailyLossMode.Floor;
+
+    /// <summary>
+    /// Ceiling on dollar risk committed across all open and working positions at once.
+    /// Zero disables it.
+    /// <para>
+    /// Sits between the per-trade cap and the daily loss limit, which were previously
+    /// the only two gates. Five setups could be in the market together, each within
+    /// its own budget, with nothing looking at the total — and MNQ and MES are not
+    /// independent risks.
+    /// </para>
+    /// </summary>
+    public decimal MaxPortfolioRisk { get; set; } = 0m;
     public bool    UseVwap         { get; set; } = true;
     public bool    UseOrbClose     { get; set; } = false;
     public bool    AllowBothSameBar{ get; set; } = false;
@@ -472,6 +484,7 @@ public class StrategyConfig
         UseDailyLossLimit  = UseDailyLossLimit,
         MaxDailyLoss       = MaxDailyLoss,
         DailyLossMode      = DailyLossMode,
+        MaxPortfolioRisk   = MaxPortfolioRisk,
         AtrFilterPct       = AtrFilterPct,
         CommissionPerSide  = CommissionPerSide,
         AllowBothSameBar   = AllowBothSameBar,
@@ -549,6 +562,17 @@ public class StrategyConfig
         return configs;
     }
 
+    /// <summary>Number of basket entries the engine will actually register.</summary>
+    public int EnabledSetupCount() => ToSetupConfigs().Count(s => s.Enabled);
+
+    /// <summary>
+    /// True when the basket exists but nothing in it is armed. Worth saying out loud:
+    /// a config with twelve entries and none enabled looks busy and trades nothing,
+    /// and the reverse — one entry armed only because its Enabled key was missing —
+    /// is how the live book came to be running a single unreviewed setup.
+    /// </summary>
+    public bool HasNoArmedSetups() => EnabledSetupCount() == 0;
+
     /// <summary>
     /// Applies a change to every basket entry and writes the basket back.
     /// <para>
@@ -615,22 +639,55 @@ public class StrategyConfig
     }
 
     /// <summary>
+    /// Point value for a ticker, from its basket entry, falling back to the global one.
+    /// The micros span two orders of magnitude — MYM is $0.50 a point and MCL is $100 —
+    /// so any statement about dollars has to ask per instrument.
+    /// </summary>
+    public decimal PointValueFor(string ticker)
+        => LookupByTicker(ticker, b => b.PointValue, PointValue);
+
+    /// <summary>
     /// Tick size for a ticker, from its basket entry, falling back to the global one.
     /// Instruments in one basket differ by more than an order of magnitude — MCL ticks
     /// at 0.01, MNQ at 0.25 — so anything priced in ticks has to ask per instrument.
     /// </summary>
     public decimal TickSizeFor(string ticker)
+        => LookupByTicker(ticker, b => b.TickSize, TickSize);
+
+    /// <summary>
+    /// Finds a basket entry's value for a ticker: exact match first, then the root
+    /// symbol, then the global fallback.
+    /// <para>
+    /// Root matching is what makes this survive a contract roll. The live book holds
+    /// trades on MCLK26 while the basket carries MCLM26 — the same instrument, an
+    /// earlier expiry. Exact-only matching missed, fell through to the global point
+    /// value, and priced crude at $2 a point instead of $100.
+    /// </para>
+    /// </summary>
+    private decimal LookupByTicker(string ticker, Func<BasketEntry, decimal> select, decimal fallback)
     {
-        if (!string.IsNullOrWhiteSpace(ticker))
-        {
-            foreach (var b in EnumerateBasketEntries())
-            {
-                if (b.TickSize > 0 &&
-                    string.Equals(b.Ticker, ticker, StringComparison.OrdinalIgnoreCase))
-                    return b.TickSize;
-            }
-        }
-        return TickSize;
+        if (string.IsNullOrWhiteSpace(ticker)) return fallback;
+
+        var entries = EnumerateBasketEntries().Where(b => select(b) > 0).ToList();
+
+        foreach (var b in entries)
+            if (string.Equals(b.Ticker, ticker, StringComparison.OrdinalIgnoreCase))
+                return select(b);
+
+        var root = RootOf(ticker);
+        if (root.Length > 0)
+            foreach (var b in entries)
+                if (string.Equals(RootOf(b.Ticker), root, StringComparison.OrdinalIgnoreCase))
+                    return select(b);
+
+        return fallback;
+    }
+
+    /// <summary>"MCLK26" and "/MCLM26" both reduce to "MCL" — trailing month code plus two-digit year.</summary>
+    private static string RootOf(string ticker)
+    {
+        var t = ticker.TrimStart('/').Trim();
+        return t.Length > 3 ? t[..^3] : t;
     }
 
     /// <summary>Largest execution TF across all basket entries and the global default — used for warmup window sizing.</summary>
