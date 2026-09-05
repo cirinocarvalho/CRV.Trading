@@ -4,8 +4,9 @@
     {
       "name": "crv-web",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "CRV.Web", "--urls", "http://0.0.0.0:5050"],
-      "port": 5050,
+      "runtimeArgs": ["run", "--project", "CRV.Web/CRV.Web.csproj"],
+      "port": 5001,
+      "url": "https://localhost:5001",
       "autoPort": false
     }
   ]

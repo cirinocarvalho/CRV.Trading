@@ -26,6 +26,7 @@ public sealed record OptionContract
     public required decimal     ImpliedVolatility { get; init; }
     public required decimal     IntrinsicValue    { get; init; }
     public required decimal     ExtrinsicValue    { get; init; }
+
     public required int         Multiplier        { get; init; }
     public required bool        InTheMoney        { get; init; }
     public required bool        NonStandard       { get; init; }

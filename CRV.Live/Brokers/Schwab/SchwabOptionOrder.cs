@@ -28,11 +28,39 @@ public record AttachedExit(decimal NetPrice, OrderDuration Duration = OrderDurat
 public static class SchwabOptionOrder
 {
     /// <summary>
-    /// Per-spread net premium: positive is a debit you pay, negative a credit you receive.
-    /// Excludes commission — the broker prices the order on premium alone.
+    /// Greatest common divisor of the leg quantities — the factor by which the structure
+    /// is already being traded more than once.
+    /// <para>Three identical puts is one put traded three times, not a three-legged
+    /// structure. A 1:2:1 butterfly is genuinely one structure. Telling these apart is
+    /// what keeps the quoted price per unit.</para>
+    /// </summary>
+    public static int UnitFactor(IReadOnlyList<OptionLeg> legs)
+    {
+        static int Gcd(int a, int b) => b == 0 ? a : Gcd(b, a % b);
+        return legs.Count == 0 ? 1 : legs.Select(l => Math.Max(1, l.Quantity)).Aggregate(Gcd);
+    }
+
+    /// <summary>Leg ratios with the common factor divided out: 3 puts becomes 1, 3:6:3 becomes 1:2:1.</summary>
+    private static List<OptionLeg> Reduce(IReadOnlyList<OptionLeg> legs)
+    {
+        int f = UnitFactor(legs);
+        return f <= 1 ? legs.ToList()
+                      : legs.Select(l => l with { Quantity = l.Quantity / f }).ToList();
+    }
+
+    /// <summary>
+    /// Net premium for ONE unit of the structure: positive is a debit you pay, negative a
+    /// credit you receive. Excludes commission — the broker prices the order on premium alone.
+    /// <para>This is per unit, not per position. Schwab multiplies it by the leg quantities
+    /// it is sent, so folding the quantity in here would bill the order twice over: three
+    /// puts at 3.17 quoted as 9.51 previews at $2,853 instead of $951.</para>
     /// </summary>
     public static decimal NetPrice(IReadOnlyList<OptionLeg> legs)
-        => legs.Sum(l => (l.Action == LegAction.Buy ? 1m : -1m) * l.Premium * l.Quantity);
+        => Reduce(legs).Sum(l => (l.Action == LegAction.Buy ? 1m : -1m) * l.Premium * l.Quantity);
+
+    /// <summary>Total units traded: the spread count times the factor already in the leg quantities.</summary>
+    public static int TotalUnits(IReadOnlyList<OptionLeg> legs, int spreads)
+        => Math.Max(1, spreads) * UnitFactor(legs);
 
     /// <summary>
     /// Signed cash effect of closing an open structure, in dollars.
@@ -117,7 +145,13 @@ public static class SchwabOptionOrder
         if (spreads <= 0)
             throw new ArgumentOutOfRangeException(nameof(spreads), spreads, "Spread count must be positive.");
 
+        int factor  = UnitFactor(legs);
+        var ratios  = Reduce(legs);
+        int units   = spreads * factor;
         decimal net = limitPrice ?? NetPrice(legs);
+
+        legs    = ratios;
+        spreads = units;
 
         // Single legs price as a plain limit; anything multi-leg is a net order so the
         // structure fills as a unit or not at all. Market is never emitted.

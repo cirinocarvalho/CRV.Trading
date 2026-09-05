@@ -209,7 +209,8 @@ public class ExplorerModel : PageModel
             int contracts = legs.Sum(l => l.Quantity);
             int mult      = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
             if (contracts > 0)
-                curveCommission += (lim - SchwabOptionOrder.NetPrice(legs)) * mult / contracts;
+                curveCommission += (lim - SchwabOptionOrder.NetPrice(legs))
+                                 * mult * SchwabOptionOrder.UnitFactor(legs) / contracts;
         }
 
         var curve = PayoffCalculator.Curve(
@@ -221,11 +222,69 @@ public class ExplorerModel : PageModel
             netDebit        = a.NetDebit,
             maxProfit       = a.ProfitUnbounded ? (decimal?)null : a.MaxProfit,
             maxLoss         = a.LossUnbounded   ? (decimal?)null : a.MaxLoss,
+            maxProfitAt     = a.MaxProfitAt,
+            maxLossAt       = a.MaxLossAt,
             profitUnbounded = a.ProfitUnbounded,
             lossUnbounded   = a.LossUnbounded,
             breakevens      = a.Breakevens,
             curve           = curve.Select(p => new { x = p.Underlying, y = p.Pnl }),
         });
+    }
+
+    // ── AJAX: structures that fit a stated view ───────────────────
+
+    public async Task<IActionResult> OnGetSuggestAsync(
+        string symbol, string expiry, decimal target, decimal commission,
+        int strikeCount, decimal maxSpreadPct, CancellationToken ct)
+    {
+        symbol = (symbol ?? "").Trim().ToUpperInvariant();
+        if (symbol.Length == 0) return BadRequest(new { error = "Symbol is required." });
+        if (!DateOnly.TryParse(expiry, out var exp))
+            return BadRequest(new { error = "A valid expiry is required." });
+        if (target <= 0m) return BadRequest(new { error = "Enter the price you expect the underlying to reach." });
+
+        if (strikeCount <= 0) strikeCount = 60;
+        strikeCount = Math.Min(strikeCount, 200);
+
+        try
+        {
+            var chain = await SchwabOptionChain.FetchAsync(
+                _schwab, symbol, fromDate: exp, toDate: exp,
+                strikeCount: strikeCount, httpFactory: _httpFactory, ct: ct);
+
+            var gate = new LiquidityGate(MaxSpreadPct: maxSpreadPct > 0m ? maxSpreadPct : 10m);
+            var found = StructureFinder.Find(
+                chain, exp.ToDateTime(TimeOnly.MinValue), target, commission, gate);
+
+            return new JsonResult(new
+            {
+                underlyingPrice = chain.UnderlyingPrice,
+                target,
+                candidates = found.Select(c => new
+                {
+                    c.Name,
+                    netDebit    = c.NetDebit,
+                    maxLoss     = c.MaxLoss,
+                    maxProfit   = c.MaxProfit,
+                    pnlAtTarget = c.PnlAtTarget,
+                    returnOnRisk= c.ReturnOnRisk,
+                    breakevens  = c.Breakevens,
+                    worstSpread = Math.Round(c.WorstSpreadPct, 1),
+                    sensitivity = c.Sensitivity.Select(p => new { x = p.Underlying, y = p.Pnl }),
+                    legs        = c.Legs.Select(l => new
+                    {
+                        symbol     = l.Symbol,
+                        right      = l.Right.ToString(),
+                        action     = l.Action.ToString(),
+                        strike     = l.Strike,
+                        premium    = l.Premium,
+                        quantity   = l.Quantity,
+                        multiplier = l.Multiplier,
+                    }),
+                }),
+            });
+        }
+        catch (Exception ex) { return Fail(ex, symbol); }
     }
 
     // ── AJAX: re-quote a set of contracts ─────────────────────────
@@ -282,10 +341,11 @@ public class ExplorerModel : PageModel
     {
         if (limitPrice is not { } limit) return PayoffCalculator.Analyze(legs, commissionPerContract);
 
-        decimal marketNet   = SchwabOptionOrder.NetPrice(legs);
+        decimal marketNet   = SchwabOptionOrder.NetPrice(legs);   // per unit
         int     contracts   = legs.Sum(l => l.Quantity);
         int     multiplier  = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
-        decimal extraCost   = (limit - marketNet) * multiplier;
+        // These legs already carry UnitFactor units, so the per-unit delta scales by it.
+        decimal extraCost   = (limit - marketNet) * multiplier * SchwabOptionOrder.UnitFactor(legs);
 
         return PayoffCalculator.Analyze(
             legs, commissionPerContract + (contracts > 0 ? extraCost / contracts : 0m));
@@ -333,6 +393,9 @@ public class ExplorerModel : PageModel
         int      contracts    = legs!.Sum(l => l.Quantity) * spreads;
         int      multiplier   = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
         decimal  commission   = contracts * req.CommissionPerContract;
+        // Three identical puts is three units of a one-leg structure, so the per-unit
+        // price is multiplied by three — not by the spread count, which is still 1.
+        int      units        = SchwabOptionOrder.TotalUnits(legs!, spreads);
 
         decimal? targetProfit    = null;
         decimal? returnOnRisk    = null;
@@ -342,8 +405,8 @@ public class ExplorerModel : PageModel
         if (req.ExitPrice is { } exitNet)
         {
             // Commission is charged on the way in AND on the way out.
-            decimal entryCost    = entryNet * multiplier * spreads + commission;
-            decimal exitProceeds = exitNet  * multiplier * spreads - commission;
+            decimal entryCost    = entryNet * multiplier * units + commission;
+            decimal exitProceeds = exitNet  * multiplier * units - commission;
             targetProfit = exitProceeds - entryCost;
 
             if (!analysis.LossUnbounded && analysis.MaxLoss > 0m)
@@ -363,6 +426,7 @@ public class ExplorerModel : PageModel
         return new JsonResult(new
         {
             spreads,
+            units,
             targetProfit,
             returnOnRisk,
             maxStructureValue = maxStructureVal,
@@ -608,7 +672,110 @@ public class ExplorerModel : PageModel
                 o.Spreads, o.OrderType, o.TotalNet, o.MaxLoss, o.Accepted, o.Error,
             })
             .ToListAsync(ct);
-        return new JsonResult(new { orders = rows });
+
+        // Status is never mirrored locally — the broker owns it. It is fetched here and
+        // joined on, so a row can never claim "working" for an order that has since filled.
+        var live = new Dictionary<string, OrderView>(StringComparer.Ordinal);
+        if (rows.Count > 0 && !string.IsNullOrEmpty(SchwabAccountId))
+        {
+            try
+            {
+                var from = rows.Min(r => r.PlacedAt).ToLocalTime().Date;
+                foreach (var o in await ManualBrokerOps.GetOrdersSchwabAsync(
+                             _schwab, SchwabAccountId, "ALL", from, DateTime.Today, _httpFactory))
+                    live[o.OrderId] = o;
+            }
+            catch (Exception ex)
+            {
+                // A status lookup failure must not hide the local record.
+                _log.LogWarning(ex, "Could not fetch live status for recorded option orders");
+            }
+        }
+
+        return new JsonResult(new
+        {
+            orders = rows.Select(r =>
+            {
+                live.TryGetValue(r.OrderId ?? "", out var l);
+                return new
+                {
+                    r.PlacedAt, r.OrderId, r.Underlying, r.Structure, r.Intent,
+                    r.Spreads, r.OrderType, r.TotalNet, r.MaxLoss, r.Accepted, r.Error,
+                    status      = l?.StatusLabel,
+                    canCancel   = l?.CanCancel ?? false,
+                };
+            }),
+        });
+    }
+
+    // ── AJAX: option orders live at the broker ────────────────────
+    // Includes orders this app never placed — a thinkorswim conditional rule rests at
+    // Schwab as AWAITING_CONDITION, and the local record cannot know about it.
+
+    private static readonly string[] FinishedStatuses =
+        ["FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "REPLACED"];
+
+    public async Task<IActionResult> OnGetWorkingOrdersAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SchwabAccountId))
+            return new JsonResult(new { orders = Array.Empty<object>() });
+
+        try
+        {
+            var raw = await ManualBrokerOps.GetOrdersSchwabAsync(
+                _schwab, SchwabAccountId, "ALL",
+                DateTime.Today.AddDays(-7), DateTime.Today, _httpFactory);
+
+            var open = raw
+                .Where(o => string.Equals(o.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase))
+                .Where(o => !FinishedStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase))
+                .Select(o => new
+                {
+                    orderId    = o.OrderId,
+                    symbol     = o.DisplaySymbol,
+                    action     = o.Action,
+                    quantity   = o.Quantity,
+                    orderType  = o.OrderType,
+                    limitPrice = o.LimitPrice,
+                    status     = o.StatusLabel,
+                    canCancel  = o.CanCancel,
+                    placedTime = o.PlacedTime,
+                    isMultiLeg = o.IsMultiLeg,
+                    legs       = o.Legs == null ? null : o.Legs.Select(l => new
+                    {
+                        l.Symbol, l.Instruction, l.Quantity,
+                    }),
+                })
+                .ToList();
+
+            return new JsonResult(new { orders = open });
+        }
+        catch (Exception ex) { return Fail(ex, "working orders"); }
+    }
+
+    // ── AJAX: cancel a working order ──────────────────────────────
+
+    public record CancelRequest(string? OrderId);
+
+    public async Task<IActionResult> OnPostCancelOrderAsync([FromBody] CancelRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req?.OrderId))
+            return BadRequest(new { error = "No order id." });
+        if (string.IsNullOrEmpty(SchwabAccountId))
+            return BadRequest(new { error = "Schwab:AccountId is not configured." });
+
+        try
+        {
+            var result = await ManualBrokerOps.CancelOrderSchwabAsync(
+                _schwab, SchwabAccountId, req.OrderId, _httpFactory);
+            _log.LogInformation("Cancel requested for option order {OrderId}: {Result}", req.OrderId, result);
+            return new JsonResult(new { ok = true, result });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Cancel failed for option order {OrderId}", req.OrderId);
+            return new JsonResult(new { error = ex.Message });
+        }
     }
 
     private (List<OptionLeg>? Legs, string? Error) BuildLegs(OrderRequest? req)
