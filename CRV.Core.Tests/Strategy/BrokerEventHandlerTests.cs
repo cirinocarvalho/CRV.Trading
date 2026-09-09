@@ -535,6 +535,41 @@ public class BrokerEventHandlerTests
     }
 
     [Fact]
+    public async Task StopFilled_InBacktest_UsesEventFillPrice_EvenForNumericLookingOrderIds()
+    {
+        var executor = new FakeGroupExecutor();
+        var handler = new BrokerEventHandler(executor) { IsBacktest = true };
+        TradeRecord? trade = null;
+        handler.OnTradeCompleted += (_, t) => trade = t;
+
+        var group = MakeGroup();
+        group.GroupOrderId = "12345678";
+        group.Status = GroupOrderStatus.Active;
+        group.EntryPrice = 20000m;
+        group.InitialStopPrice = 19950m;
+        foreach (var leg in group.Legs)
+        {
+            leg.GroupOrderId = group.GroupOrderId;
+            leg.OrderId = leg.LegType switch
+            {
+                LegType.Entry => "12345678-e1",
+                LegType.Tg1 => "12345678-t1",
+                LegType.Tg2 => "12345678-t2",
+                LegType.Stop => "12345678-s1",
+                _ => leg.OrderId
+            };
+        }
+
+        handler.RegisterGroup(group, new FakeSetup());
+
+        await handler.HandleEventAsync(Evt("12345678", "12345678-e1", LegType.Entry, OrderLegStatus.Filled, 20000m, 4));
+        await handler.HandleEventAsync(Evt("12345678", "12345678-s1", LegType.Stop, OrderLegStatus.Filled, 19940m, 4));
+
+        Assert.NotNull(trade);
+        Assert.Equal(19940m, trade!.Exit);
+    }
+
+    [Fact]
     public async Task DisplacedGroup_StillProcessesTg1AndTg2Events()
     {
         // Scenario: group1 is active for setupId "A", then group2 overwrites it.

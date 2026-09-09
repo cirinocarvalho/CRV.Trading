@@ -853,9 +853,10 @@ public class BrokerEventHandler
         // Short IDs (1-3 chars like "s1","t1") are test fakes — don't skip, let REST resolve.
         bool isNonNumeric = !long.TryParse(evt.OrderId?.Split('-')[0], out _);
         bool isMockOrder = isNonNumeric && (evt.OrderId?.Length ?? 0) > 3;
-        if (isMockOrder && evt.FillPrice is > 0)
+        bool skipRestFillLookup = IsBacktest || isMockOrder;
+        if (skipRestFillLookup && evt.FillPrice is > 0)
             return evt.FillPrice.Value;
-        if (isMockOrder && fallbackPrice > 0)
+        if (skipRestFillLookup && fallbackPrice > 0)
             return fallbackPrice;
 
         // Always try REST first — even if WSS provided a price
