@@ -27,8 +27,24 @@ public class ValidationRunnerTests : IDisposable
     private BarSnapshotStore Store() => new(_dir);
     private ValidationRunner Runner() => new(Store(), NullLogger<ValidationRunner>.Instance);
 
-    private static StrategyConfig Config()
+    // The setup deliberately carries no ORB window of its own, so the sweep's change
+    // to the global window reaches it.
+    private static StrategyConfig Config(Action<StrategySetupConfig>? tweak = null)
     {
+        var setup = new StrategySetupConfig
+        {
+            Name = "pullback-mnq", SetupId = SetupId.A,
+            StrategyType = StrategyType.Pullback, Enabled = true,
+            Ticker = Ticker, PointValue = 2m, TickSize = 0.25m,
+            Contracts = 1, MaxContracts = 1, HiVolMult = 1.0m,
+            StopPct = 0.50m, TargetPct = 100, PartialPct = 50,
+            NearPct = 0.30m, MinRr = 0.5m, Mode = "Conservative",
+            PullbackPct = 0.50m, MaxTrades = 3,
+            UsePartial = false, UseBe = false, UseVwap = false, UseOrbClose = false,
+            CutoffHour = 15, CutoffMinute = 0, OrderType = "Limit",
+        };
+        tweak?.Invoke(setup);
+
         var basket = new List<BasketEntry>
         {
             new()
@@ -42,18 +58,7 @@ public class ValidationRunnerTests : IDisposable
                     new() { SessionId = "London", Enabled = false, CutoffHour = 8,  CutoffMinute = 0  },
                     new() { SessionId = "NY",     Enabled = true,  CutoffHour = 15, CutoffMinute = 0  },
                 },
-                Config = new StrategySetupConfig
-                {
-                    Name = "pullback-mnq", SetupId = SetupId.A,
-                    StrategyType = StrategyType.Pullback, Enabled = true,
-                    Ticker = Ticker, PointValue = 2m, TickSize = 0.25m,
-                    Contracts = 1, MaxContracts = 1, HiVolMult = 1.0m,
-                    StopPct = 0.50m, TargetPct = 100, PartialPct = 50,
-                    NearPct = 0.30m, MinRr = 0.5m, Mode = "Conservative",
-                    PullbackPct = 0.50m, MaxTrades = 3,
-                    UsePartial = false, UseBe = false, UseVwap = false, UseOrbClose = false,
-                    CutoffHour = 15, CutoffMinute = 0, OrderType = "Limit",
-                },
+                Config = setup,
             },
         };
         return new StrategyConfig
@@ -190,6 +195,51 @@ public class ValidationRunnerTests : IDisposable
         Assert.Empty(study.Earning);
         Assert.Empty(study.Candidates);
         Assert.All(study.Ranked, a => Assert.Equal(AblationVerdict.InsufficientEvidence, a.Verdict));
+    }
+
+    // ── What the budget refused reaches every study ───────────────
+    // The fixture's 30-minute range is 20 points; a half-range stop at $2 a point
+    // risks $20 a contract, and a $10 budget refuses it. A study that showed "0
+    // trades" for that cell and nothing else would be indistinguishable from a
+    // setup that never fired.
+
+    private static StrategyConfig RefusingConfig() => Config(s =>
+    {
+        s.AutoSizeByRisk = true;
+        s.MaxTradeRisk   = 10m;
+    });
+
+    [Fact]
+    public async Task TheSplitReportsRefusalsOnItsSides()
+    {
+        await CaptureBars();
+        var split = await Runner().SplitAsync(RefusingConfig(), BtConfig());
+
+        Assert.Empty(split.InSample);
+        Assert.Empty(split.OutOfSample);
+        Assert.Equal(1, split.InSampleRefused + split.OutOfSampleRefused);
+    }
+
+    [Fact]
+    public async Task TheSweepReportsRefusalsPerCell()
+    {
+        await CaptureBars();
+        var surface = await Runner().SweepAsync(RefusingConfig(), BtConfig(),
+            ValidationRunner.OrbDurations(new TimeOnly(9, 30), 30));
+
+        var cell = Assert.Single(surface.Points);
+        Assert.Equal(0, cell.Edge.Count);
+        Assert.Equal(1, cell.Refused);
+    }
+
+    [Fact]
+    public async Task TheAblationReportsWhatTheBareBreakRefused()
+    {
+        await CaptureBars();
+        var study = await Runner().AblateAsync(RefusingConfig(), BtConfig());
+
+        Assert.Equal(0, study.Baseline.Count);
+        Assert.Equal(1, study.BaselineRefused);
     }
 
     // ── The config plumbing the studies depend on ─────────────────

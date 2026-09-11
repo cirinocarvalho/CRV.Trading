@@ -92,6 +92,13 @@ public interface IStrategyEventSink
     Task OnEntryAsync(EntrySignal signal);
     Task OnExitAsync(TradeRecord completed);
     Task OnSnapshotAsync(EngineSnapshot snapshot);
+
+    /// <summary>
+    /// A signal the risk budget refused at even one contract. Not a trade, so it
+    /// never reaches <see cref="OnExitAsync"/>; sinks that count what the book
+    /// declined to take listen here. Default: ignore.
+    /// </summary>
+    Task OnSizeRefusedAsync(SizeRefusal refusal) => Task.CompletedTask;
 }
 
 public interface ILastPriceProvider

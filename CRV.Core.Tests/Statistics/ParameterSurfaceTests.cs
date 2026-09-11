@@ -15,6 +15,16 @@ public class ParameterSurfaceTests
     private static ParameterPoint P(int minutes, decimal meanR, int n = 120, decimal sd = 1.2m)
         => new($"{minutes}m", minutes, EdgeTest.FromSummary(n, meanR, sd));
 
+    [Fact]
+    public void ACellCarriesWhatTheBudgetRefusedAtThatValue()
+    {
+        var quiet   = P(30, 0.3m);
+        var refused = new ParameterPoint("60m", 60, EdgeTest.FromSummary(80, 0.3m, 1.2m), Refused: 12);
+
+        Assert.Equal(0,  quiet.Refused);
+        Assert.Equal(12, refused.Refused);
+    }
+
     // ── A stable region ───────────────────────────────────────────
 
     [Fact]

@@ -31,13 +31,63 @@ public class AutoSizeByRiskTests
     }
 
     [Fact]
-    public void AutoSize_BudgetCtsBelowFloor_ReturnsZeroToSignalSkip()
+    public void AutoSize_BudgetAffordsFewerThanConfigured_SizesDownRatherThanSkipping()
     {
-        // riskPerCt = |100 - 80| * 20 = 400. Budget = 500/400 = 1. Floor = Contracts (2).
-        // budgetCts (1) < Contracts (2) ⇒ skip.
-        var (cts, _) = AutoSizeByRiskCalculator.Calc(
+        // riskPerCt = |100 - 80| * 20 = 400. Budget = 500/400 = 1. Contracts says 2.
+        // The budget can carry this trade at one contract, so it trades at one.
+        // Refusing it outright was the dead band: the widest-stop signals, the ones
+        // the setup fires on its most distinctive days, were the only ones dropped.
+        var (cts, partial) = AutoSizeByRiskCalculator.Calc(
             ep: 100m, sl: 80m, cfg: BaseCfg(), atrRatio: 0m);
+        Assert.Equal(1, cts);
+        Assert.Equal(0, partial);   // one contract is a runner, not a partial
+    }
+
+    [Fact]
+    public void AutoSize_SingleContractExceedsBudget_Refuses()
+    {
+        // riskPerCt = |100 - 70| * 20 = 600 > budget 500. Not even one fits.
+        var (cts, _) = AutoSizeByRiskCalculator.Calc(
+            ep: 100m, sl: 70m, cfg: BaseCfg(), atrRatio: 0m);
         Assert.Equal(0, cts);
+    }
+
+    [Fact]
+    public void AutoSizeOff_ConfiguredSizeExceedsBudget_Refuses()
+    {
+        // The legacy veto, now inside Calc rather than duplicated after it in
+        // every strategy: 2 contracts x |100 - 85| x 20 = 600 > 500.
+        var cfg = BaseCfg();
+        cfg.AutoSizeByRisk = false;
+        var (cts, _) = AutoSizeByRiskCalculator.Calc(
+            ep: 100m, sl: 85m, cfg: cfg, atrRatio: 0m);
+        Assert.Equal(0, cts);
+    }
+
+    [Fact]
+    public void AutoSizeOff_ConfiguredSizeWithinBudget_Trades()
+    {
+        // 2 x |100 - 90| x 20 = 400 <= 500.
+        var cfg = BaseCfg();
+        cfg.AutoSizeByRisk = false;
+        var (cts, _) = AutoSizeByRiskCalculator.Calc(
+            ep: 100m, sl: 90m, cfg: cfg, atrRatio: 0m);
+        Assert.Equal(2, cts);
+    }
+
+    [Fact]
+    public void Refusal_DescribesStopRiskAndBudgetInDollars()
+    {
+        var when = new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc);
+        var r = AutoSizeByRiskCalculator.Refusal(ep: 100m, sl: 70m, cfg: BaseCfg(), time: when);
+
+        Assert.Equal(when, r.Time);
+        Assert.Equal("A", r.SetupLabel);
+        Assert.Equal("NQH26", r.Ticker);
+        Assert.Equal(30m, r.StopDistance);
+        Assert.Equal(600m, r.RiskPerContract);
+        Assert.Equal(500m, r.Budget);
+        Assert.Equal("refused for size — stop 30.00 pts = $600.00/ct, budget $500", r.Describe());
     }
 
     [Fact]
@@ -107,5 +157,56 @@ public class AutoSizeByRiskTests
         var (cts, _) = AutoSizeByRiskCalculator.Calc(
             ep: 100m, sl: 100m, cfg: BaseCfg(), atrRatio: 0m);
         Assert.Equal(0, cts);
+    }
+
+    // ── One refusal per signal, however many ticks re-ask ────────────
+    // A strategy that is refused stays armed and asks again on the next tick, as it
+    // always did. The trading behaviour is unchanged; only the first ask is reported.
+
+    private static readonly DateTime T0 = new(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Gate_SameSignalAskedTwice_ReportsOnce()
+    {
+        var gate = new SizeRefusalGate();
+
+        var first  = gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0);
+        var second = gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0.AddSeconds(15));
+
+        Assert.NotNull(first);
+        Assert.Equal(T0, first!.Time);
+        Assert.Null(second);
+    }
+
+    [Fact]
+    public void Gate_DifferentStop_IsADifferentSignal()
+    {
+        var gate = new SizeRefusalGate();
+        gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0);
+
+        var moved = gate.Report(isLong: true, ep: 100m, sl: 65m, BaseCfg(), T0.AddMinutes(1));
+
+        Assert.NotNull(moved);
+        Assert.Equal(35m, moved!.StopDistance);
+    }
+
+    [Fact]
+    public void Gate_OppositeDirectionAtSameLevels_IsADifferentSignal()
+    {
+        var gate = new SizeRefusalGate();
+        gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0);
+
+        Assert.NotNull(gate.Report(isLong: false, ep: 100m, sl: 70m, BaseCfg(), T0.AddMinutes(1)));
+    }
+
+    [Fact]
+    public void Gate_AfterReset_ReportsTheSameSignalAgain()
+    {
+        var gate = new SizeRefusalGate();
+        gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0);
+
+        gate.Reset();
+
+        Assert.NotNull(gate.Report(isLong: true, ep: 100m, sl: 70m, BaseCfg(), T0.AddDays(1)));
     }
 }

@@ -162,4 +162,55 @@ public class SampleSplitTests
         Assert.Equal(EdgeVerdict.InsufficientEvidence, split.OutOfSampleEdge.Verdict);
         Assert.False(split.FailedOutOfSample);
     }
+
+    // ── What the budget refused, on each side ─────────────────────
+    // A refusal is not a trade, but it happened at a time, and a side that refused
+    // a third of its signals measured a different sample from one that took them.
+
+    private static SizeRefusal Refusal(DateTime at) =>
+        new(at, "pullback-mnq", "MNQ", StopDistance: 10m, RiskPerContract: 20m, Budget: 10m);
+
+    [Fact]
+    public void RefusalsAreSplitAtTheSameBoundaryAsTheTrades()
+    {
+        var trades   = Trades(100);                       // boundary at trade 70: Start + 70 days
+        var refusals = new[]
+        {
+            Refusal(Start.AddDays(10)), Refusal(Start.AddDays(50)),   // in-sample
+            Refusal(Start.AddDays(80)),                               // out-of-sample
+        };
+
+        var split = SampleSplit.ByFraction(trades, 0.70, refusals: refusals);
+
+        Assert.Equal(2, split.InSampleRefused);
+        Assert.Equal(1, split.OutOfSampleRefused);
+    }
+
+    [Fact]
+    public void ARefusalOnTheBoundaryIsOutOfSampleLikeATradeWouldBe()
+    {
+        var split = SampleSplit.ByFraction(Trades(100), 0.70,
+            refusals: new[] { Refusal(Start.AddDays(70)) });
+
+        Assert.Equal(0, split.InSampleRefused);
+        Assert.Equal(1, split.OutOfSampleRefused);
+    }
+
+    [Fact]
+    public void TheEmbargoDropsRefusalsAsItDropsTrades()
+    {
+        var split = SampleSplit.ByFraction(Trades(100), 0.70, embargo: TimeSpan.FromDays(2),
+            refusals: new[] { Refusal(Start.AddDays(70).AddHours(6)), Refusal(Start.AddDays(75)) });
+
+        Assert.Equal(0, split.InSampleRefused);
+        Assert.Equal(1, split.OutOfSampleRefused);
+    }
+
+    [Fact]
+    public void WithoutRefusalsBothCountsAreZero()
+    {
+        var split = SampleSplit.ByFraction(Trades(20), 0.5);
+        Assert.Equal(0, split.InSampleRefused);
+        Assert.Equal(0, split.OutOfSampleRefused);
+    }
 }

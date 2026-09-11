@@ -467,4 +467,66 @@ public class RetestStrategyTests
         Assert.False(s.IsArmed);
         Assert.Null(s.PendingEntry);
     }
+
+    // ── Sizing against the risk budget ───────────────────────────────
+    // Harness geometry: entry 5200, StopPct 0.5 x range 20 = 10 pts, $20/pt ⇒ $200 a contract.
+
+    [Fact]
+    public void BudgetFitsOneContractNotTwo_TradesOne()
+    {
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 300m;      // one $200 contract fits, two do not
+        var s = new RetestStrategy(cfg);
+
+        EnterLong(s);
+
+        Assert.NotNull(s.PendingEntry);
+        Assert.Equal(1, s.PendingEntry!.TotalContracts);
+        Assert.Null(s.PendingSizeRefusal);
+    }
+
+    [Fact]
+    public void BudgetBelowOneContract_RefusesAndSaysSo()
+    {
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 150m;      // $200 a contract: not even one fits
+        var s = new RetestStrategy(cfg);
+
+        EnterLong(s);
+
+        Assert.Null(s.PendingEntry);
+        var r = s.PendingSizeRefusal;
+        Assert.NotNull(r);
+        Assert.Equal(10m,   r!.StopDistance);
+        Assert.Equal(200m,  r.RiskPerContract);
+        Assert.Equal(150m,  r.Budget);
+        Assert.Equal(cfg.Ticker, r.Ticker);
+        Assert.Equal(new DateTime(2026, 3, 10, 14, 31, 0, DateTimeKind.Utc), r.Time);
+
+        s.ClearPendingSignals();
+        Assert.Null(s.PendingSizeRefusal);
+    }
+
+    [Fact]
+    public void RefusedSignal_ReAskedOnTheNextTick_IsNotReportedTwice()
+    {
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 150m;
+        var s = new RetestStrategy(cfg);
+
+        EnterLong(s);                              // first ask at 5200: refused, reported
+        Assert.NotNull(s.PendingSizeRefusal);
+        s.ClearPendingSignals();
+
+        // Price is still at the entry level fifteen seconds later; the strategy is
+        // still armed and asks again. Same signal, same answer — nothing new to report.
+        s.OnTick(5200m, new DateTime(2026, 3, 10, 14, 31, 15, DateTimeKind.Utc),
+                 MakeOrb(), MakeIndicators(), EmptyModules());
+
+        Assert.Null(s.PendingEntry);
+        Assert.Null(s.PendingSizeRefusal);
+    }
 }

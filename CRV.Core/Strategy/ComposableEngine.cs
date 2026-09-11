@@ -170,6 +170,16 @@ public class ComposableEngine
     {
         foreach (var sig in signals)
         {
+            // A refusal is not an entry, but it is not nothing either: the strategy
+            // wanted this trade and the budget declined it. Same channel as the
+            // portfolio ceiling, so it shows in the feed and reaches whoever counts.
+            if (sig.Refusal is { } refusal)
+            {
+                AddAlert("RISK", sig.Strategy.SetupId, refusal.Describe(),
+                    "orange", sig.Strategy.Id, refusal.Ticker);
+                await _sink.OnSizeRefusedAsync(refusal);
+            }
+
             if (sig.Entry is not { } esig) continue;
 
             var setup = sig.Strategy.SetupId;

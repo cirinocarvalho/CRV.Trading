@@ -29,10 +29,12 @@ public class ComposableEngineTests
         public List<EntrySignal> Entries { get; } = new();
         public List<TradeRecord> Exits { get; } = new();
         public List<EngineSnapshot> Snapshots { get; } = new();
+        public List<SizeRefusal> Refusals { get; } = new();
 
         public Task OnEntryAsync(EntrySignal signal) { Entries.Add(signal); return Task.CompletedTask; }
         public Task OnExitAsync(TradeRecord completed) { Exits.Add(completed); return Task.CompletedTask; }
         public Task OnSnapshotAsync(EngineSnapshot snapshot) { Snapshots.Add(snapshot); return Task.CompletedTask; }
+        public Task OnSizeRefusedAsync(SizeRefusal refusal) { Refusals.Add(refusal); return Task.CompletedTask; }
     }
 
     private class FakePrices : ILastPriceProvider
@@ -515,5 +517,32 @@ public class ComposableEngineTests
         var snap = engine.GetSnapshot();
         Assert.True(snap.Setups.First(s => s.Id == "A").Enabled);
         Assert.True(snap.Setups.First(s => s.Id == "C").Enabled);
+    }
+
+    // ── A size refusal is routed like the portfolio ceiling: sink + RISK alert, no order ──
+
+    [Fact]
+    public async Task SizeRefusal_ReachesSinkAndAlertsFeed_PlacesNothing()
+    {
+        var executor = new FakeExecutor();
+        var sink     = new FakeSink();
+        var engine   = CreateEngine(executor, sink);
+        var strategy = new FakeStrategy { Id = "retest-mnq", Ticker = "MNQM26" };
+
+        var refusal = new SizeRefusal(
+            Time: new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc),
+            SetupLabel: "retest-mnq", Ticker: "MNQM26",
+            StopDistance: 120m, RiskPerContract: 240m, Budget: 210m);
+
+        await engine.RouteSignalsAsync(new List<StrategySignals> { new(strategy, null, refusal) });
+
+        Assert.Empty(executor.Entries);
+        Assert.Empty(sink.Entries);
+        Assert.Equal(new[] { refusal }, sink.Refusals);
+
+        var alert = Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "RISK");
+        Assert.Equal("retest-mnq", alert.SetupLabel);
+        Assert.Equal("MNQM26", alert.Ticker);
+        Assert.Equal(refusal.Describe(), alert.Message);
     }
 }

@@ -141,6 +141,13 @@ public interface ISetupStrategy
     // ── Pending signals (consumed by engine after OnBar/OnTick) ──
     EntrySignal? PendingEntry { get; }
 
+    /// <summary>
+    /// A signal the strategy wanted to take and the risk budget could not carry at
+    /// even one contract. Set instead of <see cref="PendingEntry"/>, consumed and
+    /// cleared alongside it. Null for strategies that do not size against a budget.
+    /// </summary>
+    SizeRefusal? PendingSizeRefusal => null;
+
     /// <summary>Clear all pending signals after engine has processed them.</summary>
     void ClearPendingSignals();
 

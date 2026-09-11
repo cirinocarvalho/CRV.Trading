@@ -328,4 +328,40 @@ public class Ema21StrategyTests
         Assert.Null(s.PendingEntry);
         Assert.Equal(0, s.GetSnapshot().TradeCount);
     }
+
+    [Fact]
+    public void BudgetBelowOneContract_RefusesAndSaysSo()
+    {
+        // Same cross-and-enter sequence as CrossBull_arms_long_and_enters_next_bar;
+        // the stop sits at the EMA, several points below a 5083 entry at $20/pt,
+        // so a $20 budget cannot carry one contract.
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 20m;
+        var s = new Ema21Strategy(cfg);
+
+        var warmup = new List<Bar>();
+        for (int i = 0; i < 21; i++)
+        {
+            decimal p = 5100m - i * 2m;
+            warmup.Add(new Bar(T(i), p, p + 1m, p - 1m, p - 0.5m, 500));
+        }
+        FeedBars(s, warmup);
+        s.OnBar(new Bar(T(22), 5059m, 5061m, 5055m, 5058m, 500), DummyOrb(), DummyInd(), DummyMod());
+        s.OnBar(new Bar(T(23), 5059m, 5085m, 5058m, 5082m, 500), DummyOrb(), DummyInd(), DummyMod());
+        Assert.True(s.IsArmed);
+
+        s.OnBar(new Bar(T(24), 5083m, 5095m, 5081m, 5090m, 500), DummyOrb(), DummyInd(), DummyMod());
+
+        Assert.Null(s.PendingEntry);
+        var r = s.PendingSizeRefusal;
+        Assert.NotNull(r);
+        Assert.True(r!.RiskPerContract > 20m, $"risk/ct {r.RiskPerContract} should exceed the $20 budget");
+        Assert.Equal(20m, r.Budget);
+        Assert.Equal(T(24), r.Time);
+        Assert.False(s.IsArmed);   // a refused EMA entry stands down, as a vetoed one always did
+
+        s.ClearPendingSignals();
+        Assert.Null(s.PendingSizeRefusal);
+    }
 }

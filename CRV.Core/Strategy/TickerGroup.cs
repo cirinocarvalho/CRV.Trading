@@ -6,11 +6,13 @@ namespace CRV.Core.Strategy;
 
 /// <summary>
 /// Signals collected from a single strategy after bar/tick processing.
-/// Returned to ComposableEngine for routing to broker/sink.
+/// Returned to ComposableEngine for routing to broker/sink. A strategy produces
+/// an entry or a size refusal on a given pass, never both.
 /// </summary>
 public record StrategySignals(
     ISetupStrategy Strategy,
-    EntrySignal? Entry);
+    EntrySignal? Entry,
+    SizeRefusal? Refusal = null);
 
 /// <summary>
 /// Per-instrument group that owns shared indicators, modules, and a list of
@@ -471,7 +473,7 @@ public class TickerGroup
         var result = new List<StrategySignals>(_strategies.Count);
         foreach (var s in _strategies)
         {
-            result.Add(new StrategySignals(s, s.PendingEntry));
+            result.Add(new StrategySignals(s, s.PendingEntry, s.PendingSizeRefusal));
             s.ClearPendingSignals();
         }
         return result;

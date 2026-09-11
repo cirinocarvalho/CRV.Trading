@@ -32,11 +32,15 @@ public sealed class Ablation
     public EdgeTest Baseline   { get; }
     public EdgeTest WithFilter { get; }
 
-    public Ablation(EdgeTest baseline, EdgeTest withFilter, string name)
+    /// <summary>Signals the risk budget refused with this filter on. Not trades, so not in <see cref="WithFilter"/>.</summary>
+    public int Refused { get; }
+
+    public Ablation(EdgeTest baseline, EdgeTest withFilter, string name, int refused = 0)
     {
         Baseline   = baseline;
         WithFilter = withFilter;
         Name       = name;
+        Refused    = refused;
     }
 
     /// <summary>Mean R with the filter minus mean R without it. Positive means it helped.</summary>
@@ -71,10 +75,14 @@ public sealed class AblationStudy
     public EdgeTest Baseline { get; }
     public IReadOnlyList<Ablation> Ranked { get; }
 
-    public AblationStudy(EdgeTest baseline, IEnumerable<Ablation> ablations)
+    /// <summary>Signals the risk budget refused on the bare break.</summary>
+    public int BaselineRefused { get; }
+
+    public AblationStudy(EdgeTest baseline, IEnumerable<Ablation> ablations, int baselineRefused = 0)
     {
-        Baseline = baseline;
-        Ranked   = ablations.OrderByDescending(a => a.Contribution).ToList();
+        Baseline        = baseline;
+        Ranked          = ablations.OrderByDescending(a => a.Contribution).ToList();
+        BaselineRefused = baselineRefused;
     }
 
     /// <summary>Filters that measurably improve on the baseline.</summary>

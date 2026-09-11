@@ -103,7 +103,10 @@ public sealed class Ema21Strategy : ISetupStrategy
     public bool IsEnabledForSession(string s) => _cfg.IsEnabledForSession(s);
 
     public EntrySignal? PendingEntry => _pendingEntry;
-    public void ClearPendingSignals() => _pendingEntry = null;
+    public SizeRefusal? PendingSizeRefusal => _pendingSizeRefusal;
+    private SizeRefusal? _pendingSizeRefusal;
+    private readonly SizeRefusalGate _refusalGate = new();
+    public void ClearPendingSignals() { _pendingEntry = null; _pendingSizeRefusal = null; }
 
     public void Reconfigure(StrategySetupConfig config) => _cfg = config;
 
@@ -141,7 +144,8 @@ public sealed class Ema21Strategy : ISetupStrategy
         _tradeCount = 0; _longCount = 0; _shortCount = 0;
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _inTrade = false;
-        _pendingEntry = null;
+        _refusalGate.Reset();
+        ClearPendingSignals();
         // NOTE: indicators (_ema, _atr, _volHistory, _prevBar*) are NOT reset.
         // They persist across days just like TickerGroup's shared ATR/EMA21.
     }
@@ -153,7 +157,8 @@ public sealed class Ema21Strategy : ISetupStrategy
         _pastCutoff = false;
         _tradeCount = 0; _longCount = 0; _shortCount = 0;
         _inTrade = false;
-        _pendingEntry = null;
+        _refusalGate.Reset();
+        ClearPendingSignals();
         // Note: indicators, _wins/_losses/_winPnl/_lossPnl PRESERVED
     }
 
@@ -419,15 +424,13 @@ public sealed class Ema21Strategy : ISetupStrategy
             return;
         }
 
-        // Contract sizing (AutoSizeByRisk-aware)
+        // Contract sizing against the risk budget; zero means the budget refused it.
         var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, atrRatio: 0m);
-        if (contracts <= 0) { _state = 0; return; }
-
-        // Max trade risk veto (active when AutoSizeByRisk is OFF; harmless when ON)
-        if (_cfg.MaxTradeRisk > 0)
+        if (contracts <= 0)
         {
-            decimal tradeRisk = risk * _cfg.PointValue * contracts;
-            if (tradeRisk > _cfg.MaxTradeRisk) { _state = 0; return; }
+            _pendingSizeRefusal = _refusalGate.Report(isLong, ep, sl, _cfg, bar.Time);
+            _state = 0;
+            return;
         }
 
         _pendingEntry = new EntrySignal(

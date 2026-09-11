@@ -165,7 +165,7 @@
         {
             var r = Model.Result;
             var setupCards = r.PerSetup
-                .Where(kv => kv.Value.TotalTrades > 0)
+                .Where(kv => kv.Value.TotalTrades > 0 || kv.Value.SizeRefusals > 0)
                 .Select(kv => (Title: kv.Key, Icon: "bi-circle-fill", M: kv.Value))
                 .ToList();
             var allCards = new[] { (Title: "Total", Icon: "bi-bar-chart-fill", M: r.Total) }
@@ -181,6 +181,13 @@
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Trades</span><span class="font-monospace small">@m.TotalTrades</span>
                             </div>
+                            @if (m.SizeRefusals > 0)
+                            {
+                                <div class="d-flex justify-content-between border-bottom border-secondary py-1">
+                                    <span class="text-muted small" title="Signals the risk budget could not carry at even one contract. Not trades — but this run measured a different sample from one that took them.">Refused for size</span>
+                                    <span class="font-monospace small text-warning">@m.SizeRefusals</span>
+                                </div>
+                            }
                             <div class="d-flex justify-content-between border-bottom border-secondary py-1">
                                 <span class="text-muted small">Win Rate</span>
                                 <span class="font-monospace small @(m.WinRate >= 50 ? "pnl-pos" : "pnl-neg")">@m.WinRate.ToString("F1")%</span>

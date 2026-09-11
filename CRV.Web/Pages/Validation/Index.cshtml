@@ -142,15 +142,22 @@
         <div class="card-body p-0">
             <table class="table table-sm table-dark mb-0 font-monospace small">
                 <thead><tr>
-                    <th></th><th class="text-end">Trades</th><th class="text-end">Mean R</th>
+                    <th></th><th class="text-end">Trades</th>
+                    <th class="text-end" title="Signals the risk budget refused at even one contract. Not trades, so not in the mean — but a side that refused a third of its signals is a different sample.">Refused</th>
+                    <th class="text-end">Mean R</th>
                     <th class="text-end">95% CI</th><th class="text-end">t</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
-                @foreach (var (label, e) in new[] { ("In-sample", split.InSampleEdge), ("Out-of-sample", split.OutOfSampleEdge) })
+                @foreach (var (label, e, refused) in new[]
+                {
+                    ("In-sample",     split.InSampleEdge,    split.InSampleRefused),
+                    ("Out-of-sample", split.OutOfSampleEdge, split.OutOfSampleRefused),
+                })
                 {
                     <tr>
                         <td>@label</td>
                         <td class="text-end">@e.Count</td>
+                        <td class="text-end @(refused > 0 ? "text-warning" : "text-muted")">@refused</td>
                         <td class="text-end">@e.MeanR.ToString("+0.000;-0.000")R</td>
                         <td class="text-end">
                             @(e.Count > 1 ? $"[{e.LowerBound:+0.000;-0.000}, {e.UpperBound:+0.000;-0.000}]" : "—")
@@ -205,7 +212,9 @@
         <div class="card-body p-0">
             <table class="table table-sm table-dark mb-0 font-monospace small">
                 <thead><tr>
-                    <th></th><th>Duration</th><th class="text-end">Trades</th><th class="text-end">Mean R</th>
+                    <th></th><th>Duration</th><th class="text-end">Trades</th>
+                    <th class="text-end" title="Signals the risk budget refused at this duration. A cell that won while refusing a fifth of its signals measured a different sample from its neighbours.">Refused</th>
+                    <th class="text-end">Mean R</th>
                     <th class="text-end">95% CI</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
@@ -216,6 +225,7 @@
                         <td>@(inRegion ? "★" : "")</td>
                         <td>@p.Label</td>
                         <td class="text-end">@p.Edge.Count</td>
+                        <td class="text-end @(p.Refused > 0 ? "text-warning" : "text-muted")">@p.Refused</td>
                         <td class="text-end">@p.Edge.MeanR.ToString("+0.000;-0.000")R</td>
                         <td class="text-end">
                             @(p.Edge.Count > 1 ? $"[{p.Edge.LowerBound:+0.000;-0.000}, {p.Edge.UpperBound:+0.000;-0.000}]" : "—")
@@ -275,13 +285,16 @@
         <div class="card-body p-0">
             <table class="table table-sm table-dark mb-0 font-monospace small">
                 <thead><tr>
-                    <th>Filter</th><th class="text-end">Trades</th><th class="text-end">Pass rate</th>
+                    <th>Filter</th><th class="text-end">Trades</th>
+                    <th class="text-end" title="Signals the risk budget refused with this filter on. Not trades, so not in the pass rate or the mean.">Refused</th>
+                    <th class="text-end">Pass rate</th>
                     <th class="text-end">Mean R</th><th class="text-end">vs baseline</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
                 <tr class="text-muted">
                     <td>— none —</td>
                     <td class="text-end">@study.Baseline.Count</td>
+                    <td class="text-end @(study.BaselineRefused > 0 ? "text-warning" : "")">@study.BaselineRefused</td>
                     <td class="text-end">100%</td>
                     <td class="text-end">@study.Baseline.MeanR.ToString("+0.000;-0.000")R</td>
                     <td class="text-end">—</td>
@@ -292,6 +305,7 @@
                     <tr>
                         <td>@a.Name</td>
                         <td class="text-end">@a.WithFilter.Count</td>
+                        <td class="text-end @(a.Refused > 0 ? "text-warning" : "text-muted")">@a.Refused</td>
                         <td class="text-end">@a.PassRate.ToString("P0")</td>
                         <td class="text-end">@a.WithFilter.MeanR.ToString("+0.000;-0.000")R</td>
                         <td class="text-end">@a.Contribution.ToString("+0.000;-0.000")R</td>

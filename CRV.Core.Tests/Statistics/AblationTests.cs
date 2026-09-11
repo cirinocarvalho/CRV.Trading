@@ -107,4 +107,20 @@ public class AblationTests
         Assert.Empty(study.Ranked);
         Assert.Empty(study.Earning);
     }
+
+    // ── What the budget refused, per arm ──────────────────────────
+
+    [Fact]
+    public void EachArmCarriesWhatTheBudgetRefusedUnderIt()
+    {
+        var study = new AblationStudy(E(0.05m), new[]
+        {
+            new Ablation(E(0.05m), E(0.42m), "vwap", refused: 3),
+            new Ablation(E(0.05m), E(0.08m), "atr"),
+        }, baselineRefused: 7);
+
+        Assert.Equal(7, study.BaselineRefused);
+        Assert.Equal(3, study.Ranked.Single(a => a.Name == "vwap").Refused);
+        Assert.Equal(0, study.Ranked.Single(a => a.Name == "atr").Refused);
+    }
 }

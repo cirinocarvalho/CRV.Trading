@@ -110,10 +110,14 @@ public class RetestStrategy : ISetupStrategy
 
     // ── Pending signals ───────────────────────────────────────────
     public EntrySignal? PendingEntry => _pendingEntry;
+    public SizeRefusal? PendingSizeRefusal => _pendingSizeRefusal;
+    private SizeRefusal? _pendingSizeRefusal;
+    private readonly SizeRefusalGate _refusalGate = new();
 
     public void ClearPendingSignals()
     {
         _pendingEntry = null;
+        _pendingSizeRefusal = null;
     }
 
     public void Reconfigure(StrategySetupConfig config)
@@ -156,6 +160,7 @@ public class RetestStrategy : ISetupStrategy
         _wins = 0; _losses = 0; _winPnl = 0; _lossPnl = 0;
         _lastAtrRatio = 0;
         _prevBar = null; _signalBar = null; _lastVwap = 0;
+        _refusalGate.Reset();
         ClearPendingSignals();
     }
 
@@ -175,6 +180,7 @@ public class RetestStrategy : ISetupStrategy
         _longCount = 0; _shortCount = 0; _tradeCount = 0;
         _lastAtrRatio = 0;
         _prevBar = null; _signalBar = null; _lastVwap = 0;
+        _refusalGate.Reset();
         ClearPendingSignals();
     }
 
@@ -585,13 +591,10 @@ public class RetestStrategy : ISetupStrategy
         if (rr < _cfg.MinRr) return;
 
         var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, _lastAtrRatio);
-        if (contracts <= 0) return;
-
-        // Max trade risk filter: skip if dollar risk exceeds limit (0 = disabled)
-        if (_cfg.MaxTradeRisk > 0)
+        if (contracts <= 0)
         {
-            decimal risk = Math.Abs(ep - sl) * _cfg.PointValue * contracts;
-            if (risk > _cfg.MaxTradeRisk) return;
+            _pendingSizeRefusal = _refusalGate.Report(isLong, ep, sl, _cfg, time);
+            return;
         }
 
         _pendingEntry = new EntrySignal(

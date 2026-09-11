@@ -32,4 +32,10 @@ public class CompositeEventSink : IStrategyEventSink
         foreach (var sink in _sinks)
             await sink.OnSnapshotAsync(snapshot);
     }
+
+    public async Task OnSizeRefusedAsync(SizeRefusal refusal)
+    {
+        foreach (var sink in _sinks)
+            await sink.OnSizeRefusedAsync(refusal);
+    }
 }

@@ -13,6 +13,13 @@ public class BacktestResult
     /// <summary>Per-setup metrics keyed by string Id (e.g. "A", "B", "b-mnq-1").</summary>
     public Dictionary<string, PerformanceMetrics> PerSetup { get; set; } = new();
 
+    /// <summary>
+    /// Signals the risk budget refused at even one contract. Not trades, so not in
+    /// <see cref="Trades"/> — but a run that refused a fifth of its signals measured
+    /// a different sample from one that took them, and has to say so.
+    /// </summary>
+    public List<SizeRefusal> SizeRefusals { get; set; } = new();
+
     // Legacy accessors for backward compatibility with existing pages/tests
     public PerformanceMetrics  SetupA      => PerSetup.GetValueOrDefault("A", new());
     public PerformanceMetrics  SetupB      => PerSetup.GetValueOrDefault("B", new());
@@ -47,6 +54,9 @@ public class PerformanceMetrics
     public int      StopExits       { get; set; }
     public int      SessionEndExits { get; set; }
 
+    /// <summary>Signals refused by the risk budget. Zero unless a budget is set and bit.</summary>
+    public int      SizeRefusals    { get; set; }
+
     // E = (WinRate% × AvgWin) + (LossRate% × AvgLoss)
     // AvgLoss is already negative, so adding it subtracts the loss contribution.
     public decimal Expectancy => TotalTrades > 0
@@ -58,27 +68,39 @@ public record EquityPoint(DateTime Time, decimal Equity, decimal TradePnl);
 
 public static class BacktestResultCalculator
 {
-    public static BacktestResult Calculate(List<TradeRecord> trades, StrategyConfig cfg, BacktestConfig btCfg)
+    public static BacktestResult Calculate(List<TradeRecord> trades, StrategyConfig cfg, BacktestConfig btCfg,
+        List<SizeRefusal>? refusals = null)
     {
+        refusals ??= new();
+
         // Group by SetupLabel (string Id), falling back to Setup enum name for legacy trades
-        var perSetup = trades
-            .GroupBy(t => !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())
-            .ToDictionary(g => g.Key, g => Calc(g.ToList(), cfg));
+        static string LabelOf(TradeRecord t) =>
+            !string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString();
+
+        var refusedBySetup = refusals.GroupBy(r => r.SetupLabel).ToDictionary(g => g.Key, g => g.Count());
+
+        // A setup that was refused every time it fired has no trades and still needs a row.
+        var labels = trades.Select(LabelOf).Concat(refusedBySetup.Keys).Distinct();
+        var perSetup = labels.ToDictionary(
+            label => label,
+            label => Calc(trades.Where(t => LabelOf(t) == label).ToList(), cfg,
+                          refusedBySetup.GetValueOrDefault(label)));
 
         return new BacktestResult
         {
-            Config      = cfg,
-            BtConfig    = btCfg,
-            Trades      = trades,
-            Total       = Calc(trades, cfg),
-            PerSetup    = perSetup,
-            EquityCurve = BuildCurve(trades)
+            Config       = cfg,
+            BtConfig     = btCfg,
+            Trades       = trades,
+            Total        = Calc(trades, cfg, refusals.Count),
+            PerSetup     = perSetup,
+            SizeRefusals = refusals,
+            EquityCurve  = BuildCurve(trades)
         };
     }
 
-    private static PerformanceMetrics Calc(List<TradeRecord> trades, StrategyConfig cfg)
+    private static PerformanceMetrics Calc(List<TradeRecord> trades, StrategyConfig cfg, int sizeRefusals = 0)
     {
-        if (trades.Count == 0) return new();
+        if (trades.Count == 0) return new() { SizeRefusals = sizeRefusals };
         var wins   = trades.Where(t => t.IsWin).ToList();
         var losses = trades.Where(t => !t.IsWin).ToList();
 
@@ -120,6 +142,7 @@ public static class BacktestResultCalculator
             TargetExits     = trades.Count(t => t.ExitReason == ExitReason.Target),
             StopExits       = trades.Count(t => t.ExitReason == ExitReason.Stop),
             SessionEndExits = trades.Count(t => t.ExitReason == ExitReason.SessionEnd),
+            SizeRefusals    = sizeRefusals,
         };
     }
 

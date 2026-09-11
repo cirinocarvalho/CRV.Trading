@@ -43,7 +43,7 @@ public sealed class ValidationRunner
         double inSampleFraction = 0.70, TimeSpan? embargo = null, CancellationToken ct = default)
     {
         var result = await RunAsync(cfg, btCfg, ct);
-        var split  = SampleSplit.ByFraction(result.Trades, inSampleFraction, embargo);
+        var split  = SampleSplit.ByFraction(result.Trades, inSampleFraction, embargo, result.SizeRefusals);
         _log.LogInformation("IS/OOS split:\n{Report}", split.Describe());
         return split;
     }
@@ -64,7 +64,8 @@ public sealed class ValidationRunner
 
             var result = await RunAsync(variantCfg, btCfg, ct);
             points.Add(new ParameterPoint(v.Label, v.Value,
-                EdgeTest.FromSamples(result.Trades.Select(t => t.RMultiple).ToList())));
+                EdgeTest.FromSamples(result.Trades.Select(t => t.RMultiple).ToList()),
+                Refused: result.SizeRefusals.Count));
         }
 
         var surface = new ParameterSurface(points);
@@ -94,8 +95,8 @@ public sealed class ValidationRunner
     {
         var bare = cfg.Clone();
         DisableAllFilters(bare);
-        var baseline = EdgeTest.FromSamples(
-            (await RunAsync(bare, btCfg, ct)).Trades.Select(t => t.RMultiple).ToList());
+        var bareRun  = await RunAsync(bare, btCfg, ct);
+        var baseline = EdgeTest.FromSamples(bareRun.Trades.Select(t => t.RMultiple).ToList());
 
         var ablations = new List<Ablation>();
         foreach (var (name, enable) in FilterSwitches)
@@ -108,12 +109,13 @@ public sealed class ValidationRunner
             DisableAllFilters(only);
             enable(only);
 
-            var trades = (await RunAsync(only, btCfg, ct)).Trades;
+            var run = await RunAsync(only, btCfg, ct);
             ablations.Add(new Ablation(baseline,
-                EdgeTest.FromSamples(trades.Select(t => t.RMultiple).ToList()), name));
+                EdgeTest.FromSamples(run.Trades.Select(t => t.RMultiple).ToList()), name,
+                refused: run.SizeRefusals.Count));
         }
 
-        var study = new AblationStudy(baseline, ablations);
+        var study = new AblationStudy(baseline, ablations, baselineRefused: bareRun.SizeRefusals.Count);
         _log.LogInformation("Ablation study:\n{Report}", study.Describe());
         return study;
     }
