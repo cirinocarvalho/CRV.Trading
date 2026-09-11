@@ -103,4 +103,13 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
     {
         await _hub.Clients.All.SendAsync("Update", snap);
     }
+
+    // The dashboard sees the refusal through the RISK alert in the snapshot. The log
+    // line is for afterwards: a setup that traded nothing on a wide-range day should
+    // leave a reason behind, not a blank.
+    public Task OnSizeRefusedAsync(SizeRefusal r)
+    {
+        _log.LogWarning("[RISK] {Setup} {Ticker} {Message}", r.SetupLabel, r.Ticker, r.Describe());
+        return Task.CompletedTask;
+    }
 }

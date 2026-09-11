@@ -110,6 +110,13 @@ nothing measurable, but never the under-sampled ones. Those are unmeasured, not 
 - A verdict of `EdgePresent` with a negative mean is a finding, not a bug.
 - Running the same study repeatedly on the same snapshot until one comes out well is
   the same overfitting the split exists to prevent, done by hand.
+- **Read the `Refused` column before the `Mean R` column.** It counts signals the risk
+  budget declined at even one contract (see *The sizing floor* in [risk.md](risk.md)).
+  They are not trades, so they are in neither the mean nor the interval — which is the
+  point: a cell that "won" while refusing a fifth of its signals, or an out-of-sample
+  side that refused what the in-sample side took, measured a different sample, and the
+  comparison is not like for like. A non-zero count is a reason to look at the budget
+  before believing the verdict.
 
 ## Still missing
 

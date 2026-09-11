@@ -31,15 +31,26 @@ public sealed class SampleSplit
     public EdgeTest InSampleEdge    { get; }
     public EdgeTest OutOfSampleEdge { get; }
 
+    /// <summary>
+    /// Signals the risk budget refused on each side, split at the same boundary and
+    /// under the same embargo as the trades. Not trades, so not in either edge — but a
+    /// side that refused a third of its signals is a different sample from one that
+    /// took them, and the comparison has to say so.
+    /// </summary>
+    public int InSampleRefused    { get; }
+    public int OutOfSampleRefused { get; }
+
     private SampleSplit(List<TradeRecord> inSample, List<TradeRecord> outOfSample,
-        int embargoed, DateTime boundary)
+        int embargoed, DateTime boundary, int inSampleRefused, int outOfSampleRefused)
     {
-        InSample        = inSample;
-        OutOfSample     = outOfSample;
-        EmbargoedCount  = embargoed;
-        Boundary        = boundary;
-        InSampleEdge    = EdgeTest.FromSamples(inSample.Select(t => t.RMultiple).ToList());
-        OutOfSampleEdge = EdgeTest.FromSamples(outOfSample.Select(t => t.RMultiple).ToList());
+        InSample           = inSample;
+        OutOfSample        = outOfSample;
+        EmbargoedCount     = embargoed;
+        Boundary           = boundary;
+        InSampleEdge       = EdgeTest.FromSamples(inSample.Select(t => t.RMultiple).ToList());
+        OutOfSampleEdge    = EdgeTest.FromSamples(outOfSample.Select(t => t.RMultiple).ToList());
+        InSampleRefused    = inSampleRefused;
+        OutOfSampleRefused = outOfSampleRefused;
     }
 
     /// <summary>
@@ -62,47 +73,56 @@ public sealed class SampleSplit
 
     /// <summary>Splits so that <paramref name="inSampleFraction"/> of the trades, earliest first, are in-sample.</summary>
     public static SampleSplit ByFraction(IEnumerable<TradeRecord> trades, double inSampleFraction,
-        TimeSpan? embargo = null)
+        TimeSpan? embargo = null, IEnumerable<SizeRefusal>? refusals = null)
     {
         if (inSampleFraction <= 0 || inSampleFraction >= 1)
             throw new ArgumentOutOfRangeException(nameof(inSampleFraction),
                 inSampleFraction, "Must be strictly between 0 and 1 — a split that empties one side tests nothing.");
 
         var ordered = trades.OrderBy(t => t.EnteredAt).ToList();
-        if (ordered.Count == 0) return Empty();
+        if (ordered.Count == 0) return Empty(refusals);
 
         int cut = (int)Math.Round(ordered.Count * inSampleFraction, MidpointRounding.AwayFromZero);
         cut = Math.Clamp(cut, 1, ordered.Count - 1);
 
         var boundary = ordered[cut].EnteredAt;
-        return Build(ordered, boundary, embargo);
+        return Build(ordered, boundary, embargo, refusals);
     }
 
     /// <summary>Splits at a fixed date: before it is in-sample, on or after it is out.</summary>
     public static SampleSplit ByDate(IEnumerable<TradeRecord> trades, DateTime boundary,
-        TimeSpan? embargo = null)
+        TimeSpan? embargo = null, IEnumerable<SizeRefusal>? refusals = null)
     {
         var ordered = trades.OrderBy(t => t.EnteredAt).ToList();
-        return ordered.Count == 0 ? Empty() : Build(ordered, boundary, embargo);
+        return ordered.Count == 0 ? Empty(refusals) : Build(ordered, boundary, embargo, refusals);
     }
 
-    private static SampleSplit Build(List<TradeRecord> ordered, DateTime boundary, TimeSpan? embargo)
+    private static SampleSplit Build(List<TradeRecord> ordered, DateTime boundary, TimeSpan? embargo,
+        IEnumerable<SizeRefusal>? refusals)
     {
         var inSample = ordered.Where(t => t.EnteredAt < boundary).ToList();
         var after    = ordered.Where(t => t.EnteredAt >= boundary).ToList();
+
+        var refusedList = refusals?.ToList() ?? new List<SizeRefusal>();
+        int refusedIn   = refusedList.Count(r => r.Time < boundary);
 
         // The embargo drops the trades immediately after the boundary. A position
         // opened in-sample can still be open across it, and its outcome would then
         // be informed by the same market move the in-sample side already saw.
         if (embargo is not { } gap || gap <= TimeSpan.Zero)
-            return new SampleSplit(inSample, after, 0, boundary);
+            return new SampleSplit(inSample, after, 0, boundary,
+                refusedIn, refusedList.Count(r => r.Time >= boundary));
 
         var outOfSample = after.Where(t => t.EnteredAt >= boundary + gap).ToList();
-        return new SampleSplit(inSample, outOfSample, after.Count - outOfSample.Count, boundary);
+        return new SampleSplit(inSample, outOfSample, after.Count - outOfSample.Count, boundary,
+            refusedIn, refusedList.Count(r => r.Time >= boundary + gap));
     }
 
-    private static SampleSplit Empty() =>
-        new(new List<TradeRecord>(), new List<TradeRecord>(), 0, DateTime.MinValue);
+    // No trades means no boundary; whatever was refused sits on the side nothing was
+    // chosen against, so it is reported and cannot be mistaken for in-sample evidence.
+    private static SampleSplit Empty(IEnumerable<SizeRefusal>? refusals) =>
+        new(new List<TradeRecord>(), new List<TradeRecord>(), 0, DateTime.MinValue,
+            0, refusals?.Count() ?? 0);
 
     /// <summary>Two lines: what each side showed, and whether the result survived.</summary>
     public string Describe()

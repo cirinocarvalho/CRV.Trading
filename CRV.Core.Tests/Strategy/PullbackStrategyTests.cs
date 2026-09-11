@@ -292,4 +292,29 @@ public class PullbackStrategyTests
         Assert.Equal(DefaultConfig().MaxTrades, snap.MaxTrades);
         Assert.True(snap.Enabled);
     }
+
+    [Fact]
+    public void BudgetBelowOneContract_RefusesAndSaysSo()
+    {
+        // Entry at the pullback level 5190, StopPct 0.10 x range 20 = 2 pts, $20/pt ⇒ $40 a contract.
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 30m;
+        var s = new PullbackStrategy(cfg);
+        var orb = MakeOrb();
+        ArmLong(s);
+
+        var entryBar = MakeBar(5191m, 5192m, 5189m, 5191m);
+        s.OnBar(entryBar, orb, MakeIndicators(), EmptyModules());
+
+        Assert.Null(s.PendingEntry);
+        var r = s.PendingSizeRefusal;
+        Assert.NotNull(r);
+        Assert.Equal(2m,  r!.StopDistance);
+        Assert.Equal(40m, r.RiskPerContract);
+        Assert.Equal(30m, r.Budget);
+
+        s.ClearPendingSignals();
+        Assert.Null(s.PendingSizeRefusal);
+    }
 }

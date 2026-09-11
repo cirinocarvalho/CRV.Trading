@@ -336,4 +336,27 @@ public class SessionFakeoutStrategyTests
         Assert.Equal(5168m, s.PendingEntry.Stop);    // 5170 - 20*0.10 = 5168
         Assert.Equal(5190m, s.PendingEntry.Tg2Price);   // 5170 + 20 = 5190
     }
+
+    [Fact]
+    public void BudgetBelowOneContract_RefusesAndSaysSo()
+    {
+        // Entry at session-range low 5170, StopPct 0.10 x session range 40 = 4 pts, $20/pt ⇒ $80 a contract.
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk   = 50m;
+        var s = new SessionFakeoutStrategy(cfg);
+        var orb = MakeOrb();
+        var bar = MakeBar(5168m, 5172m, 5165m, 5169m);
+        s.OnBar(bar, orb, MakeIndicators(), FakeoutBearModules());
+
+        Assert.Null(s.PendingEntry);
+        var r = s.PendingSizeRefusal;
+        Assert.NotNull(r);
+        Assert.Equal(4m,  r!.StopDistance);
+        Assert.Equal(80m, r.RiskPerContract);
+        Assert.Equal(50m, r.Budget);
+
+        s.ClearPendingSignals();
+        Assert.Null(s.PendingSizeRefusal);
+    }
 }

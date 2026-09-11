@@ -258,8 +258,9 @@ public class BacktestEngine
             }
         }
 
-        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades.", tfBarsOut, trades.Count);
-        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg);
+        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size.",
+            tfBarsOut, trades.Count, sink.Refusals.Count);
+        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals);
     }
 
     /// <summary>Emit a completed execution-TF bucket: fire OHLC ticks then process bar.</summary>
@@ -702,9 +703,13 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
 // ── Event Sink ────────────────────────────────────────────────
 internal class BacktestSink : IStrategyEventSink
 {
+    /// <summary>Signals the risk budget refused, in order. The only place a backtest can learn of them.</summary>
+    public List<SizeRefusal> Refusals { get; } = new();
+
     public Task OnEntryAsync(EntrySignal s) => Task.CompletedTask;
     public Task OnExitAsync(TradeRecord t) => Task.CompletedTask; // Trades collected via BrokerEventHandler.OnTradeCompleted
     public Task OnSnapshotAsync(EngineSnapshot snap) => Task.CompletedTask;
+    public Task OnSizeRefusedAsync(SizeRefusal r) { Refusals.Add(r); return Task.CompletedTask; }
 }
 
 // ── Price Provider ────────────────────────────────────────────

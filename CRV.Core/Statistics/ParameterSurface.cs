@@ -1,7 +1,11 @@
 namespace CRV.Core.Statistics;
 
-/// <summary>One cell of a sweep: a parameter value and what the trades at that value showed.</summary>
-public sealed record ParameterPoint(string Label, decimal Value, EdgeTest Edge);
+/// <summary>
+/// One cell of a sweep: a parameter value, what the trades at that value showed, and
+/// how many signals the risk budget refused there. A cell that "won" while refusing
+/// a fifth of its signals measured a different sample from its neighbours.
+/// </summary>
+public sealed record ParameterPoint(string Label, decimal Value, EdgeTest Edge, int Refused = 0);
 
 /// <summary>
 /// A one-dimensional parameter sweep, read for stability rather than for a winner.
