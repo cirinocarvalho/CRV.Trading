@@ -50,6 +50,8 @@ Direct credential POST — no OAuth2 browser redirect required.
 
 Tradovate returns two tokens: `accessToken` (REST) and `mdAccessToken` (WebSocket). For paper trading, use `https://demo.tradovateapi.com/v1` as `ApiBaseUrl`.
 
+The configured `ApiBaseUrl` / `MdWssUrl` are only starting points. The login response includes an `apiHosts` object, and some organizations run on dedicated hosts (mainly for demo). After each login or renewal, `TradovateAuthService` switches to the returned hosts. The configured host tells it which entry to use: `demo.` / `live.` for REST, and `md-demo.` / `md.` / `replay.` for market data. The returned hosts are saved in the token file, next to the tokens. Credential logins always go to the configured `ApiBaseUrl`. If a host is unrecognized, or the response has no `apiHosts` (errors, MFA), the configured URL is kept. See NinjaTrader's "Dynamic API Hosts" doc.
+
 ## Security
 
 - Never commit credentials to source control — use `dotnet user-secrets` or environment variables

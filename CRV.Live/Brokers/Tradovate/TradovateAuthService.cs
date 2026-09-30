@@ -21,8 +21,23 @@ public class TradovateAuthService
     private readonly ILogger _log;
     private readonly IHttpClientFactory? _httpFactory;
 
-    public string ApiBaseUrl { get; }
-    public string MdWssUrl   { get; }
+    /// <summary>The REST base URL from configuration. Credential logins always go here, so a
+    /// user whose organization moves between shared and dedicated hosts can still log in.</summary>
+    public string AuthBaseUrl { get; }
+
+    // Current hosts. Start as the configured values and are replaced by the hosts Tradovate
+    // returns in "apiHosts" on login/renew (organizations on dedicated infrastructure get
+    // different hostnames). Callers must read these after obtaining a token.
+    private volatile string _apiBaseUrl;
+    private volatile string _mdWssUrl;
+    public string ApiBaseUrl => _apiBaseUrl;
+    public string MdWssUrl   => _mdWssUrl;
+
+    // Which apiHosts entry each configured URL corresponds to; null = unrecognized host,
+    // keep the configured URL as is.
+    private readonly string? _restHostKey;
+    private readonly string? _mdHostKey;
+    private JsonElement? _apiHosts;
 
     private string?  _accessToken;
     private string?  _mdAccessToken;
@@ -48,8 +63,11 @@ public class TradovateAuthService
         _appId       = appId;
         _tokenFile   = tokenFile;
         _httpFactory = httpFactory;
-        ApiBaseUrl   = apiBaseUrl;
-        MdWssUrl     = mdWssUrl;
+        AuthBaseUrl  = apiBaseUrl;
+        _apiBaseUrl  = apiBaseUrl;
+        _mdWssUrl    = mdWssUrl;
+        _restHostKey = RestHostKey(apiBaseUrl);
+        _mdHostKey   = MdHostKey(mdWssUrl);
         _log         = log ?? (ILogger)Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         TryLoadFromFile();
     }
@@ -93,7 +111,7 @@ public class TradovateAuthService
             cid        = _cid,
             sec        = _secret
         });
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/auth/accesstokenrequest")
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{AuthBaseUrl}/auth/accesstokenrequest")
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
         };
@@ -199,7 +217,63 @@ public class TradovateAuthService
             _expiresAt = DateTime.UtcNow.AddMinutes(85);
         }
         _mdExpiresAt = _expiresAt;
+
+        // Omitted on errors and MFA prompts — keep the current hosts in that case.
+        if (root.TryGetProperty("apiHosts", out var hosts) && hosts.ValueKind == JsonValueKind.Object)
+            ApplyApiHosts(hosts);
     }
+
+    private void ApplyApiHosts(JsonElement hosts)
+    {
+        _apiHosts = hosts.Clone();
+
+        var rest = ResolveHost(hosts, _restHostKey);
+        if (rest != null)
+        {
+            var url = WithHost(AuthBaseUrl, rest);
+            if (url != _apiBaseUrl)
+                _log.LogInformation("Tradovate REST host → {Url} (apiHosts.{Key})", url, _restHostKey);
+            _apiBaseUrl = url;
+        }
+
+        var md = ResolveHost(hosts, _mdHostKey);
+        if (md != null)
+        {
+            var url = WithHost(_mdWssUrl, md);
+            if (url != _mdWssUrl)
+                _log.LogInformation("Tradovate market-data host → {Url} (apiHosts.{Key})", url, _mdHostKey);
+            _mdWssUrl = url;
+        }
+    }
+
+    private static string? ResolveHost(JsonElement hosts, string? key)
+    {
+        if (key == null || !hosts.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.String)
+            return null;
+        var host = v.GetString()?.Trim();
+        return !string.IsNullOrEmpty(host) && Uri.CheckHostName(host) == UriHostNameType.Dns ? host : null;
+    }
+
+    private static string WithHost(string url, string host) =>
+        new UriBuilder(url) { Host = host }.Uri.ToString().TrimEnd('/');
+
+    private static string? RestHostKey(string url) => HostOf(url) switch
+    {
+        var h when h.StartsWith("demo.") => "demo",
+        var h when h.StartsWith("live.") => "live",
+        _ => null,
+    };
+
+    private static string? MdHostKey(string url) => HostOf(url) switch
+    {
+        var h when h.StartsWith("md-demo.") => "mdDemo",
+        var h when h.StartsWith("md.")      => "mdLive",
+        var h when h.StartsWith("replay.")  => "replay",
+        _ => null,
+    };
+
+    private static string HostOf(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host.ToLowerInvariant() : "";
 
     private void SaveToFile()
     {
@@ -210,6 +284,7 @@ public class TradovateAuthService
                 accessToken   = _accessToken,
                 mdAccessToken = _mdAccessToken,
                 expiresAt     = _expiresAt.ToString("o"),
+                apiHosts      = _apiHosts,
             };
             File.WriteAllText(_tokenFile, JsonSerializer.Serialize(obj,
                 new JsonSerializerOptions { WriteIndented = true }));
@@ -229,6 +304,9 @@ public class TradovateAuthService
             if (root.TryGetProperty("expiresAt", out var exp) &&
                 DateTime.TryParse(exp.GetString(), out var dt))
                 _expiresAt = dt.ToUniversalTime();
+            // A reused token must go to the same hosts it was issued with.
+            if (root.TryGetProperty("apiHosts", out var hosts) && hosts.ValueKind == JsonValueKind.Object)
+                ApplyApiHosts(hosts);
         }
         catch (Exception ex) { _log.LogDebug(ex, "Could not load Tradovate token file"); }
     }

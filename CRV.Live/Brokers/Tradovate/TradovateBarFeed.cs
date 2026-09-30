@@ -114,6 +114,8 @@ public class TradovateBarFeed : IBarFeed
     private async Task ConnectOnceAsync(RealTimeBarBuilder builder, CancellationToken ct)
     {
         var symbol = FuturesSymbol.ToTradovate(_cfg.Ticker);
+        // Token first: logging in may switch MdWssUrl to the user's organization host.
+        var mdToken = await _auth.GetMdAccessTokenAsync();
         var wssUri = new Uri(_auth.MdWssUrl);
 
         using var ws = new ClientWebSocket();
@@ -128,7 +130,6 @@ public class TradovateBarFeed : IBarFeed
             _log.LogWarning("TradovateBarFeed expected 'o' frame, got: {F}", openFrame);
 
         // ── Authenticate ──────────────────────────────────────────
-        var mdToken = await _auth.GetMdAccessTokenAsync();
         await SendFrameAsync(ws, $"authorize\n0\n\n{mdToken}", ct);
 
         var authResp = await ReceiveMessageAsync(ws, ct);

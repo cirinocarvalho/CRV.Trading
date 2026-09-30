@@ -131,6 +131,8 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
         _chartIdToTicker.Clear();
         _quoteIdToTicker.Clear();
 
+        // Token first: logging in may switch MdWssUrl to the user's organization host.
+        var mdToken = await _auth.GetMdAccessTokenAsync();
         var wssUri = new Uri(_auth.MdWssUrl);
         using var ws = new ClientWebSocket();
         await ws.ConnectAsync(wssUri, ct);
@@ -145,7 +147,6 @@ public sealed class TradovateMultiTickerBarFeed : IMultiTickerBarFeed
             _log.LogWarning("TradovateMultiTicker expected 'o' frame, got: {F}", openFrame);
 
         // ── Authenticate ──────────────────────────────────────────
-        var mdToken = await _auth.GetMdAccessTokenAsync();
         await SendFrameAsync(ws, $"authorize\n0\n\n{mdToken}", ct);
         var authResp = await ReceiveMessageAsync(ws, ct);
         _log.LogInformation("TradovateMultiTicker MD auth response: {Resp}", authResp);

@@ -1592,7 +1592,7 @@ public class LiveEngineOrchestrator : BackgroundService
             _config["Tradovate:DeviceId"] ?? "",
             _config["Tradovate:AppId"] ?? "CRVBot",
             Path.Combine(Path.GetTempPath(), "crv-tradovate-replay-tokens.json"),
-            apiBaseUrl: liveAuth.ApiBaseUrl,  // use same auth endpoint as live/demo
+            apiBaseUrl: liveAuth.AuthBaseUrl,  // use same auth endpoint as live/demo
             mdWssUrl: "wss://replay.tradovateapi.com/v1/websocket",
             httpFactory: scope.ServiceProvider.GetRequiredService<IHttpClientFactory>(),
             log: scope.ServiceProvider.GetRequiredService<ILogger<TradovateAuthService>>());

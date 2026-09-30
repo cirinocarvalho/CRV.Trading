@@ -155,12 +155,13 @@ public class TradovateEventStream : IBrokerEventStream
 
     private async Task ConnectAndAuthAsync(CancellationToken ct)
     {
+        // Token first: logging in may switch ApiBaseUrl to the user's organization host.
+        var token = await _auth.GetAccessTokenAsync();
+
         // Tradovate WSS URL derived from API base: https://... → wss://...
         var wssUrl = _auth.ApiBaseUrl
             .Replace("https://", "wss://")
             .Replace("/v1", "/v1/websocket");
-
-        var token = await _auth.GetAccessTokenAsync();
 
         _ws = new ClientWebSocket();
         await _ws.ConnectAsync(new Uri(wssUrl), ct);
