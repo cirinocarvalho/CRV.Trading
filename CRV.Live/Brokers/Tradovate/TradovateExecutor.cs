@@ -1494,7 +1494,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     {
         try
         {
-            var url  = $"{_auth.ApiBaseUrl}/order/placeOSO";
+            var url  = "/order/placeOSO";
             var resp = await PostAsync(url, body);
 
             _log.LogDebug("[TV] PlaceOSO raw response: {Resp}", resp);
@@ -1541,7 +1541,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     {
         try
         {
-            var url  = $"{_auth.ApiBaseUrl}/order/placeOrder";
+            var url  = "/order/placeOrder";
             var resp = await PostAsync(url, body);
 
             using var doc = JsonDocument.Parse(resp);
@@ -1567,7 +1567,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     {
         try
         {
-            var url = $"{_auth.ApiBaseUrl}/orderStrategy/startOrderStrategy";
+            var url = "/orderStrategy/startOrderStrategy";
             var resp = await PostAsync(url, body);
             _log.LogInformation("[TV] startOrderStrategy raw response: {Resp}", resp);
 
@@ -1829,7 +1829,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     {
         try
         {
-            var url  = $"{_auth.ApiBaseUrl}/order/cancelOrder";
+            var url  = "/order/cancelOrder";
             var body = new { orderId };
             var resp = await PostAsync(url, body);
             _log.LogDebug("[TV] CancelOrder {Id} response: {Resp}", orderId, resp);
@@ -1845,7 +1845,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     {
         try
         {
-            var url  = $"{_auth.ApiBaseUrl}/order/modifyorder";
+            var url  = "/order/modifyorder";
             var body = new
             {
                 orderId,
@@ -1962,11 +1962,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
     }
 
     /// <summary>POST helper — serialises body as JSON, returns response body string.</summary>
-    private async Task<string> PostAsync(string url, object body)
+    private async Task<string> PostAsync(string path, object body)
     {
         var token = await _auth.GetAccessTokenAsync();
         using var http = CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var url = path.StartsWith("http") ? path : $"{_auth.ApiBaseUrl}{path}";
 
         var json    = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = false });
 
