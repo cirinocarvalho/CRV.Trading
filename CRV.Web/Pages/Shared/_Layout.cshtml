@@ -37,7 +37,8 @@
         ("trade", "Trade", "bi-speedometer2", new[]
         {
             ("dashboard",    "", "/dashboard",           "bi-speedometer2",          "Cockpit"),
-            ("orders",       "futures", "/trading/orders", "bi-list-ul",             "Positions & orders"),
+            ("positions",    "", "/trading/positions",   "bi-list-ul",               "Positions & orders"),
+            ("orders",       "futures", "/trading/orders", "bi-clock-history",       "Order history"),
             ("manual-trade", "", "/trading/manual",      "bi-lightning-charge-fill", "Order ticket"),
             ("prospectus",   "", "/dashboard/prospectus", "bi-calendar-check",       "Plan for today"),
         }),
@@ -67,11 +68,11 @@
     var currentArea = areas.FirstOrDefault(a => a.Items.Any(IsActive));
 
     // Phone tabs: the four areas, with futures Positions & orders given its own tab.
-    var onPositions = page == "orders" && section != "options";
+    var onPositions = page == "positions" || (page == "orders" && section != "options");
     var tabs = new (string Href, string Icon, string Label, bool Active)[]
     {
         ("/dashboard",        "bi-speedometer2",   "Trade",     currentArea.Key == "trade" && !onPositions),
-        ("/trading/orders",   "bi-list-ul",        "Positions", onPositions),
+        ("/trading/positions", "bi-list-ul",       "Positions", onPositions),
         ("/options/explorer", "bi-diagram-3",      "Options",   currentArea.Key == "options"),
         ("/review/results",   "bi-bar-chart-line", "Review",    currentArea.Key == "review"),
         ("/settings/live",    "bi-sliders",        "Setup",     currentArea.Key == "setup"),
@@ -121,6 +122,24 @@
         <a class="crv-tab @(t.Active ? "active" : "")" href="@t.Href" aria-current="@(t.Active ? "page" : null)"><i class="bi @t.Icon"></i>@t.Label</a>
     }
 </nav>
+
+@Html.AntiForgeryToken()
+
+<div class="modal fade c-sheet" id="flatten-sheet" tabindex="-1" aria-labelledby="flatten-title" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="flatten-title">Flatten everything?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="flatten-body" aria-live="polite"></div>
+            <div class="modal-footer" id="flatten-foot">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Keep positions</button>
+                <button type="button" class="c-hold" id="flatten-hold" disabled><i></i><span>Hold to flatten</span></button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade crv-confirm" id="crv-confirm" tabindex="-1" aria-labelledby="crv-confirm-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
