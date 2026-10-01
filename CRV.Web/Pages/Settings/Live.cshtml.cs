@@ -21,7 +21,10 @@ public class LiveModel : PageModel
     private readonly ILogger<LiveModel>      _log;
     private readonly IConfiguration          _config;
 
-    [BindProperty] public StrategyConfig Config { get; set; } = new();
+    // Not bound directly: OnPostAsync merges the posted fields onto the saved settings.
+    public StrategyConfig Config { get; set; } = new();
+    /// <summary>Problems StrategyConfig.Validate found in the saved settings (shown, not blocking).</summary>
+    public List<string> ValidationWarnings { get; } = new();
     public List<SessionConfig> Sessions { get; set; } = new();
     [BindProperty] public string? SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh
@@ -79,6 +82,8 @@ public class LiveModel : PageModel
 
     public void OnGet()
     {
+        if (TempData["live_warnings"] is string w)
+            ValidationWarnings.AddRange(w.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         Config = _cfgSvc.Current.Clone();
         Sessions = Config.Sessions ?? SessionConfig.CreateDefaults(Config);
         ViewData["SmtpHost"] = _config["Smtp:Host"] ?? "";
@@ -86,9 +91,13 @@ public class LiveModel : PageModel
         ViewData["SmtpFrom"] = _config["Smtp:FromAddress"] ?? "";
     }
 
-    public IActionResult OnPost()
+    public async Task<IActionResult> OnPostAsync()
     {
-        if (!ModelState.IsValid)
+        // Start from the saved settings and overwrite only the fields this form posted.
+        // Binding onto a fresh object reset every setting the page doesn't render
+        // (ExecAccountId, SessionStartHour, the sweep/drive module settings, ...) on each save.
+        Config = _cfgSvc.Current.Clone();
+        if (!await TryUpdateModelAsync(Config, "Config") || !ModelState.IsValid)
         {
             foreach (var (key, entry) in ModelState)
                 foreach (var err in entry.Errors)
@@ -99,9 +108,6 @@ public class LiveModel : PageModel
             Sessions = Config.Sessions ?? SessionConfig.CreateDefaults(Config);
             return Page();
         }
-
-        // Preserve AccountId from the current in-memory config (not editable in the form)
-        Config.AccountId = _cfgSvc.Current.AccountId;
 
         // Preserve BasketJson before the flat override from session sync
         var basketJson = Config.BasketJson;
@@ -166,6 +172,10 @@ public class LiveModel : PageModel
         // (no-op if the engine is stopped — next start picks up the fresh config).
         _orchestrator.ApplyRuntimeSettings(Config);
         TempData["live_saved"] = "1";
+        // Validate() existed but never ran. Report problems after saving rather than refusing
+        // the save, so a config that already fails a check can still be changed quickly.
+        var problems = Config.Validate();
+        if (problems.Count > 0) TempData["live_warnings"] = string.Join("\n", problems);
         return RedirectToPage();
     }
 }
