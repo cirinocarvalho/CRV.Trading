@@ -192,7 +192,8 @@ handle transport only. See [Options](options.md).
 | `/setup/risk` | Sessions & risk: daily loss limit, portfolio cap, sessions, instrument and bar size, chop and false-breakout filters (setups A–D when no strategy exists) |
 | `/setup/alerts` | Alerts: email on/off, recipients, which events, instant or batched, test email |
 | `/settings/live` | Redirects to Sessions & risk |
-| `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
+| `/options/explorer` | Options Explorer in three steps: Pick (chain, expected move, structure finder), Build (legs, payoff, what-if), Order (ticket, preview, hold to place) — see [Options](options.md) |
+| `/options/positions` | Option positions grouped by underlying and expiry with P&L and dollar greeks, exposure, working orders, submitted structures; close with preview and hold to confirm |
 | `/auth/schwab`, `/auth/tradestation` | OAuth2 redirect URIs: finish the login, then return to Brokers (`/auth/tradovate` redirects to Brokers) |
 
 On every page, the engine bar shows where orders go, engine state, today's P&L and loss-limit use, and holds Start/Stop, the order ticket drawer and Flatten all.

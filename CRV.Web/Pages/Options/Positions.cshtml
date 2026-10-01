@@ -1,0 +1,454 @@
+@page "/options/positions"
+@model CRV.Web.Pages.Options.PositionsModel
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    ViewData["Title"] = "Option positions";
+    ViewData["Page"] = "options-positions";
+    ViewData["Section"] = "options";
+    ViewData["LightReady"] = true;
+}
+
+<div class="c-head">
+    <h1>Option positions</h1>
+    <span class="c-sub">What's open at Schwab, what's working, and what you sent</span>
+    <div class="c-acts">
+        @if (Model.LiveOrdersEnabled) { <span class="c-badge bad"><i class="bi bi-broadcast"></i>LIVE</span> }
+        else { <span class="c-badge"><i class="bi bi-eye"></i>Preview only</span> }
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshAll()" aria-label="Refresh everything"><i class="bi bi-arrow-clockwise"></i></button>
+        <a class="btn btn-sm btn-warning" href="/options/explorer"><i class="bi bi-plus-lg me-1"></i>New structure</a>
+    </div>
+</div>
+
+@if (!Model.SchwabAuthenticated)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i>
+        <span>Schwab isn't connected, so nothing can be loaded. <a href="/setup/brokers">Connect it on Brokers</a>.</span></div>
+}
+else if (!Model.AccountConfigured)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i>
+        <span>No Schwab account is set (<code>Schwab:AccountId</code>), so there are no positions to show.</span></div>
+}
+
+<div id="err" class="c-note bad mb-3 d-none" role="alert"></div>
+
+<div id="risk-strip" class="c-tiles mb-3 d-none">
+    <div class="c-tile"><small>Premium at risk</small><b id="pr-risk">—</b></div>
+    <div class="c-tile"><small>Open P&amp;L</small><b id="pr-pnl">—</b></div>
+    <div class="c-tile"><small>Net delta</small><b id="pr-delta">—</b></div>
+    <div class="c-tile"><small>Theta a day</small><b id="pr-theta">—</b></div>
+    <div class="c-tile"><small>Net vega</small><b id="pr-vega">—</b></div>
+    <div class="c-tile"><small>Legs</small><b id="pr-legs">—</b></div>
+</div>
+<div id="pr-warn" class="mb-3"></div>
+
+<section class="c-panel mb-3">
+    <div class="c-panel-h">
+        <h2>Open positions</h2>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <label class="small c-mut mb-0" for="f-comm">Commission</label>
+            <input id="f-comm" type="number" step="0.01" min="0" value="0.65" class="form-control form-control-sm num" style="width:5.5rem" aria-label="Commission per contract" />
+            <button id="btn-close-sel" class="btn btn-sm btn-outline-danger" disabled onclick="previewClose()">Close selected</button>
+        </div>
+    </div>
+    <div class="c-panel-b">
+        <div id="pos-groups"><div class="c-empty"><i class="bi bi-hourglass"></i><span>Loading…</span></div></div>
+        <p class="small c-mut mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>
+            Close every leg of a spread together (use "Select all" on its group). Closing one leg at a
+            time can leave a naked short where you had a defined-risk position.</p>
+    </div>
+</section>
+
+<section class="c-panel mb-3">
+    <div class="c-panel-h"><h2>Working at Schwab</h2><span class="c-right">including rules made in thinkorswim</span></div>
+    <div class="c-panel-b">
+        <div class="table-responsive c-table-wrap">
+            <table class="table table-sm mb-0">
+                <thead><tr class="small c-mut">
+                    <th>Placed</th><th>Contract</th><th>Action</th><th class="text-end">Qty</th><th>Type</th><th class="text-end">Limit</th><th>Status</th><th></th>
+                </tr></thead>
+                <tbody id="working-body"><tr><td colspan="8" class="text-center c-mut py-3 small">Loading…</td></tr></tbody>
+            </table>
+        </div>
+        <p class="small c-mut mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>
+            A conditional rule built in thinkorswim waits here as <em>Awaiting Condition</em>. The condition
+            lives at Schwab, so it fires whether or not this app is running.</p>
+    </div>
+</section>
+
+<section class="c-panel">
+    <div class="c-panel-h"><h2>Submitted structures</h2><span class="c-right">what Schwab doesn't remember</span></div>
+    <div class="c-panel-b">
+        <div class="table-responsive c-table-wrap">
+            <table class="table table-sm mb-0">
+                <thead><tr class="small c-mut">
+                    <th>When</th><th>Underlying</th><th>Structure</th><th>Intent</th><th class="text-end">Spreads</th>
+                    <th class="text-end">Net</th><th class="text-end">Max loss</th><th>Order</th><th>Status</th>
+                    <th class="text-end" title="Realised net per unit against the mid at submission">Slippage</th><th></th>
+                </tr></thead>
+                <tbody id="recent-body"><tr><td colspan="11" class="text-center c-mut py-3 small">Loading…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- ── Message / question dialog ─────────────────────────────── -->
+<div class="modal fade" id="msg-modal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="msg-title"></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="msg-body"></div>
+            <div class="modal-footer">
+                <button type="button" id="msg-cancel" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="msg-ok" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Closing-order confirmation ────────────────────────────── -->
+<div class="modal fade" id="confirm-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Confirm closing order</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="m-mode" class="c-note mb-3"></div>
+                <table class="table table-sm">
+                    <thead><tr class="small c-mut"><th>Instruction</th><th>Contract</th><th class="text-end">Qty</th></tr></thead>
+                    <tbody id="m-legs"></tbody>
+                </table>
+                <div class="small c-mut">Net</div>
+                <div id="m-net" class="fw-bold mb-3"></div>
+                <div id="m-broker" class="small"></div>
+                <div id="m-stale" class="c-note warn mt-3 d-none">The quote is stale. Close this and preview again.</div>
+            </div>
+            <div class="modal-footer">
+                <span id="m-age" class="small c-mut me-auto"></span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="btn-place" class="c-hold"><i></i><span id="btn-place-label">Hold to place closing order</span></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    // The Explorer's handlers own the Schwab calls and the closing-order rules.
+    const EX = '/options/explorer';
+    const TOKEN = '@Html.Raw(Antiforgery.GetAndStoreTokens(HttpContext).RequestToken)';
+    const LIVE_ENABLED = @(Model.LiveOrdersEnabled ? "true" : "false");
+    const STALE_AFTER_MS = 30000;   // a quote older than this may no longer be the market
+    const $ = id => document.getElementById(id);
+    const fmt = (v, d = 2) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
+    const money = v => v == null ? '—' : (v < 0 ? '−' : '') + '$' + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const tone = v => v == null ? '' : v > 0 ? 'c-up' : v < 0 ? 'c-down' : '';
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const num = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
+
+    function showErr(msg, reauth) {
+        const e = $('err');
+        e.className = 'c-note bad mb-3';
+        e.innerHTML = '<i class="bi bi-exclamation-octagon"></i><span>' + esc(msg) + (reauth ? ' <a href="/setup/brokers">Reconnect Schwab</a>' : '') + '</span>';
+        e.scrollIntoView({block: 'nearest'});
+    }
+    function showOk(msg) {
+        const e = $('err');
+        e.className = 'c-note mb-3';
+        e.innerHTML = '<i class="bi bi-check-circle"></i><span>' + esc(msg) + '</span>';
+        e.scrollIntoView({block: 'nearest'});
+    }
+    function clearErr() { $('err').className = 'c-note bad mb-3 d-none'; $('err').textContent = ''; }
+
+    async function getJson(handler) {
+        const r = await fetch(`${EX}?handler=${handler}`, {headers: {'Accept': 'application/json'}});
+        const j = await r.json().catch(() => ({error: 'Malformed response from server.'}));
+        if (j.error) { showErr(j.error, j.reauth); return null; }
+        return j;
+    }
+    async function post(handler, body) {
+        const r = await fetch(`${EX}?handler=${handler}`, {
+            method: 'POST', headers: {'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN}, body: JSON.stringify(body),
+        });
+        return r.json().catch(() => ({error: 'Malformed response.'}));
+    }
+
+    // ── Positions, grouped by underlying and expiry ──────────────
+    let POSITIONS = [], CLOSE_PREVIEW = null;
+
+    async function loadPositions() {
+        const box = $('pos-groups');
+        const j = await getJson('Positions');
+        if (!j) { box.innerHTML = '<div class="c-empty"><i class="bi bi-exclamation-circle"></i><span>Could not load positions.</span></div>'; return; }
+        POSITIONS = j.positions || [];
+        const pnl = POSITIONS.reduce((s, p) => s + (p.unrealized || 0), 0);
+        $('pr-pnl').innerHTML = POSITIONS.length ? `<span class="${tone(pnl)}">${money(pnl)}</span>` : '—';
+        if (!POSITIONS.length) {
+            box.innerHTML = '<div class="c-empty"><i class="bi bi-inbox"></i><b>No open option positions</b><span>Build one in the <a href="/options/explorer">Explorer</a>.</span></div>';
+            syncCloseButton();
+            return;
+        }
+        const groups = new Map();
+        POSITIONS.forEach((p, i) => {
+            const key = `${p.underlying}|${p.expiration || ''}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(i);
+        });
+        box.innerHTML = (j.quotesFailed ? '<div class="c-note warn mb-2"><i class="bi bi-exclamation-triangle"></i><span>Live quotes could not be loaded, so marks and greeks are missing.</span></div>' : '')
+            + [...groups.entries()].sort().map(([key, idx]) => {
+                const ps = idx.map(i => POSITIONS[i]);
+                const [und, exp] = key.split('|');
+                const gPnl = ps.reduce((s, p) => s + (p.unrealized || 0), 0);
+                const dte = ps[0].dte;
+                const label = exp ? new Date(exp + 'T12:00:00').toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'}) : 'expiry unknown';
+                return `<div class="op-group">
+                    <div class="op-group-h">
+                        <b>${esc(und)}</b><span class="c-mut">${label}${dte != null ? ` · ${dte} day${dte === 1 ? '' : 's'}` : ''}</span>
+                        <span class="num ${tone(gPnl)} ms-auto">${money(gPnl)}</span>
+                        <button type="button" class="btn btn-sm btn-link p-0" onclick="selectGroup('${idx.join(',')}')">Select all</button>
+                    </div>
+                    <div class="table-responsive c-table-wrap"><table class="table table-sm mb-0 op-table">
+                        <thead><tr class="small c-mut"><th style="width:2rem"></th><th>Contract</th><th class="text-end">Qty</th><th class="text-end">Avg</th>
+                            <th class="text-end">Mark</th><th class="text-end">Open P&amp;L</th><th class="text-end" title="Dollar delta">Δ $</th>
+                            <th class="text-end" title="Dollars a day from time decay">Θ $/day</th></tr></thead>
+                        <tbody>${idx.map(i => {
+                            const p = POSITIONS[i], longPos = p.direction === 'LONG';
+                            const name = p.right && p.strike != null ? `${p.right} ${fmt(p.strike)}` : esc(p.description || p.symbol);
+                            return `<tr>
+                                <td><input class="form-check-input pos-check" type="checkbox" data-i="${i}" aria-label="Select ${esc(p.symbol)}"></td>
+                                <td><span class="c-badge ${longPos ? 'ok' : 'bad'}">${longPos ? 'Long' : 'Short'}</span> ${name}
+                                    <div class="small c-mut num">${esc(p.symbol)}</div></td>
+                                <td class="text-end num">${Math.abs(p.quantity)}</td>
+                                <td class="text-end num">${fmt(p.avgPrice)}</td>
+                                <td class="text-end num">${fmt(p.mark)}</td>
+                                <td class="text-end num ${tone(p.unrealized)}">${money(p.unrealized)}</td>
+                                <td class="text-end num">${money(p.deltaDollars)}</td>
+                                <td class="text-end num ${tone(p.thetaDollars)}">${money(p.thetaDollars)}</td>
+                            </tr>`; }).join('')}</tbody>
+                    </table></div>
+                </div>`;
+            }).join('');
+        box.querySelectorAll('.pos-check').forEach(c => c.addEventListener('change', syncCloseButton));
+        syncCloseButton();
+    }
+
+    window.selectGroup = function (csv) {
+        const want = csv.split(',');
+        const boxes = [...document.querySelectorAll('.pos-check')].filter(c => want.includes(c.dataset.i));
+        const all = boxes.every(c => c.checked);
+        boxes.forEach(c => c.checked = !all);
+        syncCloseButton();
+    };
+
+    function selectedPositions() {
+        return [...document.querySelectorAll('.pos-check:checked')].map(c => POSITIONS[parseInt(c.dataset.i)]);
+    }
+    function syncCloseButton() {
+        const n = selectedPositions().length;
+        $('btn-close-sel').disabled = n === 0;
+        $('btn-close-sel').textContent = n ? `Close selected (${n})` : 'Close selected';
+    }
+
+    // ── Closing: preview, then press-and-hold to send ────────────
+    let PREVIEW_AT = 0, AGE_TIMER = null, CONFIRM_ACTION = null;
+    const STALE_HTML = $('m-stale').innerHTML;
+    CRV.hold($('btn-place'), () => { if (CONFIRM_ACTION) CONFIRM_ACTION(); });
+
+    window.previewClose = async function () {
+        const sel = selectedPositions();
+        if (!sel.length) return;
+        $('btn-close-sel').disabled = true;
+        try {
+            const j = await post('Close', {
+                positions: sel.map(p => ({symbol: p.symbol, direction: p.direction, quantity: p.quantity})),
+                commissionPerContract: num('f-comm', 0), place: false,
+            });
+            if (j.error) { showErr(j.error); return; }
+            clearErr();
+            CLOSE_PREVIEW = {selection: sel, data: j};
+            showCloseConfirm(j);
+        } finally { syncCloseButton(); }
+    };
+
+    function showCloseConfirm(j) {
+        $('btn-place').disabled = !LIVE_ENABLED;
+        $('m-stale').innerHTML = STALE_HTML;
+        $('m-stale').classList.add('d-none');
+        CONFIRM_ACTION = placeClose;
+
+        $('m-mode').className = 'c-note mb-3 ' + (LIVE_ENABLED ? 'bad' : '');
+        $('m-mode').innerHTML = LIVE_ENABLED
+            ? '<i class="bi bi-broadcast"></i><span><strong>Live.</strong> This closing order is sent to Schwab for execution.</span>'
+            : '<i class="bi bi-eye"></i><span><strong>Preview only.</strong> Placing orders is switched off, so this close cannot be sent.</span>';
+        $('m-legs').innerHTML = j.payload.orderLegCollection.map(l => `<tr>
+            <td><span class="c-badge ${l.instruction.startsWith('BUY') ? 'ok' : 'bad'}">${esc(l.instruction)}</span></td>
+            <td class="num small">${esc(l.instrument.symbol)}</td>
+            <td class="text-end num">${l.quantity}</td></tr>`).join('');
+        $('m-net').innerHTML = j.proceeds >= 0
+            ? `<span class="c-up">${money(j.proceeds)}</span> <span class="small c-mut">you receive</span>`
+            : `<span class="c-down">${money(-j.proceeds)}</span> <span class="small c-mut">you pay to close</span>`;
+        $('m-broker').innerHTML = j.brokerBody
+            ? `<div class="c-mut">Schwab preview ${j.brokerOk ? '<span class="c-up">accepted</span>' : '<span class="c-down">rejected</span>'}:</div>
+               <pre class="small mb-0" style="max-height:140px; overflow:auto">${esc(j.brokerBody).slice(0, 2000)}</pre>`
+            : '<span class="c-mut">No Schwab account is set, so Schwab did not check this order.</span>';
+
+        PREVIEW_AT = Date.now();
+        new bootstrap.Modal($('confirm-modal')).show();
+        clearInterval(AGE_TIMER);
+        AGE_TIMER = setInterval(tickAge, 500);
+        tickAge();
+    }
+
+    function tickAge() {
+        const age = Date.now() - PREVIEW_AT;
+        $('m-age').textContent = `quote age ${(age / 1000).toFixed(0)}s`;
+        if (age > STALE_AFTER_MS) {
+            $('m-stale').classList.remove('d-none');
+            $('btn-place').disabled = true;
+            clearInterval(AGE_TIMER);
+        }
+    }
+
+    async function placeClose() {
+        if (!CLOSE_PREVIEW || Date.now() - PREVIEW_AT > STALE_AFTER_MS) return;
+        $('btn-place').disabled = true;
+        const j = await post('Close', {
+            positions: CLOSE_PREVIEW.selection.map(p => ({symbol: p.symbol, direction: p.direction, quantity: p.quantity})),
+            commissionPerContract: num('f-comm', 0), place: true,
+        });
+        clearInterval(AGE_TIMER);
+        bootstrap.Modal.getInstance($('confirm-modal'))?.hide();
+        if (j.error) { showErr(j.error); return; }
+        if (j.ok) { showOk(`Closing order placed${j.orderId ? ' (id ' + j.orderId + ')' : ''}.`); refreshAll(); }
+        else showErr('Schwab rejected the closing order: ' + String(j.body || '').slice(0, 400));
+    }
+
+    // ── Dialog helpers ───────────────────────────────────────────
+    function askConfirm(title, bodyHtml, okLabel, okClass, onConfirm) {
+        $('msg-title').textContent = title;
+        $('msg-body').innerHTML = bodyHtml;
+        $('msg-cancel').classList.remove('d-none');
+        const ok = $('msg-ok'), fresh = ok.cloneNode(true);   // drop listeners from any earlier question
+        fresh.textContent = okLabel || 'Confirm';
+        fresh.className = 'btn ' + (okClass || 'btn-primary');
+        fresh.removeAttribute('data-bs-dismiss');
+        ok.parentNode.replaceChild(fresh, ok);
+        const modal = new bootstrap.Modal($('msg-modal'));
+        fresh.addEventListener('click', () => { modal.hide(); onConfirm(); });
+        modal.show();
+    }
+    function showMessage(title, bodyHtml) {
+        $('msg-title').textContent = title;
+        $('msg-body').innerHTML = bodyHtml;
+        $('msg-cancel').classList.add('d-none');
+        const ok = $('msg-ok'), fresh = ok.cloneNode(true);
+        fresh.textContent = 'Close';
+        fresh.className = 'btn btn-secondary';
+        fresh.setAttribute('data-bs-dismiss', 'modal');
+        ok.parentNode.replaceChild(fresh, ok);
+        new bootstrap.Modal($('msg-modal')).show();
+    }
+
+    // ── Exposure ─────────────────────────────────────────────────
+    async function loadPortfolioRisk() {
+        const strip = $('risk-strip');
+        const j = await getJson('PortfolioRisk');
+        if (!j) return;
+        if (j.unknown) {
+            strip.classList.remove('d-none');
+            $('pr-risk').innerHTML = '<span class="c-down">unknown</span>';
+            ['pr-delta', 'pr-vega', 'pr-theta', 'pr-legs'].forEach(id => $(id).textContent = '—');
+            $('pr-warn').innerHTML = '<div class="c-note warn"><i class="bi bi-exclamation-triangle"></i><span>Exposure could not be worked out. While a portfolio ceiling is set, new orders are refused.</span></div>';
+            return;
+        }
+        if (!j.legCount) { strip.classList.add('d-none'); $('pr-warn').innerHTML = ''; return; }
+        strip.classList.remove('d-none');
+        const over = j.ceiling > 0 && j.longAtRisk > j.ceiling;
+        $('pr-risk').innerHTML = `<span class="${over ? 'c-down' : ''}">${money(j.longAtRisk)}</span>`
+            + (j.ceiling > 0 ? `<small class="c-mut"> of ${money(j.ceiling)}</small>` : '');
+        $('pr-delta').textContent = money(j.netDelta);
+        $('pr-vega').textContent = money(j.netVega);
+        $('pr-theta').innerHTML = `<span class="${tone(j.netTheta)}">${money(j.netTheta)}</span>`;
+        $('pr-legs').textContent = j.legCount;
+        $('pr-warn').innerHTML = j.unbounded
+            ? `<div class="c-note bad"><i class="bi bi-exclamation-triangle"></i><span>${j.unpairedShorts.length} short leg(s) have nothing capping them, so "premium at risk" does not bound your loss.</span></div>`
+            : '';
+    }
+
+    // ── Working orders and submitted structures ──────────────────
+    let WORKING = [], SUBMITTED = [];
+    const statusClass = s => s === 'Filled' ? 'c-up' : (s === 'Cancelled' || s === 'Rejected' || s === 'Expired') ? 'c-mut' : 'text-info';
+    const cancelBtn = id => `<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="cancelOrder('${esc(id)}')">Cancel</button>`;
+
+    async function loadWorking() {
+        const j = await getJson('WorkingOrders');
+        const body = $('working-body');
+        if (!j) { body.innerHTML = '<tr><td colspan="8" class="text-center c-mut py-3 small">Could not load.</td></tr>'; return; }
+        WORKING = j.orders || [];
+        if (!WORKING.length) { body.innerHTML = '<tr><td colspan="8" class="text-center c-mut py-3 small">Nothing working.</td></tr>'; return; }
+        body.innerHTML = WORKING.map(o => `<tr>
+            <td class="small">${o.placedTime ? new Date(o.placedTime).toLocaleString() : '—'}</td>
+            <td class="small num">${esc(o.symbol || '')}${o.isMultiLeg && o.legs ? `<div class="small c-mut">${o.legs.map(l => `${esc(l.instruction)} ${l.quantity}`).join(' · ')}</div>` : ''}</td>
+            <td><span class="c-badge ${String(o.action).startsWith('BUY') ? 'ok' : 'bad'}">${esc(o.action || '')}</span></td>
+            <td class="text-end num">${o.quantity}</td>
+            <td class="small ${o.orderType === 'MARKET' ? 'c-down' : ''}">${esc(o.orderType || '')}</td>
+            <td class="text-end num">${o.limitPrice == null ? '—' : fmt(o.limitPrice)}</td>
+            <td class="small"><span class="${statusClass(o.status)}">${esc(o.status || '')}</span></td>
+            <td class="text-end">${o.canCancel ? cancelBtn(o.orderId) : ''}</td></tr>`).join('');
+    }
+
+    async function loadRecent() {
+        const j = await getJson('RecentOrders');
+        const body = $('recent-body');
+        if (!j) { body.innerHTML = '<tr><td colspan="11" class="text-center c-mut py-3 small">Could not load.</td></tr>'; return; }
+        SUBMITTED = j.orders || [];
+        if (!SUBMITTED.length) { body.innerHTML = '<tr><td colspan="11" class="text-center c-mut py-3 small">Nothing submitted yet.</td></tr>'; return; }
+        body.innerHTML = SUBMITTED.map(o => `<tr>
+            <td class="small">${new Date(o.placedAt).toLocaleString()}</td>
+            <td>${esc(o.underlying || '—')}</td>
+            <td>${esc(o.structure || '—')}</td>
+            <td><span class="c-badge ${o.intent === 'Close' ? '' : 'info'}">${esc(o.intent)}</span></td>
+            <td class="text-end num">${o.spreads}</td>
+            <td class="text-end num">${o.totalNet >= 0 ? money(o.totalNet) + ' debit' : money(-o.totalNet) + ' credit'}</td>
+            <td class="text-end num c-down">${o.maxLoss == null ? '—' : money(o.maxLoss)}</td>
+            <td class="small">${o.accepted ? `<span class="num">${esc(o.orderId || '—')}</span>` : `<span class="c-down" title="${esc(o.error || '')}">rejected</span>`}</td>
+            <td class="small">${o.status ? `<span class="${statusClass(o.status)}">${esc(o.status)}</span>` : '<span class="c-mut">—</span>'}</td>
+            <td class="text-end small num">${o.filledNet == null ? '<span class="c-mut">—</span>'
+                : `<span class="${o.slipVsMid > 0 ? 'c-down' : 'c-up'}" title="filled ${fmt(o.filledNet)} vs mid ${fmt(o.midNet)}">${o.slipVsMid == null ? fmt(o.filledNet) : (o.slipVsMid > 0 ? '+' : '') + fmt(o.slipVsMid)}</span>`}</td>
+            <td class="text-end">${o.canCancel ? cancelBtn(o.orderId) : ''}</td></tr>`).join('');
+    }
+
+    window.cancelOrder = function (orderId) {
+        if (!orderId) return;
+        const row = SUBMITTED.find(o => o.orderId === orderId) || WORKING.find(o => o.orderId === orderId);
+        askConfirm('Cancel this order?',
+            `<div>Order <span class="num">${esc(orderId)}</span></div>`
+            + (row ? `<div class="small c-mut mt-1">${esc(row.structure || row.symbol || '')}${row.underlying ? ' · ' + esc(row.underlying) : ''} · currently ${esc(row.status || 'unknown')}</div>` : ''),
+            'Cancel order', 'btn-danger', () => doCancel(orderId));
+    };
+
+    async function doCancel(orderId) {
+        const j = await post('CancelOrder', {orderId});
+        await refreshAll();
+        if (j.error) {
+            showMessage('Cancel failed', `<div class="c-down">${esc(j.error)}</div>
+                <div class="small c-mut mt-2">The order may still be working. The lists show what Schwab reports.</div>`);
+            return;
+        }
+        showMessage('Cancel requested', `<div>Sent for <span class="num">${esc(orderId)}</span>.</div>
+            <div class="small c-mut mt-2">The lists now show the status Schwab reports, which says whether it actually cancelled.</div>`);
+    }
+
+    window.refreshAll = async function () {
+        await Promise.all([loadPositions(), loadPortfolioRisk(), loadWorking(), loadRecent()]);
+    };
+    refreshAll();
+})();
+</script>
+}
