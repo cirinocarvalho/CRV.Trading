@@ -1,79 +1,77 @@
 @page "/validation"
 @model CRV.Web.Pages.Validation.IndexModel
 @using CRV.Core.Statistics
+@using V = CRV.Web.Pages.Validation.IndexModel
 @{
     ViewData["Title"] = "Validation";
     ViewData["Page"]  = "validation";
-    ViewData["Section"] = "futures";
+    ViewData["LightReady"] = true;
+
+    string R3(decimal v) => v.ToString("+0.000;−0.000;0.000") + "R";
 }
 
-<div class="d-flex align-items-center mb-3">
-    <h4 class="mb-0"><i class="bi bi-clipboard-data me-2"></i>Validation</h4>
-    <span class="ms-3 text-muted small">
-        Does the result survive out of sample, is the ORB duration a stable choice,
-        and does any filter beat the bare break.
-    </span>
+<div class="c-head">
+    <h1>Validation</h1>
 </div>
+<p class="c-mut c-plain mb-3">Does the edge hold on data it wasn't tuned on, is the opening-range length a stable choice, and does each filter pay for itself?</p>
 
-<form method="get" class="row g-2 align-items-end mb-3">
-    <div class="col-auto">
-        <label class="form-label small mb-1">From</label>
-        <input name="FromStr" type="date" value="@Model.FromStr" class="form-control form-control-sm"/>
-    </div>
-    <div class="col-auto">
-        <label class="form-label small mb-1">To</label>
-        <input name="ToStr" type="date" value="@Model.ToStr" class="form-control form-control-sm"/>
-    </div>
-    <div class="col-auto">
-        <button name="Study" value="split" class="btn btn-sm btn-outline-warning">In / Out of sample</button>
-    </div>
-    <div class="col-auto">
-        <button name="Study" value="sweep" class="btn btn-sm btn-outline-warning">ORB duration sweep</button>
-    </div>
-    <div class="col-auto">
-        <button name="Study" value="ablation" class="btn btn-sm btn-outline-warning">Filter ablation</button>
-    </div>
+<form method="get" class="c-chips mb-3">
+    <input name="FromStr" type="date" value="@Model.FromStr" class="form-control form-control-sm c-select" aria-label="From" />
+    <span class="c-mut">→</span>
+    <input name="ToStr" type="date" value="@Model.ToStr" class="form-control form-control-sm c-select" aria-label="To" />
+    <button name="Study" value="split" class="btn btn-sm @(Model.Study == "split" ? "btn-warning" : "btn-outline-secondary")">In / out of sample</button>
+    <button name="Study" value="sweep" class="btn btn-sm @(Model.Study == "sweep" ? "btn-warning" : "btn-outline-secondary")">ORB length</button>
+    <button name="Study" value="ablation" class="btn btn-sm @(Model.Study == "ablation" ? "btn-warning" : "btn-outline-secondary")">Filters</button>
 </form>
 
-<div class="alert @(Model.HasSnapshot ? "alert-secondary" : "alert-warning") py-2 small">
-    @if (Model.HasSnapshot)
-    {
-        <i class="bi bi-check-circle me-1"></i>
-        <span>Bar snapshot <code>@Model.SnapshotKey</code> is present — every variant will replay identical bars across @Model.EnabledSetups instrument(s).</span>
-    }
-    else
-    {
-        <i class="bi bi-exclamation-triangle me-1"></i>
-        <span>
-            No bar snapshot for this window (<code>@Model.SnapshotKey</code>). Run a backtest over the
-            same dates first. A sweep across bars that differ per variant measures the data, not the parameter.
-        </span>
-    }
-</div>
-
-@if (Model.Error != null)
+@if (Model.HasSnapshot)
 {
-    <div class="alert alert-danger py-2 small">@Model.Error</div>
+    <div class="c-note mb-3"><i class="bi bi-check-circle"></i>
+        <span>Saved bars found for this range (<code>@Model.SnapshotKey</code>), so every variant replays identical bars across @Model.EnabledSetups instrument(s).</span></div>
+}
+else
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i>
+        <span>No saved bars for this range (<code>@Model.SnapshotKey</code>). Run a backtest over the same dates first. A study across bars that differ per variant measures the data, not the parameter.</span></div>
 }
 
-@* ── P2-1 · position sizing, measured from the live book ────────── *@
+@* Without saved bars the warning above already says why no study ran. *@
+@if (Model.Error != null && Model.HasSnapshot)
+{
+    <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.Error</span></div>
+}
+
+<div class="c-stack">
+
+@* ── Risk committed per trade, read off the live fills ───────────── *@
 @if (Model.Risk is { Entries.Count: > 0 } risk)
 {
-    <div class="card bg-black border-secondary mb-3">
-        <div class="card-header border-secondary py-2">
-            <strong>Risk committed per trade</strong>
-            <span class="text-muted small ms-2">
-                Read off the fills, not the settings. Config saying "3 contracts" for several
-                setups reads as equal exposure; stop distance times point value says otherwise.
-            </span>
+    <section class="c-panel">
+        <div class="c-panel-h">
+            <h2>Risk per trade</h2>
+            @if (risk.IsNormalised) { <span class="c-badge ok">LEVEL</span> } else { <span class="c-badge bad">UNEVEN</span> }
         </div>
-        <div class="card-body p-0">
-            <table class="table table-sm table-dark mb-0 font-monospace small">
+        <div class="c-panel-b">
+            @if (risk.IsNormalised)
+            {
+                <p class="c-plain">Risk is level within @risk.Dispersion.ToString("F2")× across the book.</p>
+            }
+            else
+            {
+                <p class="c-plain">
+                    <strong>@risk.DispersionHeaviest!.Setup</strong> risks @risk.Dispersion.ToString("F2")× what
+                    <strong>@risk.DispersionLightest!.Setup</strong> does
+                    ($@risk.DispersionHeaviest.RiskPerTrade.ToString("N0") against $@risk.DispersionLightest.RiskPerTrade.ToString("N0")).
+                    Position size, not the signal, is deciding this book's result. The last column levels it without changing total exposure.
+                </p>
+            }
+            <p class="c-mut small">Read off the fills, not the settings. "3 contracts" on several setups looks like equal exposure; stop distance times point value says otherwise.</p>
+        </div>
+        <div class="c-table-wrap">
+            <table class="c-table">
                 <thead><tr>
-                    <th>Setup</th><th>Instrument</th><th class="text-end">Trades</th>
-                    <th class="text-end">$/contract</th><th class="text-end">Contracts</th>
-                    <th class="text-end">$/trade</th>
-                    <th class="text-end">At $@risk.SuggestedTarget.ToString("F0")</th>
+                    <th>Setup</th><th>Instrument</th><th class="r">Trades</th><th class="r">$ / contract</th>
+                    <th class="r">Contracts</th><th class="r">$ / trade</th><th class="r">At $@risk.SuggestedTarget.ToString("F0")</th>
                 </tr></thead>
                 <tbody>
                 @foreach (var e in risk.Entries)
@@ -81,264 +79,207 @@
                     var suggested = risk.SuggestedContracts(e, risk.SuggestedTarget);
                     var heavy = e == risk.DispersionHeaviest && !risk.IsNormalised;
                     var thin  = e.Trades < CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion;
-                    <tr class="@(heavy ? "table-active" : "")">
-                        <td>@e.Setup</td>
-                        <td class="text-muted">@e.Ticker</td>
-                        <td class="text-end @(thin ? "text-muted" : "")">
-                            @e.Trades@(thin ? "*" : "")
-                        </td>
-                        <td class="text-end">$@e.RiskPerContract.ToString("N2")</td>
-                        <td class="text-end">@e.MedianContracts</td>
-                        <td class="text-end @(heavy ? "text-danger fw-bold" : "")">$@e.RiskPerTrade.ToString("N2")</td>
-                        <td class="text-end @(suggested != e.MedianContracts ? "text-warning" : "text-muted")">
-                            @(suggested == 0 ? "—" : suggested.ToString())
-                        </td>
+                    <tr class="@(heavy ? "hl" : "")">
+                        <td class="t">@e.Setup</td>
+                        <td class="c-mut">@e.Ticker</td>
+                        <td class="r @(thin ? "c-mut" : "")">@e.Trades@(thin ? "*" : "")</td>
+                        <td class="r">$@e.RiskPerContract.ToString("N2")</td>
+                        <td class="r">@e.MedianContracts</td>
+                        <td class="r @(heavy ? "c-down" : "")">$@e.RiskPerTrade.ToString("N2")</td>
+                        <td class="r @(suggested != e.MedianContracts ? "c-acc" : "c-mut")">@(suggested == 0 ? "—" : suggested.ToString())</td>
                     </tr>
                 }
                 </tbody>
             </table>
         </div>
-        <div class="card-footer border-secondary py-2 small">
-            @if (risk.Entries.Any(e => e.Trades < CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion))
-            {
-                <div class="text-muted mb-1">
-                    * fewer than @CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion fills — listed, but not
-                    used to judge the spread. One trade is not a sizing policy.
-                </div>
-            }
-            @if (risk.IsNormalised)
-            {
-                <span class="text-success">
-                    <i class="bi bi-check-circle me-1"></i>
-                    Risk is level within @risk.Dispersion.ToString("F2")x across the book.
-                </span>
-            }
-            else
-            {
-                <span class="text-danger">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    <strong>@risk.DispersionHeaviest!.Setup</strong> risks @risk.Dispersion.ToString("F2")x what
-                    <strong>@risk.DispersionLightest!.Setup</strong> does
-                    ($@risk.DispersionHeaviest.RiskPerTrade.ToString("N0") against $@risk.DispersionLightest.RiskPerTrade.ToString("N0")).
-                    Position size, not signal, is deciding this book's result — the last column levels it
-                    without changing total exposure.
-                </span>
-            }
-        </div>
-    </div>
+        @if (risk.Entries.Any(e => e.Trades < CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion))
+        {
+            <div class="c-panel-b c-mut small">* Fewer than @CRV.Core.Risk.RiskProfile.MinimumFillsForDispersion fills: listed, but not used to judge the spread. One trade is not a sizing policy.</div>
+        }
+    </section>
 }
 
-@* ── P1-1 · in-sample / out-of-sample ───────────────────────────── *@
+@* ── In-sample / out-of-sample ─────────────────────────────────────── *@
 @if (Model.Split is { } split)
 {
-    <div class="card bg-black border-secondary mb-3">
-        <div class="card-header border-secondary py-2">
-            <strong>In-sample / out-of-sample</strong>
-            <span class="text-muted small ms-2">
-                70/30 chronological split, one-day embargo. Choosing a parameter against the
-                out-of-sample side spends it — those trades are in-sample from then on.
-            </span>
+    var oosThin = split.OutOfSampleEdge.Verdict == EdgeVerdict.InsufficientEvidence;
+    <section class="c-panel">
+        <div class="c-panel-h">
+            <h2>In sample / out of sample</h2>
+            @if (split.FailedOutOfSample) { <span class="c-badge bad">FAILED</span> }
+            else if (oosThin) { <span class="c-badge warn">TOO FEW TRADES</span> }
+            else { <span class="c-badge ok">HELD UP</span> }
         </div>
-        <div class="card-body p-0">
-            <table class="table table-sm table-dark mb-0 font-monospace small">
+        <div class="c-panel-b">
+            <p class="c-plain">
+                @if (split.FailedOutOfSample)
+                {
+                    <text>Failed out of sample: @R3(split.Degradation) of the in-sample edge did not survive on the later data.</text>
+                }
+                else if (oosThin)
+                {
+                    <text>The out-of-sample side has @split.OutOfSampleEdge.Count trades, too few to conclude anything. That is not a pass.</text>
+                }
+                else
+                {
+                    <text>The edge held up on the later 30% of the data it wasn't tuned on.</text>
+                }
+                @if (split.EmbargoedCount > 0) { <span class="c-mut"> @split.EmbargoedCount trade(s) at the boundary were left out.</span> }
+            </p>
+            <p class="c-mut small">70/30 split by date with a one-day gap. Choosing a setting by looking at the out-of-sample side uses it up: from then on those trades are in-sample too.</p>
+        </div>
+        <div class="c-table-wrap">
+            <table class="c-table">
                 <thead><tr>
-                    <th></th><th class="text-end">Trades</th>
-                    <th class="text-end" title="Signals the risk budget refused at even one contract. Not trades, so not in the mean — but a side that refused a third of its signals is a different sample.">Refused</th>
-                    <th class="text-end">Mean R</th>
-                    <th class="text-end">95% CI</th><th class="text-end">t</th><th>Verdict</th>
+                    <th></th><th class="r">Trades</th>
+                    <th class="r" title="Signals the risk budget refused at even one contract. Not trades, so not in the mean, but a side that refused a third of its signals is a different sample.">Refused</th>
+                    <th class="r">Mean R</th><th class="r">95% range</th><th class="r">t</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
-                @foreach (var (label, e, refused) in new[]
-                {
-                    ("In-sample",     split.InSampleEdge,    split.InSampleRefused),
-                    ("Out-of-sample", split.OutOfSampleEdge, split.OutOfSampleRefused),
-                })
+                @foreach (var (label, e, refused) in new[] { ("In sample", split.InSampleEdge, split.InSampleRefused), ("Out of sample", split.OutOfSampleEdge, split.OutOfSampleRefused) })
                 {
                     <tr>
-                        <td>@label</td>
-                        <td class="text-end">@e.Count</td>
-                        <td class="text-end @(refused > 0 ? "text-warning" : "text-muted")">@refused</td>
-                        <td class="text-end">@e.MeanR.ToString("+0.000;-0.000")R</td>
-                        <td class="text-end">
-                            @(e.Count > 1 ? $"[{e.LowerBound:+0.000;-0.000}, {e.UpperBound:+0.000;-0.000}]" : "—")
-                        </td>
-                        <td class="text-end">@(e.Count > 1 ? e.TStatistic.ToString("0.00") : "—")</td>
-                        <td class="@CRV.Web.Pages.Validation.IndexModel.VerdictClass(e.Verdict)">
-                            @CRV.Web.Pages.Validation.IndexModel.VerdictLabel(e.Verdict)
-                        </td>
+                        <td class="t">@label</td>
+                        <td class="r">@e.Count</td>
+                        <td class="r @(refused > 0 ? "c-acc" : "c-mut")">@refused</td>
+                        <td class="r">@R3(e.MeanR)</td>
+                        <td class="r">@(e.Count > 1 ? $"{R3(e.LowerBound)} to {R3(e.UpperBound)}" : "—")</td>
+                        <td class="r">@(e.Count > 1 ? e.TStatistic.ToString("0.00") : "—")</td>
+                        <td><span class="c-badge @V.VerdictClass(e.Verdict)">@V.VerdictLabel(e.Verdict)</span></td>
                     </tr>
                 }
                 </tbody>
             </table>
         </div>
-        <div class="card-footer border-secondary py-2 small">
-            @if (split.FailedOutOfSample)
-            {
-                <span class="text-danger">
-                    <i class="bi bi-x-circle me-1"></i>
-                    Failed out of sample — @split.Degradation.ToString("+0.000;-0.000")R of the in-sample edge did not survive.
-                </span>
-            }
-            else if (split.OutOfSampleEdge.Verdict == EdgeVerdict.InsufficientEvidence)
-            {
-                <span class="text-muted">
-                    Out-of-sample side holds @split.OutOfSampleEdge.Count trades — too few to conclude anything.
-                    That is not a pass.
-                </span>
-            }
-            else
-            {
-                <span class="text-success"><i class="bi bi-check-circle me-1"></i>Held up out of sample.</span>
-            }
-            @if (split.EmbargoedCount > 0)
-            {
-                <span class="text-muted ms-2">@split.EmbargoedCount trade(s) embargoed at the boundary.</span>
-            }
-        </div>
-    </div>
+    </section>
 }
 
-@* ── P1-2 · ORB duration sweep ──────────────────────────────────── *@
+@* ── ORB length sweep ──────────────────────────────────────────────── *@
 @if (Model.Surface is { } surface)
 {
-    <div class="card bg-black border-secondary mb-3">
-        <div class="card-header border-secondary py-2">
-            <strong>ORB duration</strong>
-            <span class="text-muted small ms-2">
-                A parameter is worth trading when its neighbours agree. An isolated peak is
-                what noise looks like when you pick the best cell.
-            </span>
+    <section class="c-panel">
+        <div class="c-panel-h">
+            <h2>Opening range length</h2>
+            @if (surface.IsInert) { <span class="c-badge warn">MEASURED NOTHING</span> }
+            else if (surface.HasStableRegion) { <span class="c-badge ok">STABLE</span> }
+            else { <span class="c-badge warn">NO STABLE REGION</span> }
         </div>
-        <div class="card-body p-0">
-            <table class="table table-sm table-dark mb-0 font-monospace small">
+        <div class="c-panel-b">
+            <p class="c-plain">
+                @if (surface.IsInert)
+                {
+                    <text>Every length scored the same, so this setting doesn't affect the enabled setups and the sweep measured nothing. A setup that fades the previous session's range doesn't read the opening range at all.</text>
+                }
+                else if (surface.HasStableRegion)
+                {
+                    <text>Stable from @surface.StableRegion[0].Label to @surface.StableRegion[^1].Label. Use <strong>@surface.Recommended!.Label</strong>, the middle of that region.</text>
+                }
+                else if (surface.Best is { } best && best.Edge.MeanR > 0)
+                {
+                    <text>No stable region. @best.Label scores highest, but its neighbours don't agree, which is what a fluke looks like. Don't adopt it.</text>
+                }
+                else
+                {
+                    <text>No stable region and nothing positive to recommend.</text>
+                }
+            </p>
+            <p class="c-mut small">A setting is worth trading when the values around it agree. A lone peak is what noise looks like when you pick the best result. ★ marks the stable region.</p>
+        </div>
+        <div class="c-table-wrap">
+            <table class="c-table">
                 <thead><tr>
-                    <th></th><th>Duration</th><th class="text-end">Trades</th>
-                    <th class="text-end" title="Signals the risk budget refused at this duration. A cell that won while refusing a fifth of its signals measured a different sample from its neighbours.">Refused</th>
-                    <th class="text-end">Mean R</th>
-                    <th class="text-end">95% CI</th><th>Verdict</th>
+                    <th></th><th>Length</th><th class="r">Trades</th>
+                    <th class="r" title="Signals the risk budget refused at this length.">Refused</th>
+                    <th class="r">Mean R</th><th class="r">95% range</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
                 @foreach (var p in surface.Points)
                 {
                     var inRegion = surface.StableRegion.Contains(p);
-                    <tr class="@(inRegion ? "table-active" : "")">
+                    <tr class="@(inRegion ? "hl" : "")">
                         <td>@(inRegion ? "★" : "")</td>
-                        <td>@p.Label</td>
-                        <td class="text-end">@p.Edge.Count</td>
-                        <td class="text-end @(p.Refused > 0 ? "text-warning" : "text-muted")">@p.Refused</td>
-                        <td class="text-end">@p.Edge.MeanR.ToString("+0.000;-0.000")R</td>
-                        <td class="text-end">
-                            @(p.Edge.Count > 1 ? $"[{p.Edge.LowerBound:+0.000;-0.000}, {p.Edge.UpperBound:+0.000;-0.000}]" : "—")
-                        </td>
-                        <td class="@CRV.Web.Pages.Validation.IndexModel.VerdictClass(p.Edge.Verdict)">
-                            @CRV.Web.Pages.Validation.IndexModel.VerdictLabel(p.Edge.Verdict)
-                        </td>
+                        <td class="t">@p.Label</td>
+                        <td class="r">@p.Edge.Count</td>
+                        <td class="r @(p.Refused > 0 ? "c-acc" : "c-mut")">@p.Refused</td>
+                        <td class="r">@R3(p.Edge.MeanR)</td>
+                        <td class="r">@(p.Edge.Count > 1 ? $"{R3(p.Edge.LowerBound)} to {R3(p.Edge.UpperBound)}" : "—")</td>
+                        <td><span class="c-badge @V.VerdictClass(p.Edge.Verdict)">@V.VerdictLabel(p.Edge.Verdict)</span></td>
                     </tr>
                 }
                 </tbody>
             </table>
         </div>
-        <div class="card-footer border-secondary py-2 small">
-            @if (surface.IsInert)
-            {
-                <span class="text-warning">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    Every cell scored identically — this parameter did not change the enabled setups,
-                    so the sweep measured nothing. A setup that fades the previous session's range does
-                    not read the opening range at all.
-                </span>
-            }
-            else if (surface.HasStableRegion)
-            {
-                <span class="text-success">
-                    <i class="bi bi-check-circle me-1"></i>
-                    Stable across @surface.StableRegion[0].Label–@surface.StableRegion[^1].Label —
-                    recommend <strong>@surface.Recommended!.Label</strong> as the centre of the region.
-                </span>
-            }
-            else if (surface.Best is { } best && best.Edge.MeanR > 0)
-            {
-                <span class="text-warning">
-                    No stable region. @best.Label scores highest but its neighbours do not agree,
-                    which is what an artefact looks like — do not adopt it.
-                </span>
-            }
-            else
-            {
-                <span class="text-muted">No stable region and nothing positive to recommend.</span>
-            }
-        </div>
-    </div>
+    </section>
 }
 
-@* ── P1-3 · filter ablation ─────────────────────────────────────── *@
+@* ── Filter ablation ───────────────────────────────────────────────── *@
 @if (Model.Ablation is { } study)
 {
-    <div class="card bg-black border-secondary mb-3">
-        <div class="card-header border-secondary py-2">
-            <strong>Filter ablation</strong>
-            <span class="text-muted small ms-2">
-                Each filter alone against the naked opening-range break. Every filter costs
-                trades, so it has to pay for the ones it removes.
-            </span>
+    <section class="c-panel">
+        <div class="c-panel-h">
+            <h2>Filters</h2>
+            @if (study.Earning.Count == 0) { <span class="c-badge warn">NONE EARN THEIR PLACE</span> }
+            else { <span class="c-badge ok">@study.Earning.Count EARN THEIR PLACE</span> }
         </div>
-        <div class="card-body p-0">
-            <table class="table table-sm table-dark mb-0 font-monospace small">
+        <div class="c-panel-b">
+            <p class="c-plain">
+                @if (study.Earning.Count == 0)
+                {
+                    <text>No filter measurably improves on the bare opening-range break.</text>
+                }
+                else
+                {
+                    <text>Earning their place: <strong>@string.Join(", ", study.Earning.Select(a => a.Name))</strong>.</text>
+                }
+                @if (study.Candidates.Count > 0)
+                {
+                    <span> Consider removing: @string.Join(", ", study.Candidates.Select(a => a.Name)).</span>
+                }
+            </p>
+            <p class="c-mut small">Each filter on its own, against the bare break. Every filter removes trades, so it has to pay for the ones it removes.</p>
+        </div>
+        <div class="c-table-wrap">
+            <table class="c-table">
                 <thead><tr>
-                    <th>Filter</th><th class="text-end">Trades</th>
-                    <th class="text-end" title="Signals the risk budget refused with this filter on. Not trades, so not in the pass rate or the mean.">Refused</th>
-                    <th class="text-end">Pass rate</th>
-                    <th class="text-end">Mean R</th><th class="text-end">vs baseline</th><th>Verdict</th>
+                    <th>Filter</th><th class="r">Trades</th>
+                    <th class="r" title="Signals the risk budget refused with this filter on.">Refused</th>
+                    <th class="r">Pass rate</th><th class="r">Mean R</th><th class="r">vs bare break</th><th>Verdict</th>
                 </tr></thead>
                 <tbody>
-                <tr class="text-muted">
-                    <td>— none —</td>
-                    <td class="text-end">@study.Baseline.Count</td>
-                    <td class="text-end @(study.BaselineRefused > 0 ? "text-warning" : "")">@study.BaselineRefused</td>
-                    <td class="text-end">100%</td>
-                    <td class="text-end">@study.Baseline.MeanR.ToString("+0.000;-0.000")R</td>
-                    <td class="text-end">—</td>
-                    <td>@CRV.Web.Pages.Validation.IndexModel.VerdictLabel(study.Baseline.Verdict)</td>
+                <tr class="c-mut">
+                    <td class="t">None (bare break)</td>
+                    <td class="r">@study.Baseline.Count</td>
+                    <td class="r @(study.BaselineRefused > 0 ? "c-acc" : "")">@study.BaselineRefused</td>
+                    <td class="r">100%</td>
+                    <td class="r">@R3(study.Baseline.MeanR)</td>
+                    <td class="r">—</td>
+                    <td><span class="c-badge @V.VerdictClass(study.Baseline.Verdict)">@V.VerdictLabel(study.Baseline.Verdict)</span></td>
                 </tr>
                 @foreach (var a in study.Ranked)
                 {
                     <tr>
-                        <td>@a.Name</td>
-                        <td class="text-end">@a.WithFilter.Count</td>
-                        <td class="text-end @(a.Refused > 0 ? "text-warning" : "text-muted")">@a.Refused</td>
-                        <td class="text-end">@a.PassRate.ToString("P0")</td>
-                        <td class="text-end">@a.WithFilter.MeanR.ToString("+0.000;-0.000")R</td>
-                        <td class="text-end">@a.Contribution.ToString("+0.000;-0.000")R</td>
-                        <td class="@CRV.Web.Pages.Validation.IndexModel.VerdictClass(a.Verdict)">
-                            @(a.Verdict switch {
-                                AblationVerdict.Earns => "EARNS",
-                                AblationVerdict.Harms => "HARMS",
-                                AblationVerdict.NoMeasurableEffect => "NO EFFECT",
-                                _ => "INSUFFICIENT",
-                            })
-                        </td>
+                        <td class="t">@a.Name</td>
+                        <td class="r">@a.WithFilter.Count</td>
+                        <td class="r @(a.Refused > 0 ? "c-acc" : "c-mut")">@a.Refused</td>
+                        <td class="r">@a.PassRate.ToString("P0")</td>
+                        <td class="r">@R3(a.WithFilter.MeanR)</td>
+                        <td class="r @(a.Contribution > 0 ? "c-up" : a.Contribution < 0 ? "c-down" : "")">@R3(a.Contribution)</td>
+                        <td><span class="c-badge @V.VerdictClass(a.Verdict)">@V.AblationLabel(a.Verdict)</span></td>
                     </tr>
                 }
                 </tbody>
             </table>
         </div>
-        <div class="card-footer border-secondary py-2 small">
-            @if (study.Earning.Count == 0)
-            {
-                <span class="text-warning">Nothing measurably improves on the bare break.</span>
-            }
-            else
-            {
-                <span class="text-success">
-                    Earning their place: <strong>@string.Join(", ", study.Earning.Select(a => a.Name))</strong>
-                </span>
-            }
-            @if (study.Candidates.Count > 0)
-            {
-                <span class="text-muted ms-2">
-                    Consider deleting: @string.Join(", ", study.Candidates.Select(a => a.Name))
-                </span>
-            }
-        </div>
+    </section>
+}
+
+@if (Model.Split == null && Model.Surface == null && Model.Ablation == null && (Model.Error == null || !Model.HasSnapshot))
+{
+    <div class="c-panel c-empty">
+        <i class="bi bi-clipboard-data"></i>
+        <b>Pick a study</b>
+        <span>Choose a date range and one of the three studies above. Each replays saved bars, so run a backtest over the same dates first.</span>
     </div>
 }
+
+</div>

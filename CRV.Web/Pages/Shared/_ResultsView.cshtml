@@ -1,0 +1,199 @@
+@model CRV.Web.Pages.ResultsViewModel
+@using CRV.Core.Models
+@using CRV.Backtest.Results
+@using CRV.Web.Pages
+@{
+    var r      = Model.Result;
+    var trades = r.Trades.OrderBy(t => t.EnteredAt).ToList();
+
+    var setups   = trades.Select(ViewFmt.SetupOf).Distinct().OrderBy(x => x).ToList();
+    var sessions = trades.Select(t => string.IsNullOrEmpty(t.SessionId) ? "—" : t.SessionId).Distinct().OrderBy(x => x).ToList();
+    var tickers  = trades.Select(t => t.Ticker ?? "").Where(t => t != "").Distinct().OrderBy(x => x).ToList();
+
+    var firstEt   = trades.Count > 0 ? ViewFmt.ToEt(trades[0].EnteredAt) : DateTime.MinValue;
+    var tz        = trades.Count > 0 && ViewFmt.Et.IsDaylightSavingTime(firstEt) ? "EDT" : "EST";
+    var singleDay = trades.Count > 0 && trades.All(t => ViewFmt.ToEt(t.ExitedAt).Date == ViewFmt.ToEt(trades[0].ExitedAt).Date);
+
+    string Label(DateTime utc) => ViewFmt.ToEt(utc).ToString(singleDay ? "HH:mm" : "M/d");
+
+    var data = trades.Select(t => new
+    {
+        setup = ViewFmt.SetupOf(t), session = string.IsNullOrEmpty(t.SessionId) ? "—" : t.SessionId, ticker = t.Ticker ?? "",
+        source = t.Source, dir = t.EffectiveDirection.ToString(), reason = t.ExitReason.ToString(),
+        enteredAt = DateTime.SpecifyKind(t.EnteredAt, DateTimeKind.Utc).ToString("o"),
+        exitedAt  = DateTime.SpecifyKind(t.ExitedAt, DateTimeKind.Utc).ToString("o"),
+        entry = t.Entry, exit = t.Exit, stop = t.InitialStop, target = t.Target, contracts = t.Contracts,
+        partial = t.PartialFilled, gross = t.GrossPnl, comm = t.Commission, net = t.NetPnl, r = t.RMultiple,
+    });
+    var curve = r.EquityCurve.Select(p => new { t = Label(p.Time), v = p.Equity });
+    var json  = System.Text.Json.JsonSerializer.Serialize(new { singleDay, trades = data, curve });
+}
+
+@{
+    void Tiles(PerformanceMetrics m)
+    {
+        <div class="c-tile"><small>Net P&amp;L</small><b class="@ViewFmt.Tone(m.NetPnl)">@ViewFmt.Money(m.NetPnl)</b></div>
+        <div class="c-tile"><small>Win rate</small><b>@m.WinRate.ToString("F1")%</b></div>
+        <div class="c-tile"><small>Profit factor</small><b class="@(m.ProfitFactor >= 1.5m ? "c-up" : m.ProfitFactor < 1 && m.TotalTrades > 0 && !(m.ProfitFactor == 0 && m.NetPnl > 0) ? "c-down" : "")">@ViewFmt.Pf(m)</b></div>
+        <div class="c-tile"><small>Max drawdown</small><b class="@(m.MaxDrawdown > 0 ? "c-down" : "")">@(m.MaxDrawdown > 0 ? "−" : "")@ViewFmt.Dollars(m.MaxDrawdown)</b></div>
+    }
+
+    void Details(PerformanceMetrics m)
+    {
+        <div class="c-kv"><span>Trades</span><span>@m.TotalTrades (@m.Wins W / @m.Losses L)</span></div>
+        @if (m.SizeRefusals > 0)
+        {
+            <div class="c-kv" title="Signals the risk budget could not carry at even one contract. Not trades, but this run measured a different sample from one that took them."><span>Refused for size</span><span class="c-acc">@m.SizeRefusals</span></div>
+        }
+        <div class="c-kv"><span>Avg win / loss</span><span><span class="c-up">@ViewFmt.Dollars(m.AvgWin)</span> / <span class="c-down">−@ViewFmt.Dollars(m.AvgLoss)</span></span></div>
+        <div class="c-kv" title="(Win% × avg win) + (Loss% × avg loss)"><span>Expectancy</span><span class="@ViewFmt.Tone(m.Expectancy)">@ViewFmt.Money(m.Expectancy) / trade</span></div>
+        <div class="c-kv"><span>Avg R</span><span class="@ViewFmt.Tone(m.AvgR)">@ViewFmt.R(m.AvgR)</span></div>
+        <div class="c-kv"><span>Most wins / losses in a row</span><span>@m.MaxConsecWins / @m.MaxConsecLosses</span></div>
+        <div class="c-kv"><span>Long / short</span><span>@m.LongTrades / @m.ShortTrades</span></div>
+        <div class="c-kv"><span>Target / stop / end of day</span><span>@m.TargetExits / @m.StopExits / @m.SessionEndExits</span></div>
+        <div class="c-kv"><span>Commission</span><span class="c-down">−@ViewFmt.Dollars(m.TotalCommission)</span></div>
+    }
+}
+
+<div class="c-results c-stack" data-csv="@Model.CsvName">
+    <script type="application/json" class="c-results-data">@Html.Raw(json)</script>
+
+    @if (trades.Count == 0)
+    {
+        <div class="c-panel c-empty">
+            <i class="bi bi-bar-chart-line"></i>
+            <b>@Model.EmptyTitle</b>
+            <span>@Model.EmptyText</span>
+        </div>
+    }
+    else
+    {
+        <div class="c-chips" role="group" aria-label="Filter trades">
+            @if (setups.Count > 1)
+            {
+                <select class="form-select form-select-sm c-select" data-filter="setup" aria-label="Setup">
+                    <option value="">All setups</option>
+                    @foreach (var s in setups) { <option value="@s">@s</option> }
+                </select>
+            }
+            @if (sessions.Count > 1)
+            {
+                <select class="form-select form-select-sm c-select" data-filter="session" aria-label="Session">
+                    <option value="">All sessions</option>
+                    @foreach (var s in sessions) { <option value="@s">@s</option> }
+                </select>
+            }
+            @if (tickers.Count > 1)
+            {
+                <select class="form-select form-select-sm c-select" data-filter="ticker" aria-label="Instrument">
+                    <option value="">All instruments</option>
+                    @foreach (var s in tickers) { <option value="@s">@s.TrimStart('/')</option> }
+                </select>
+            }
+            <span class="c-mut small" data-part="count">@trades.Count trades</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-action="csv"><i class="bi bi-download me-1"></i>CSV</button>
+        </div>
+
+        <div class="c-tiles" data-part="tiles">@{ Tiles(r.Total); }</div>
+
+        <div class="c-cols">
+            <div class="c-stack">
+                <section class="c-panel">
+                    <div class="c-panel-h"><h2>Equity</h2><span class="c-right" data-part="eq-count">@trades.Count trades</span></div>
+                    <div class="c-chart"><canvas aria-label="Equity curve" role="img"></canvas></div>
+                </section>
+
+                <section class="c-panel">
+                    <div class="c-panel-h"><h2>Trades</h2><span class="c-right">times in @tz</span></div>
+                    <div class="c-trades-table c-table-wrap c-scroll">
+                        <table class="c-table">
+                            <thead><tr>
+                                <th>#</th><th>In</th><th>Out</th><th>Dur</th><th>Session</th><th>Setup</th><th>Instr</th><th>Side</th>
+                                <th class="r">Entry</th><th class="r">Exit</th><th class="r">Stop</th><th class="r">Target</th>
+                                <th class="r">Cts</th><th>Part</th><th>Exit reason</th>
+                                @if (Model.ShowSource) { <th>Source</th> }
+                                <th class="r">Gross</th><th class="r">Comm</th><th class="r">Net</th><th class="r">R</th>
+                            </tr></thead>
+                            <tbody>
+                            @for (var i = 0; i < trades.Count; i++)
+                            {
+                                var t = trades[i];
+                                <tr data-i="@i">
+                                    <td class="c-mut" data-part="n">@(i + 1)</td>
+                                    <td>@ViewFmt.ToEt(t.EnteredAt).ToString("M/d HH:mm:ss")</td>
+                                    <td class="c-mut">@ViewFmt.ToEt(t.ExitedAt).ToString("HH:mm:ss")</td>
+                                    <td class="c-mut">@t.Duration.ToString(@"h\:mm\:ss")</td>
+                                    <td class="t">@(string.IsNullOrEmpty(t.SessionId) ? "—" : t.SessionId)</td>
+                                    <td class="t">@ViewFmt.SetupOf(t)</td>
+                                    <td>@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
+                                    <td><span class="c-side @(t.EffectiveDirection == Direction.Long ? "long" : "short")">@t.EffectiveDirection.ToString().ToUpperInvariant()</span></td>
+                                    <td class="r">@t.Entry.ToString("N2")</td>
+                                    <td class="r">@t.Exit.ToString("N2")</td>
+                                    <td class="r c-mut">@t.InitialStop.ToString("N2")</td>
+                                    <td class="r c-mut">@t.Target.ToString("N2")</td>
+                                    <td class="r">@t.Contracts</td>
+                                    <td>@(t.PartialFilled ? "Yes" : "—")</td>
+                                    <td class="t">@ViewFmt.Reason(t.ExitReason)</td>
+                                    @if (Model.ShowSource) { <td class="t">@(t.Source == "mock" ? "Paper" : t.Source == "live" ? "Live" : t.Source)</td> }
+                                    <td class="r @ViewFmt.Tone(t.GrossPnl)">@ViewFmt.Money(t.GrossPnl)</td>
+                                    <td class="r c-mut">−@ViewFmt.Dollars(t.Commission)</td>
+                                    <td class="r @ViewFmt.Tone(t.NetPnl)"><b>@ViewFmt.Money(t.NetPnl)</b></td>
+                                    <td class="r @ViewFmt.Tone(t.RMultiple)">@ViewFmt.R(t.RMultiple)</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="c-trades-cards">
+                        @for (var i = 0; i < trades.Count; i++)
+                        {
+                            var t  = trades[i];
+                            var et = ViewFmt.ToEt(t.EnteredAt);
+                            <details class="c-tcard @(t.NetPnl > 0 ? "win" : t.NetPnl < 0 ? "loss" : "")" data-i="@i">
+                                <summary>
+                                    <span class="s"></span>
+                                    <span><b>@ViewFmt.SetupOf(t) · @t.EffectiveDirection</b><small>@et.ToString("MMM d HH:mm") · @ViewFmt.Reason(t.ExitReason)@(Model.ShowSource ? (t.Source == "mock" ? " · Paper" : " · Live") : "")</small></span>
+                                    <span class="rr @ViewFmt.Tone(t.NetPnl)">@ViewFmt.Money(t.NetPnl)<small>@ViewFmt.R(t.RMultiple)</small></span>
+                                </summary>
+                                <div class="d">
+                                    <div><span>Entry</span><b>@t.Entry.ToString("N2")</b></div>
+                                    <div><span>Exit</span><b>@t.Exit.ToString("N2")</b></div>
+                                    <div><span>Stop</span><b>@t.InitialStop.ToString("N2")</b></div>
+                                    <div><span>Target</span><b>@t.Target.ToString("N2")</b></div>
+                                    <div><span>Contracts</span><b>@t.Contracts</b></div>
+                                    <div><span>Duration</span><b>@t.Duration.ToString(@"h\:mm")</b></div>
+                                    <div><span>Session</span><b>@(string.IsNullOrEmpty(t.SessionId) ? "—" : t.SessionId)</b></div>
+                                    <div><span>Commission</span><b>−@ViewFmt.Dollars(t.Commission)</b></div>
+                                </div>
+                            </details>
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <div class="c-stack">
+                <section class="c-panel">
+                    <div class="c-panel-h"><h2>By setup</h2><span class="c-right">tap for details</span></div>
+                    <div class="c-break" data-part="break">
+                        @foreach (var (label, m) in r.PerSetup.Where(kv => kv.Value.TotalTrades > 0 || kv.Value.SizeRefusals > 0).OrderByDescending(kv => kv.Value.NetPnl))
+                        {
+                            <details>
+                                <summary>
+                                    <span class="s @(m.NetPnl > 0 ? "up" : m.NetPnl < 0 ? "down" : "")"></span>
+                                    <span><b>@label</b><small>@m.TotalTrades trades · @m.WinRate.ToString("F1")% · PF @ViewFmt.Pf(m)</small></span>
+                                    <span class="rr @ViewFmt.Tone(m.NetPnl)">@ViewFmt.Money(m.NetPnl)<small>@ViewFmt.R(m.AvgR) avg</small></span>
+                                    <i class="bi bi-chevron-right chev"></i>
+                                </summary>
+                                <div class="c-panel-b">@{ Details(m); }</div>
+                            </details>
+                        }
+                    </div>
+                </section>
+                <section class="c-panel">
+                    <div class="c-panel-h"><h2>More numbers</h2></div>
+                    <div class="c-panel-b" data-part="more">@{ Details(r.Total); }</div>
+                </section>
+            </div>
+        </div>
+    }
+</div>

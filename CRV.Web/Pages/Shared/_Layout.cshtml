@@ -14,6 +14,16 @@
     <link rel="stylesheet" href="~/css/tokens.css" asp-append-version="true"/>
     <link rel="stylesheet" href="~/css/crv.css" asp-append-version="true"/>
     <link rel="stylesheet" href="~/css/shell.css" asp-append-version="true"/>
+    <link rel="stylesheet" href="~/css/components.css" asp-append-version="true"/>
+    @* Light mode is a per-browser preference, applied only on pages rebuilt for it
+       (ViewData["LightReady"]); other pages stay dark until they're rebuilt. *@
+    <script>
+        (function () {
+            if (@(ViewData["LightReady"] is true ? "true" : "false")) {
+                try { if (localStorage.getItem('crv-theme') === 'light') document.documentElement.setAttribute('data-bs-theme', 'light'); } catch (e) { }
+            }
+        })();
+    </script>
 </head>
 @{
     // Navigation is grouped by when in the trading day a page is used. A page is matched
@@ -38,9 +48,7 @@
         }),
         ("review", "Review", "bi-bar-chart-line", new[]
         {
-            ("performance",       "", "/performance",       "bi-bar-chart-line", "Performance"),
-            ("mock-broker",       "", "/trading/mock",      "bi-robot",          "Paper trading"),
-            ("backtest-settings", "", "/settings/backtest", "bi-clock-history",  "Backtest"),
+            ("results",           "", "/review/results",    "bi-bar-chart-line", "Results"),
             ("sessions",          "", "/dashboard/sessions", "bi-calendar3",     "Sessions"),
             ("validation",        "", "/validation",        "bi-clipboard-data", "Validation"),
         }),
@@ -65,11 +73,11 @@
         ("/dashboard",        "bi-speedometer2",   "Trade",     currentArea.Key == "trade" && !onPositions),
         ("/trading/orders",   "bi-list-ul",        "Positions", onPositions),
         ("/options/explorer", "bi-diagram-3",      "Options",   currentArea.Key == "options"),
-        ("/performance",      "bi-bar-chart-line", "Review",    currentArea.Key == "review"),
+        ("/review/results",   "bi-bar-chart-line", "Review",    currentArea.Key == "review"),
         ("/settings/live",    "bi-sliders",        "Setup",     currentArea.Key == "setup"),
     };
 }
-<body class="crv-app">
+<body class="crv-app" data-light-ready="@(ViewData["LightReady"] is true ? "true" : "false")">
 <div class="crv-shell">
     <aside class="crv-side" aria-label="Main navigation">
         <a class="crv-brand" href="/"><i class="bi bi-activity"></i>CRV</a>

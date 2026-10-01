@@ -282,6 +282,26 @@ app.Use(async (ctx, next) =>
 
 app.UseRouting();
 app.UseRateLimiter();
+// Performance, Paper trading and Backtest were merged into Review › Results.
+// Old links and bookmarks land on the matching view.
+static string DatePart(string? s) => DateTime.TryParse(s, out var d) ? d.ToString("yyyy-MM-dd") : "";
+app.MapGet("/performance", (HttpRequest req) =>
+{
+    var q = new Dictionary<string, string?> { ["source"] = "live" };
+    if (DatePart(req.Query["FromStr"]) is { Length: > 0 } f) q["from"] = f;
+    if (DatePart(req.Query["ToStr"]) is { Length: > 0 } t) q["to"] = t;
+    if (req.Query["Setup"].ToString() is { Length: > 0 } st && st != "All") q["setup"] = st;
+    if (req.Query["Session"].ToString() is { Length: > 0 } se && se != "All") q["session"] = se;
+    return Results.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString("/review/results", q));
+});
+app.MapGet("/trading/mock", (HttpRequest req) =>
+{
+    var q = new Dictionary<string, string?> { ["source"] = "paper" };
+    if (DatePart(req.Query["date"]) is { Length: > 0 } d) { q["from"] = d; q["to"] = d; }
+    return Results.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString("/review/results", q));
+});
+app.MapGet("/settings/backtest", () => Results.Redirect("/review/results?source=backtest"));
+
 app.MapRazorPages();
 app.MapControllers();
 app.MapHub<TradingHub>("/hubs/trading");

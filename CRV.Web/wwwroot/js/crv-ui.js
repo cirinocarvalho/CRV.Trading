@@ -59,6 +59,33 @@
         toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
     };
 
+    // ── Light / dark ─────────────────────────────────────────────
+    // Saved per browser. Pages rebuilt for light mode apply it; the rest stay dark for now.
+    (function () {
+        const btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        const ready = document.body.dataset.lightReady === 'true';
+        const pref = () => { try { return localStorage.getItem('crv-theme') || 'dark'; } catch (e) { return 'dark'; } };
+        function show() {
+            const light = pref() === 'light';
+            btn.querySelector('i').className = 'bi ' + (light ? 'bi-moon' : 'bi-sun');
+            btn.setAttribute('aria-label', light ? 'Switch to dark mode' : 'Switch to light mode');
+            btn.setAttribute('aria-pressed', String(light));
+        }
+        btn.addEventListener('click', () => {
+            const next = pref() === 'light' ? 'dark' : 'light';
+            try { localStorage.setItem('crv-theme', next); } catch (e) { }
+            show();
+            if (ready) {
+                document.documentElement.setAttribute('data-bs-theme', next);
+                document.dispatchEvent(new CustomEvent('crv:theme', { detail: next }));
+            } else if (next === 'light') {
+                CRV.toast('Light mode is saved. Results, Sessions and Validation use it now; other pages switch as they are rebuilt.');
+            }
+        });
+        show();
+    })();
+
     // ── Engine bar ───────────────────────────────────────────────
     const bar = document.getElementById('crv-engine');
     if (!bar) return;

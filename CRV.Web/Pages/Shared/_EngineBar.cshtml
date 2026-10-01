@@ -54,6 +54,9 @@
         <b id="nav-ticker">@(snap?.Ticker ?? cfg.Ticker)</b>
     </span>
     <span class="crv-engine-acts">
+        <button type="button" class="crv-btn" id="theme-toggle" aria-label="Switch to light mode" title="Light / dark">
+            <i class="bi bi-sun"></i>
+        </button>
         <button type="button" class="crv-btn @(running ? "stop" : "start")" id="eng-toggle" aria-label="@(running ? "Stop the engine" : "Start the engine")">
             <i class="bi @(running ? "bi-stop-fill" : "bi-play-fill")"></i><span class="d-none d-sm-inline" id="eng-toggle-text">@(running ? "Stop engine" : "Start engine")</span>
         </button>

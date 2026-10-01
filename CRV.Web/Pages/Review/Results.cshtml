@@ -1,0 +1,241 @@
+@page "/review/results"
+@model CRV.Web.Pages.Review.ResultsModel
+@using CRV.Backtest.Engine
+@using CRV.Live
+@using CRV.Web.Pages
+@{
+    ViewData["Title"] = "Results";
+    ViewData["Page"]  = "results";
+    ViewData["LightReady"] = true;
+
+    var hour  = Model.SessionStartHour;
+    var today = TradingDayRange.Of(DateTime.UtcNow, hour, ViewFmt.Et);
+    string Range(DateOnly a, DateOnly b) => a == b ? a.ToString("ddd MMM d, yyyy") : $"{a:MMM d} → {b:MMM d, yyyy}";
+    string SrcHref(string s) => s == "backtest" ? "?source=backtest" : $"?source={s}";
+
+    var r = Model.Result;
+    var sub = Model.IsBacktest
+        ? (Model.SelectedRun is { } run ? $"{run.From:MMM d} → {run.To:MMM d, yyyy}" : "no runs yet")
+        : (Model.From is { } f && Model.To is { } t ? Range(f, t) : "");
+
+    var emptyTitle = Model.IsBacktest ? "No backtest yet" : $"No {Model.SourceName.ToLowerInvariant()} trades";
+    var emptyText = Model.IsBacktest
+        ? "Tap New backtest to run one. Results are saved, so you can come back to them."
+        : Model.Source == "paper"
+            ? "Nothing in this range. Paper trades appear when the engine runs with orders going to Mock."
+            : "Nothing in this range. Try a wider date range.";
+}
+
+<div class="c-head">
+    <h1>Results</h1>
+    <span class="c-sub">@Model.SourceName · @sub</span>
+    <div class="c-acts">
+        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#bt-sheet">
+            <i class="bi bi-play-fill me-1"></i>New backtest
+        </button>
+    </div>
+</div>
+
+<div class="c-chips mb-3">
+    <nav class="c-seg" aria-label="Source">
+        @foreach (var (key, label) in new[] { ("live", "Live"), ("paper", "Paper"), ("backtest", "Backtest") })
+        {
+            <a href="@SrcHref(key)" class="@(Model.Source == key ? "active" : "")" aria-current="@(Model.Source == key ? "page" : null)">@label</a>
+        }
+    </nav>
+
+    @if (!Model.IsBacktest)
+    {
+        <form method="get" class="c-chips">
+            <input type="hidden" name="source" value="@Model.Source" />
+            <input type="date" name="from" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control form-control-sm c-select" aria-label="From trading day" />
+            <span class="c-mut">→</span>
+            <input type="date" name="to" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control form-control-sm c-select" aria-label="To trading day" />
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Show</button>
+        </form>
+        <span class="c-chips">
+            <a class="btn btn-sm btn-link px-1" href="?source=@Model.Source&from=@today.AddDays(-6).ToString("yyyy-MM-dd")&to=@today.ToString("yyyy-MM-dd")">7 days</a>
+            <a class="btn btn-sm btn-link px-1" href="?source=@Model.Source&from=@today.AddDays(-29).ToString("yyyy-MM-dd")&to=@today.ToString("yyyy-MM-dd")">30 days</a>
+            <a class="btn btn-sm btn-link px-1" href="?source=@Model.Source&from=@(new DateOnly(today.Year, 1, 1).ToString("yyyy-MM-dd"))&to=@today.ToString("yyyy-MM-dd")">This year</a>
+        </span>
+    }
+    else if (Model.RecentRuns.Count > 0)
+    {
+        <form method="get" class="c-chips" id="run-picker">
+            <input type="hidden" name="source" value="backtest" />
+            <select name="run" class="form-select form-select-sm c-select" aria-label="Backtest run" onchange="this.form.submit()">
+                @foreach (var run in Model.RecentRuns)
+                {
+                    var ranAt = ViewFmt.ToEt(run.RunAt);
+                    <option value="@run.Id" selected="@(run.Id == Model.SelectedRun?.Id)">
+                        @ranAt.ToString("MMM d HH:mm") · @run.DataSource · @run.From.ToString("MMM d")–@run.To.ToString("MMM d") · @run.TotalTrades trades · @ViewFmt.Money(run.NetPnl)
+                    </option>
+                }
+            </select>
+            <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Show</button></noscript>
+        </form>
+    }
+</div>
+
+@if (Model.Error != null)
+{
+    <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.Error</span></div>
+}
+@if (Model.RunnerBusy)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-hourglass-split"></i><span>A backtest is running. Its results appear here when it finishes; reload in a minute.</span></div>
+}
+@if (Model.IsBacktest && r?.BtConfig is { } bt)
+{
+    <p class="c-mut small mb-2">
+        @bt.DataSource · @bt.ExecutionTFMinutes-minute bars · @(bt.FillMode switch { FillMode.AtTouch => "fills at touch (no slippage)", FillMode.AtClose => "fills at bar close", _ => $"slippage {bt.SlippageTicks} / {bt.StopSlippageTicks} ticks" })
+        · @(bt.BacktestSession == "All" ? "all sessions" : bt.BacktestSession + " session")
+        @if (Model.SelectedRun is { } sr) { <text>· ran @ViewFmt.ToEt(sr.RunAt).ToString("MMM d HH:mm") ET</text> }
+    </p>
+}
+@if (r?.DataNotes is { Count: > 0 } notes)
+{
+    foreach (var n in notes)
+    {
+        <div class="c-note mb-3"><i class="bi bi-info-circle"></i><span>@n</span></div>
+    }
+}
+
+@if (r != null)
+{
+    <partial name="_ResultsView" model="@(new ResultsViewModel(r, $"{Model.Source}-trades", EmptyTitle: emptyTitle, EmptyText: emptyText))" />
+}
+else
+{
+    <div class="c-panel c-empty"><i class="bi bi-bar-chart-line"></i><b>@emptyTitle</b><span>@emptyText</span></div>
+}
+
+@* ── New backtest ─────────────────────────────────────────── *@
+<div class="modal fade c-sheet" id="bt-sheet" tabindex="-1" aria-labelledby="bt-sheet-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <form method="post" asp-page-handler="RunBacktest" class="modal-content c-form" id="bt-form">
+            <div class="modal-header">
+                <h2 class="modal-title" id="bt-sheet-title">New backtest</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="c-mut small">Uses the strategy settings in <a href="/settings/live">Strategy settings</a>. Results are saved and listed under Backtest.</p>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="bt-source">Data source</label>
+                        <select asp-for="Config.DataSource" id="bt-source" class="form-select">
+                            <option value="Schwab">Schwab</option>
+                            <option value="TradeStation">TradeStation</option>
+                            <option value="Tradovate">Tradovate</option>
+                            <option value="CSV">CSV file</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="bt-from">From</label>
+                        <input asp-for="Config.From" id="bt-from" type="date" value="@Model.Config.From.ToString("yyyy-MM-dd")" class="form-control" />
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="bt-to">To</label>
+                        <input asp-for="Config.To" id="bt-to" type="date" value="@Model.Config.To.ToString("yyyy-MM-dd")" class="form-control" />
+                    </div>
+                    <div class="col-12" id="bt-csv">
+                        <label class="form-label" for="bt-csv-path">CSV file path</label>
+                        <input asp-for="Config.CsvPath" id="bt-csv-path" placeholder="Data/NQ_1min.csv" class="form-control font-monospace" />
+                        <div class="form-text">A file on the server, relative to the app folder or absolute. Columns: datetime, open, high, low, close, volume.</div>
+                    </div>
+                </div>
+
+                <details class="mt-3" @(Model.OpenForm ? "open" : "")>
+                    <summary class="c-mut small" style="cursor:pointer">Advanced: bars, fills, slippage, session</summary>
+                    <div class="row g-3 mt-1">
+                        <div class="col-6 col-md-4">
+                            <label class="form-label" for="bt-tf">Bar size</label>
+                            <select asp-for="Config.ExecutionTFMinutes" id="bt-tf" class="form-select">
+                                @foreach (var m in new[] { 1, 2, 5, 10, 15, 20, 30, 60 })
+                                {
+                                    <option value="@m">@m minute@(m == 1 ? "" : "s")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label" for="bt-session">Session</label>
+                            <select asp-for="Config.BacktestSession" id="bt-session" class="form-select">
+                                <option value="All">All sessions</option>
+                                <option value="Asia">Asia</option>
+                                <option value="London">London</option>
+                                <option value="NY">NY</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label" for="bt-fill">Fills</label>
+                            <select asp-for="Config.FillMode" id="bt-fill" class="form-select">
+                                <option value="WithSlippage">With slippage (realistic)</option>
+                                <option value="AtTouch">At price touch (no cost)</option>
+                                <option value="AtClose">At bar close</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label" for="bt-slip">Entry slippage (ticks)</label>
+                            <input asp-for="Config.SlippageTicks" id="bt-slip" type="number" min="0" max="10" class="form-control" />
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label" for="bt-stopslip">Stop slippage (ticks)</label>
+                            <input asp-for="Config.StopSlippageTicks" id="bt-stopslip" type="number" min="0" max="20" class="form-control" />
+                        </div>
+                        <div class="col-12 col-md-4" id="bt-warmup">
+                            <label class="form-label" for="bt-warm">Warmup bars (CSV only)</label>
+                            <select asp-for="Config.WarmupBars" id="bt-warm" class="form-select">
+                                <option value="0">None</option>
+                                <option value="14">14 (ATR warmup)</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-text">
+                                The no-cost fill modes book exits at the exact order price. Use them to compare runs, not to judge whether a setup is tradeable.
+                                A touched stop is a market order: live, 16% of stop-outs cost more than 1R.
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-warning" id="bt-run">
+                    <span class="c-idle"><i class="bi bi-play-fill me-1"></i>Run backtest</span>
+                    <span class="c-busy"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Running… fetching bars can take a minute</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="~/js/crv-results.js" asp-append-version="true"></script>
+<script>
+(function () {
+    const src = document.getElementById('bt-source');
+    const csv = document.getElementById('bt-csv');
+    const warm = document.getElementById('bt-warmup');
+    function sync() {
+        const isCsv = src.value === 'CSV';
+        csv.hidden = !isCsv;
+        warm.style.opacity = isCsv ? '1' : '.45';
+        warm.title = isCsv ? '' : 'Broker data always starts without warmup bars';
+    }
+    src.addEventListener('change', sync);
+    sync();
+
+    const form = document.getElementById('bt-form');
+    form.addEventListener('submit', () => {
+        form.classList.add('is-busy');
+        document.getElementById('bt-run').disabled = true;
+    });
+
+    @if (Model.OpenForm)
+    {
+        <text>bootstrap.Modal.getOrCreateInstance(document.getElementById('bt-sheet')).show();</text>
+    }
+})();
+</script>
+}

@@ -144,23 +144,31 @@ public class IndexModel : PageModel
 
     public static string VerdictClass(EdgeVerdict v) => v switch
     {
-        EdgeVerdict.EdgePresent          => "text-success",
-        EdgeVerdict.NoMeasurableEdge     => "text-warning",
-        _                                => "text-muted",
+        EdgeVerdict.EdgePresent          => "ok",
+        EdgeVerdict.NoMeasurableEdge     => "warn",
+        _                                => "",
     };
 
     public static string VerdictClass(AblationVerdict v) => v switch
     {
-        AblationVerdict.Earns => "text-success",
-        AblationVerdict.Harms => "text-danger",
-        AblationVerdict.NoMeasurableEffect => "text-warning",
-        _ => "text-muted",
+        AblationVerdict.Earns => "ok",
+        AblationVerdict.Harms => "bad",
+        AblationVerdict.NoMeasurableEffect => "warn",
+        _ => "",
+    };
+
+    public static string AblationLabel(AblationVerdict v) => v switch
+    {
+        AblationVerdict.Earns              => "EARNS",
+        AblationVerdict.Harms              => "HARMS",
+        AblationVerdict.NoMeasurableEffect => "NO EFFECT",
+        _                                  => "TOO FEW",
     };
 
     public static string VerdictLabel(EdgeVerdict v) => v switch
     {
         EdgeVerdict.EdgePresent      => "EDGE",
         EdgeVerdict.NoMeasurableEdge => "NO EDGE",
-        _                            => "INSUFFICIENT",
+        _                            => "TOO FEW",
     };
 }

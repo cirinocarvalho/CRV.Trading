@@ -1,185 +1,44 @@
 @page "/dashboard/sessions"
 @model CRV.Web.Pages.Dashboard.SessionsModel
-@using CRV.Core.Models
+@using CRV.Web.Pages
 @{
-    ViewData["Title"] = "Session Detail";
+    ViewData["Title"] = "Sessions";
     ViewData["Page"]  = "sessions";
-    ViewData["Section"] = "futures";
-    Layout = "~/Pages/Shared/_Layout.cshtml";
+    ViewData["LightReady"] = true;
 
-    TimeZoneInfo etTz;
-    try   { etTz = TimeZoneInfo.FindSystemTimeZoneById("America/New_York"); }
-    catch { etTz = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); }
-    string ToEt(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("M/d HH:mm:ss");
-    string ToEtTime(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, etTz).ToString("HH:mm:ss");
-    string Pnl(decimal v) => (v >= 0 ? "+$" : "-$") + Math.Abs(v).ToString("N0");
-    string PnlCls(decimal v) => v >= 0 ? "pnl-pos" : "pnl-neg";
+    string Href(DateOnly d, string? s = null) => $"?date={d:yyyy-MM-dd}" + (s != null ? $"&s={s}" : "");
 }
 
-<div class="d-flex align-items-center gap-3 mb-3">
-    <h4 class="mb-0">Session Detail</h4>
-    <div class="d-flex align-items-center gap-2 ms-3">
-        <label class="form-label small mb-0 text-muted">Date</label>
-        <input type="date" id="session-date" class="form-control form-control-sm" style="width:160px"
-               value="@Model.SelectedDate"
-               onchange="window.location.href='/dashboard/sessions?date=' + this.value" />
-    </div>
-    <a href="/dashboard" class="btn btn-outline-secondary btn-sm ms-auto">
-        <i class="bi bi-speedometer2 me-1"></i>Dashboard
-    </a>
-</div>
-
-<ul class="nav nav-tabs mb-3" id="sessionDetailTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#det-Asia" type="button" role="tab">
-            Asia <span class="badge bg-secondary">@Model.AsiaTrades.Count</span>
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#det-London" type="button" role="tab">
-            London <span class="badge bg-secondary">@Model.LondonTrades.Count</span>
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#det-NY" type="button" role="tab">
-            NY <span class="badge bg-secondary">@Model.NYTrades.Count</span>
-        </button>
-    </li>
-</ul>
-
-<div class="tab-content">
-    @{
-        var sessionData = new (string Id, List<TradeRecord> Trades, bool IsActive)[]
+<div class="c-head">
+    <h1>Sessions</h1>
+    <span class="c-sub">@Model.Day.ToString("ddd MMM d, yyyy")@(Model.IsToday ? " · today" : "") · live and paper</span>
+    <div class="c-acts">
+        <a class="btn btn-sm btn-outline-secondary" href="@Href(Model.Day.AddDays(-1))" aria-label="Previous trading day"><i class="bi bi-chevron-left"></i></a>
+        <form method="get" class="d-inline-flex">
+            <input type="date" name="date" value="@Model.Day.ToString("yyyy-MM-dd")" class="form-control form-control-sm c-select"
+                   aria-label="Trading day" onchange="this.form.submit()" />
+        </form>
+        <a class="btn btn-sm btn-outline-secondary" href="@Href(Model.Day.AddDays(1))" aria-label="Next trading day"><i class="bi bi-chevron-right"></i></a>
+        @if (!Model.IsToday)
         {
-            ("Asia",   Model.AsiaTrades,   true),
-            ("London", Model.LondonTrades, false),
-            ("NY",     Model.NYTrades,     false)
-        };
-    }
-    @foreach (var sess in sessionData)
-    {
-        <div class="tab-pane fade @(sess.IsActive ? "show active" : "")" id="det-@sess.Id" role="tabpanel">
-            @if (sess.Trades.Count == 0)
-            {
-                <p class="text-muted mt-3">No trades this session.</p>
-            }
-            else
-            {
-                var wins   = sess.Trades.Count(t => t.IsWin);
-                var losses = sess.Trades.Count - wins;
-                var pnl    = sess.Trades.Sum(t => t.NetPnl);
-
-                <div class="row g-2 mb-3 mt-2">
-                    <div class="col-6 col-md-3">
-                        <div class="card p-2 text-center">
-                            <div class="text-muted small">Trades</div>
-                            <div class="fs-5 fw-bold font-monospace">@sess.Trades.Count</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card p-2 text-center">
-                            <div class="text-muted small">Win / Loss</div>
-                            <div class="fs-5 fw-bold font-monospace">@wins / @losses</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card p-2 text-center">
-                            <div class="text-muted small">Win Rate</div>
-                            <div class="fs-5 fw-bold font-monospace">@(sess.Trades.Count > 0 ? ((decimal)wins / sess.Trades.Count * 100).ToString("F0") : "0")%</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card p-2 text-center">
-                            <div class="text-muted small">Net PnL</div>
-                            <div class="fs-5 fw-bold font-monospace @PnlCls(pnl)">@Pnl(pnl)</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="settings-section">
-                    <div class="d-flex align-items-center mb-2">
-                        <h6 class="mb-0 text-warning"><i class="bi bi-list-columns me-1"></i>Trade Log</h6>
-                        <span class="badge bg-success font-monospace ms-2">@sess.Trades.Count trades</span>
-                        <span class="ms-2 small text-muted">@wins W / @losses L</span>
-                        <button type="button" class="btn btn-sm btn-outline-light ms-auto" onclick="exportSessionCsv('@sess.Id')"><i class="bi bi-download me-1"></i>CSV</button>
-                    </div>
-                    <div class="table-responsive" style="max-height:600px;overflow-y:auto;">
-                        <table class="table table-sm table-hover trade-table font-monospace mb-0" id="tl-@sess.Id">
-                            <thead class="table-dark" style="position:sticky;top:0;z-index:1;">
-                                <tr>
-                                    <th>#</th><th>In (EST)</th><th>Out</th><th>Dur</th><th>Setup</th><th>Instr</th><th>Dir</th>
-                                    <th class="text-end">Entry</th><th class="text-end">Exit</th>
-                                    <th class="text-end">Stop</th><th class="text-end">Target</th>
-                                    <th class="text-end">Cts</th><th>Part</th><th>Reason</th>
-                                    <th class="text-end">Gross</th><th class="text-end">Comm</th>
-                                    <th class="text-end">Net</th><th class="text-end">R</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @{ int rowNum = 0; }
-                                @foreach (var t in sess.Trades.OrderBy(t => t.EnteredAt))
-                                {
-                                    rowNum++;
-                                    string rowCls = t.IsWin ? "table-success bg-opacity-10" : "table-danger bg-opacity-10";
-                                    string reasonBadge = t.ExitReason switch
-                                    {
-                                        ExitReason.Target     => "bg-success",
-                                        ExitReason.Stop       => "bg-danger",
-                                        _                     => "bg-secondary"
-                                    };
-                                    <tr class="@rowCls">
-                                        <td class="td-dim">@rowNum</td>
-                                        <td class="td-time">@ToEt(t.EnteredAt)</td>
-                                        <td class="td-time td-dim">@ToEtTime(t.ExitedAt)</td>
-                                        <td class="td-time td-dim">@t.Duration.ToString(@"h\:mm\:ss")</td>
-                                        <td><span class="badge bg-warning text-dark">@(!string.IsNullOrEmpty(t.SetupLabel) ? t.SetupLabel : t.Setup.ToString())</span></td>
-                                        <td class="small">@(string.IsNullOrEmpty(t.Ticker) ? "—" : t.Ticker.TrimStart('/'))</td>
-                                        <td class="@(t.EffectiveDirection == Direction.Long ? "pnl-pos" : "pnl-neg")">@(t.EffectiveDirection == Direction.Long ? "▲" : "▼") @t.EffectiveDirection</td>
-                                        <td class="text-end">@t.Entry.ToString("F2")</td>
-                                        <td class="text-end">@t.Exit.ToString("F2")</td>
-                                        <td class="text-end td-dim">@t.InitialStop.ToString("F2")</td>
-                                        <td class="text-end td-dim">@t.Target.ToString("F2")</td>
-                                        <td class="text-end">@t.Contracts</td>
-                                        <td class="text-center">@if (t.PartialFilled) { <i class="bi bi-check-lg"></i> } else { <span class="td-dim">—</span> }</td>
-                                        <td><span class="badge @reasonBadge small">@t.ExitReason</span></td>
-                                        <td class="text-end @PnlCls(t.GrossPnl)">@Pnl(t.GrossPnl)</td>
-                                        <td class="text-end td-dim">-@t.Commission.ToString("C0")</td>
-                                        <td class="text-end fw-bold @PnlCls(t.NetPnl)">@Pnl(t.NetPnl)</td>
-                                        <td class="text-end @(t.RMultiple >= 0 ? "pnl-pos" : "pnl-neg")">@t.RMultiple.ToString("F1")R</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            }
-        </div>
-    }
+            <a class="btn btn-sm btn-link" href="?">Today</a>
+        }
+    </div>
 </div>
+
+<nav class="c-seg mb-3" aria-label="Session">
+    @foreach (var s in CRV.Web.Pages.Dashboard.SessionsModel.SessionOrder)
+    {
+        <a href="@Href(Model.Day, s)" class="@(Model.Session == s ? "active" : "")" aria-current="@(Model.Session == s ? "page" : null)">
+            @s <span class="c-mut num">@Model.Counts[s]</span>
+        </a>
+    }
+</nav>
+
+<partial name="_ResultsView" model="@(new ResultsViewModel(Model.Result, $"session-{Model.Day:yyyy-MM-dd}-{Model.Session}", ShowSource: true,
+    EmptyTitle: $"No {Model.Session} trades", EmptyText: "Nothing traded in this session on this day."))" />
 
 @section Scripts {
-<script>
-function exportSessionCsv(sessionId) {
-    const table = document.getElementById('tl-' + sessionId);
-    if (!table) return;
-    const rows = table.querySelectorAll('tr');
-    const lines = [];
-    rows.forEach(row => {
-        const cells = row.querySelectorAll('th, td');
-        const vals = Array.from(cells).map(c => {
-            let t = c.innerText.replace(/"/g, '""').trim();
-            return '"' + t + '"';
-        });
-        lines.push(vals.join(','));
-    });
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'session_' + sessionId.toLowerCase() + '_trades.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-}
-</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="~/js/crv-results.js" asp-append-version="true"></script>
 }
