@@ -66,6 +66,12 @@ public interface IGroupOrderExecutor
     Task<List<OrderEvent>> PollOrderStatusesAsync(GroupOrder group) => Task.FromResult(new List<OrderEvent>());
 
     /// <summary>
+    /// True for executors that simulate fills (backtest, Mock). Their fill events carry the
+    /// simulated price, slippage included, and there is no broker to ask for a better one.
+    /// </summary>
+    bool IsSimulated => false;
+
+    /// <summary>
     /// Fetch the fill price for a specific order via REST API.
     /// Used as fallback when WSS events don't include avgFillPrice.
     /// </summary>

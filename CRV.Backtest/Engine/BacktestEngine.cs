@@ -384,6 +384,8 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         public string Status = "WORKING";
     }
 
+    public bool IsSimulated => true;
+
     public BacktestGroupOrderExecutor(BacktestConfig btCfg, StrategyConfig cfg)
     { _btCfg = btCfg; _cfg = cfg; _exec = new ExecutionModel(btCfg, cfg.TickSizeFor); }
 
