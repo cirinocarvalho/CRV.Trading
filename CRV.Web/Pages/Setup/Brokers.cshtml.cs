@@ -56,8 +56,18 @@ public class BrokersModel : PageModel
     /// <summary>Schwab account numbers and the hash each one is configured by (loaded on request).</summary>
     public List<(string AccountNumber, string Hash, string AccountType)>? SchwabAccounts { get; private set; }
 
-    /// <summary>The account each broker sends orders to, from appsettings / user-secrets.</summary>
-    public string? AccountIdFor(string broker) => _config[$"{broker}:AccountId"] is { Length: > 0 } id ? id : null;
+    /// <summary>The account the engine sends orders to (the same rule it uses at start).</summary>
+    public string OrderAccount => OrderAccounts.Exec(Config, key => _config[key]);
+
+    /// <summary>The account a broker's card shows: the order account for the broker orders go to,
+    /// else the one configured for that broker in app settings.</summary>
+    public (string? Id, bool IsOrderAccount) AccountFor(string broker)
+    {
+        var exec = Config.EffectiveExecBroker == "TradovateReplay" ? "Tradovate" : Config.EffectiveExecBroker;
+        return exec == broker
+            ? (OrderAccount is { Length: > 0 } a ? a : null, true)
+            : (OrderAccounts.Configured(broker, key => _config[key]) is { Length: > 0 } c ? c : null, false);
+    }
 
     public DateTime PreviousTradingDay
     {

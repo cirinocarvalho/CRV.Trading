@@ -13,17 +13,18 @@
     var inv = CultureInfo.InvariantCulture;
     string Mask(string? id) => id is { Length: > 4 } ? "•••" + id[^4..] : (id ?? "");
 
-    void Card(string name, bool connected, string? accountId, string blurb)
+    void Card(string name, bool connected, string blurb)
     {
+        var (accountId, isOrders) = Model.AccountFor(name);
         <div class="br-card">
             <div class="br-card-h">
                 <b>@name</b>
                 <span class="c-badge @(connected ? "ok" : "warn")"><i class="bi @(connected ? "bi-check-circle" : "bi-exclamation-circle")"></i>@(connected ? "Connected" : "Not connected")</span>
             </div>
             <p class="c-mut small mb-2">@blurb</p>
-            <div class="small mb-3">Orders go to account
+            <div class="small mb-3">@(isOrders ? "Orders go to account" : "Account")
                 @if (accountId != null) { <span class="num">@Mask(accountId)</span> }
-                else { <span class="c-down">not set</span><span class="c-mut"> (set <code>@(name):AccountId</code> in the app settings)</span> }
+                else { <span class="@(isOrders ? "c-down" : "c-mut")">not set</span><span class="c-mut"> (set <code>@(name):AccountId</code> in the app settings)</span> }
             </div>
         </div>
     }
@@ -121,7 +122,7 @@
         <div class="c-panel-h"><h2>Logins</h2></div>
         <div class="c-panel-b d-grid gap-3">
             <div>
-                @{ Card("Schwab", Model.SchwabConnected, Model.AccountIdFor("Schwab"),
+                @{ Card("Schwab", Model.SchwabConnected,
                         "Logs in on Schwab's site. The login lapses after 7 days without use; starting the engine once a week keeps it."); }
                 <div class="d-flex flex-wrap gap-2">
                     <a class="btn btn-sm @(Model.SchwabConnected ? "btn-outline-secondary" : "btn-warning")" href="/auth/schwab?handler=Authorize">
@@ -153,13 +154,13 @@
                 }
             </div>
             <div>
-                @{ Card("TradeStation", Model.TsConnected, Model.AccountIdFor("TradeStation"),
+                @{ Card("TradeStation", Model.TsConnected,
                         "Logs in on TradeStation's site. The login stays valid until you revoke it."); }
                 <a class="btn btn-sm @(Model.TsConnected ? "btn-outline-secondary" : "btn-warning")" href="/auth/tradestation?handler=Authorize">
                     <i class="bi bi-box-arrow-up-right me-1"></i>@(Model.TsConnected ? "Log in again" : "Connect TradeStation")</a>
             </div>
             <div>
-                @{ Card("Tradovate", Model.TvConnected, Model.AccountIdFor("Tradovate"),
+                @{ Card("Tradovate", Model.TvConnected,
                         Model.TradovateIsDemo ? "Uses the demo (simulated) account. Logs in with the user name and password in the app settings."
                                               : "Uses the live account. Logs in with the user name and password in the app settings."); }
                 <div class="d-flex flex-wrap gap-2">
