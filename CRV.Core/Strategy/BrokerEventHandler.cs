@@ -675,9 +675,9 @@ public class BrokerEventHandler
         var legLabel   = evt.LegType.ToString();
         bool isTerminal = idx == targets.Count - 1;
 
-        // Always verify fill price via REST — never trust WSS
-        decimal? fillPrice = null;
-        for (int attempt = 0; attempt < 3; attempt++)
+        // Always verify fill price via REST — never trust WSS. A simulated fill's own price is the answer.
+        decimal? fillPrice = IsSimulatedFill(evt) && evt.FillPrice is > 0 ? evt.FillPrice : null;
+        for (int attempt = 0; attempt < 3 && fillPrice is null; attempt++)
         {
             try
             {
@@ -847,12 +847,23 @@ public class BrokerEventHandler
     /// Never trust WSS fill prices — they are unreliable for bracket stops.
     /// Falls back to contextual price only after retries exhaust.
     /// </summary>
+    /// <summary>
+    /// A fill from a simulated executor. The executor says so; older executors without the flag
+    /// are recognised by their synthetic IDs ("abc123-t2"). The ID check alone is not enough:
+    /// a random hex ID is all digits about 2% of the time and then looks like a broker's.
+    /// Short IDs (1-3 chars like "s1", "t1") are test fakes and still go to REST.
+    /// </summary>
+    private bool IsSimulatedFill(OrderEvent evt)
+    {
+        if (_executor.IsSimulated) return true;
+        bool isNonNumeric = !long.TryParse(evt.OrderId?.Split('-')[0], out _);
+        return isNonNumeric && (evt.OrderId?.Length ?? 0) > 3;
+    }
+
     private async Task<decimal> ResolveExitFillPriceAsync(OrderEvent evt, string legLabel, decimal fallbackPrice = 0m)
     {
-        // Skip REST entirely for mock/backtest orders (non-numeric IDs like "abc123-t2")
-        // Short IDs (1-3 chars like "s1","t1") are test fakes — don't skip, let REST resolve.
-        bool isNonNumeric = !long.TryParse(evt.OrderId?.Split('-')[0], out _);
-        bool isMockOrder = isNonNumeric && (evt.OrderId?.Length ?? 0) > 3;
+        // Skip REST entirely for simulated (mock/backtest) fills.
+        bool isMockOrder = IsSimulatedFill(evt);
         if (isMockOrder && evt.FillPrice is > 0)
             return evt.FillPrice.Value;
         if (isMockOrder && fallbackPrice > 0)

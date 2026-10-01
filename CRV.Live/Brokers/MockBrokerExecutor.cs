@@ -360,6 +360,8 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
     private readonly Dictionary<string, string> _groupTickers = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
 
+    public bool IsSimulated => true;
+
     private class MockLegState
     {
         public string OrderId { get; set; } = "";
