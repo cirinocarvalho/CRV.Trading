@@ -147,3 +147,60 @@
 .c-busy { display: none; }
 form.is-busy .c-busy { display: inline-block; }
 form.is-busy .c-idle { display: none; }
+
+/* ── Cockpit ─────────────────────────────────────────────── */
+.ck { display: grid; gap: 1rem; }
+.ck > .c-head { margin-bottom: 0; }
+.ck-status { align-items: center; }
+.ck-stream { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; }
+
+.ck-setups { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+.ck-setups:empty { display: none; }
+@media (max-width: 767.98px) { .ck-setups { grid-template-columns: minmax(0, 1fr); gap: .75rem; } }
+.ck-setup:has(.setup-long)  { box-shadow: inset 3px 0 0 var(--c-up); }
+.ck-setup:has(.setup-short) { box-shadow: inset 3px 0 0 var(--c-down); }
+.ck-setup:has(.setup-armed), .ck-setup:has(.setup-retest) { box-shadow: inset 3px 0 0 var(--c-accent); }
+.ck-setup-h { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; padding: .6rem .9rem; border-bottom: 1px solid var(--c-line); }
+.ck-type { color: var(--c-accent); }
+.ck-name { font-size: .95rem; }
+.ck-price { display: flex; align-items: center; gap: .4rem; padding: .55rem .9rem 0; font-size: 1.15rem; font-weight: 600; }
+.ck-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.25rem; padding: .35rem .9rem .75rem; }
+.ck-cell { display: flex; justify-content: space-between; gap: .5rem; padding: .32rem 0; border-top: 1px solid var(--c-line); font-size: .82rem; min-width: 0; }
+.ck-cell > span { color: var(--c-muted); flex: none; }
+.ck-cell > b { font: 500 .82rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+@media (max-width: 420px) { .ck-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.ck-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; }
+@media (max-width: 1199.98px) { .ck-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 767.98px)  { .ck-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; } }
+.ck-tiles .stat-value { font: 600 1.45rem/1.1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.ck-gauge-tile { justify-items: center; text-align: center; }
+.ck-gauge-tile small { justify-self: start; }
+.ck-gauge { width: 100%; max-width: 128px; }
+.ck-gauge .track, .ck-gauge .arc { fill: none; stroke-width: 10; stroke-linecap: round; }
+.ck-gauge .track { stroke: var(--c-raise); }
+.ck-gauge .arc { stroke: var(--c-line); transition: stroke-dasharray .4s ease; }
+.ck-gauge .arc[data-tone="up"]   { stroke: var(--c-up); }
+.ck-gauge .arc[data-tone="warn"] { stroke: var(--c-accent); }
+.ck-gauge .arc[data-tone="down"] { stroke: var(--c-down); }
+.ck-gauge text { font-family: var(--font-mono); }
+.ck-gauge .big { fill: var(--c-text); font-size: 18px; font-weight: 600; }
+.ck-gauge .big.bad { fill: var(--c-down); }
+.ck-gauge .sm { fill: var(--c-muted); font-size: 9px; }
+
+.ck-main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1rem; align-items: start; }
+@media (max-width: 1199.98px) { .ck-main { grid-template-columns: minmax(0, 1fr); } }
+.ck-overlays { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .78rem; color: var(--c-muted); }
+.ck-overlays label { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+.ck-chart-box { position: relative; height: 470px; }
+@media (max-width: 767.98px) { .ck-chart-box { height: 300px; } }
+.ck-chart-empty { position: absolute; inset: 0; z-index: 2; pointer-events: none; display: flex; flex-direction: column; align-items: center;
+                  justify-content: center; gap: .5rem; text-align: center; padding: 1rem; background: var(--c-surface); color: var(--c-muted);
+                  border-radius: 0 0 var(--radius) var(--radius); }
+.ck-chart-empty i { font-size: 2.2rem; opacity: .5; }
+.ck-chop { cursor: pointer; }
+.ck-chop #chop-chevron { transition: transform .15s; font-size: .7rem; }
+
+.ck-bottom { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 1rem; align-items: start; }
+@media (max-width: 991.98px) { .ck-bottom { grid-template-columns: minmax(0, 1fr); } }
+.ck-trades { max-height: 340px; overflow: auto; }
