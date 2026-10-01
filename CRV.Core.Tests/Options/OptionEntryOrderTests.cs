@@ -38,6 +38,21 @@ public class OptionEntryOrderTests
     }
 
     [Fact]
+    public void AShortOptionsStopBuysBackWithItsLimitAboveTheTrigger()
+    {
+        // Sold at 2.00; stopped out if it rises to 3.00. A buy limit below 3.00 could never fill.
+        OptionLeg[] shortPut = [Leg(OptionRight.Put, LegAction.Sell, 760m, 2.00m)];
+        var stop = OptionEntryOrder.Stop(3.00m, shortPut)!;
+        Assert.Equal(3.30m, stop.Limit);
+
+        var child = Assert.Single(Children(OptionEntryOrder.Payload(shortPut, 1, OrderDuration.Day, 2.00m, null, 3.00m)));
+        Assert.Equal("STOP_LIMIT", child["orderType"]);
+        Assert.Equal(3.00m, child["stopPrice"]);
+        Assert.Equal(3.30m, child["price"]);
+        Assert.Equal("BUY_TO_CLOSE", ((List<Dictionary<string, object>>)child["orderLegCollection"]).Single()["instruction"]);
+    }
+
+    [Fact]
     public void AStopAndAnExitAreAlternatives()
     {
         var p = OptionEntryOrder.Payload(LongCall(), 1, OrderDuration.Day, 2.00m, exitPrice: 3.00m, stopTrigger: 1.00m);
@@ -51,7 +66,7 @@ public class OptionEntryOrderTests
     public void ASpreadGetsNoStop()
     {
         // Schwab has no net-stop order type; the preview says so and nothing is attached.
-        Assert.Null(OptionEntryOrder.Stop(1.00m, legCount: 2));
+        Assert.Null(OptionEntryOrder.Stop(1.00m, Vertical()));
         var p = OptionEntryOrder.Payload(Vertical(), 1, OrderDuration.Day, 1.00m, exitPrice: null, stopTrigger: 0.50m);
         Assert.Equal("SINGLE", p["orderStrategyType"]);
     }
@@ -95,6 +110,34 @@ public class OptionEntryOrderTests
         Assert.True(OptionEntryOrder.ExitUnreachable(Vertical(), 2.50m));
         Assert.False(OptionEntryOrder.ExitUnreachable(Vertical(), 1.80m));
         Assert.False(OptionEntryOrder.ExitUnreachable(Vertical(), null));
+    }
+
+    [Fact]
+    public void TheCeilingIsPerUnitWhenLegsShareAFactor()
+    {
+        // Three of the 2-wide vertical are three units of one vertical, priced per vertical.
+        OptionLeg[] three =
+        [
+            Leg(OptionRight.Call, LegAction.Buy,  764m, 3.00m, qty: 3),
+            Leg(OptionRight.Call, LegAction.Sell, 766m, 2.00m, qty: 3),
+        ];
+        Assert.Equal(2.00m, OptionEntryOrder.MaxStructureValue(three));
+        Assert.True(OptionEntryOrder.ExitUnreachable(three, 3.00m));
+    }
+
+    [Fact]
+    public void ACalendarHasNoSameDayCeiling()
+    {
+        // Same strike, long the later expiry: the same-day payoff cancels to zero, but the
+        // later leg still has time value, so a positive exit can fill.
+        var near = new DateTime(2026, 10, 16); var far = new DateTime(2026, 11, 20);
+        OptionLeg[] calendar =
+        [
+            new(OptionRight.Call, LegAction.Sell, 766m, 2.00m, 1, 100, "SPY   261016C00766000", Expiration: near),
+            new(OptionRight.Call, LegAction.Buy,  766m, 4.00m, 1, 100, "SPY   261120C00766000", Expiration: far),
+        ];
+        Assert.Null(OptionEntryOrder.MaxStructureValue(calendar));
+        Assert.False(OptionEntryOrder.ExitUnreachable(calendar, 3.00m));
     }
 
     [Fact]

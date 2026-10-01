@@ -18,12 +18,19 @@ public static class OptionEntryOrder
 
     /// <summary>The stop to attach, or null when none was asked for or the structure is a spread
     /// (Schwab has no net-stop order type for a spread).</summary>
-    public static AttachedStop? Stop(decimal? trigger, int legCount)
+    /// <remarks>The limit goes through the trigger in the direction the stop trades. A bought
+    /// option is stopped by SELLING as the price falls, so the limit sits below the trigger.
+    /// A sold option is stopped by BUYING it back as the price rises, so the limit sits above;
+    /// a buy limit below the trigger could never fill once the stop fired.</remarks>
+    public static AttachedStop? Stop(decimal? trigger, IReadOnlyList<OptionLeg> legs)
     {
         if (trigger is not { } t || t <= 0m) return null;
-        if (legCount != 1) return null;
+        if (legs.Count != 1) return null;
 
-        decimal limit = Math.Max(0.01m, Math.Round(t * (1m - StopLimitSlipFraction), 2));
+        bool buysToClose = legs[0].Action == LegAction.Sell;
+        decimal limit = buysToClose
+            ? Math.Round(t * (1m + StopLimitSlipFraction), 2)
+            : Math.Max(0.01m, Math.Round(t * (1m - StopLimitSlipFraction), 2));
         return new AttachedStop(t, limit);
     }
 
@@ -36,15 +43,24 @@ public static class OptionEntryOrder
     }
 
     /// <summary>
-    /// The most the structure can be worth per unit (its value at the best expiry price), or
-    /// null when that is unbounded. A take-profit above it can never fill.
+    /// The most one unit of the structure can be worth (its value at the best expiry price),
+    /// in the same per-unit terms as the order's price, or null when there is no such ceiling.
+    /// A take-profit above it can never fill.
+    /// <para>Null when it is unbounded, and for calendars and diagonals: with legs expiring on
+    /// different days, the same-day payoff is no ceiling, because the later leg still has
+    /// time value when the earlier one expires.</para>
     /// </summary>
     public static decimal? MaxStructureValue(IReadOnlyList<OptionLeg> legs)
     {
+        if (legs.Select(l => l.Expiration.Date).Distinct().Count() > 1) return null;
+
         var free = PayoffCalculator.Analyze(legs, 0m);   // no commission, market prices
         if (free.ProfitUnbounded) return null;
         int multiplier = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
-        return (free.MaxProfit + SchwabOptionOrder.NetPrice(legs) * multiplier) / multiplier;
+        // The order is priced per reduced unit (3:6:3 is three 1:2:1 units), and so is
+        // NetPrice; the payoff is for the legs as entered, so divide it by the same factor.
+        decimal perUnitProfit = free.MaxProfit / SchwabOptionOrder.UnitFactor(legs);
+        return (perUnitProfit + SchwabOptionOrder.NetPrice(legs) * multiplier) / multiplier;
     }
 
     /// <summary>True when the take-profit asks for more than the structure can ever be worth.</summary>
@@ -62,5 +78,5 @@ public static class OptionEntryOrder
         SchwabOptionOrder.BuildPayload(
             legs, spreads, duration, limitPrice,
             exitPrice is { } x ? new AttachedExit(x) : null,
-            Stop(stopTrigger, legs.Count));
+            Stop(stopTrigger, legs));
 }

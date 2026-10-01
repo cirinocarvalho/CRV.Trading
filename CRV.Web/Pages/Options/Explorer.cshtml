@@ -1299,7 +1299,8 @@ else
                 stopField.disabled = false;
                 sh.textContent = stopPrice() === null
                     ? 'single leg only'
-                    : `stop-limit at ${fmt(stopPrice() * 0.9)}`;
+                    // Through the trigger in the direction the stop trades: a sold option is bought back.
+                    : `stop-limit at ${fmt(stopPrice() * (LEGS[0]?.action === 'Sell' ? 1.1 : 0.9))}`;
             }
 
             // Say plainly whether this limit is asking the market to come to you.
