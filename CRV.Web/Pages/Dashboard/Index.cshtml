@@ -1,354 +1,181 @@
 @page "/dashboard"
 @model CRV.Web.Pages.Dashboard.IndexModel
 @{
-    ViewData["Title"] = "Dashboard";
+    ViewData["Title"] = "Cockpit";
     ViewData["Page"]  = "dashboard";
     ViewData["Section"] = "futures";
+    ViewData["LightReady"] = true;
     Layout = "~/Pages/Shared/_Layout.cshtml";
 }
 
-<!-- ── Top bar: Ticker + time + DD status + stream health ──── -->
-<div class="d-flex align-items-center gap-3 mb-3">
-    <h5 class="mb-0 font-monospace text-warning" id="dash-ticker">@Model.Config.Ticker</h5>
-    @if (Model.IsNearRoll)
-    {
-        <span class="badge bg-warning text-dark" title="Contract is near quarterly roll date. Active front-month: @Model.ActiveContract">
-            <i class="bi bi-exclamation-triangle me-1"></i>ROLL SOON → @Model.ActiveContract
+@* Element ids are what the script below updates from the SignalR snapshot — keep them. *@
+<div class="ck">
+
+<div class="c-head ck-head">
+    <h1>Cockpit</h1>
+    <span class="c-sub"><span id="dash-ticker">@Model.Config.Ticker</span> · @Model.Config.ExecutionTFMinutes-min bars · ORB <span id="orb-window">@Model.Config.OrbStart.ToString("HH:mm")–@Model.Config.OrbEnd.ToString("HH:mm")</span></span>
+    <div class="c-acts ck-status">
+        @if (Model.IsNearRoll)
+        {
+            <span class="c-badge warn" title="Contract is near its roll date. Active front month: @Model.ActiveContract">
+                <i class="bi bi-exclamation-triangle"></i>ROLL SOON → @Model.ActiveContract
+            </span>
+        }
+        <span class="badge setup-idle" id="dash-session-badge">—</span>
+        <span class="badge bg-secondary" id="sessionBadge">--</span>
+        <span class="badge" id="dash-dd-badge">OK</span>
+        <span class="ck-stream" id="stream-health" title="Market data stream">
+            <span class="stream-dot" id="stream-dot"></span>
+            <span class="num" id="stream-price">—</span>
+            <span class="c-mut small" id="stream-age"></span>
         </span>
-    }
-    <span class="badge bg-dark border border-secondary font-monospace" id="dash-time">--:--:-- ET</span>
-    <span class="badge" id="dash-dd-badge">OK</span>
-    <span class="badge setup-idle" id="dash-session-badge">—</span>
-    <span id="sessionBadge" class="badge bg-secondary ms-2">--</span>
-    <!-- Stream health indicator -->
-    <span class="d-flex align-items-center gap-1 ms-2" id="stream-health" title="WebSocket stream status">
-        <span class="stream-dot" id="stream-dot"></span>
-        <span class="font-monospace text-light small" id="stream-price">—</span>
-        <span class="text-muted small" id="stream-age"></span>
-    </span>
-    <span class="ms-auto text-muted small">Execution TF: <strong class="text-light">@Model.Config.ExecutionTFMinutes min</strong>
-        &nbsp;|&nbsp; ORB: <strong class="text-light" id="orb-window">@Model.Config.OrbStart.ToString("HH:mm")–@Model.Config.OrbEnd.ToString("HH:mm")</strong></span>
-</div>
-
-<!-- ── Row 1: Daily stats ────────────────────────────────────── -->
-<div class="row g-3 mb-3 stat-card-row">
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center">
-            <div class="stat-label">Today P&L</div>
-            <div class="stat-value font-monospace" id="stat-today-pnl">$0</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center">
-            <div class="stat-label">WIN RATE</div>
-            <svg id="wr-gauge" viewBox="0 0 120 85" style="width:100%;max-width:120px;margin:4px auto 0">
-                <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke="#333" stroke-width="10" stroke-linecap="round"/>
-                <path id="wr-gauge-arc" d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke="#22c55e" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 157"/>
-                <text id="wr-gauge-text" x="60" y="55" text-anchor="middle" fill="#e5e5e5" font-size="18" font-weight="bold" font-family="monospace">—</text>
-                <text id="wr-gauge-detail" x="60" y="72" text-anchor="middle" fill="#888" font-size="9" font-family="monospace">0W / 0L</text>
-            </svg>
-        </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center">
-            <div class="stat-label">Trades</div>
-            <div class="stat-value" id="stat-trades">0</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center">
-            <div class="stat-label">Max DD</div>
-            <div class="stat-value text-warning font-monospace" id="stat-maxdd">$0</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center" title="E = (Win% × AvgWin) − (Loss% × AvgLoss)">
-            <div class="stat-label">Expectancy</div>
-            <div class="stat-value font-monospace" id="stat-expectancy">—</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-        <div class="card p-3 text-center">
-            <div class="stat-label">DAILY LOSS LIMIT</div>
-            <svg id="dd-gauge" viewBox="0 0 120 85" style="width:100%;max-width:120px;margin:4px auto 0">
-                <!-- background arc (grey) -->
-                <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke="#333" stroke-width="10" stroke-linecap="round"/>
-                <!-- foreground arc (colored) -->
-                <path id="dd-gauge-arc" d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke="#22c55e" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 157"/>
-                <!-- percentage text -->
-                <text id="dd-gauge-text" x="60" y="55" text-anchor="middle" fill="#e5e5e5" font-size="18" font-weight="bold" font-family="monospace">0%</text>
-                <!-- used / limit amounts -->
-                <text id="dd-gauge-amounts" x="60" y="72" text-anchor="middle" fill="#888" font-size="9" font-family="monospace">$0 / $@(((int)Model.Config.MaxDailyLoss).ToString("N0"))</text>
-            </svg>
-        </div>
+        <span id="dash-time" hidden></span>
     </div>
 </div>
 
-<!-- ── Setup Cards (dynamically rendered from setups[]) ──── -->
-<div id="setup-cards-container" class="row g-3 mb-3">
-    <!-- Setup cards rendered dynamically from setups[] -->
+<!-- Setups: one card per basket entry, built by createSetupCard() -->
+<section class="ck-setups" id="setup-cards-container" aria-label="Setups"></section>
+
+<!-- Today's numbers -->
+<section class="ck-tiles" aria-label="Today">
+    <div class="c-tile"><small>Today P&amp;L</small><b class="stat-value" id="stat-today-pnl">$0</b></div>
+    <div class="c-tile ck-gauge-tile">
+        <small>Win rate</small>
+        <svg id="wr-gauge" class="ck-gauge" viewBox="0 0 120 80" role="img" aria-label="Win rate">
+            <path class="track" d="M 10 65 A 50 50 0 0 1 110 65"/>
+            <path class="arc" id="wr-gauge-arc" data-tone="none" d="M 10 65 A 50 50 0 0 1 110 65" stroke-dasharray="0 157"/>
+            <text class="big" id="wr-gauge-text" x="60" y="56" text-anchor="middle">—</text>
+            <text class="sm" id="wr-gauge-detail" x="60" y="74" text-anchor="middle">0W / 0L</text>
+        </svg>
+    </div>
+    <div class="c-tile"><small>Trades</small><b class="stat-value" id="stat-trades">0</b></div>
+    <div class="c-tile"><small>Max drawdown</small><b class="stat-value" id="stat-maxdd">$0</b></div>
+    <div class="c-tile" title="(Win% × avg win) − (Loss% × avg loss)"><small>Expectancy</small><b class="stat-value" id="stat-expectancy">—</b></div>
+    <div class="c-tile ck-gauge-tile">
+        <small>Daily loss limit</small>
+        <svg id="dd-gauge" class="ck-gauge" viewBox="0 0 120 80" role="img" aria-label="Daily loss limit used">
+            <path class="track" d="M 10 65 A 50 50 0 0 1 110 65"/>
+            <path class="arc" id="dd-gauge-arc" data-tone="up" d="M 10 65 A 50 50 0 0 1 110 65" stroke-dasharray="0 157"/>
+            <text class="big" id="dd-gauge-text" x="60" y="56" text-anchor="middle">0%</text>
+            <text class="sm" id="dd-gauge-amounts" x="60" y="74" text-anchor="middle">$0 / $@(((int)Model.Config.MaxDailyLoss).ToString("N0"))</text>
+        </svg>
+    </div>
+</section>
+
+<div class="c-chips ck-groups" id="group-selector" aria-label="Instrument">
+    <span class="c-mut small">Instrument</span>
 </div>
 
-<!-- ── Ticker Group Selector ──────────────────────────────── -->
-<div class="d-flex align-items-center gap-2 mb-2" id="group-selector">
-    <span class="text-muted small me-1">Instrument:</span>
-</div>
-
-<!-- ── Row 4: Market Context + False Breakout + Key Levels | Chart ── -->
-<div class="row g-3 mb-3">
-    <!-- Left column: stacked cards (same width as Alerts Feed below) -->
-    <div class="col-12 col-lg-5">
-        <!-- Market Context -->
-        <div class="card mb-3">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-clipboard-data text-warning"></i>
-                <span class="fw-bold text-warning">Market Context</span>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table">
-                    <tbody>
-                        <tr>
-                            <td class="text-muted" style="width:45%">Session</td>
-                            <td id="stat-session" class="font-monospace">—</td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Session Range</td>
-                            <td id="stat-session-range" class="font-monospace small">—</td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Trend Score</td>
-                            <td>
-                                <span class="font-monospace"><span class="text-success">▲</span> <span id="stat-trend-bull">0</span></span>
-                                <span class="font-monospace ms-2"><span class="text-danger">▼</span> <span id="stat-trend-bear">0</span></span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Trend Day</td>
-                            <td id="stat-trend-label" class="font-monospace">—</td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">VWAP State</td>
-                            <td><span id="stat-vwap-state" class="font-monospace">—</span> <span id="stat-vwap-bands" class="font-monospace small text-muted"></span></td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Active Setup</td>
-                            <td id="stat-active-setup" class="font-monospace">—</td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Signals</td>
-                            <td id="stat-sweep-info" class="font-monospace small">—</td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Signal Strength</td>
-                            <td>
-                                <span id="stat-signal-strength" class="font-monospace fw-bold">—</span>
-                                <span class="font-monospace text-muted small ms-1">
-                                    D:<span id="stat-drive-score">0</span>
-                                    S:<span id="stat-sweep-score">0</span>
-                                    V:<span id="stat-vwap-dev-score">0</span>
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+<div class="ck-main">
+    <section class="c-panel ck-chart">
+        <div class="c-panel-h">
+            <h2>Chart</h2>
+            <div class="ck-overlays">
+                <label><input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-ema21" data-overlay="ema21" /> EMA21</label>
+                <label><input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-vwap" data-overlay="vwap" /> VWAP</label>
+                <label><input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-orb" data-overlay="orb" /> ORB lines</label>
             </div>
         </div>
-
-        <!-- False Breakout -->
-        <div class="card mb-3">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-arrow-repeat text-warning"></i>
-                <span class="fw-bold text-warning">False Breakout</span>
-                <span class="badge bg-secondary ms-auto" id="fb-compound-badge">Idle</span>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table">
-                    <tbody>
-                        <tr>
-                            <td class="text-muted" style="width:45%">ORB Breakout</td>
-                            <td>
-                                <span class="badge bg-secondary" id="fb-orb-status">Idle</span>
-                                <span class="font-monospace small ms-2" id="fb-orb-bars">—</span>
-                                <span class="font-monospace small text-muted ms-2" id="fb-orb-depth">—</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Session Range Breakout</td>
-                            <td>
-                                <span class="badge bg-secondary" id="fb-session-status">Idle</span>
-                                <span class="font-monospace small ms-2" id="fb-session-bars">—</span>
-                                <span class="font-monospace small text-muted ms-2" id="fb-session-depth">—</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+        <div class="ck-chart-box" id="tv-chart-container">
+            <div id="tv-chart-placeholder" class="ck-chart-empty">
+                <i class="bi bi-bar-chart-line"></i>
+                <span>No market data yet. The chart loads when bars arrive.</span>
             </div>
         </div>
+    </section>
 
-        <!-- Key Levels -->
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <i class="bi bi-rulers text-warning"></i>
-                <span class="fw-bold text-warning">Key Levels</span>
-                <button type="button" class="btn btn-outline-warning btn-sm ms-auto py-0" onclick="forceOrb()" id="btn-force-orb" title="Fetch ORB from broker historical bars" style="font-size:.75rem">
+    <div class="c-stack">
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Market context</h2></div>
+            <div class="c-panel-b">
+                <div class="c-kv"><span>Session</span><span id="stat-session">—</span></div>
+                <div class="c-kv"><span>Session range</span><span id="stat-session-range">—</span></div>
+                <div class="c-kv"><span>Trend score</span><span><span class="c-up">▲</span> <span id="stat-trend-bull">0</span> <span class="c-down ms-2">▼</span> <span id="stat-trend-bear">0</span></span></div>
+                <div class="c-kv"><span>Trend day</span><span id="stat-trend-label">—</span></div>
+                <div class="c-kv"><span>VWAP state</span><span><span id="stat-vwap-state">—</span> <span id="stat-vwap-bands" class="c-mut small"></span></span></div>
+                <div class="c-kv"><span>Active setup</span><span id="stat-active-setup">—</span></div>
+                <div class="c-kv"><span>Signals</span><span id="stat-sweep-info">—</span></div>
+                <div class="c-kv"><span>Signal strength</span><span><span id="stat-signal-strength">—</span>
+                    <span class="c-mut small ms-1">D <span id="stat-drive-score">0</span> · S <span id="stat-sweep-score">0</span> · V <span id="stat-vwap-dev-score">0</span></span></span></div>
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>False breakout</h2><span class="badge bg-secondary" id="fb-compound-badge">Idle</span></div>
+            <div class="c-panel-b">
+                <div class="c-kv"><span>Opening range</span><span><span class="badge bg-secondary" id="fb-orb-status">Idle</span> <span id="fb-orb-bars" class="ms-1">—</span> <span id="fb-orb-depth" class="c-mut ms-1">—</span></span></div>
+                <div class="c-kv"><span>Session range</span><span><span class="badge bg-secondary" id="fb-session-status">Idle</span> <span id="fb-session-bars" class="ms-1">—</span> <span id="fb-session-depth" class="c-mut ms-1">—</span></span></div>
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h">
+                <h2>Key levels</h2>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="forceOrb()" id="btn-force-orb" title="Recalculate the opening range from the broker's historical bars">
                     <i class="bi bi-arrow-repeat me-1"></i>Force ORB
                 </button>
             </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table">
-                    <tbody>
-                        <tr>
-                            <td class="text-muted" style="width:30%">ORB</td>
-                            <td>
-                                <span class="font-monospace small">
-                                    H:<span id="orb-high" class="text-warning ms-1">—</span>
-                                    <span class="ms-1">L:<span id="orb-low" class="text-warning ms-1">—</span></span>
-                                    <span class="ms-1">R:<span id="orb-range" class="text-light ms-1">—</span></span>
-                                </span>
-                                <span class="badge ms-2" id="orb-quality-badge">Building...</span>
-                                <span class="badge ms-1" id="orb-close-badge">—</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">VWAP</td>
-                            <td>
-                                <span class="font-monospace" id="stat-vwap">—</span>
-                                <span class="small ms-2" id="stat-vwap-pos">—</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">ATR(14)</td>
-                            <td>
-                                <span class="font-monospace" id="stat-atr">—</span>
-                                <span class="small text-muted ms-2" id="stat-orb-atr-ratio">vs ORB —</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted">EMA(21)</td>
-                            <td>
-                                <span class="font-monospace" id="stat-ema21">—</span>
-                                <span class="small ms-2" id="stat-ema21-pos">—</span>
-                            </td>
-                        </tr>
-                        <tr id="row-chop-summary" style="cursor:pointer" onclick="toggleChopDetails()" title="Click to show per-filter breakdown">
-                            <td class="text-muted">
-                                Chop
-                                <i class="bi bi-chevron-down ms-1" id="chop-chevron" style="font-size:.7rem;transition:transform .15s"></i>
-                            </td>
-                            <td>
-                                <span class="badge" id="stat-chop-badge">OFF</span>
-                                <span class="small text-muted ms-2" id="stat-chop-votes">—</span>
-                            </td>
-                        </tr>
-                        <tr id="row-chop-details" style="display:none">
-                            <td colspan="2" class="px-3 py-2" style="background:rgba(255,255,255,0.03)">
-                                <table class="table table-sm mb-0" style="font-size:.8rem">
-                                    <thead>
-                                        <tr class="text-muted">
-                                            <th class="border-0 fw-normal">Filter</th>
-                                            <th class="border-0 fw-normal text-center" style="width:55px">Vote</th>
-                                            <th class="border-0 fw-normal text-end">Value</th>
-                                            <th class="border-0 fw-normal text-end text-muted">Threshold</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="chop-filter-rows">
-                                        <tr data-filter="rangeCompression"><td>Range Compression</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
-                                        <tr data-filter="flatVwap"><td>Flat VWAP</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
-                                        <tr data-filter="weakDrive"><td>Weak Drive</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
-                                        <tr data-filter="lowVolume"><td>Low Volume</td><td class="text-center" data-vote>—</td><td class="text-end font-monospace" data-value>—</td><td class="text-end font-monospace text-muted" data-thresh>—</td></tr>
-                                    </tbody>
-                                </table>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Right column: Lightweight Charts (same width as Today's Trades below) -->
-    <div class="col-12 col-lg-7 d-flex">
-        <div class="card flex-fill d-flex flex-column">
-            <div class="card-header py-1 px-2 d-flex align-items-center gap-3" style="font-size:.78rem">
-                <span class="text-muted">Overlays:</span>
-                <div class="form-check form-check-inline m-0">
-                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-ema21" data-overlay="ema21" />
-                    <label class="form-check-label" for="chart-toggle-ema21">EMA21</label>
+            <div class="c-panel-b">
+                <div class="c-kv"><span>ORB</span><span>H <span id="orb-high" class="c-acc">—</span> · L <span id="orb-low" class="c-acc">—</span> · R <span id="orb-range">—</span></span></div>
+                <div class="c-kv"><span>ORB close</span><span><span class="badge bg-secondary" id="orb-quality-badge">Building...</span> <span class="badge" id="orb-close-badge"></span></span></div>
+                <div class="c-kv"><span>VWAP</span><span><span id="stat-vwap">—</span> <span id="stat-vwap-pos" class="small ms-1">—</span></span></div>
+                <div class="c-kv"><span>ATR(14)</span><span><span id="stat-atr">—</span> <span id="stat-orb-atr-ratio" class="c-mut small ms-1">vs ORB —</span></span></div>
+                <div class="c-kv"><span>EMA(21)</span><span><span id="stat-ema21">—</span> <span id="stat-ema21-pos" class="small ms-1">—</span></span></div>
+                <div class="c-kv ck-chop" id="row-chop-summary" role="button" tabindex="0" onclick="toggleChopDetails()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleChopDetails();}" title="Show each chop filter">
+                    <span>Chop <i class="bi bi-chevron-down ms-1" id="chop-chevron"></i></span>
+                    <span><span class="badge bg-secondary" id="stat-chop-badge">OFF</span> <span id="stat-chop-votes" class="c-mut small ms-1">—</span></span>
                 </div>
-                <div class="form-check form-check-inline m-0">
-                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-vwap" data-overlay="vwap" />
-                    <label class="form-check-label" for="chart-toggle-vwap">VWAP</label>
-                </div>
-                <div class="form-check form-check-inline m-0">
-                    <input class="form-check-input chart-overlay-toggle" type="checkbox" id="chart-toggle-orb" data-overlay="orb" />
-                    <label class="form-check-label" for="chart-toggle-orb">ORB Lines</label>
+                <div id="row-chop-details" style="display:none">
+                    <table class="c-table">
+                        <thead><tr><th>Filter</th><th>Vote</th><th class="r">Value</th><th class="r">Threshold</th></tr></thead>
+                        <tbody id="chop-filter-rows">
+                            <tr data-filter="rangeCompression"><td class="t">Range compression</td><td data-vote>—</td><td class="r" data-value>—</td><td class="r c-mut" data-thresh>—</td></tr>
+                            <tr data-filter="flatVwap"><td class="t">Flat VWAP</td><td data-vote>—</td><td class="r" data-value>—</td><td class="r c-mut" data-thresh>—</td></tr>
+                            <tr data-filter="weakDrive"><td class="t">Weak drive</td><td data-vote>—</td><td class="r" data-value>—</td><td class="r c-mut" data-thresh>—</td></tr>
+                            <tr data-filter="lowVolume"><td class="t">Low volume</td><td data-vote>—</td><td class="r" data-value>—</td><td class="r c-mut" data-thresh>—</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
-            <div class="card-body p-0 position-relative flex-fill" id="tv-chart-container" style="min-height:460px">
-                <div id="tv-chart-placeholder" class="d-flex align-items-center justify-content-center h-100 text-muted" style="position:absolute;inset:0;z-index:2;pointer-events:none;background:#000">
-                    <div class="text-center">
-                        <i class="bi bi-bar-chart-line" style="font-size:3rem;opacity:.3"></i>
-                        <div class="mt-2">Market Closed — chart loads when data is available</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </section>
     </div>
 </div>
 
-<!-- ── Row 6: Alerts feed + Today's trades ───────────────────── -->
-<div class="row g-3">
-    <div class="col-12 col-lg-5">
-        <div class="card">
-            <div class="card-header d-flex align-items-center">
-                <i class="bi bi-broadcast me-2 text-success"></i>
-                <span class="fw-bold">Alerts Feed</span>
-                <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearAlerts()">Clear</button>
-            </div>
-            <div class="alert-feed p-0" id="alert-feed">
-                <div class="alert-item info" data-placeholder>
-                    <span class="text-muted">--:--:--</span> Waiting for engine...
-                </div>
-            </div>
+<div class="ck-bottom">
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Alerts</h2><button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="clearAlerts()">Clear</button></div>
+        <div class="alert-feed" id="alert-feed">
+            <div class="alert-item info" data-placeholder><span class="c-mut">--:--:--</span> Waiting for the engine…</div>
         </div>
-    </div>
+    </section>
 
-    <div class="col-12 col-lg-7">
-        <div class="card">
-            <div class="card-header d-flex align-items-center">
-                <i class="bi bi-list-ul me-2 text-info"></i>
-                <span class="fw-bold">Today's Trades</span>
-                <span class="badge bg-dark ms-2 font-monospace" id="today-trade-count">0 trades</span>
-            </div>
-            <div style="overflow-x:auto; max-height:320px; overflow-y:auto;">
-                <table class="table table-sm mb-0 trade-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th><th>Setup</th><th>Instr</th><th>Dir</th>
-                            <th>Entry</th><th>Exit</th><th>Reason</th><th>Net P&L</th><th>R</th>
-                        </tr>
-                    </thead>
-                    <tbody id="trade-tbody">
-                        <tr><td colspan="9" class="text-center text-muted py-3">No trades today</td></tr>
-                    </tbody>
-                </table>
-            </div>
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Today's trades</h2><span class="c-right" id="today-trade-count">0 trades</span></div>
+        <div class="c-table-wrap ck-trades">
+            <table class="c-table">
+                <thead><tr><th>Time</th><th>Setup</th><th>Instr</th><th>Side</th><th class="r">Entry</th><th class="r">Exit</th><th>Reason</th><th class="r">Net</th><th class="r">R</th></tr></thead>
+                <tbody id="trade-tbody">
+                    <tr><td colspan="9" class="t c-mut text-center py-3">No trades today</td></tr>
+                </tbody>
+            </table>
         </div>
-    </div>
+    </section>
 </div>
 
-<!-- Confirmation modal -->
-<div class="modal fade" id="dashConfirmModal" tabindex="-1" data-bs-backdrop="static">
+</div>
+
+<!-- Confirmation dialog (Exit now, Force ORB) -->
+<div class="modal fade crv-confirm" id="dashConfirmModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="dashConfirm-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content bg-dark border-secondary">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title" id="dashConfirm-title">Confirm</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="dashConfirm-title">Confirm</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body font-monospace small" id="dashConfirm-body"></div>
-            <div class="modal-footer border-secondary py-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-sm" id="dashConfirm-ok">Confirm</button>
+            <div class="modal-body" id="dashConfirm-body"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn" id="dashConfirm-ok">Confirm</button>
             </div>
         </div>
     </div>
@@ -462,8 +289,7 @@ function _applyDbStats() {
         var wrPct = Math.round(s.wins / total * 100);
         var arcLen = 157, fill = Math.min(wrPct, 100) / 100 * arcLen;
         wrArc.setAttribute("stroke-dasharray", fill + " " + arcLen);
-        var color = wrPct >= 60 ? "#22c55e" : wrPct >= 40 ? "#eab308" : "#ef4444";
-        wrArc.setAttribute("stroke", color);
+        wrArc.dataset.tone = wrPct >= 60 ? "up" : wrPct >= 40 ? "warn" : "down";
         wrText.textContent = wrPct + "%";
         if (wrDetail) wrDetail.textContent = s.wins + "W / " + s.losses + "L";
     }
@@ -478,7 +304,7 @@ document.addEventListener("crv:status", e => {
     const isLive = status === "Live";
     const div = document.createElement("div");
     div.className = "alert-item " + (isLive ? "entry" : "info");
-    div.innerHTML = `<span class="text-muted">${_etNow()}</span> Engine: <strong>${status}</strong>`;
+    div.innerHTML = `<span class="c-mut">${_etNow()}</span> Engine: <strong>${_esc(status)}</strong>`;
     const feed = document.getElementById("alert-feed");
     if (feed) feed.insertBefore(div, feed.firstChild);
 });
@@ -546,6 +372,16 @@ function findSetup(snap, id) {
     }
     return null;
 }
+
+// ── Theme tokens (tokens.css) so the chart and gauges follow light/dark ──
+function _tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function _pal() {
+    return { bg: _tok('--c-surface'), text: _tok('--c-muted'), line: _tok('--c-line'), fg: _tok('--c-text'),
+             up: _tok('--c-up'), down: _tok('--c-down'), accent: _tok('--c-accent'),
+             upSoft: _tok('--c-up-soft'), downSoft: _tok('--c-down-soft') };
+}
+function _esc(v) { return window.CRV && CRV.esc ? CRV.esc(v) : String(v ?? ''); }
+function _cardId(id) { return String(id).toLowerCase().replace(/[^a-z0-9]/g, '-'); }
 
 // ── Lightweight Charts (own data from Tradovate stream) ──────
 let _lwcChart = null;
@@ -621,23 +457,24 @@ function _initLwcChart() {
     var container = document.getElementById("tv-chart-container");
     if (!container || _lwcChart) return;
 
+    var P = _pal();
     _lwcChart = LightweightCharts.createChart(container, {
-        layout:     { background: { color: '#131722' }, textColor: '#d1d4dc' },
+        layout:     { background: { color: P.bg }, textColor: P.text, fontFamily: 'IBM Plex Mono, monospace' },
         grid:       { vertLines: { visible: false }, horzLines: { visible: false } },
         crosshair:  { mode: LightweightCharts.CrosshairMode.Normal },
-        timeScale:  { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
-        rightPriceScale: { borderColor: '#2a2e39' },
+        timeScale:  { timeVisible: true, secondsVisible: false, borderColor: P.line },
+        rightPriceScale: { borderColor: P.line },
         width:  container.clientWidth || 800,
         height: container.clientHeight || 460,
     });
 
     _lwcSeries = _lwcChart.addCandlestickSeries({
-        upColor:       '#131722',   // hollow body (matches background)
-        downColor:     '#7f1d1d',   // solid dark red
-        borderUpColor: '#2a6f6f',   // teal border
-        borderDownColor:'#7f1d1d',  // dark red border
-        wickUpColor:   '#2a6f6f',   // teal wick
-        wickDownColor: '#7f1d1d',   // dark red wick
+        upColor:       P.bg,        // hollow body (matches background)
+        downColor:     P.down,
+        borderUpColor: P.up,
+        borderDownColor: P.down,
+        wickUpColor:   P.up,
+        wickDownColor: P.down,
         lastValueVisible: false,    // disable last-value label on Y axis
         priceLineVisible: false,    // disable horizontal price line at current price
     });
@@ -659,7 +496,7 @@ function _initLwcChart() {
 
     // Volume MA(21) line — overlaid on the volume pane
     _lwcVolMaSeries = _lwcChart.addLineSeries({
-        color:          'rgba(128, 128, 128, 0.5)',
+        color:          P.line,
         lineWidth:      1,
         priceFormat:    { type: 'volume' },
         priceScaleId:   'vol',
@@ -670,7 +507,7 @@ function _initLwcChart() {
 
     // EMA21 overlay line
     _lwcEma21Series = _lwcChart.addLineSeries({
-        color:          '#ffffff',
+        color:          P.fg,
         lineWidth:      1,
         lastValueVisible: true,
         priceLineVisible: false,
@@ -681,7 +518,7 @@ function _initLwcChart() {
 
     // VWAP overlay line
     _lwcVwapSeries = _lwcChart.addLineSeries({
-        color:          '#f59e0b',
+        color:          P.accent,
         lineWidth:      1,
         lineStyle:      LightweightCharts.LineStyle.Dotted,
         lastValueVisible: true,
@@ -698,6 +535,19 @@ function _initLwcChart() {
     });
     ro.observe(container);
 }
+
+// Re-color the chart when the theme switches (crv-ui.js fires crv:theme).
+document.addEventListener('crv:theme', function () {
+    if (!_lwcChart) return;
+    var P = _pal();
+    _lwcChart.applyOptions({ layout: { background: { color: P.bg }, textColor: P.text },
+                             timeScale: { borderColor: P.line }, rightPriceScale: { borderColor: P.line } });
+    _lwcSeries.applyOptions({ upColor: P.bg, downColor: P.down, borderUpColor: P.up, borderDownColor: P.down, wickUpColor: P.up, wickDownColor: P.down });
+    if (_lwcVolMaSeries) _lwcVolMaSeries.applyOptions({ color: P.line });
+    if (_lwcEma21Series) _lwcEma21Series.applyOptions({ color: P.fg });
+    if (_lwcVwapSeries)  _lwcVwapSeries.applyOptions({ color: P.accent });
+    _applyChartOverlayVisibility();   // rebuilds ORB price lines with the new colors
+});
 
 function _lwcRemovePriceLines() {
     Object.values(_lwcPriceLines).forEach(function(pl) {
@@ -720,9 +570,9 @@ function _lwcUpdatePriceLines(gs) {
         _lwcRemovePriceLines();
         _lwcPriceLineValues = { orbHigh: h, orbLow: l, orbMid: m };
         if (wantOrb) {
-            _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: h, color: '#2a6f6f', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
-            _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: l, color: '#7f1d1d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
-            _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: m, color: '#eab308', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
+            _lwcPriceLines.orbHigh = _lwcSeries.createPriceLine({ price: h, color: _pal().up, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB H' });
+            _lwcPriceLines.orbLow  = _lwcSeries.createPriceLine({ price: l, color: _pal().down, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ORB L' });
+            _lwcPriceLines.orbMid  = _lwcSeries.createPriceLine({ price: m, color: _pal().accent, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: 'ORB M' });
         }
     } catch(e) { /* suppress during group switch */ }
 }
@@ -750,6 +600,7 @@ async function _lwcLoadGroup(groupKey) {
         if (!resp.ok) { console.warn("[LWC] bad response", resp.status); _lwcSeries.setData([]); return; }
         var bars = await resp.json();
         if (seq !== _lwcLoadSeq) return;  // stale response — a newer group was selected
+        var _volUp = _pal().upSoft, _volDown = _pal().downSoft;
         console.log("[LWC] received", bars.length, "bars");
         // Shift UTC timestamps to ET for display (LWC renders raw timestamps on axis)
         var etOffset = _getEtOffsetSec();
@@ -787,7 +638,7 @@ async function _lwcLoadGroup(groupKey) {
 
         // Volume histogram — color based on candle direction
         var volData = bars.map(function(b) {
-            return { time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(42,111,111,0.4)' : 'rgba(127,29,29,0.4)' };
+            return { time: b.time, value: b.volume || 0, color: b.close >= b.open ? _volUp : _volDown };
         });
         _lwcVolSeries.setData(volData);
 
@@ -861,7 +712,7 @@ function _lwcUpdateCandle(gs) {
     _lwcHasData = true;
     // Update volume bar for current candle
     if (_lwcVolSeries) {
-        var volColor = gs.barClose >= gs.barOpen ? 'rgba(42,111,111,0.4)' : 'rgba(127,29,29,0.4)';
+        var volColor = gs.barClose >= gs.barOpen ? _pal().upSoft : _pal().downSoft;
         _lwcVolSeries.update({ time: t, value: gs.barVolume || 0, color: volColor });
     }
     // Keep volume MA line in sync so LWC doesn't throw "Value is null"
@@ -895,7 +746,7 @@ function _lwcAddTradeMarker(time, isEntry, isLong) {
             time: markerTime,
             position: isLong ? 'belowBar' : 'aboveBar',
             shape: isLong ? 'arrowUp' : 'arrowDown',
-            color: isLong ? '#22c55e' : '#ef4444',
+            color: isLong ? _pal().up : _pal().down,
             text: isLong ? 'L' : 'S',
         });
     } else {
@@ -903,7 +754,7 @@ function _lwcAddTradeMarker(time, isEntry, isLong) {
             time: markerTime,
             position: 'aboveBar',
             shape: 'circle',
-            color: '#ffffff',
+            color: _pal().fg,
             text: 'X',
         });
     }
@@ -1180,52 +1031,44 @@ function toggleChopDetails() {
 var _cardsCreated = false;
 
 function createSetupCard(setup) {
-    var id = setup.id.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    var id = _cardId(setup.id);
     var typeLabels = { Pullback: "\u25B2", Retest: "\u27F3", OrbFakeout: "\u2194", SessionFakeout: "\u21A9" };
     var typeChar = typeLabels[setup.strategyType] || "\u25CF";
+    var row = (label, key, extra) => `<div class="ck-cell"><span>${label}</span><b id="${id}-${key}" ${extra || ''}>\u2014</b></div>`;
 
-    var col = document.createElement("div");
-    col.className = "col-12 col-lg-6";
-    col.id = "card-" + id;
-    col.innerHTML = `
-        <div class="card">
-            <div class="card-header d-flex align-items-center gap-2">
-                <span class="text-warning">${typeChar}</span>
-                <span class="fw-bold text-warning">${setup.label}</span>
-                <span class="badge" id="enabled-${id}">ON</span>
-                <span class="badge" id="status-${id}">IDLE</span>
-                <span class="text-muted small" id="count-${id}">[0/${setup.maxTrades ?? 0}]</span>
-                <button id="btn-exit-${id}" class="btn btn-danger btn-sm d-none py-0 px-2 ms-auto"
-                        onclick="forceExit('${setup.id}')" title="Force exit Setup ${setup.id} at market">
-                    <i class="bi bi-x-octagon-fill me-1"></i>Exit Now
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 trade-table" id="table-${id}" style="font-size:.95rem">
-                    <tbody>
-                        <tr>
-                            <td class="text-muted" style="width:40%">Last Price</td>
-                            <td class="d-flex align-items-center gap-1">
-                                <span id="${id}-price" class="font-monospace fw-bold">\u2014</span>
-                                <span class="stream-dot" id="${id}-price-dot"></span>
-                                <span id="${id}-price-age" class="text-muted small"></span>
-                                <span id="${id}-ticker" class="text-muted small ms-1"></span>
-                            </td>
-                        </tr>
-                        <tr><td class="text-muted">Direction</td><td id="${id}-dir">\u2014</td></tr>
-                        <tr><td class="text-muted">Entry</td><td id="${id}-entry" class="font-monospace">\u2014</td></tr>
-                        <tr><td class="text-muted">Stop</td><td id="${id}-stop" class="font-monospace">\u2014</td></tr>
-                        <tr><td class="text-muted">Partial (50%)</td><td id="${id}-partial" class="font-monospace">\u2014</td></tr>
-                        <tr><td class="text-muted">Target</td><td id="${id}-target" class="font-monospace">\u2014</td></tr>
-                        <tr><td class="text-muted">Contracts</td><td id="${id}-cts" class="font-monospace">\u2014</td></tr>
-                        <tr title="E = (Win% \u00D7 AvgWin) \u2212 (Loss% \u00D7 AvgLoss)"><td class="text-muted">Expectancy</td><td id="${id}-expectancy" class="font-monospace">\u2014</td></tr>
-                        <tr><td class="text-muted fw-bold">Unrealized P&amp;L</td><td id="${id}-unreal" class="font-monospace fw-bold">\u2014</td></tr>
-                    </tbody>
-                </table>
-            </div>
+    var card = document.createElement("article");
+    card.className = "c-panel ck-setup";
+    card.id = "card-" + id;
+    card.innerHTML = `
+        <header class="ck-setup-h">
+            <span class="ck-type" title="${_esc(setup.strategyType)}">${typeChar}</span>
+            <b class="ck-name">${_esc(setup.label)}</b>
+            <span class="badge" id="enabled-${id}">ON</span>
+            <span class="badge" id="status-${id}">IDLE</span>
+            <span class="c-mut small num" id="count-${id}">[0/${Number(setup.maxTrades ?? 0)}]</span>
+            <button type="button" id="btn-exit-${id}" class="btn btn-danger btn-sm d-none ms-auto"
+                    data-setup="${_esc(setup.id)}" onclick="forceExit(this.dataset.setup)" title="Close this setup's position at market">
+                <i class="bi bi-x-octagon-fill me-1"></i>Exit now
+            </button>
+        </header>
+        <div class="ck-price">
+            <span id="${id}-price" class="num">\u2014</span>
+            <span class="stream-dot" id="${id}-price-dot"></span>
+            <span id="${id}-price-age" class="c-mut small"></span>
+            <span id="${id}-ticker" class="c-mut small ms-auto"></span>
+        </div>
+        <div class="ck-grid">
+            ${row("Direction", "dir")}
+            ${row("Contracts", "cts")}
+            ${row("Entry", "entry")}
+            ${row("Stop", "stop")}
+            ${row("Partial", "partial")}
+            ${row("Target", "target")}
+            ${row("Expectancy", "expectancy", 'title="(Win% \u00D7 avg win) \u2212 (Loss% \u00D7 avg loss)"')}
+            ${row("Unrealized", "unreal")}
         </div>
     `;
-    return col;
+    return card;
 }
 
 // ── Main update ───────────────────────────────────────────────
@@ -1274,8 +1117,7 @@ function updateDashboard(d) {
         const arcLen  = 157;
         const fill    = trades > 0 ? Math.min(wrPct, 100) / 100 * arcLen : 0;
         wrArc.setAttribute("stroke-dasharray", fill + " " + arcLen);
-        const color = wrPct >= 60 ? "#22c55e" : wrPct >= 40 ? "#eab308" : trades > 0 ? "#ef4444" : "#333";
-        wrArc.setAttribute("stroke", color);
+        wrArc.dataset.tone = wrPct >= 60 ? "up" : wrPct >= 40 ? "warn" : trades > 0 ? "down" : "none";
         wrText.textContent = trades > 0 ? wrPct + "%" : "—";
         if (wrDetail) {
             const losses = trades - wins;
@@ -1303,7 +1145,7 @@ function updateDashboard(d) {
         d.setups.forEach(s => {
             var eid = s.id.toLowerCase().replace(/[^a-z0-9]/g, '-') + "-expectancy";
             setText(eid, s.expectancy ? fmtDol(s.expectancy) : "—",
-                    s.expectancy ? pnlCls(s.expectancy) + " font-monospace" : "font-monospace");
+                    s.expectancy ? pnlCls(s.expectancy) : "");
         });
     }
 
@@ -1321,10 +1163,9 @@ function updateDashboard(d) {
         const arcLen  = 157; // half-circle circumference for r=50
         const fill    = Math.min(ddPct, 100) / 100 * arcLen;
         ddArc.setAttribute("stroke-dasharray", fill + " " + arcLen);
-        const color = ddPct >= 100 ? "#ef4444" : ddPct > 80 ? "#ef4444" : ddPct > 50 ? "#eab308" : "#22c55e";
-        ddArc.setAttribute("stroke", color);
+        ddArc.dataset.tone = ddPct > 80 ? "down" : ddPct > 50 ? "warn" : "up";
         ddText.textContent = ddPct + "%";
-        ddText.setAttribute("fill", ddPct >= 100 ? "#ef4444" : "#e5e5e5");
+        ddText.classList.toggle("bad", ddPct >= 100);
         if (ddAmounts) {
             const usedStr  = "$" + Math.round(ddUsed).toLocaleString();
             const limitStr = "$" + Math.round(maxDailyLoss).toLocaleString();
@@ -1507,8 +1348,8 @@ function dashConfirm(title, bodyHtml, btnClass, onConfirm) {
     document.getElementById('dashConfirm-title').textContent = title;
     document.getElementById('dashConfirm-body').innerHTML    = bodyHtml;
     const okBtn = document.getElementById('dashConfirm-ok');
-    okBtn.className = 'btn btn-sm ' + (btnClass || 'btn-warning');
-    okBtn.textContent = 'Confirm';
+    okBtn.className = 'btn ' + (btnClass || 'btn-warning');
+    okBtn.textContent = title;
     const fresh = okBtn.cloneNode(true);
     okBtn.replaceWith(fresh);
     fresh.addEventListener('click', () => { _dashModal.hide(); onConfirm(); });
@@ -1518,14 +1359,14 @@ function dashConfirm(title, bodyHtml, btnClass, onConfirm) {
 // ── Force Exit ────────────────────────────────────────────────
 function forceExit(setup) {
     dashConfirm(
-        'Force Exit',
-        `Are you sure you want to <strong class="text-danger">force exit</strong> setup <strong>${setup}</strong> at market?`,
+        'Exit now',
+        `<p class="mb-0">Close <strong>${_esc(setup)}</strong>'s position at market now?</p>`,
         'btn-danger',
         () => _doForceExit(setup)
     );
 }
 async function _doForceExit(setup) {
-    const btn = document.getElementById("btn-exit-" + setup.toLowerCase());
+    const btn = document.getElementById("btn-exit-" + _cardId(setup));
     if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
     try {
         const tok = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? "";
@@ -1534,10 +1375,13 @@ async function _doForceExit(setup) {
             headers: { "RequestVerificationToken": tok, "Content-Type": "application/json" }
         });
         if (r.ok) {
-            addAlert({ type: "EXIT", setup: setup, time: new Date().toLocaleTimeString(), message: "Force exit executed" });
+            addAlert({ type: "EXIT", setup: setup, time: new Date().toISOString(), message: "Exit sent at market" });
+        } else {
+            addAlert({ type: "EXIT", setup: setup, time: new Date().toISOString(), message: "Exit failed (HTTP " + r.status + "). Check Positions & orders." });
         }
     } catch (e) {
         console.error("Force exit error:", e);
+        addAlert({ type: "EXIT", setup: setup, time: new Date().toISOString(), message: "Exit failed: no response from the app. Check Positions & orders." });
     } finally {
         if (btn) { btn.disabled = false; }
     }
@@ -1546,7 +1390,7 @@ async function _doForceExit(setup) {
 function forceOrb() {
     dashConfirm(
         'Force ORB',
-        'Are you sure you want to <strong class="text-warning">force recalculate</strong> the ORB from broker historical bars?',
+        '<p class="mb-0">Recalculate the opening range from the broker\'s historical bars? Setups use the new range right away.</p>',
         'btn-warning',
         _doForceOrb
     );
@@ -1598,15 +1442,15 @@ function updateSetup(id, setup, sessionEnded) {
     const statusEl  = document.getElementById("status-" + id);
     const enabledEl = document.getElementById("enabled-" + id);
     const exitBtn   = document.getElementById("btn-exit-" + id);
-    const card      = statusEl?.closest(".card");
+    const card      = statusEl?.closest(".ck-setup");
 
     // ── Per-setup last price (always shown, even when idle) ───
     if (lastPrice > 0) {
-        setText(id + "-price", lastPrice.toFixed(2), "font-monospace fw-bold text-light");
+        setText(id + "-price", lastPrice.toFixed(2), "num");
         if (!_setupLastPriceMs[id]) _setupLastPriceMs[id] = 0;
         _setupLastPriceMs[id] = Date.now();  // track when we last got a valid price
     } else {
-        setText(id + "-price", "—", "font-monospace fw-bold");
+        setText(id + "-price", "—", "num");
     }
     setText(id + "-ticker", ticker || "");
 
@@ -1726,7 +1570,7 @@ function addAlert(a) {
     const setup = a.setupLabel || (typeof a.setup === "number" ? (setupMap[a.setup] ?? a.setup) : (a.setup ?? ""));
     const div  = document.createElement("div");
     div.className = "alert-item " + cls;
-    div.innerHTML = `<span class="text-muted">${timeStr}</span> <strong>[${setup}]</strong> ${a.message ?? ""}`;
+    div.innerHTML = `<span class="c-mut">${_esc(timeStr)}</span> <strong>${_esc(setup)}</strong> ${_esc(a.message ?? "")}`;
     feed.insertBefore(div, feed.firstChild);
     while (feed.children.length > 50) feed.removeChild(feed.lastChild);
 }
@@ -1749,18 +1593,15 @@ function addTradeRow(t) {
     if (badge) badge.textContent = count + (count === 1 ? " trade" : " trades");
     // Build row
     const pnl = t.netPnl ?? 0;
-    const cls = pnl >= 0 ? "pnl-pos" : "pnl-neg";
-    const setupBadge = `<span class="badge bg-warning text-dark">${t.setup}</span>`;
-    const instr = t.ticker || "—";
-    const dirBadge   = t.dir === "Long"
-        ? '<span class="text-success">▲ Long</span>'
-        : '<span class="text-danger">▼ Short</span>';
+    const cls = pnl > 0 ? "c-up" : pnl < 0 ? "c-down" : "";
+    const isLong = t.dir === "Long";
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${t.time}</td><td>${setupBadge}</td><td class="small">${instr}</td><td>${dirBadge}</td>`
-        + `<td>${(t.entry ?? 0).toFixed(2)}</td><td>${(t.exit ?? 0).toFixed(2)}</td>`
-        + `<td>${t.reason ?? ""}</td>`
-        + `<td class="${cls} fw-bold">${pnl >= 0 ? "+$" : "-$"}${Math.abs(pnl).toFixed(0)}</td>`
-        + `<td class="${cls}">${(t.r ?? 0).toFixed(1)}R</td>`;
+    tr.innerHTML = `<td>${_esc(t.time)}</td><td class="t">${_esc(t.setup)}</td><td>${_esc((t.ticker || "—").replace(/^\//, ""))}</td>`
+        + `<td><span class="c-side ${isLong ? "long" : "short"}">${isLong ? "LONG" : "SHORT"}</span></td>`
+        + `<td class="r">${(t.entry ?? 0).toFixed(2)}</td><td class="r">${(t.exit ?? 0).toFixed(2)}</td>`
+        + `<td class="t">${_esc(t.reason ?? "")}</td>`
+        + `<td class="r ${cls}"><b>${pnl >= 0 ? "+$" : "−$"}${Math.abs(pnl).toFixed(0)}</b></td>`
+        + `<td class="r ${cls}">${(t.r ?? 0).toFixed(1)}R</td>`;
     tbody.insertBefore(tr, tbody.firstChild);
 }
 

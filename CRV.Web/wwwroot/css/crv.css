@@ -17,7 +17,7 @@ body { background: var(--c-bg); color: var(--c-text); font-family: var(--font-bo
 .pnl-neg  { color: var(--crv-red);    }
 .pnl-zero { color: var(--c-muted); }
 
-.badge-live   { background: var(--crv-green);   color: #000; }
+.badge-live   { background: var(--c-up);   color: #062018; }
 .badge-paper  { background: var(--crv-yellow);  color: #000; }
 .badge-halted { background: var(--crv-red);     color: #fff; }
 
@@ -29,11 +29,11 @@ body { background: var(--c-bg); color: var(--c-text); font-family: var(--font-bo
 .dd-breached { animation: dd-flash 1s ease-in-out infinite; }
 
 /* Setup status badges */
-.setup-idle      { background: #1a1a2e; border: 1px solid #444;              color: #888; }
-.setup-armed     { background: #2e2a00; border: 1px solid var(--crv-yellow); color: var(--crv-yellow); }
-.setup-retest    { background: #2e1c00; border: 1px solid #ff8c00;           color: #ff8c00; }
-.setup-long      { background: #0f2a1a; border: 1px solid #00cc66;           color: #00ff88; }
-.setup-short     { background: #2a0f1a; border: 1px solid #cc0033;           color: #ff4466; }
+.setup-idle      { background: var(--c-raise);       border: 1px solid var(--c-line);   color: var(--c-muted); }
+.setup-armed     { background: var(--c-accent-soft); border: 1px solid var(--c-accent); color: var(--c-accent); }
+.setup-retest    { background: var(--c-paper-soft);  border: 1px solid var(--c-paper);  color: var(--c-paper); }
+.setup-long      { background: var(--c-up-soft);     border: 1px solid var(--c-up);     color: var(--c-up); }
+.setup-short     { background: var(--c-down-soft);   border: 1px solid var(--c-down);   color: var(--c-down); }
 
 /* DD progress bar */
 .dd-bar-track { background: var(--c-raise); border-radius: 4px; height: 8px; overflow:hidden; }
@@ -76,7 +76,7 @@ body { background: var(--c-bg); color: var(--c-text); font-family: var(--font-bo
 /* Stream health indicator */
 .stream-dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: #555; /* default = no data */
+    background: var(--c-muted); /* default = no data */
     flex-shrink: 0;
 }
 .stream-dot.live {
