@@ -2,6 +2,7 @@ using CRV.Core.Models;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace CRV.Web.Pages.Setup;
 
@@ -21,18 +22,25 @@ public class AlertsModel : PageModel
 
     private readonly StrategyConfigService  _cfgSvc;
     private readonly LiveEngineOrchestrator _engine;
-    private readonly IConfiguration         _config;
+    private readonly IOptionsMonitor<SmtpSettings> _smtp;
     private readonly ILogger<AlertsModel>   _log;
 
-    public AlertsModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator engine, IConfiguration config, ILogger<AlertsModel> log)
+    public AlertsModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator engine, IOptionsMonitor<SmtpSettings> smtp, ILogger<AlertsModel> log)
     {
-        _cfgSvc = cfgSvc; _engine = engine; _config = config; _log = log;
+        _cfgSvc = cfgSvc; _engine = engine; _smtp = smtp; _log = log;
     }
 
     public StrategyConfig Config { get; private set; } = new();
-    public string SmtpHost => _config["Smtp:Host"] ?? "";
-    public string SmtpPort => _config["Smtp:Port"] ?? "587";
-    public string SmtpFrom => _config["Smtp:FromAddress"] ?? "";
+    /// <summary>The mail server settings the email service sends with.</summary>
+    public SmtpSettings Smtp => _smtp.CurrentValue;
+    /// <summary>The same check the email service makes before every send.</summary>
+    public bool SmtpReady => Smtp.IsConfigured;
+    /// <summary>The settings still missing, by their configuration key.</summary>
+    public List<string> SmtpMissing => new[]
+    {
+        ("Smtp:Host", Smtp.Host), ("Smtp:FromAddress", Smtp.FromAddress),
+        ("Smtp:Username", Smtp.Username), ("Smtp:Password", Smtp.Password),
+    }.Where(x => string.IsNullOrWhiteSpace(x.Item2)).Select(x => x.Item1).ToList();
     public string? Message { get; private set; }
     public string? Error   { get; private set; }
 
