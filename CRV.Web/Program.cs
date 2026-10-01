@@ -303,6 +303,8 @@ app.MapGet("/trading/mock", (HttpRequest req) =>
     return Results.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString("/review/results", q));
 });
 app.MapGet("/settings/backtest", () => Results.Redirect("/review/results?source=backtest"));
+// The Manual page became the order-ticket drawer (on every page) and Positions & orders.
+app.MapGet("/trading/manual", () => Results.Redirect("/trading/positions?ticket=1"));
 
 app.MapRazorPages();
 app.MapControllers();

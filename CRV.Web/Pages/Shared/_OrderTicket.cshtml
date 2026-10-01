@@ -1,0 +1,114 @@
+@using CRV.Live
+@using CRV.Web.Services
+@inject StrategyConfigService CfgSvc
+@{
+    // Instruments in the basket come first in the picker.
+    var cfg = CfgSvc.Current;
+    var basket = cfg.ToSetupConfigs().Select(s => s.Ticker).Append(cfg.Ticker)
+        .Where(t => !string.IsNullOrWhiteSpace(t))
+        .Select(t => FuturesSymbol.RootSymbol(t).ToUpperInvariant())
+        .Distinct().ToArray();
+}
+<div class="offcanvas offcanvas-end c-ticket" tabindex="-1" id="ticket" aria-labelledby="ticket-title"
+     data-basket="@string.Join(",", basket)" data-default="@FuturesSymbol.RootSymbol(cfg.Ticker).ToUpperInvariant()"
+     data-contracts="@Math.Max(1, cfg.Contracts)">
+    <div class="offcanvas-header">
+        <div>
+            <h2 class="offcanvas-title" id="ticket-title">New order</h2>
+            <span class="c-mut small num" id="tk-sub"></span>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+
+    <div class="offcanvas-body">
+        <form id="tk-form" class="c-form c-ticket-form" novalidate autocomplete="off">
+            <div class="c-note warn" id="tk-engine-note" hidden><i class="bi bi-exclamation-triangle"></i>
+                <span>The engine is stopped. Orders go through the engine, so start it first.</span></div>
+
+            <div>
+                <label class="form-label" for="tk-instr">Instrument</label>
+                <select class="form-select" id="tk-instr"></select>
+            </div>
+
+            <div class="c-ticket-two">
+                <div class="c-seg c-seg-fill" role="radiogroup" aria-label="Side">
+                    <button type="button" role="radio" data-side="Long" class="active long" aria-checked="true">Long</button>
+                    <button type="button" role="radio" data-side="Short" class="short" aria-checked="false">Short</button>
+                </div>
+                <div class="c-seg c-seg-fill" role="radiogroup" aria-label="Order type">
+                    <button type="button" role="radio" data-type="Market" class="active" aria-checked="true">Market</button>
+                    <button type="button" role="radio" data-type="Limit" aria-checked="false">Limit</button>
+                </div>
+            </div>
+
+            <div class="c-ticket-two">
+                <div>
+                    <label class="form-label" for="tk-entry" id="tk-entry-label">Reference price</label>
+                    <input class="form-control num" id="tk-entry" type="number" inputmode="decimal" step="any" min="0" />
+                </div>
+                <div>
+                    <label class="form-label" for="tk-cts">Contracts</label>
+                    <div class="c-stepper">
+                        <button type="button" data-step="-1" aria-label="One fewer contract">−</button>
+                        <input class="form-control num" id="tk-cts" type="number" inputmode="numeric" min="1" max="100" value="1" />
+                        <button type="button" data-step="1" aria-label="One more contract">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="c-seg c-seg-fill" role="radiogroup" aria-label="Enter stop and target in">
+                <button type="button" role="radio" data-mode="Points" class="active" aria-checked="true">Points</button>
+                <button type="button" role="radio" data-mode="Dollars" aria-checked="false">Dollars</button>
+                <button type="button" role="radio" data-mode="Price" aria-checked="false">Price</button>
+            </div>
+
+            <div class="c-ticket-two">
+                <div>
+                    <label class="form-label" for="tk-stop" id="tk-stop-label">Stop (points)</label>
+                    <input class="form-control num" id="tk-stop" type="number" inputmode="decimal" step="any" min="0" />
+                </div>
+                <div id="tk-target-wrap">
+                    <label class="form-label" for="tk-target" id="tk-target-label">Target (points)</label>
+                    <input class="form-control num" id="tk-target" type="number" inputmode="decimal" step="any" min="0" />
+                </div>
+            </div>
+
+            <div class="c-ticket-opts">
+                <label class="c-switch" id="tk-partial-row"><span>Take a partial at a first target</span><input class="form-check-input" type="checkbox" role="switch" id="tk-partial" /></label>
+                <div class="c-ticket-two" id="tk-partial-fields" hidden>
+                    <div><label class="form-label" for="tk-partial-cts">Contracts at first target</label>
+                        <input class="form-control num" id="tk-partial-cts" type="number" inputmode="numeric" min="1" value="1" /></div>
+                    <div><label class="form-label" for="tk-partial-val" id="tk-partial-label">First target (points)</label>
+                        <input class="form-control num" id="tk-partial-val" type="number" inputmode="decimal" step="any" min="0" /></div>
+                </div>
+                <label class="c-switch"><span>Move stop to break-even after the first target</span><input class="form-check-input" type="checkbox" role="switch" id="tk-be" checked /></label>
+                <label class="c-switch"><span>Trail the stop automatically</span><input class="form-check-input" type="checkbox" role="switch" id="tk-trail" /></label>
+                <div class="c-ticket-three" id="tk-trail-fields" hidden>
+                    <div><label class="form-label" for="tk-trail-sl">Trail distance (pts)</label><input class="form-control num" id="tk-trail-sl" type="number" inputmode="decimal" step="any" min="0" /></div>
+                    <div><label class="form-label" for="tk-trail-trig">Start after (pts)</label><input class="form-control num" id="tk-trail-trig" type="number" inputmode="decimal" step="any" min="0" /></div>
+                    <div><label class="form-label" for="tk-trail-freq">Step (pts)</label><input class="form-control num" id="tk-trail-freq" type="number" inputmode="decimal" step="any" min="0" /></div>
+                </div>
+                <label class="c-switch"><span>Several targets (prices)</span><input class="form-check-input" type="checkbox" role="switch" id="tk-multi" /></label>
+                <div id="tk-multi-fields" hidden>
+                    <p class="c-mut small mb-2">Up to four targets. Their contracts must add up to the total. Uses prices.</p>
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <div class="c-ticket-bracket" data-row="@i">
+                            <input class="form-control num" type="number" inputmode="decimal" step="any" min="0" placeholder="Target @(i + 1) price" aria-label="Target @(i + 1) price" data-f="target" />
+                            <input class="form-control num" type="number" inputmode="numeric" min="0" placeholder="Qty" aria-label="Target @(i + 1) contracts" data-f="qty" />
+                            <label class="c-mut small"><input class="form-check-input" type="checkbox" data-f="be" /> BE</label>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <ul class="c-ticket-errors" id="tk-errors" role="alert" hidden></ul>
+        </form>
+    </div>
+
+    <div class="c-ticket-foot">
+        <div class="c-ticket-preview num" id="tk-preview"></div>
+        <button type="button" class="c-hold w-100" id="tk-place" disabled><i></i><span>Hold to place</span></button>
+        <p class="c-hold-note" id="tk-summary"></p>
+    </div>
+</div>

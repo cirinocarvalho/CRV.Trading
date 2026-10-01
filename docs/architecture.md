@@ -179,18 +179,21 @@ handle transport only. See [Options](options.md).
 | Route | Purpose |
 |-------|---------|
 | `/` | Home / status summary |
-| `/Dashboard` | Live P&L, trades, Lightweight Charts (candlestick + volume + VWAP + ORB levels), per-group Market Context, per-setup last price with blinking dot, USD values on Stop/Partial/Target, session badge, stream health, alert feed, Exit Now buttons (SignalR) |
-| `/Settings/Live` | Start/stop engine, broker + strategy config |
-| `/Backtest` | Run backtest + view results |
-| `/Settings/Backtest` | Backtest config + inline results (metric cards, equity curve, trade log) |
-| `/Validation` | In/out-of-sample split, ORB duration sweep, filter ablation — see [validation.md](validation.md) |
-| `/trading/manual` | Manual OCO bracket orders, live positions table, Cancel All |
-| `/trading/orders` | Order list with filters, Cancel button, 30 s auto-refresh; includes options orders |
+| `/dashboard` | Cockpit: setup cards (Exit now), today's numbers, Lightweight Charts with VWAP/EMA/ORB overlays, market context, key levels, alerts, today's trades (SignalR) |
+| `/dashboard/prospectus` | Plan for today: per-setup risk and reward from the opening range, vs this month's average |
+| `/trading/positions` | Positions & orders: engine brackets with their legs, broker positions, working orders; move to BE, exit, close, cancel |
+| `/trading/orders` | Order history with filters; also the options orders view (`?section=options`) |
+| `/trading/manual` | Redirects to Positions & orders with the order ticket open |
+| `/review/results` | Results for Live, Paper (Mock) or Backtest trades; runs new backtests (`/performance`, `/trading/mock`, `/settings/backtest` redirect here) |
+| `/dashboard/sessions` | One trading day split into Asia / London / NY |
+| `/validation` | In/out-of-sample split, ORB duration sweep, filter ablation — see [validation.md](validation.md) |
+| `/settings/live` | Broker and strategy configuration |
 | `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
-| `/trading/mock` | Mock broker trade review (day selector, metrics, equity curve, trade log) |
 | `/auth/schwab` | Schwab OAuth2 authorization |
 | `/auth/tradestation` | TradeStation OAuth2 authorization |
 | `/auth/tradovate` | Tradovate authentication |
+
+On every page, the engine bar shows where orders go, engine state, today's P&L and loss-limit use, and holds Start/Stop, the order ticket drawer and Flatten all.
 
 ### Background Services
 

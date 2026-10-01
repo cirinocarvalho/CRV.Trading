@@ -21,12 +21,13 @@ public class OrdersController : ControllerBase
     private readonly FlattenAllService         _flatten;
     private readonly LiveEngineOrchestrator    _engine;
     private readonly ILastPriceProvider        _prices;
+    private readonly StrategyConfigService     _cfg;
     private readonly ILogger<OrdersController> _log;
 
     public OrdersController(BrokerAccountService account, FlattenAllService flatten, LiveEngineOrchestrator engine,
-                            ILastPriceProvider prices, ILogger<OrdersController> log)
+                            ILastPriceProvider prices, StrategyConfigService cfg, ILogger<OrdersController> log)
     {
-        _account = account; _flatten = flatten; _engine = engine; _prices = prices; _log = log;
+        _account = account; _flatten = flatten; _engine = engine; _prices = prices; _cfg = cfg; _log = log;
     }
 
     private string Who => User?.Identity?.Name ?? Request.Headers["X-MS-CLIENT-PRINCIPAL-NAME"].FirstOrDefault() ?? "unknown";
@@ -143,6 +144,40 @@ public class OrdersController : ControllerBase
         _log.LogWarning("Close position requested by {User}: {Symbol} {Side} {Qty}", Who, req.Symbol, req.IsLong ? "LONG" : "SHORT", req.Quantity);
         try { return Ok(new { messages = await _account.ClosePositionAsync(req.Symbol, req.Quantity, req.IsLong) }); }
         catch (Exception ex) { _log.LogError(ex, "Close position failed"); return StatusCode(502, new { error = ex.Message }); }
+    }
+
+    /// <summary>
+    /// Place a manual order from the order ticket. Validation and the bracket come from
+    /// <see cref="ManualOrderBuilder"/> (the Manual page's rules); placement goes through the
+    /// engine exactly as the Manual page did, so the order is tracked like any other bracket.
+    /// </summary>
+    [HttpPost("ticket")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Ticket([FromBody] ManualOrder order)
+    {
+        if (order.PointValue <= 0)
+        {
+            var pv = FuturesSymbol.PointValue(order.Ticker);
+            order.PointValue = pv > 0 ? pv : _cfg.Current.PointValue;
+        }
+
+        var (signal, errors) = ManualOrderBuilder.Build(order, DateTime.UtcNow);
+        if (signal == null) return BadRequest(new { errors });
+
+        var acct = _account.Account;
+        _log.LogWarning("Order ticket by {User} on {Account} {Broker}: {Dir} {Qty}× {Ticker} {Type} entry {Entry} stop {Stop} target {Target}",
+            Who, acct.Label, acct.BrokerLabel, signal.Direction, signal.TotalContracts, signal.Ticker, signal.OrderType,
+            signal.Entry, signal.Stop, signal.Tg2Price);
+        try
+        {
+            var (ok, msg, _) = await _engine.PlaceManualEntryAsync(signal, order.PointValue);
+            return ok ? Ok(new { message = msg }) : BadRequest(new { errors = new[] { msg } });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Order ticket placement failed");
+            return StatusCode(502, new { errors = new[] { "The order wasn't placed: " + ex.Message } });
+        }
     }
 
     public sealed record CancelRequest(string OrderId);
