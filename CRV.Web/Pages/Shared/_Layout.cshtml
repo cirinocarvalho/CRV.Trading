@@ -39,7 +39,6 @@
             ("dashboard",    "", "/dashboard",           "bi-speedometer2",          "Cockpit"),
             ("positions",    "", "/trading/positions",   "bi-list-ul",               "Positions & orders"),
             ("orders",       "futures", "/trading/orders", "bi-clock-history",       "Order history"),
-            ("manual-trade", "", "/trading/manual",      "bi-lightning-charge-fill", "Order ticket"),
             ("prospectus",   "", "/dashboard/prospectus", "bi-calendar-check",       "Plan for today"),
         }),
         ("options", "Options", "bi-diagram-3", new[]
@@ -125,6 +124,8 @@
 
 @Html.AntiForgeryToken()
 
+<partial name="_OrderTicket" />
+
 <div class="modal fade c-sheet" id="flatten-sheet" tabindex="-1" aria-labelledby="flatten-title" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -160,6 +161,8 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
 <script src="~/js/crv-ui.js" asp-append-version="true"></script>
+<script src="~/js/crv-instruments.js" asp-append-version="true"></script>
+<script src="~/js/crv-ticket.js" asp-append-version="true"></script>
 <script src="~/js/crv-hub.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>
