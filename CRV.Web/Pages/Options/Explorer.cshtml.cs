@@ -17,7 +17,6 @@ public class ExplorerModel : PageModel
     private readonly IHttpClientFactory   _httpFactory;
     private readonly IConfiguration       _config;
     private readonly TradingDbContext     _db;
-    private readonly OptionChainSnapshotService _snapshots;
     private readonly ILogger<ExplorerModel> _log;
 
     public ExplorerModel(
@@ -25,14 +24,12 @@ public class ExplorerModel : PageModel
         IHttpClientFactory httpFactory,
         IConfiguration config,
         TradingDbContext db,
-        OptionChainSnapshotService snapshots,
         ILogger<ExplorerModel> log)
     {
         _schwab      = schwab;
         _httpFactory = httpFactory;
         _config      = config;
         _db          = db;
-        _snapshots   = snapshots;
         _log         = log;
     }
 
@@ -417,17 +414,6 @@ public class ExplorerModel : PageModel
         });
     }
 
-    /// <summary>Capture today's readings now instead of waiting for the schedule.</summary>
-    public async Task<IActionResult> OnPostCaptureSnapshotAsync(CancellationToken ct)
-    {
-        try
-        {
-            int written = await _snapshots.CaptureNowAsync(ct);
-            return new JsonResult(new { ok = true, written });
-        }
-        catch (Exception ex) { return Fail(ex, "snapshot"); }
-    }
-
     // ── AJAX: re-quote a set of contracts ─────────────────────────
     // Legs are captured from the chain at click time, so their premiums age as soon as
     // the market moves — and survive an expiry change or a chain reload untouched. Every
@@ -468,23 +454,8 @@ public class ExplorerModel : PageModel
         string?         Structure  = null,
         decimal?        LimitPrice = null,   // net you will pay/receive to open
         decimal?        ExitPrice  = null,   // net you want to receive on the way out
-        decimal?        StopPrice  = null);  // contract price that arms the stop
-
-    /// <summary>
-    /// The stop's limit, set through the trigger so a triggered stop can actually fill.
-    /// A stop-limit priced at the trigger frequently does not, which is the failure mode
-    /// that leaves someone believing they were protected.
-    /// </summary>
-    private const decimal StopLimitSlipFraction = 0.10m;
-
-    private static AttachedStop? BuildStop(decimal? trigger, int legCount)
-    {
-        if (trigger is not { } t || t <= 0m) return null;
-        if (legCount != 1) return null;   // no net-stop exists for a spread
-
-        decimal limit = Math.Max(0.01m, Math.Round(t * (1m - StopLimitSlipFraction), 2));
-        return new AttachedStop(t, limit);
-    }
+        decimal?        StopPrice  = null,   // contract price that arms the stop
+        string?         Duration   = null);  // the entry's duration: Day (default), GoodTillCancel, FillOrKill
 
     /// <summary>
     /// Payoff analysis that reflects the price actually being bid, not the screen market.
@@ -513,6 +484,8 @@ public class ExplorerModel : PageModel
     {
         var (legs, error) = BuildLegs(req);
         if (error is not null) return BadRequest(new { error });
+        if (!OptionEntryOrder.TryParseDuration(req!.Duration, out var duration))
+            return BadRequest(new { error = $"Unknown order duration '{req.Duration}'." });
 
         int spreads = Math.Max(1, req!.Spreads);
         var analysis = AnalyseAtLimit(legs!, req.CommissionPerContract, req.LimitPrice);
@@ -529,10 +502,7 @@ public class ExplorerModel : PageModel
         if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } breach)
             return BadRequest(new { error = breach });
 
-        var payload = SchwabOptionOrder.BuildPayload(
-            legs!, spreads, OrderDuration.Day, req.LimitPrice,
-            req.ExitPrice is { } xp ? new AttachedExit(xp) : null,
-            BuildStop(req.StopPrice, legs!.Count));
+        var payload = OptionEntryOrder.Payload(legs!, spreads, duration, req.LimitPrice, req.ExitPrice, req.StopPrice);
 
         string? brokerBody = null; bool brokerOk = false;
         if (!string.IsNullOrEmpty(SchwabAccountId))
@@ -553,7 +523,7 @@ public class ExplorerModel : PageModel
         // ── Round trip, when both ends of the trade are specified ──────
         decimal  entryNet     = req.LimitPrice ?? SchwabOptionOrder.NetPrice(legs!);
         int      contracts    = legs!.Sum(l => l.Quantity) * spreads;
-        int      multiplier   = legs[0].Multiplier > 0 ? legs[0].Multiplier : 100;
+        int      multiplier   = legs![0].Multiplier > 0 ? legs[0].Multiplier : 100;
         decimal  commission   = contracts * req.CommissionPerContract;
         // Three identical puts is three units of a one-leg structure, so the per-unit
         // price is multiplied by three — not by the spread count, which is still 1.
@@ -577,12 +547,8 @@ public class ExplorerModel : PageModel
             // A spread cannot be worth more than the distance between its strikes. Asking
             // to sell a 2-wide vertical for 3.00 books a profit that can never be filled —
             // the exit simply rests forever while the position expires around it.
-            if (!analysis.ProfitUnbounded)
-            {
-                var free = PayoffCalculator.Analyze(legs!, 0m);   // no commission, market prices
-                maxStructureVal = (free.MaxProfit + SchwabOptionOrder.NetPrice(legs!) * multiplier) / multiplier;
-                exitUnreachable = exitNet > maxStructureVal;
-            }
+            maxStructureVal = OptionEntryOrder.MaxStructureValue(legs!);
+            exitUnreachable = OptionEntryOrder.ExitUnreachable(legs!, exitNet);
         }
 
         // Only short legs matter: a long option is a right you choose to exercise, never an
@@ -604,9 +570,10 @@ public class ExplorerModel : PageModel
             netPricePerSpread = req.LimitPrice ?? SchwabOptionOrder.NetPrice(legs!),
             marketNetPerSpread = SchwabOptionOrder.NetPrice(legs!),
             limitPrice        = req.LimitPrice,
+            duration          = duration.ToString(),
             exitPrice         = req.ExitPrice,
-            stopPrice         = BuildStop(req.StopPrice, legs!.Count)?.Trigger,
-            stopLimit         = BuildStop(req.StopPrice, legs!.Count)?.Limit,
+            stopPrice         = OptionEntryOrder.Stop(req.StopPrice, legs!)?.Trigger,
+            stopLimit         = OptionEntryOrder.Stop(req.StopPrice, legs!)?.Limit,
             stopUnavailable   = req.StopPrice > 0m && legs!.Count != 1,
             netDebitPerSpread = analysis.NetDebit,
             totalNet          = analysis.NetDebit * spreads,
@@ -637,6 +604,8 @@ public class ExplorerModel : PageModel
 
         var (legs, error) = BuildLegs(req);
         if (error is not null) return BadRequest(new { error });
+        if (!OptionEntryOrder.TryParseDuration(req!.Duration, out var duration))
+            return BadRequest(new { error = $"Unknown order duration '{req.Duration}'." });
 
         int spreads  = Math.Max(1, req!.Spreads);
         var analysis = AnalyseAtLimit(legs!, req.CommissionPerContract, req.LimitPrice);
@@ -650,9 +619,12 @@ public class ExplorerModel : PageModel
         if (await PortfolioCeilingBreachAsync(totalMaxLoss, ct) is { } portfolioBreach)
             return BadRequest(new { error = portfolioBreach });
 
-        var payload = SchwabOptionOrder.BuildPayload(
-            legs!, spreads, OrderDuration.Day, req.LimitPrice,
-            req.ExitPrice is { } xpp ? new AttachedExit(xpp) : null);
+        // Re-checked here: the browser's check is advice, and only this request reaches the market.
+        if (OptionEntryOrder.ExitUnreachable(legs!, req.ExitPrice))
+            return BadRequest(new { error = $"Refused: the exit asks {req.ExitPrice:0.00}, more than this structure can ever be worth ({OptionEntryOrder.MaxStructureValue(legs!):0.00})." });
+
+        // Built exactly as the preview built it, so the stop and duration that were confirmed are sent.
+        var payload = OptionEntryOrder.Payload(legs!, spreads, duration, req.LimitPrice, req.ExitPrice, req.StopPrice);
 
         // Snapshot the two-sided market before submitting. A fill price is uninterpretable
         // without it — $3.60 is excellent against 3.55/3.75 and poor against 3.50/3.60.
@@ -904,12 +876,15 @@ public class ExplorerModel : PageModel
         if (!req.Place)
         {
             string? brokerBody = null; bool brokerOk = false;
-            try
+            if (!string.IsNullOrEmpty(SchwabAccountId))
             {
-                var pr = await SchwabOptionOrder.PreviewAsync(_schwab, SchwabAccountId, payload, _httpFactory, ct);
-                brokerOk = pr.Ok; brokerBody = pr.Body;
+                try
+                {
+                    var pr = await SchwabOptionOrder.PreviewAsync(_schwab, SchwabAccountId, payload, _httpFactory, ct);
+                    brokerOk = pr.Ok; brokerBody = pr.Body;
+                }
+                catch (Exception ex) { brokerBody = ex.Message; }
             }
-            catch (Exception ex) { brokerBody = ex.Message; }
 
             return new JsonResult(new
             {
