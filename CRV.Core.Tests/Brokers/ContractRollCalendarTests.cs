@@ -137,6 +137,42 @@ public class ContractRollCalendarTests
         _ = ContractRollCalendar.RollDate("MCLK26");
     }
 
+    // ── Expired-contract substitution (Schwab drops all history at expiry) ──
+    [Theory]
+    [InlineData("MNQU26",  "2026-09-18", "MNQU26")]  // last trading day — still live
+    [InlineData("MNQU26",  "2026-09-19", "MNQZ26")]  // expired → next in cycle
+    [InlineData("/MNQM26", "2026-10-01", "MNQZ26")]  // skips U26, also expired
+    [InlineData("MNQZ26",  "2026-10-01", "MNQZ26")]  // live contract unchanged
+    public void FirstLiveContract_SkipsExpired(string ticker, string asOf, string expected)
+    {
+        Assert.Equal(expected, ContractRollCalendar.FirstLiveContract(ticker, DateTime.Parse(asOf)));
+    }
+
+    [Fact]
+    public void SubstituteExpired_ReplacesExpiredFrontMonthAndMerges()
+    {
+        var segs = ContractRollCalendar.SplitByContract("MNQ", new DateTime(2026, 9, 1), new DateTime(2026, 10, 1));
+        Assert.Equal(new[] { "MNQU26", "MNQZ26" }, segs.Select(s => s.Ticker));
+
+        var (live, subs) = ContractRollCalendar.SubstituteExpired(segs, new DateTime(2026, 10, 1));
+
+        var only = Assert.Single(live);
+        Assert.Equal(("MNQZ26", new DateTime(2026, 9, 1), new DateTime(2026, 10, 1)), only);
+        var sub = Assert.Single(subs);
+        Assert.Equal(("MNQU26", "MNQZ26", new DateTime(2026, 9, 1), new DateTime(2026, 9, 10)), sub);
+    }
+
+    [Fact]
+    public void SubstituteExpired_LeavesLiveContractsAlone()
+    {
+        var segs = ContractRollCalendar.SplitByContract("MNQ", new DateTime(2026, 9, 1), new DateTime(2026, 10, 1));
+
+        var (live, subs) = ContractRollCalendar.SubstituteExpired(segs, new DateTime(2026, 9, 5));
+
+        Assert.Equal(segs, live);
+        Assert.Empty(subs);
+    }
+
     [Fact]
     public void IsQuarterly_ReturnsTrueForEquities()
     {

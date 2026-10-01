@@ -125,3 +125,10 @@ unrecoverable and that period can never be reproduced in backtest.
 
 It also explains part of the historical variance: as a contract approached and passed
 expiry, refetches of the same window returned progressively less data, silently.
+
+When a fresh Schwab fetch covers a window whose front month has expired, the runner reads
+that window from the first contract that is still live (`ContractRollCalendar.SubstituteExpired`):
+for Sep 1–10 2026 that is `MNQZ26` in place of `MNQU26`. That contract was the back month
+then, so the bars are the same market but with thinner volume, and they are not what the live
+engine saw. The run says so in a note above its result. A stored snapshot is still replayed
+as is, so a window captured while its contract was live keeps its real bars.

@@ -26,6 +26,7 @@ public class BacktestRunnerService
     /// can say which bars produced it — a run you cannot re-feed is not an experiment.
     /// </summary>
     public string? LastSnapshotKey { get; private set; }
+    private readonly List<string> _dataNotes = new();
 
     /// <summary>True when the last run replayed a stored snapshot rather than refetching.</summary>
     public bool LastRunWasReplay { get; private set; }
@@ -45,6 +46,7 @@ public class BacktestRunnerService
         if (IsRunning) throw new InvalidOperationException("Backtest already running.");
 
         IsRunning = true;
+        _dataNotes.Clear();
         try
         {
             using var scope = _sp.CreateScope();
@@ -94,7 +96,9 @@ public class BacktestRunnerService
                         await LoadMultiTickerBarsAsync(cfg, btCfg, setupTickers, scope, ct), ct);
 
                 var loggedBars = LogTaggedBarsAsync(taggedBars, btCfg, ct);
-                return await engine.RunAsync(loggedBars, ct);
+                var result = await engine.RunAsync(loggedBars, ct);
+                result.DataNotes.AddRange(_dataNotes);
+                return result;
             }
         }
         finally
@@ -138,6 +142,22 @@ public class BacktestRunnerService
     {
         var root = FuturesSymbol.RootSymbol(ticker);
         var segments = ContractRollCalendar.SplitByContract(root, btCfg.From, btCfg.To);
+
+        // Schwab serves no history at all for an expired contract, so a window whose
+        // front month has expired is read from the next contract instead (the back month
+        // at the time — same market, thinner volume).
+        if (source == "Schwab")
+        {
+            var (live, subs) = ContractRollCalendar.SubstituteExpired(segments, DateTime.UtcNow);
+            segments = live;
+            foreach (var s in subs)
+            {
+                var note = $"{s.Expired} has expired and Schwab no longer has its bars, so " +
+                           $"{s.From:MMM d}–{s.To:MMM d} used {s.Used} (the back month at the time).";
+                _log.LogInformation("Backtest data: {Note}", note);
+                _dataNotes.Add(note);
+            }
+        }
 
         return source switch
         {

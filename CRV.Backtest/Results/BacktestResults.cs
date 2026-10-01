@@ -20,6 +20,10 @@ public class BacktestResult
     /// </summary>
     public List<SizeRefusal> SizeRefusals { get; set; } = new();
 
+    /// <summary>Plain-language notes about the data the run used, e.g. an expired contract
+    /// replaced by the next one. Shown with the result.</summary>
+    public List<string> DataNotes { get; set; } = new();
+
     // Legacy accessors for backward compatibility with existing pages/tests
     public PerformanceMetrics  SetupA      => PerSetup.GetValueOrDefault("A", new());
     public PerformanceMetrics  SetupB      => PerSetup.GetValueOrDefault("B", new());
