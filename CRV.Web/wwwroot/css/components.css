@@ -338,7 +338,9 @@ form.is-busy .c-idle { display: none; }
 .ox-grid { display: grid; gap: 1rem; align-items: start; }
 @media (min-width: 1200px) {
   .ox-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
-  .ox-side { position: sticky; top: .75rem; max-height: calc(100vh - 1.5rem); overflow-y: auto; }
+  /* Below the sticky engine bar (its height is measured into --crv-engine-h by crv-ui.js). */
+  .ox-side { position: sticky; top: calc(var(--crv-engine-h, 3.5rem) + .75rem);
+             max-height: calc(100vh - var(--crv-engine-h, 3.5rem) - 1.5rem); overflow-y: auto; }
 }
 .ox-main, .ox-side { display: grid; gap: 1rem; min-width: 0; }
 .ox-row { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end; }
@@ -355,7 +357,7 @@ form.is-busy .c-idle { display: none; }
 .ox-book > summary::-webkit-details-marker { display: none; }
 .ox-tabs { display: none; }
 @media (max-width: 991.98px) {
-  .ox-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; position: sticky; top: 0; z-index: 6;
+  .ox-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; position: sticky; top: var(--crv-engine-h, 3.5rem); z-index: 6;
              background: var(--c-bg); padding: .35rem 0 .6rem; margin-bottom: .25rem; }
   .ox-tabs button { border: 1px solid var(--c-line); background: var(--c-surface); color: var(--c-muted); border-radius: var(--radius);
                     padding: .5rem .25rem; font: 600 .85rem var(--font-body); }
