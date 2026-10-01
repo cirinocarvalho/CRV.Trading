@@ -187,11 +187,11 @@ handle transport only. See [Options](options.md).
 | `/review/results` | Results for Live, Paper (Mock) or Backtest trades; runs new backtests (`/performance`, `/trading/mock`, `/settings/backtest` redirect here) |
 | `/dashboard/sessions` | One trading day split into Asia / London / NY |
 | `/validation` | In/out-of-sample split, ORB duration sweep, filter ablation — see [validation.md](validation.md) |
-| `/settings/live` | Broker and strategy configuration |
+| `/setup/strategies` | Strategies: the basket setups with on/off switches; `/setup/strategies/{id}` edits one setup |
+| `/setup/brokers` | Brokers: Schwab / TradeStation / Tradovate logins, market-data and order brokers, commission, replay |
+| `/settings/live` | Engine settings: instrument, sessions, risk limits and filters |
 | `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
-| `/auth/schwab` | Schwab OAuth2 authorization |
-| `/auth/tradestation` | TradeStation OAuth2 authorization |
-| `/auth/tradovate` | Tradovate authentication |
+| `/auth/schwab`, `/auth/tradestation` | OAuth2 redirect URIs: finish the login, then return to Brokers (`/auth/tradovate` redirects to Brokers) |
 
 On every page, the engine bar shows where orders go, engine state, today's P&L and loss-limit use, and holds Start/Stop, the order ticket drawer and Flatten all.
 

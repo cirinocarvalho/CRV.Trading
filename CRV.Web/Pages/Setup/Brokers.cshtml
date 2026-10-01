@@ -1,0 +1,236 @@
+@page "/setup/brokers"
+@model CRV.Web.Pages.Setup.BrokersModel
+@using CRV.Live
+@using CRV.Web.Pages.Setup
+@using System.Globalization
+@{
+    ViewData["Title"] = "Brokers";
+    ViewData["Page"]  = "brokers";
+    ViewData["LightReady"] = true;
+
+    var c = Model.Config;
+    var mode = Model.Mode;
+    var inv = CultureInfo.InvariantCulture;
+    string Mask(string? id) => id is { Length: > 4 } ? "•••" + id[^4..] : (id ?? "");
+
+    void Card(string name, bool connected, string? accountId, string blurb)
+    {
+        <div class="br-card">
+            <div class="br-card-h">
+                <b>@name</b>
+                <span class="c-badge @(connected ? "ok" : "warn")"><i class="bi @(connected ? "bi-check-circle" : "bi-exclamation-circle")"></i>@(connected ? "Connected" : "Not connected")</span>
+            </div>
+            <p class="c-mut small mb-2">@blurb</p>
+            <div class="small mb-3">Orders go to account
+                @if (accountId != null) { <span class="num">@Mask(accountId)</span> }
+                else { <span class="c-down">not set</span><span class="c-mut"> (set <code>@(name):AccountId</code> in the app settings)</span> }
+            </div>
+        </div>
+    }
+}
+
+<div class="c-head">
+    <h1>Brokers</h1>
+    <span class="c-sub">Logins, and where data comes from and orders go</span>
+</div>
+
+@if (Model.Message != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Message</span></div> }
+@if (Model.Error != null) { <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.Error</span></div> }
+@if (Model.Warnings.Count > 0)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i><span>Saved, but check these settings: @string.Join(" ", Model.Warnings)</span></div>
+}
+
+<div class="br-grid">
+    <form method="post" asp-page-handler="Save" id="br-form" class="c-panel c-form"
+          data-exec-broker="@c.EffectiveExecBroker" data-tradovate-demo="@(Model.TradovateIsDemo ? "true" : "false")"
+          data-ticker="@c.Ticker">
+        <div class="c-panel-h"><h2>Where orders go</h2>
+            <span class="c-badge @(mode.IsRealMoney ? "bad" : mode.Kind == AccountKind.Demo ? "warn" : "info")">@mode.Label · @mode.BrokerLabel</span>
+        </div>
+        <div class="c-panel-b">
+            <div class="st-grid">
+                <div class="st-field">
+                    <label class="form-label" for="br-exec">Send orders to</label>
+                    <select class="form-select" id="br-exec" name="Config.ExecBroker">
+                        <option value="" selected="@(string.IsNullOrEmpty(c.ExecBroker) ? "selected" : null)">Same as market data</option>
+                        @foreach (var (v, l) in BrokersModel.BrokerChoices)
+                        { <option value="@v" selected="@(c.ExecBroker == v ? "selected" : null)">@l</option> }
+                    </select>
+                    <div class="form-text" id="br-exec-note"></div>
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="br-data">Market data from</label>
+                    <select class="form-select" id="br-data" name="Config.Broker">
+                        @foreach (var (v, l) in BrokersModel.BrokerChoices)
+                        { <option value="@v" selected="@(c.Broker == v ? "selected" : null)">@l</option> }
+                    </select>
+                    <div class="form-text">Prices and bars the engine trades on.</div>
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="br-comm">Commission per contract, each side</label>
+                    <div class="st-input">
+                        <input class="form-control num" id="br-comm" name="Config.CommissionPerSide" type="number" step="0.01" min="0" inputmode="decimal"
+                               value="@c.CommissionPerSide.ToString("0.##", inv)" />
+                        <span class="c-mut">$</span>
+                    </div>
+                    <div class="form-text">Filled in for the broker you choose; change it if yours differs.</div>
+                </div>
+            </div>
+
+            <fieldset class="br-replay mt-3" id="br-replay">
+                <legend class="small fw-semibold">Replay</legend>
+                <div class="st-grid">
+                    <div class="st-field">
+                        <label class="form-label" for="br-rdate">Day to replay</label>
+                        <input class="form-control" id="br-rdate" type="date" name="Config.ReplayDate"
+                               value="@((c.ReplayDate ?? Model.PreviousTradingDay).ToString("yyyy-MM-dd"))" />
+                    </div>
+                    <div class="st-field">
+                        <label class="form-label" for="br-rspeed">Speed</label>
+                        <select class="form-select" id="br-rspeed" name="Config.ReplaySpeed">
+                            @foreach (var v in new[] { 25, 50, 100, 200, 400 })
+                            { <option value="@v" selected="@(c.ReplaySpeed == v ? "selected" : null)">@v%</option> }
+                        </select>
+                    </div>
+                    <div class="st-field">
+                        <label class="form-label" for="br-rbal">Starting balance</label>
+                        <div class="st-input">
+                            <input class="form-control num" id="br-rbal" type="number" name="Config.ReplayBalance" min="1000" step="1000"
+                                   value="@c.ReplayBalance.ToString("0", inv)" />
+                            <span class="c-mut">$</span>
+                        </div>
+                    </div>
+                    <label class="c-switch st-field">
+                        <span>Save replay trades<small class="d-block c-mut">Keep them in Results.</small></span>
+                        <input class="form-check-input" type="checkbox" role="switch" name="Config.SaveReplayTrades" value="true" @(c.SaveReplayTrades ? "checked" : "") />
+                        <input type="hidden" name="Config.SaveReplayTrades" value="false" />
+                    </label>
+                </div>
+            </fieldset>
+
+            @if (Model.EngineRunning)
+            {
+                <p class="c-mut small mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>The engine is running. A broker change takes effect the next time it starts.</p>
+            }
+            <div class="mt-3"><button type="submit" class="btn btn-warning">Save</button></div>
+        </div>
+    </form>
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Logins</h2></div>
+        <div class="c-panel-b d-grid gap-3">
+            <div>
+                @{ Card("Schwab", Model.SchwabConnected, Model.AccountIdFor("Schwab"),
+                        "Logs in on Schwab's site. The login lapses after 7 days without use; starting the engine once a week keeps it."); }
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-sm @(Model.SchwabConnected ? "btn-outline-secondary" : "btn-warning")" href="/auth/schwab?handler=Authorize">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>@(Model.SchwabConnected ? "Log in again" : "Connect Schwab")</a>
+                    @if (Model.SchwabConnected && Model.SchwabAccounts == null)
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" href="?schwabAccounts=true#schwab-accounts">Show account IDs</a>
+                    }
+                </div>
+                @if (Model.SchwabAccounts != null)
+                {
+                    <div class="c-table-wrap mt-2" id="schwab-accounts">
+                        <table class="c-table small">
+                            <thead><tr><th>Account</th><th>Type</th><th>ID for <code>Schwab:AccountId</code></th></tr></thead>
+                            <tbody>
+                            @foreach (var (num, hash, type) in Model.SchwabAccounts)
+                            {
+                                <tr>
+                                    <td class="num">@num</td>
+                                    <td>@(type is "FUTURES" or "FUTURES_AND_FOREX" ? Html.Raw($"<span class=\"c-badge warn\">{type}</span>") : (type == "" ? "—" : type))</td>
+                                    <td class="num"><span class="user-select-all">@hash</span>
+                                        <button type="button" class="btn btn-sm btn-link p-0 ms-1 br-copy" data-copy="@hash" aria-label="Copy"><i class="bi bi-clipboard"></i></button></td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (Model.SchwabAccounts.Count == 0) { <p class="c-mut small mt-2 mb-0">Schwab returned no accounts.</p> }
+                }
+            </div>
+            <div>
+                @{ Card("TradeStation", Model.TsConnected, Model.AccountIdFor("TradeStation"),
+                        "Logs in on TradeStation's site. The login stays valid until you revoke it."); }
+                <a class="btn btn-sm @(Model.TsConnected ? "btn-outline-secondary" : "btn-warning")" href="/auth/tradestation?handler=Authorize">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>@(Model.TsConnected ? "Log in again" : "Connect TradeStation")</a>
+            </div>
+            <div>
+                @{ Card("Tradovate", Model.TvConnected, Model.AccountIdFor("Tradovate"),
+                        Model.TradovateIsDemo ? "Uses the demo (simulated) account. Logs in with the user name and password in the app settings."
+                                              : "Uses the live account. Logs in with the user name and password in the app settings."); }
+                <div class="d-flex flex-wrap gap-2">
+                    <form method="post" asp-page-handler="TradovateConnect" class="m-0">
+                        <button type="submit" class="btn btn-sm @(Model.TvConnected ? "btn-outline-secondary" : "btn-warning")"><i class="bi bi-plug me-1"></i>@(Model.TvConnected ? "Log in again" : "Connect Tradovate")</button>
+                    </form>
+                    @if (Model.TvConnected)
+                    {
+                        <form method="post" asp-page-handler="TradovateRenew" class="m-0">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise me-1"></i>Renew login</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    var form = document.getElementById('br-form');
+    var data = document.getElementById('br-data'), exec = document.getElementById('br-exec');
+    var comm = document.getElementById('br-comm'), replay = document.getElementById('br-replay');
+    var note = document.getElementById('br-exec-note');
+    var initial = form.dataset.execBroker || '';
+    var tvDemo = form.dataset.tradovateDemo === 'true';
+    var names = { Mock: 'Mock (paper)', TradovateReplay: 'Tradovate Replay' };
+    function target() { return exec.value || data.value; }
+    function realMoney(b) { return b && b !== 'Mock' && b !== 'TradovateReplay' && !(b === 'Tradovate' && tvDemo); }
+
+    function refresh() {
+        var t = target();
+        replay.hidden = data.value !== 'TradovateReplay' && t !== 'TradovateReplay';
+        note.textContent = realMoney(t) ? 'Real money: orders go to your ' + (names[t] || t) + ' account.'
+                         : t === 'Tradovate' ? 'Demo account: simulated orders.'
+                         : t === 'TradovateReplay' ? 'Replay: simulated orders on a past day.' : 'Paper: simulated orders.';
+        note.className = 'form-text ' + (realMoney(t) ? 'c-down' : '');
+    }
+    function syncCommission() {
+        if (window.CRV_getCommission) comm.value = window.CRV_getCommission(target(), window.CRV_parseBase(form.dataset.ticker));
+    }
+    data.addEventListener('change', function () { refresh(); syncCommission(); });
+    exec.addEventListener('change', function () { refresh(); syncCommission(); });
+    refresh();
+
+    // Confirm before orders start going to a real-money broker.
+    form.addEventListener('submit', function (e) {
+        if (form.dataset.confirmed === '1') return;
+        var t = target();
+        if (t === initial || !realMoney(t)) return;
+        e.preventDefault();
+        CRV.confirm({
+            title: 'Send orders to ' + t + '?',
+            html: '<p class="mb-2">Right now orders go to <strong>' + CRV.esc(names[initial] || initial) + '</strong>.</p>' +
+                  '<p class="mb-0">After saving, the engine and the order ticket send orders to your <strong>' + CRV.esc(t) +
+                  '</strong> account. This is real money.</p>',
+            ok: 'Save and use ' + t,
+            okClass: 'btn-danger',
+        }).then(function (yes) {
+            if (!yes) return;
+            form.dataset.confirmed = '1';
+            form.submit();
+        });
+    });
+
+    document.querySelectorAll('.br-copy').forEach(function (b) {
+        b.addEventListener('click', function () {
+            navigator.clipboard.writeText(b.dataset.copy).then(function () { CRV.toast && CRV.toast('Copied'); });
+        });
+    });
+})();
+</script>
+}

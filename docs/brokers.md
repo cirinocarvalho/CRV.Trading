@@ -9,12 +9,12 @@ The Live Settings page shows a connected/not-connected banner for each broker.
 1. Create an app at [developer.schwab.com](https://developer.schwab.com) and register your redirect URI
 2. Set `Schwab:AppKey` and `Schwab:AppSecret` in user-secrets
 3. Set `Schwab:RedirectUri` in `appsettings.json` to match exactly
-4. Navigate to `/auth/schwab` and click **Connect with Schwab**
+4. Open **Setup → Brokers** (`/setup/brokers`) and click **Connect Schwab**
 
 | Token | Lifetime | On expiry |
 |-------|----------|-----------|
 | Access token | ~30 min | Auto-refreshed (60 s buffer) |
-| Refresh token | 7 days of inactivity | Re-authenticate at `/auth/schwab` |
+| Refresh token | 7 days of inactivity | **Log in again** on Brokers |
 
 Credentials sent as **Basic auth header** (`Authorization: Basic base64(key:secret)`).
 
@@ -23,14 +23,14 @@ Credentials sent as **Basic auth header** (`Authorization: Basic base64(key:secr
 1. Create an app at [developer.tradestation.com](https://developer.tradestation.com) and register redirect URI
 2. Set `TradeStation:ClientId` and `TradeStation:ClientSecret` in user-secrets
 3. Set `TradeStation:RedirectUri` in `appsettings.json` to match exactly
-4. Navigate to `/auth/tradestation` and click **Connect with TradeStation**
+4. Open **Setup → Brokers** and click **Connect TradeStation**
 
 Scopes: `openid profile offline_access MarketData ReadAccount Trade Crypto`
 
 | Token | Lifetime | On expiry |
 |-------|----------|-----------|
 | Access token | ~20 min | Auto-refreshed (60 s buffer) |
-| Refresh token | varies | Re-authenticate at `/auth/tradestation` |
+| Refresh token | varies | **Log in again** on Brokers |
 
 Credentials sent as **form-body fields** (`client_id`/`client_secret`), not Basic auth.
 
@@ -41,7 +41,7 @@ Direct credential POST — no OAuth2 browser redirect required.
 1. Create a Tradovate API application (Settings > API) to obtain `cid` and `secret`
 2. Set `Tradovate:Username`, `Tradovate:Password`, `Tradovate:Cid`, `Tradovate:Secret` in user-secrets
 3. Configure `Tradovate:ApiBaseUrl`, `Tradovate:MdWssUrl`, `Tradovate:AccountId`, `Tradovate:TokenFile` in `appsettings.json`
-4. Navigate to `/auth/tradovate` and click **Connect**
+4. Open **Setup → Brokers** and click **Connect Tradovate**
 
 | Token | Lifetime | On expiry |
 |-------|----------|-----------|

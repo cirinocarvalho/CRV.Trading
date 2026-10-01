@@ -4,14 +4,15 @@ using CRV.Live.Brokers.TradeStation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
+/// <summary>
+/// TradeStation's OAuth2 redirect URI. It must stay at /auth/tradestation because that
+/// address is registered with TradeStation; the login is finished here and the user
+/// returns to Brokers.
+/// </summary>
 public class TradeStationModel : PageModel
 {
     private readonly TradeStationAuthService    _auth;
     private readonly ILogger<TradeStationModel> _log;
-
-    public bool    IsAuthenticated => _auth.IsAuthenticated;
-    public string? ErrorMessage    { get; private set; }
-    public string? SuccessMessage  { get; private set; }
 
     public TradeStationModel(TradeStationAuthService auth, ILogger<TradeStationModel> log)
     {
@@ -19,35 +20,27 @@ public class TradeStationModel : PageModel
         _log  = log;
     }
 
-    /// <summary>
-    /// Handles both the initial page load and the OAuth2 callback.
-    /// TradeStation appends ?code=... (success) or ?error=... (denied) to the redirect URI.
-    /// </summary>
+    /// <summary>TradeStation appends ?code=... (success) or ?error=... (denied) to the redirect URI.</summary>
     public async Task<IActionResult> OnGetAsync(string? code, string? error)
     {
         if (error is not null)
-        {
-            ErrorMessage = $"TradeStation authorization denied: {error}";
-            return Page();
-        }
-
-        if (code is not null)
+            TempData["brokers_err"] = $"TradeStation login was refused: {error}";
+        else if (code is not null)
         {
             try
             {
                 await _auth.ExchangeCodeAsync(code);
-                SuccessMessage = "Successfully connected to TradeStation! Tokens stored and ready.";
+                TempData["brokers_msg"] = "Connected to TradeStation.";
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "TradeStation code exchange failed");
-                ErrorMessage = $"Authorization failed: {ex.Message}";
+                TempData["brokers_err"] = $"TradeStation didn't connect: {ex.Message}";
             }
         }
-
-        return Page();
+        return Redirect("/setup/brokers");
     }
 
-    /// <summary>Redirects the browser to the TradeStation OAuth2 authorization page.</summary>
+    /// <summary>Sends the browser to TradeStation's login page.</summary>
     public IActionResult OnGetAuthorize() => Redirect(_auth.BuildAuthorizationUrl());
 }

@@ -39,7 +39,7 @@ else
     <div class="alert alert-warning d-flex align-items-center gap-2">
         <i class="bi bi-exclamation-triangle"></i>
         <span>Schwab is not connected.</span>
-        <a href="/auth/schwab" class="btn btn-sm btn-warning ms-2">Connect Schwab</a>
+        <a href="/setup/brokers" class="btn btn-sm btn-warning ms-2">Connect Schwab</a>
     </div>
 }
 
@@ -646,7 +646,7 @@ else
             const e = $('err');
             e.className = 'alert alert-danger';
             e.innerHTML = msg + (reauth
-                ? ' <a href="/auth/schwab" class="btn btn-sm btn-warning ms-2">Reconnect Schwab</a>' : '');
+                ? ' <a href="/setup/brokers" class="btn btn-sm btn-warning ms-2">Reconnect Schwab</a>' : '');
         }
 
         function clearErr() {
