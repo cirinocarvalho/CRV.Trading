@@ -25,6 +25,15 @@ public class LiveModel : PageModel
     public StrategyConfig Config { get; set; } = new();
     /// <summary>Problems StrategyConfig.Validate found in the saved settings (shown, not blocking).</summary>
     public List<string> ValidationWarnings { get; } = new();
+    /// <summary>True when opening-range basket entries exist, so the engine ignores setups A–D.</summary>
+    public bool BasketInUse
+    {
+        get
+        {
+            try { return BasketCodec.Parse(Config.BasketJson).Count > 0; }
+            catch { return false; }
+        }
+    }
     public List<SessionConfig> Sessions { get; set; } = new();
     [BindProperty] public string? SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh

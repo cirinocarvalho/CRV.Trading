@@ -278,3 +278,31 @@ form.is-busy .c-idle { display: none; }
     .offcanvas.c-ticket.hiding { transform: translateY(100%); }
 }
 .crv-btn.order { border-color: var(--c-accent); color: var(--c-accent-ink); background: var(--c-accent); }
+
+/* ── Strategies ──────────────────────────────────────────── */
+.st-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .9rem; align-items: center; padding: .75rem .9rem; border-top: 1px solid var(--c-line); }
+.st-row:first-child { border-top: 0; }
+.st-row.off .st-row-main b { color: var(--c-muted); }
+.st-row-main { display: grid; gap: .1rem; color: var(--c-text); text-decoration: none; min-width: 0; }
+.st-row-main:hover b { text-decoration: underline; }
+.st-row-main small { overflow-wrap: anywhere; }
+.st-row-net { text-align: right; font-weight: 600; }
+.st-row-net small { font-weight: 400; font-size: .72rem; }
+.st-switch { width: 2.6rem; height: 1.5rem; border-radius: 999px; border: 1px solid var(--c-line); background: var(--c-raise); position: relative; padding: 0; cursor: pointer; }
+.st-switch i { position: absolute; top: 2px; left: 2px; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--c-muted); transition: left .15s; }
+.st-switch.on { background: var(--c-up); border-color: var(--c-up); }
+.st-switch.on i { left: calc(100% - 1.2rem - 2px); background: #fff; }
+@media (max-width: 575.98px) { .st-row { grid-template-columns: auto minmax(0, 1fr) auto; } .st-row-chev { display: none; } }
+
+.st-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1.25rem; align-items: start; }
+.st-grid > .c-switch { grid-column: 1 / -1; }
+@media (max-width: 767.98px) { .st-grid { grid-template-columns: minmax(0, 1fr); } }
+.st-field { min-width: 0; }
+.st-input { display: flex; align-items: center; gap: .5rem; }
+.st-input .c-mut { white-space: nowrap; font-size: .8rem; }
+.st-session { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem 1rem; align-items: center; padding: .55rem 0; border-top: 1px solid var(--c-line); }
+.st-session:first-child { border-top: 0; }
+.st-cutoff { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.st-cutoff input { width: 8rem; }
+.st-side { position: sticky; top: 4.5rem; }
+@media (max-width: 1199.98px) { .st-side { position: static; } }
