@@ -386,3 +386,14 @@ form.is-busy .c-idle { display: none; }
 .op-group + .op-group { margin-top: 1rem; }
 .op-group-h { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
 .op-table td { vertical-align: middle; }
+
+/* ── Order history ─────────────────────────────────────────── */
+.ho-filters { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end; }
+.ho-field { display: grid; gap: .25rem; min-width: 9rem; }
+.ho-field .form-label { margin: 0; }
+.ho-actions { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.ho-auto { border-top: 0; padding: 0; gap: .5rem; }
+.ho-table { font-size: .85rem; }
+.ho-working { color: var(--c-accent); }
+.c-seg .active[aria-selected] { background: var(--c-surface); color: var(--c-text); }
+@media (max-width: 575.98px) { .ho-field { flex: 1 1 calc(50% - .5rem); min-width: 0; } .ho-actions { flex-basis: 100%; } }
