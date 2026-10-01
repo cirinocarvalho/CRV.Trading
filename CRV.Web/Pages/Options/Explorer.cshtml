@@ -519,7 +519,7 @@ else
             <div class="modal-footer">
                 <span id="m-age" class="small text-secondary me-auto"></span>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" id="btn-place" class="btn btn-danger" onclick="placeOrder()">Place order</button>
+                <button type="button" id="btn-place" class="c-hold"><i></i><span id="btn-place-label">Hold to place</span></button>
             </div>
         </div>
     </div>
@@ -634,6 +634,21 @@ else
         const LIVE_ENABLED = @(Model.LiveOrdersEnabled ? "true" : "false");
 
         const $ = id => document.getElementById(id);
+
+        // ── The confirm dialog's send button: press-and-hold, so a stray tap can't send a live
+        // order. One button serves both the opening order and a close; CONFIRM_ACTION says which.
+        let CONFIRM_ACTION = null;
+        const STALE_HTML = $('m-stale').innerHTML;
+        CRV.hold($('btn-place'), () => { if (CONFIRM_ACTION) CONFIRM_ACTION(); });
+        // Reset before a dialog fills in, so a "blocked" state set while filling it stays set.
+        function resetConfirm(label, action) {
+            $('btn-place').disabled = !LIVE_ENABLED;
+            $('btn-place-label').textContent = label;
+            $('m-stale').innerHTML = STALE_HTML;
+            $('m-stale').classList.add('d-none');
+            CONFIRM_ACTION = action;
+        }
+        const DURATION_TEXT = { Day: 'It works until the close today.', GoodTillCancel: 'It works until you cancel it.', FillOrKill: 'It fills in full at once, or is cancelled.' };
         const num = (id, dflt) => {
             const v = parseFloat($(id).value);
             return isNaN(v) ? dflt : v;
@@ -1344,6 +1359,7 @@ else
                         legs: LEGS, spreads: spreadCount(),
                         commissionPerContract: num('f-comm', 0),
                         limitPrice: limitPrice(), exitPrice: exitPrice(), stopPrice: stopPrice(),
+                        duration: $('f-duration').value,
                     }),
                 });
                 const j = await res.json().catch(() => ({error: 'Malformed response.'}));
@@ -1363,6 +1379,7 @@ else
         }
 
         function showConfirm(j) {
+            resetConfirm('Hold to place order', placeOrder);
             $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
             $('m-mode').innerHTML = LIVE_ENABLED
                 ? '<strong>LIVE.</strong> Placing this order sends it to Schwab for execution.'
@@ -1394,6 +1411,11 @@ else
                         turns the leg into stock and the structure's defined risk with it.
                         Index options are European and cannot do this.</td></tr>`;
             }
+
+            $('m-legs').innerHTML += `<tr>
+                <td colspan="3" class="small"><i class="bi bi-clock me-1"></i>
+                    <strong>${DURATION_TEXT[j.duration] || j.duration}</strong>
+                    ${j.exitPrice != null || j.stopPrice != null ? 'Once it fills, the exit and stop stay until cancelled.' : ''}</td></tr>`;
 
             if (j.stopUnavailable) {
                 $('m-legs').innerHTML += `<tr class="table-warning">
@@ -1441,12 +1463,6 @@ else
            <pre class="small mb-0" style="max-height:140px; overflow:auto">${escapeHtml(j.brokerBody).slice(0, 2000)}</pre>`
                 : '<span class="text-secondary">No Schwab account configured — broker validation skipped.</span>';
 
-            const btn = $('btn-place');
-            btn.disabled = !LIVE_ENABLED;
-            btn.textContent = 'Place order';
-            btn.onclick = placeOrder;
-
-            $('m-stale').classList.add('d-none');
             new bootstrap.Modal($('confirm-modal')).show();
             clearInterval(AGE_TIMER);
             AGE_TIMER = setInterval(tickAge, 500);
@@ -1478,6 +1494,7 @@ else
                     commissionPerContract: num('f-comm', 0),
                     limitPrice: PREVIEW.limitPrice, exitPrice: PREVIEW.exitPrice,
                     stopPrice: PREVIEW.stopPrice,
+                    duration: PREVIEW.duration,
                     underlying: $('f-symbol').value.trim().toUpperCase(),
                     structure: structureName(),
                 }),
@@ -1582,6 +1599,7 @@ else
         }
 
         function showCloseConfirm(j) {
+            resetConfirm('Hold to place closing order', placeClose);
             $('m-mode').className = 'alert py-2 mb-3 ' + (LIVE_ENABLED ? 'alert-danger' : 'alert-secondary');
             $('m-mode').innerHTML = LIVE_ENABLED
                 ? '<strong>LIVE — closing order.</strong> This will be sent to Schwab for execution.'
@@ -1658,12 +1676,6 @@ else
            <pre class="small mb-0" style="max-height:140px; overflow:auto">${escapeHtml(j.brokerBody).slice(0, 2000)}</pre>`
                 : '';
 
-            const btn = $('btn-place');
-            btn.disabled = !LIVE_ENABLED;
-            btn.textContent = 'Place closing order';
-            btn.onclick = placeClose;
-
-            $('m-stale').classList.add('d-none');
             PREVIEW_AT = Date.now();
             new bootstrap.Modal($('confirm-modal')).show();
             clearInterval(AGE_TIMER);

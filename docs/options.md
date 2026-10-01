@@ -64,7 +64,13 @@ contract.
 `NET_CREDIT` / `NET_ZERO`. A test asserts no payload can contain `MARKET`.
 
 Supported on entry: a custom limit price (the order type follows the sign of the limit, not
-the market), an attached take-profit, and an attached stop.
+the market), an attached take-profit, an attached stop, and a duration (Day, Good till
+cancel, Fill or kill). The duration applies to the entry; an attached take-profit and stop
+are always good till cancelled, so a Day entry that fills is not left unprotected at the close.
+
+Preview and placement build the order through one function (`OptionEntryOrder.Payload`), so
+what the dialog confirms is what is sent. They used to build it separately, and placement
+dropped the stop the preview had shown.
 
 ### Brackets
 
@@ -97,9 +103,10 @@ can miss entirely in a fast move, and the dialog says so.
 | Live placement | Off unless `Options:AllowLiveOrders` is true |
 | Risk ceiling | `Options:MaxTradeRisk` re-checked on the **place** call, not only on preview |
 | Preview, not Place | The page button previews; Place exists only inside the dialog, after Schwab's `previewOrder` returns |
+| Press and hold | Placing (or closing) is a press-and-hold, so a stray tap cannot send a live order |
 | Size | Resets to 1 on every structure change; never remembered |
 | Stale quotes | Preview always re-quotes every leg first; the dialog locks after 30 seconds |
-| Unreachable exits | An exit above the structure's maximum possible value is refused |
+| Unreachable exits | An exit above the structure's maximum possible value is refused, in the dialog and again on the place call |
 | Closing | Multi-select, closed as one order; long legs priced at the bid, short legs at the ask |
 
 ## Conditional orders — read, cancel, but not create
