@@ -494,29 +494,15 @@ public class LiveEngineOrchestrator : BackgroundService
             // only the ticker changes, not runtime overrides.
             AutoRollTickers(cfg, scope);
 
-            cfg.AccountId = cfg.Broker switch
-            {
-                "TradeStation" => _config["TradeStation:AccountId"] ?? cfg.AccountId,
-                "Schwab"       => _config["Schwab:AccountId"]       ?? cfg.AccountId,
-                "Tradovate" or "TradovateReplay" => _config["Tradovate:AccountId"] ?? cfg.AccountId,
-                _              => cfg.AccountId
-            };
+            // The same rule the Brokers page and Positions use (OrderAccounts).
+            var execAccountId = OrderAccounts.Exec(cfg, key => _config[key]);
+            cfg.AccountId = OrderAccounts.Data(cfg, key => _config[key]);
 
-            // Use ExecAccountId from appsettings for the EXEC broker (if different)
             var execBroker = cfg.EffectiveExecBroker;
             var isMock = execBroker == "Mock";
             IBrokerPersistence persistence = isMock
                 ? new MockBrokerPersistence(_sp, _log)
                 : new LiveBrokerPersistence(_sp, _log);
-            var execAccountId = execBroker switch
-            {
-                "TradeStation" => _config["TradeStation:AccountId"] ?? cfg.AccountId,
-                "Schwab"       => _config["Schwab:AccountId"]       ?? cfg.AccountId,
-                "Tradovate" or "TradovateReplay" => _config["Tradovate:AccountId"] ?? cfg.AccountId,
-                _              => cfg.AccountId
-            };
-            if (!string.IsNullOrWhiteSpace(cfg.ExecAccountId))
-                execAccountId = cfg.ExecAccountId;
 
             // Convert primary ticker to the format expected by the DATA broker
             cfg.Ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);

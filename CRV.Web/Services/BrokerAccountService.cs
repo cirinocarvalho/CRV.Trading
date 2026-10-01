@@ -33,20 +33,8 @@ public sealed class BrokerAccountService
     /// <summary>Brokers whose account can be read and acted on directly. Mock and Replay positions exist only as engine groups.</summary>
     public bool HasBrokerAccount => Broker is "Schwab" or "TradeStation" or "Tradovate";
 
-    private string AccountId
-    {
-        get
-        {
-            var raw = Broker switch
-            {
-                "TradeStation" => _config["TradeStation:AccountId"],
-                "Schwab"       => _config["Schwab:AccountId"],
-                "Tradovate"    => _config["Tradovate:AccountId"],
-                _              => null,
-            };
-            return !string.IsNullOrEmpty(raw) ? raw : _cfgSvc.Current.AccountId;
-        }
-    }
+    // The account the engine sends orders to, so positions and cancels act on that same account.
+    private string AccountId => OrderAccounts.Exec(_cfgSvc.Current, key => _config[key]);
 
     public Task<List<PositionView>> GetPositionsAsync() => Broker switch
     {

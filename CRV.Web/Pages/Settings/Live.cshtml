@@ -1,6 +1,5 @@
 @page "/settings/live"
 @model CRV.Web.Pages.Settings.LiveModel
-@inject CRV.Live.Brokers.Tradovate.TradovateAuthService TvAuth
 @{
     ViewData["Title"] = "Live Settings";
     ViewData["Page"]  = "live-settings";
@@ -48,71 +47,11 @@
 
 <p class="text-muted small mb-3">
     Start and stop the engine from the bar at the top of every page. Save settings first.
-    Account IDs are read from <code>appsettings.json</code> / user-secrets
-    (<code>Schwab:AccountId</code>, <code>TradeStation:AccountId</code>, <code>Tradovate:AccountId</code>).
 </p>
 
-<!-- ── Broker Auth Status ───────────────────────────────────── -->
-<div class="alert @(Model.SchwabConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-2" role="alert">
-    <i class="bi @(Model.SchwabConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-    <span class="me-auto">
-        <strong>Schwab:</strong>
-        @if (Model.SchwabConnected)
-        {
-            <span>Authorized — tokens stored and ready.</span>
-        }
-        else
-        {
-            <span>Not connected. Schwab live trading requires OAuth2 authorization.</span>
-        }
-    </span>
-    <a href="/auth/schwab" class="btn btn-sm @(Model.SchwabConnected ? "btn-outline-success" : "btn-warning") fw-bold">
-        <i class="bi bi-shield-lock me-1"></i>
-        @(Model.SchwabConnected ? "Manage" : "Connect Schwab")
-    </a>
-</div>
+<div class="c-note mb-3"><i class="bi bi-plug"></i><span>Broker logins, where orders go, commission and replay are on <a href="/setup/brokers">Brokers</a>.</span></div>
 
-<div class="alert @(Model.TsConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-2" role="alert">
-    <i class="bi @(Model.TsConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-    <span class="me-auto">
-        <strong>TradeStation:</strong>
-        @if (Model.TsConnected)
-        {
-            <span>Authorized — tokens stored and ready.</span>
-        }
-        else
-        {
-            <span>Not connected. TradeStation live trading requires OAuth2 authorization.</span>
-        }
-    </span>
-    <a href="/auth/tradestation" class="btn btn-sm @(Model.TsConnected ? "btn-outline-success" : "btn-warning") fw-bold">
-        <i class="bi bi-shield-lock me-1"></i>
-        @(Model.TsConnected ? "Manage" : "Connect TradeStation")
-    </a>
-</div>
-
-<div class="alert @(Model.TvConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-3" role="alert">
-    <i class="bi @(Model.TvConnected ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-    <span class="me-auto">
-        <strong>Tradovate:</strong>
-        @if (Model.TvConnected)
-        {
-            <span>Connected — tokens valid and ready.</span>
-        }
-        else
-        {
-            <span>Not connected. Click Connect to authenticate with your Tradovate credentials.</span>
-        }
-    </span>
-    <a href="/auth/tradovate" class="btn btn-sm @(Model.TvConnected ? "btn-outline-success" : "btn-warning") fw-bold">
-        <i class="bi bi-shield-lock me-1"></i>
-        @(Model.TvConnected ? "Manage" : "Connect Tradovate")
-    </a>
-</div>
-
-<form method="post" novalidate id="live-settings-form"
-      data-exec-broker="@Model.Config.EffectiveExecBroker"
-      data-tradovate-demo="@(CRV.Live.AccountMode.For("Tradovate", TvAuth.AuthBaseUrl).Kind == CRV.Live.AccountKind.Demo ? "true" : "false")">
+<form method="post" novalidate id="live-settings-form" data-exec-broker="@Model.Config.EffectiveExecBroker">
 
 @if (!ViewData.ModelState.IsValid)
 {
@@ -188,60 +127,6 @@
             <input type="hidden" name="Config.PullbackPct"  id="instr-pullback-pct"  value="@Model.Config.PullbackPct" />
         </div>
 
-        <div class="row g-2">
-            <div class="col-12 col-md-6">
-                <label class="form-label small">Data Broker</label>
-                <select name="Config.Broker" class="form-select form-select-sm">
-                    <option value="Schwab"       selected="@(Model.Config.Broker=="Schwab"       ? "selected" : null)">Schwab</option>
-                    <option value="TradeStation" selected="@(Model.Config.Broker=="TradeStation" ? "selected" : null)">TradeStation</option>
-                    <option value="Tradovate"       selected="@(Model.Config.Broker=="Tradovate"       ? "selected" : null)">Tradovate</option>
-                    <option value="TradovateReplay" selected="@(Model.Config.Broker=="TradovateReplay" ? "selected" : null)">Tradovate Replay</option>
-                    <option value="Mock"            selected="@(Model.Config.Broker=="Mock"            ? "selected" : null)">Mock (Paper)</option>
-                </select>
-                <div class="form-text text-muted" style="font-size:.7rem">Market data + bar feed</div>
-            </div>
-            <div class="col-12 col-md-6">
-                <label class="form-label small">Exec Broker</label>
-                <select name="Config.ExecBroker" class="form-select form-select-sm">
-                    <option value=""             selected="@(string.IsNullOrEmpty(Model.Config.ExecBroker) ? "selected" : null)">Same as Data</option>
-                    <option value="Schwab"       selected="@(Model.Config.ExecBroker=="Schwab"       ? "selected" : null)">Schwab</option>
-                    <option value="TradeStation" selected="@(Model.Config.ExecBroker=="TradeStation" ? "selected" : null)">TradeStation</option>
-                    <option value="Tradovate"       selected="@(Model.Config.ExecBroker=="Tradovate"       ? "selected" : null)">Tradovate</option>
-                    <option value="TradovateReplay" selected="@(Model.Config.ExecBroker=="TradovateReplay" ? "selected" : null)">Tradovate Replay</option>
-                    <option value="Mock"            selected="@(Model.Config.ExecBroker=="Mock"            ? "selected" : null)">Mock (Paper)</option>
-                </select>
-                <div class="form-text text-muted" style="font-size:.7rem">Order execution (leave empty = same)</div>
-            </div>
-        </div>
-        <div class="row g-2 mt-1" id="replaySettings" style="display:none">
-            <div class="col-12 col-md-3">
-                <label class="form-label small">Replay Date</label>
-                <input type="date" name="Config.ReplayDate" class="form-control form-control-sm"
-                       value="@(Model.Config.ReplayDate?.ToString("yyyy-MM-dd") ?? Model.PreviousTradingDay.ToString("yyyy-MM-dd"))" />
-            </div>
-            <div class="col-12 col-md-3">
-                <label class="form-label small">Replay Speed</label>
-                <select name="Config.ReplaySpeed" class="form-select form-select-sm">
-                    @foreach (var v in new[]{25,50,100,200,400})
-                    {
-                        <option value="@v" selected="@(Model.Config.ReplaySpeed==v ? "selected" : null)">@v%</option>
-                    }
-                </select>
-            </div>
-            <div class="col-12 col-md-3">
-                <label class="form-label small">Initial Balance</label>
-                <input type="number" name="Config.ReplayBalance" class="form-control form-control-sm"
-                       value="@Model.Config.ReplayBalance" min="1000" step="1000" />
-            </div>
-            <div class="col-12 col-md-3 d-flex align-items-end">
-                <div class="form-check">
-                    <input type="checkbox" name="Config.SaveReplayTrades" value="true"
-                           class="form-check-input" id="saveReplayTrades"
-                           checked="@(Model.Config.SaveReplayTrades ? "checked" : null)" />
-                    <label class="form-check-label small" for="saveReplayTrades">Save Replay Trades</label>
-                </div>
-            </div>
-        </div>
         <div class="row g-2 mt-1">
             <div class="col-6">
                 <label class="form-label small">Tick Size</label>
@@ -261,10 +146,6 @@
                     <option value="60" selected="@(Model.Config.ExecutionTFMinutes==60 ? "selected" : null)">60 min</option>
                 </select>
             </div>
-        </div>
-        <div class="mt-2 form-text text-muted small">
-            Account IDs: set <code>Schwab:AccountId</code> / <code>TradeStation:AccountId</code>
-            / <code>Tradovate:AccountId</code> in <code>appsettings.json</code>.
         </div>
     </div>
 </div>
@@ -348,10 +229,8 @@
                     <option value="Peak"  selected="@(dlm == CRV.Core.Models.DailyLossMode.Peak)">Peak</option>
                 </select>
             </div>
-            <div class="col-4">
-                <label class="form-label small">Commission ($/side)</label>
-                <input name="Config.CommissionPerSide" type="number" step="0.01" value="@Model.Config.CommissionPerSide" class="form-control form-control-sm" />
-            </div>
+            <!-- Commission lives on Brokers; it is re-filled here only when the instrument changes. -->
+            <input type="hidden" name="Config.CommissionPerSide" id="instr-commission" disabled />
         </div>
         <div class="row g-2 mt-1">
             <div class="col-12">
@@ -841,36 +720,6 @@ async function sendTestEmail() {
 
 @section Scripts {
 <script>
-// ── Confirm before orders start going to a real-money broker ──
-(function () {
-    var form = document.getElementById('live-settings-form');
-    if (!form || !window.CRV) return;
-    var initial = form.dataset.execBroker || '';
-    var tvDemo = form.dataset.tradovateDemo === 'true';
-    var names = { Mock: 'Mock (paper)', TradovateReplay: 'Tradovate Replay' };
-    function realMoney(b) { return b && b !== 'Mock' && b !== 'TradovateReplay' && !(b === 'Tradovate' && tvDemo); }
-    form.addEventListener('submit', function (e) {
-        if (form.dataset.confirmed === '1') return;
-        var data = form.querySelector('select[name="Config.Broker"]');
-        var exec = form.querySelector('select[name="Config.ExecBroker"]');
-        var target = (exec && exec.value) || (data && data.value) || '';
-        if (target === initial || !realMoney(target)) return;
-        e.preventDefault();
-        CRV.confirm({
-            title: 'Send orders to ' + target + '?',
-            html: '<p class="mb-2">Right now orders go to <strong>' + CRV.esc(names[initial] || initial) + '</strong>.</p>' +
-                  '<p class="mb-0">After saving, the engine and the order ticket send orders to your <strong>' + CRV.esc(target) +
-                  '</strong> account. This is real money.</p>',
-            ok: 'Save and use ' + target,
-            okClass: 'btn-danger',
-        }).then(function (yes) {
-            if (!yes) return;
-            form.dataset.confirmed = '1';
-            form.submit();
-        });
-    });
-})();
-
 // ── Instrument selector for Live Settings ─────────────────────
 function instrOnChange() {
     const base = document.getElementById('instr-select').value;
@@ -905,36 +754,16 @@ function instrOnChange() {
     document.getElementById('instr-pv-label').textContent = pvHidden ? '$' + pvHidden + '/pt' : '—';
 })();
 
-// ── Show/hide replay settings based on broker selection ────
+// ── Re-fill commission (kept on Brokers) when the instrument changes micro <-> mini ──
 (function () {
-    var brokerSel   = document.querySelector('select[name="Config.Broker"]');
-    var replayPanel = document.getElementById('replaySettings');
-    if (!brokerSel || !replayPanel) return;
-
-    function toggle() {
-        replayPanel.style.display = brokerSel.value === 'TradovateReplay' ? '' : 'none';
-    }
-    brokerSel.addEventListener('change', toggle);
-    toggle();
-})();
-
-// ── Auto-populate commission based on broker + contract type ────
-(function () {
-    var brokerSel = document.querySelector('select[name="Config.Broker"]');
-    var execSel   = document.querySelector('select[name="Config.ExecBroker"]');
-    var instrSel  = document.getElementById('instr-select');
-    var commInput = document.querySelector('input[name="Config.CommissionPerSide"]');
-    if (!commInput) return;
-
-    function syncCommission() {
-        var broker = (execSel && execSel.value) ? execSel.value : brokerSel.value;
-        var base   = instrSel ? instrSel.value : null;
-        commInput.value = window.CRV_getCommission(broker, base);
-    }
-
-    if (brokerSel) brokerSel.addEventListener('change', syncCommission);
-    if (execSel)   execSel.addEventListener('change', syncCommission);
-    if (instrSel)  instrSel.addEventListener('change', syncCommission);
+    var form = document.getElementById('live-settings-form');
+    var instrSel = document.getElementById('instr-select');
+    var comm = document.getElementById('instr-commission');
+    if (!form || !instrSel || !comm) return;
+    instrSel.addEventListener('change', function () {
+        comm.value = window.CRV_getCommission(form.dataset.execBroker, instrSel.value);
+        comm.disabled = false;
+    });
 })();
 
 // ── Setup row expand/collapse toggle ─────────────────────────

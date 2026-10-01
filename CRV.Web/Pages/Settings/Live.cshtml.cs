@@ -2,9 +2,6 @@ namespace CRV.Web.Pages.Settings;
 
 using CRV.Core.Models;
 using CRV.Live;
-using CRV.Live.Brokers.Schwab;
-using CRV.Live.Brokers.TradeStation;
-using CRV.Live.Brokers.Tradovate;
 using CRV.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -15,9 +12,6 @@ public class LiveModel : PageModel
 {
     private readonly StrategyConfigService   _cfgSvc;
     private readonly LiveEngineOrchestrator  _orchestrator;
-    private readonly SchwabAuthService       _schwab;
-    private readonly TradeStationAuthService _ts;
-    private readonly TradovateAuthService    _tv;
     private readonly ILogger<LiveModel>      _log;
     private readonly IConfiguration          _config;
 
@@ -38,31 +32,13 @@ public class LiveModel : PageModel
     [BindProperty] public string? SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh
     public bool   Saved           => TempData["live_saved"] is not null;
-    public bool   SchwabConnected => _schwab.IsAuthenticated;
-    public bool   TsConnected     => _ts.IsAuthenticated;
-    public bool   TvConnected     => _tv.IsAuthenticated;
-
-    public DateTime PreviousTradingDay
-    {
-        get
-        {
-            var d = DateTime.Today.AddDays(-1);
-            while (d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-                d = d.AddDays(-1);
-            return d;
-        }
-    }
 
     public LiveModel(StrategyConfigService cfgSvc, LiveEngineOrchestrator orchestrator,
-                     SchwabAuthService schwab, TradeStationAuthService ts,
-                     TradovateAuthService tv, ILogger<LiveModel> log,
+                     ILogger<LiveModel> log,
                      IConfiguration configuration)
     {
         _cfgSvc       = cfgSvc;
         _orchestrator = orchestrator;
-        _schwab       = schwab;
-        _ts           = ts;
-        _tv           = tv;
         _log          = log;
         _config       = configuration;
     }

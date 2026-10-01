@@ -306,3 +306,11 @@ form.is-busy .c-idle { display: none; }
 .st-cutoff input { width: 8rem; }
 .st-side { position: sticky; top: 4.5rem; }
 @media (max-width: 1199.98px) { .st-side { position: static; } }
+
+/* ── Brokers ───────────────────────────────────────────────── */
+.br-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 991.98px) { .br-grid { grid-template-columns: minmax(0, 1fr); } }
+.br-card-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .35rem; }
+.br-replay { border: 1px solid var(--c-line); border-radius: var(--radius); padding: .25rem .8rem .8rem; }
+.br-replay legend { float: none; width: auto; padding: 0 .35rem; margin: 0; }
+.br-replay[hidden] { display: none; }

@@ -306,6 +306,9 @@ app.MapGet("/trading/mock", (HttpRequest req) =>
 app.MapGet("/settings/backtest", () => Results.Redirect("/review/results?source=backtest"));
 // The Manual page became the order-ticket drawer (on every page) and Positions & orders.
 app.MapGet("/trading/manual", () => Results.Redirect("/trading/positions?ticket=1"));
+// The Tradovate login page is part of Brokers. (/auth/schwab and /auth/tradestation stay:
+// they are the OAuth redirect URIs registered with those brokers.)
+app.MapGet("/auth/tradovate", () => Results.Redirect("/setup/brokers"));
 
 app.MapRazorPages();
 app.MapControllers();
