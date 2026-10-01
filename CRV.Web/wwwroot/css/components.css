@@ -333,3 +333,49 @@ form.is-busy .c-idle { display: none; }
 .c-seg .btn-check:checked + label { background: var(--c-surface); color: var(--c-text); box-shadow: 0 1px 0 var(--c-line); }
 .c-seg .btn-check:focus-visible + label { outline: 2px solid var(--c-accent); outline-offset: 1px; }
 .al-row > .c-switch, .rk-session > .c-switch { border-top: 0; padding: 0; }
+
+/* ── Options Explorer ──────────────────────────────────────── */
+.ox-grid { display: grid; gap: 1rem; align-items: start; }
+@media (min-width: 1200px) {
+  .ox-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .ox-side { position: sticky; top: .75rem; max-height: calc(100vh - 1.5rem); overflow-y: auto; }
+}
+.ox-main, .ox-side { display: grid; gap: 1rem; min-width: 0; }
+.ox-row { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end; }
+.ox-field { display: grid; gap: .25rem; }
+.ox-field .form-label { margin: 0; }
+.ox-btns { display: flex; gap: .25rem; align-items: center; }
+.ox-facts { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; }
+.ox-facts:empty { display: none; }
+.ox-n { display: inline-grid; place-items: center; width: 1.3rem; height: 1.3rem; margin-right: .45rem; border-radius: 50%;
+        background: var(--c-accent-soft); color: var(--c-accent); font-size: .7rem; }
+.ox-chain { max-height: 70vh; overflow: auto; }
+.ox-chain thead th { position: sticky; top: 0; background: var(--c-surface); z-index: 1; }
+.ox-book > summary { cursor: pointer; list-style: none; }
+.ox-book > summary::-webkit-details-marker { display: none; }
+.ox-tabs { display: none; }
+@media (max-width: 991.98px) {
+  .ox-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; position: sticky; top: 0; z-index: 6;
+             background: var(--c-bg); padding: .35rem 0 .6rem; margin-bottom: .25rem; }
+  .ox-tabs button { border: 1px solid var(--c-line); background: var(--c-surface); color: var(--c-muted); border-radius: var(--radius);
+                    padding: .5rem .25rem; font: 600 .85rem var(--font-body); }
+  .ox-tabs button[aria-selected="true"] { border-color: var(--c-accent); color: var(--c-text); background: var(--c-accent-soft); }
+  .ox-tabs b { color: var(--c-accent); margin-right: .2rem; }
+  body[data-ox-step="pick"]  .ox-step:not([data-step="pick"]),
+  body[data-ox-step="build"] .ox-step:not([data-step="build"]),
+  body[data-ox-step="order"] .ox-step:not([data-step="order"]) { display: none !important; }
+  /* The order step needs a structure; say so instead of an empty screen. */
+  body[data-ox-step="order"]:not(.ox-has-legs) #ox-empty { display: block !important; }
+}
+/* Grid cells default to their content's width; let wide tables scroll inside them instead. */
+.ox-grid > *, .ox-main > *, .ox-side > *, #panel-b > *, .ox-grid .c-panel-b > *, .ox-book .c-panel-b > * { min-width: 0; }
+.ox-chain table { font-size: .8rem; }
+/* Adding a leg is the chain's main action: keep the Add column in view while the rest scrolls. */
+.ox-chain th:last-child, .ox-chain td:last-child { position: sticky; right: 0; background: var(--c-surface); box-shadow: -1px 0 0 var(--c-line); }
+.ox-chain thead th:last-child { z-index: 2; }
+/* Confirmation rows the script tints with Bootstrap's pale colours, in the theme's instead. */
+#confirm-modal .table-warning > *, #confirm-modal .table-danger > *, #confirm-modal .table-info > * {
+  --bs-table-bg: transparent; --bs-table-accent-bg: transparent; color: var(--c-text); }
+#confirm-modal .table-warning { background: var(--c-accent-soft); }
+#confirm-modal .table-danger  { background: var(--c-down-soft); }
+#confirm-modal .table-info    { background: var(--c-paper-soft); }

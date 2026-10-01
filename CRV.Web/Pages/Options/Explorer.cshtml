@@ -2,257 +2,109 @@
 @model CRV.Web.Pages.Options.ExplorerModel
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @{
-    ViewData["Title"] = "Options Explorer";
+    ViewData["Title"] = "Options";
     ViewData["Page"] = "options-explorer";
     ViewData["Section"] = "options";
+    ViewData["LightReady"] = true;
     Layout = "~/Pages/Shared/_Layout.cshtml";
 }
 
-<div class="d-flex align-items-center mb-2 gap-3">
-    <h5 class="mb-0"><i class="bi bi-diagram-3 me-2 text-info"></i>Options Explorer</h5>
-    <span id="underlying-badge" class="badge bg-info text-dark d-none"></span>
+<div class="c-head">
+    <h1>Options</h1>
+    <span class="c-sub">Pick a contract, build a structure, then order it</span>
+    <div class="c-acts">
+        <span id="underlying-badge" class="c-badge info d-none"></span>
+        @if (Model.LiveOrdersEnabled)
+        {
+            <span class="c-badge bad"><i class="bi bi-broadcast"></i>LIVE@(Model.MaxTradeRisk > 0m ? $" · up to {Model.MaxTradeRisk:C0} a trade" : "")</span>
+        }
+        else
+        {
+            <span class="c-badge"><i class="bi bi-eye"></i>Preview only</span>
+        }
+    </div>
 </div>
 
 @if (Model.LiveOrdersEnabled)
 {
-    <div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
-        <i class="bi bi-broadcast"></i>
-        <strong>LIVE.</strong>
-        <span class="small">Orders confirmed in the dialog are sent to Schwab for execution.</span>
-        @if (Model.MaxTradeRisk > 0m)
-        {
-            <span class="badge bg-dark ms-auto">risk ceiling @Model.MaxTradeRisk.ToString("C0") / trade</span>
-        }
-    </div>
+    <div class="c-note bad mb-3"><i class="bi bi-broadcast"></i>
+        <span><strong>Live.</strong> An order you hold to place in the confirmation is sent to Schwab for execution.</span></div>
 }
 else
 {
-    <div class="alert alert-secondary py-2 mb-3 d-flex align-items-center gap-2">
-        <i class="bi bi-eye"></i>
-        <strong>Preview only.</strong>
-        <span class="small">Structures can be priced and previewed. Live placement is disabled in configuration.</span>
-    </div>
+    <div class="c-note mb-3"><i class="bi bi-eye"></i>
+        <span><strong>Preview only.</strong> Structures can be priced and previewed. Placing orders is switched off (<code>Options:AllowLiveOrders</code>).</span></div>
 }
-
 @if (!Model.SchwabAuthenticated)
 {
-    <div class="alert alert-warning d-flex align-items-center gap-2">
-        <i class="bi bi-exclamation-triangle"></i>
-        <span>Schwab is not connected.</span>
-        <a href="/setup/brokers" class="btn btn-sm btn-warning ms-2">Connect Schwab</a>
-    </div>
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i>
+        <span>Schwab isn't connected, so there is no chain to load. <a href="/setup/brokers">Connect it on Brokers</a>.</span></div>
 }
 
-<div id="err" class="alert alert-danger d-none"></div>
+<div id="err" class="c-note bad mb-3 d-none" role="alert"></div>
 
-<!-- ── Open option positions ─────────────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="d-flex align-items-center mb-2 gap-2">
-        <strong class="small"><i class="bi bi-wallet2 me-1 text-info"></i>Open option positions</strong>
-        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadPositions()">
-            <i class="bi bi-arrow-clockwise"></i>
-        </button>
-        <button id="btn-close-sel" class="btn btn-sm btn-outline-danger" disabled onclick="previewClose()">
-            Close selected
-        </button>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-sm mb-0">
-            <thead>
-            <tr class="small text-secondary">
-                <th style="width:32px"></th>
-                <th>Contract</th>
-                <th>Side</th>
-                <th class="text-end">Qty</th>
-                <th class="text-end">Avg</th>
-                <th class="text-end">Basis</th>
-                <th class="text-end">Unrealised</th>
-            </tr>
-            </thead>
-            <tbody id="pos-body">
-            <tr>
-                <td colspan="7" class="text-center text-secondary py-3 small">Not loaded.</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
-    <div class="small text-secondary mt-2">
-        <i class="bi bi-info-circle me-1"></i>
-        Select every leg of a spread and close them together &mdash; closing one leg at a time
-        can leave a naked short in place of a defined-risk position.
-    </div>
-</div>
+@* Phone: one step at a time. Desktop shows them side by side. *@
+<nav class="ox-tabs" role="tablist" aria-label="Steps">
+    <button type="button" role="tab" data-step="pick" aria-selected="true"><b>1</b> Pick</button>
+    <button type="button" role="tab" data-step="build" aria-selected="false"><b>2</b> Build <span class="c-badge info d-none" id="ox-legcount"></span></button>
+    <button type="button" role="tab" data-step="order" aria-selected="false"><b>3</b> Order</button>
+</nav>
 
-<!-- ── Portfolio exposure ────────────────────────────────────── -->
-<div id="risk-strip" class="settings-section mb-3 d-none">
-    <div class="d-flex align-items-center gap-4 flex-wrap">
-        <strong class="small"><i class="bi bi-shield-exclamation me-1 text-info"></i>Portfolio</strong>
-        <div>
-            <div class="tk-label">At risk</div>
-            <div id="pr-risk" class="fw-bold">&mdash;</div>
-        </div>
-        <div>
-            <div class="tk-label">Net delta</div>
-            <div id="pr-delta" class="fw-bold">&mdash;</div>
-        </div>
-        <div>
-            <div class="tk-label">Net vega</div>
-            <div id="pr-vega" class="fw-bold">&mdash;</div>
-        </div>
-        <div>
-            <div class="tk-label">Net theta / day</div>
-            <div id="pr-theta" class="fw-bold">&mdash;</div>
-        </div>
-        <div>
-            <div class="tk-label">Legs</div>
-            <div id="pr-legs" class="fw-bold">&mdash;</div>
-        </div>
-        <div id="pr-warn" class="ms-auto small"></div>
-    </div>
-</div>
+<div class="ox-grid">
+<div class="ox-main">
 
-<!-- ── Live at the broker ────────────────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="d-flex align-items-center mb-2 gap-2">
-        <strong class="small"><i class="bi bi-broadcast me-1 text-info"></i>Working at the broker</strong>
-        <span class="small text-secondary">including rules created in thinkorswim</span>
-        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadWorking()">
-            <i class="bi bi-arrow-clockwise"></i>
-        </button>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-sm mb-0">
-            <thead>
-            <tr class="small text-secondary">
-                <th>Placed</th>
-                <th>Contract</th>
-                <th>Action</th>
-                <th class="text-end">Qty</th>
-                <th>Type</th>
-                <th class="text-end">Limit</th>
-                <th>Status</th>
-                <th></th>
-            </tr>
-            </thead>
-            <tbody id="working-body">
-            <tr>
-                <td colspan="8" class="text-center text-secondary py-3 small">Nothing working.</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
-    <div class="small text-secondary mt-2">
-        <i class="bi bi-info-circle me-1"></i>
-        A conditional rule built in thinkorswim rests here as <em>Awaiting Condition</em>. The
-        condition lives at Schwab, so it fires whether or not this app is running &mdash; the
-        API reports that an order is waiting, but not what it is waiting for.
-    </div>
-</div>
-
-<!-- ── Locally recorded structures ───────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="d-flex align-items-center mb-2 gap-2">
-        <strong class="small"><i class="bi bi-journal-text me-1 text-info"></i>Submitted structures</strong>
-        <span class="small text-secondary">what the broker does not remember</span>
-        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadRecent()">
-            <i class="bi bi-arrow-clockwise"></i>
-        </button>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-sm mb-0">
-            <thead>
-            <tr class="small text-secondary">
-                <th>When</th>
-                <th>Underlying</th>
-                <th>Structure</th>
-                <th>Intent</th>
-                <th class="text-end">Spreads</th>
-                <th class="text-end">Net</th>
-                <th class="text-end">Max loss</th>
-                <th>Order</th>
-                <th>Status</th>
-                <th class="text-end" title="Realized net per unit against the mid at submission">Slippage</th>
-                <th></th>
-            </tr>
-            </thead>
-            <tbody id="recent-body">
-            <tr>
-                <td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ── Symbol + expiry ───────────────────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="row g-2 align-items-end">
-        <div class="col-auto">
-            <label class="form-label small">Underlying</label>
-            <input id="f-symbol" class="form-control form-control-sm text-uppercase"
-                   style="min-width:120px" value="SPY" autocomplete="off"
-                   list="symbol-suggestions"/>
-            <datalist id="symbol-suggestions">
-                <option value="SPY"></option>
-                <option value="QQQ"></option>
-                <option value="IWM"></option>
-                <option value="$SPX" label="S&amp;P 500 index — European, cash settled"></option>
-                <option value="$NDX" label="Nasdaq 100 index — European, cash settled"></option>
-                <option value="$RUT" label="Russell 2000 index — European, cash settled"></option>
-            </datalist>
+<section class="c-panel ox-step" data-step="pick">
+    <div class="c-panel-h"><h2><span class="ox-n">1</span>Pick</h2><span id="status" class="c-right"></span></div>
+    <div class="c-panel-b d-grid gap-3">
+        <div class="ox-row">
+            <div class="ox-field">
+                <label class="form-label" for="f-symbol">Underlying</label>
+                <div class="d-flex gap-2">
+                    <input id="f-symbol" class="form-control text-uppercase" style="width:9rem" value="SPY" autocomplete="off" list="symbol-suggestions"/>
+                    <datalist id="symbol-suggestions">
+                        <option value="SPY"></option>
+                        <option value="QQQ"></option>
+                        <option value="IWM"></option>
+                        <option value="$SPX" label="S&amp;P 500 index — European, cash settled"></option>
+                        <option value="$NDX" label="Nasdaq 100 index — European, cash settled"></option>
+                        <option value="$RUT" label="Russell 2000 index — European, cash settled"></option>
+                    </datalist>
+                    <button id="btn-load" class="btn btn-warning" onclick="loadExpirations()"><i class="bi bi-search me-1"></i>Load</button>
+                </div>
+            </div>
+            <div class="ox-field">
+                <label class="form-label" for="f-expiry">Expiry</label>
+                <select id="f-expiry" class="form-select" style="min-width:12rem" onchange="loadChain()" disabled></select>
+            </div>
+            <div class="ox-field">
+                <label class="form-label" for="f-strikes">Strikes</label>
+                <select id="f-strikes" class="form-select" onchange="loadChain()">
+                    <option value="20">20</option>
+                    <option value="40" selected>40</option>
+                    <option value="80">80</option>
+                    <option value="200">200</option>
+                </select>
+            </div>
         </div>
-        <div class="col-auto">
-            <button id="btn-load" class="btn btn-sm btn-primary" onclick="loadExpirations()">
-                <i class="bi bi-search me-1"></i>Load
-            </button>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Expiry</label>
-            <select id="f-expiry" class="form-select form-select-sm" style="min-width:200px"
-                    onchange="loadChain()" disabled></select>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Strikes</label>
-            <select id="f-strikes" class="form-select form-select-sm" onchange="loadChain()">
-                <option value="20">20</option>
-                <option value="40" selected>40</option>
-                <option value="80">80</option>
-                <option value="200">200</option>
-            </select>
-        </div>
-        <div class="col-auto ms-auto text-end">
+        <div class="ox-facts">
             <div id="expected-move" class="small"></div>
             <div id="iv-standing" class="small"></div>
-            <span id="status" class="small text-secondary"></span>
         </div>
-    </div>
-</div>
 
-<!-- ── What fits your view ───────────────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="row g-2 align-items-start ticket-row">
-        <div class="col-auto">
-            <div class="tk-label">I expect the underlying to reach</div>
-            <input id="f-target" type="number" step="0.01" min="0"
-                   class="form-control form-control-sm" style="width:130px"
-                   placeholder="price" onkeydown="if(event.key==='Enter')suggest()">
-            <div id="t-target-hint" class="tk-hint"></div>
-        </div>
-        <div class="col-auto">
-            <div class="tk-label">&nbsp;</div>
-            <button id="btn-suggest" class="btn btn-sm btn-outline-info" onclick="suggest()">
-                <i class="bi bi-list-stars me-1"></i>Find structures
-            </button>
-            <div class="tk-hint"></div>
-        </div>
-        <div class="col-auto">
-            <div class="tk-label">&nbsp;</div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="clearSuggestions()">Clear</button>
-            <div class="tk-hint"></div>
-        </div>
-    </div>
-
-    <div id="suggest-wrap" class="table-responsive mt-2 d-none">
+        <div>
+            <div class="ox-row">
+                <div class="ox-field">
+                    <label class="form-label" for="f-target">I expect the price to reach</label>
+                    <input id="f-target" type="number" step="0.01" min="0" class="form-control num" style="width:9rem"
+                           placeholder="price" onkeydown="if(event.key==='Enter')suggest()">
+                    <div id="t-target-hint" class="form-text"></div>
+                </div>
+                <div class="ox-field ox-btns">
+                    <button id="btn-suggest" class="btn btn-outline-secondary" onclick="suggest()"><i class="bi bi-list-stars me-1"></i>Find structures</button>
+                    <button class="btn btn-link c-mut" onclick="clearSuggestions()">Clear</button>
+                </div>
+            </div>
+    <div id="suggest-wrap" class="table-responsive c-table-wrap mt-2 d-none">
         <table class="table table-sm table-hover align-middle mb-1">
             <thead>
             <tr class="small text-secondary">
@@ -287,22 +139,121 @@ else
             </div>
         </div>
     </div>
+        </div>
+    </div>
+</section>
+
+<section class="c-panel ox-step" data-step="pick">
+    <div class="c-panel-h"><h2>Chain</h2><span class="c-right">Tap + to add a leg</span></div>
+    <div class="c-panel-b">
+        <details class="rk-more mb-2">
+            <summary>Filters and commission</summary>
+    <div class="row g-2 align-items-end">
+        <div class="col-auto">
+            <label class="form-label small">Right</label>
+            <select id="f-right" class="form-select form-select-sm" onchange="render()">
+                <option value="">Both</option>
+                <option value="Call">Calls</option>
+                <option value="Put">Puts</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">Ask min</label>
+            <input id="f-askmin" type="number" step="0.01" min="0" class="form-control form-control-sm"
+                   style="width:100px" oninput="render()"/>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">Ask max</label>
+            <input id="f-askmax" type="number" step="0.01" min="0" class="form-control form-control-sm"
+                   style="width:100px" oninput="render()"/>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">|Delta| min</label>
+            <input id="f-deltamin" type="number" step="0.01" min="0" max="1" class="form-control form-control-sm"
+                   style="width:100px" oninput="render()"/>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">Max spread %</label>
+            <input id="f-spread" type="number" step="0.5" min="0" value="10" class="form-control form-control-sm"
+                   style="width:110px" oninput="render()"/>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">Min OI</label>
+            <input id="f-oi" type="number" step="1" min="0" value="0" class="form-control form-control-sm"
+                   style="width:100px" oninput="render()"/>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small">Commission /ct</label>
+            <input id="f-comm" type="number" step="0.01" min="0" value="0.65" class="form-control form-control-sm"
+                   style="width:120px" oninput="onCommissionChanged()"/>
+        </div>
+        <div class="col-auto">
+            <div class="form-check">
+                <input id="f-tradeable" class="form-check-input" type="checkbox" checked onchange="render()">
+                <label class="form-check-label small" for="f-tradeable">Tradeable only</label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">Reset</button>
+        </div>
+    </div>
+    <div class="small text-secondary mt-2">
+        <i class="bi bi-info-circle me-1"></i>
+        <strong>Tradeable</strong> = has a bid and spread within the limit. Open interest is
+        shown but is a weak filter on its own &mdash; contracts quoted at $0.01 routinely carry
+        OI in the thousands with no bid at all.
+    </div>
+        </details>
+<div class="table-responsive c-table-wrap ox-chain">
+    <table class="table table-sm table-hover align-middle">
+        <thead>
+        <tr class="small text-secondary">
+            <th>Right</th>
+            <th class="text-end">Strike</th>
+            <th class="text-end">Bid</th>
+            <th class="text-end">Ask</th>
+            <th class="text-end">Mid</th>
+            <th class="text-end">Spread %</th>
+            <th class="text-end">Delta</th>
+            <th class="text-end">Theta</th>
+            <th class="text-end">IV</th>
+            <th class="text-end">Vol</th>
+            <th class="text-end">OI</th>
+            <th class="text-end">Extrinsic</th>
+            <th class="text-end">Comm %</th>
+            <th></th>
+            <th class="text-center">Add</th>
+        </tr>
+        </thead>
+        <tbody id="chain-body">
+        <tr>
+            <td colspan="15" class="text-center text-secondary py-4">
+                Enter an underlying and press Load.
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+    </div>
+</section>
+
+</div>
+<aside class="ox-side">
+
+<div id="ox-empty" class="c-panel ox-step" data-step="build">
+    <div class="c-empty"><i class="bi bi-layers"></i><b>No structure yet</b><span>Add legs from the chain, or use a structure from "Find structures".</span></div>
 </div>
 
-<!-- ── Panel B · Structure ───────────────────────────────────── -->
-<div id="panel-b" class="settings-section mb-3 d-none" style="position:sticky; top:0; z-index:5;">
-    <div class="d-flex align-items-center mb-2 gap-2">
-        <strong class="small"><i class="bi bi-layers me-1 text-info"></i>Structure</strong>
-        <span id="struct-name" class="badge bg-secondary"></span>
-        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="reQuoteAndAnalyse()"
-                title="Re-quote every leg through the broker">
-            <i class="bi bi-arrow-clockwise"></i>
-        </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="clearLegs()">Clear</button>
+<div id="panel-b" class="d-none d-grid gap-3">
+<section class="c-panel ox-step" data-step="build">
+    <div class="c-panel-h">
+        <h2><span class="ox-n">2</span>Build <span id="struct-name" class="c-badge ms-1"></span></h2>
+        <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-secondary" onclick="reQuoteAndAnalyse()" title="Re-quote every leg through the broker" aria-label="Re-quote"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearLegs()">Clear</button>
+        </div>
     </div>
-
-    <div class="row g-3">
-        <div class="col-lg-6">
+    <div class="c-panel-b">
             <table class="table table-sm mb-2">
                 <thead>
                 <tr class="small text-secondary">
@@ -376,18 +327,14 @@ else
                 Reaching that price sooner pays differently &mdash; the contract still holds time
                 value. Only <strong>Net</strong> is a price you can transact at right now.
             </div>
-        </div>
-
-        <div class="col-lg-6">
-            <div class="small text-secondary mb-1">
-                Payoff <span class="lbl-exp">at expiry</span>
-            </div>
-            <svg id="payoff" viewBox="0 0 520 240" style="width:100%; height:240px;"></svg>
-        </div>
+        <div class="small c-mut mt-3 mb-1">Payoff <span class="lbl-exp">at expiry</span></div>
+        <svg id="payoff" viewBox="0 0 520 240" style="width:100%; height:240px;"></svg>
     </div>
+</section>
 
-    <!-- ── Panel C · Ticket ──────────────────────────────────── -->
-    <hr class="my-3">
+<section class="c-panel ox-step" data-step="order">
+    <div class="c-panel-h"><h2><span class="ox-n">3</span>Order</h2></div>
+    <div class="c-panel-b">
     <div class="row g-2 align-items-start ticket-row">
         <div class="col-auto">
             <div class="tk-label">Spreads</div>
@@ -444,7 +391,7 @@ else
         </div>
         <div class="col-auto">
             <div class="tk-label"></div>
-            <button id="btn-preview" class="btn btn-primary" onclick="previewOrder()">
+            <button id="btn-preview" class="btn btn-warning" onclick="previewOrder()">
                 <i class="bi bi-eye me-1"></i>Preview
             </button>
             <div class="tk-hint"></div>
@@ -454,7 +401,141 @@ else
         Preview asks Schwab to validate and cost the order. Nothing is submitted until you
         confirm in the dialog that follows.
     </div>
+    </div>
+</section>
 </div>
+
+</aside>
+</div>
+
+<details class="c-panel mt-3 ox-book" open>
+    <summary class="c-panel-h"><h2>Positions and orders</h2><span class="c-right">at Schwab</span></summary>
+    <div class="c-panel-b d-grid gap-4">
+        <div>
+            <div class="d-flex align-items-center mb-2 gap-2">
+                <b class="small">Open option positions</b>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadPositions()" aria-label="Refresh positions"><i class="bi bi-arrow-clockwise"></i></button>
+                <button id="btn-close-sel" class="btn btn-sm btn-outline-danger" disabled onclick="previewClose()">Close selected</button>
+            </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+            <tr class="small text-secondary">
+                <th style="width:32px"></th>
+                <th>Contract</th>
+                <th>Side</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Avg</th>
+                <th class="text-end">Basis</th>
+                <th class="text-end">Unrealised</th>
+            </tr>
+            </thead>
+            <tbody id="pos-body">
+            <tr>
+                <td colspan="7" class="text-center text-secondary py-3 small">Not loaded.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="small text-secondary mt-2">
+        <i class="bi bi-info-circle me-1"></i>
+        Select every leg of a spread and close them together &mdash; closing one leg at a time
+        can leave a naked short in place of a defined-risk position.
+    </div>
+        </div>
+        <div id="risk-strip" class="d-none">
+    <div class="d-flex align-items-center gap-4 flex-wrap">
+        <strong class="small"><i class="bi bi-shield-exclamation me-1 text-info"></i>Portfolio</strong>
+        <div>
+            <div class="tk-label">At risk</div>
+            <div id="pr-risk" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net delta</div>
+            <div id="pr-delta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net vega</div>
+            <div id="pr-vega" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Net theta / day</div>
+            <div id="pr-theta" class="fw-bold">&mdash;</div>
+        </div>
+        <div>
+            <div class="tk-label">Legs</div>
+            <div id="pr-legs" class="fw-bold">&mdash;</div>
+        </div>
+        <div id="pr-warn" class="ms-auto small"></div>
+    </div>
+        </div>
+        <div>
+            <div class="d-flex align-items-center mb-2 gap-2">
+                <b class="small">Working at the broker</b>
+                <span class="small c-mut">including rules created in thinkorswim</span>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadWorking()" aria-label="Refresh working orders"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+            <tr class="small text-secondary">
+                <th>Placed</th>
+                <th>Contract</th>
+                <th>Action</th>
+                <th class="text-end">Qty</th>
+                <th>Type</th>
+                <th class="text-end">Limit</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="working-body">
+            <tr>
+                <td colspan="8" class="text-center text-secondary py-3 small">Nothing working.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="small text-secondary mt-2">
+        <i class="bi bi-info-circle me-1"></i>
+        A conditional rule built in thinkorswim rests here as <em>Awaiting Condition</em>. The
+        condition lives at Schwab, so it fires whether or not this app is running &mdash; the
+        API reports that an order is waiting, but not what it is waiting for.
+    </div>
+        </div>
+        <div>
+            <div class="d-flex align-items-center mb-2 gap-2">
+                <b class="small">Submitted structures</b>
+                <span class="small c-mut">what the broker does not remember</span>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadRecent()" aria-label="Refresh submitted structures"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+            <tr class="small text-secondary">
+                <th>When</th>
+                <th>Underlying</th>
+                <th>Structure</th>
+                <th>Intent</th>
+                <th class="text-end">Spreads</th>
+                <th class="text-end">Net</th>
+                <th class="text-end">Max loss</th>
+                <th>Order</th>
+                <th>Status</th>
+                <th class="text-end" title="Realized net per unit against the mid at submission">Slippage</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="recent-body">
+            <tr>
+                <td colspan="8" class="text-center text-secondary py-3 small">Nothing submitted yet.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+        </div>
+    </div>
+</details>
 
 <!-- ── Message / question dialog ─────────────────────────────── -->
 <div class="modal fade" id="msg-modal" tabindex="-1">
@@ -525,97 +606,6 @@ else
     </div>
 </div>
 
-<!-- ── Filters ───────────────────────────────────────────────── -->
-<div class="settings-section mb-3">
-    <div class="row g-2 align-items-end">
-        <div class="col-auto">
-            <label class="form-label small">Right</label>
-            <select id="f-right" class="form-select form-select-sm" onchange="render()">
-                <option value="">Both</option>
-                <option value="Call">Calls</option>
-                <option value="Put">Puts</option>
-            </select>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Ask min</label>
-            <input id="f-askmin" type="number" step="0.01" min="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()"/>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Ask max</label>
-            <input id="f-askmax" type="number" step="0.01" min="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()"/>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">|Delta| min</label>
-            <input id="f-deltamin" type="number" step="0.01" min="0" max="1" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()"/>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Max spread %</label>
-            <input id="f-spread" type="number" step="0.5" min="0" value="10" class="form-control form-control-sm"
-                   style="width:110px" oninput="render()"/>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Min OI</label>
-            <input id="f-oi" type="number" step="1" min="0" value="0" class="form-control form-control-sm"
-                   style="width:100px" oninput="render()"/>
-        </div>
-        <div class="col-auto">
-            <label class="form-label small">Commission /ct</label>
-            <input id="f-comm" type="number" step="0.01" min="0" value="0.65" class="form-control form-control-sm"
-                   style="width:120px" oninput="onCommissionChanged()"/>
-        </div>
-        <div class="col-auto">
-            <div class="form-check">
-                <input id="f-tradeable" class="form-check-input" type="checkbox" checked onchange="render()">
-                <label class="form-check-label small" for="f-tradeable">Tradeable only</label>
-            </div>
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">Reset</button>
-        </div>
-    </div>
-    <div class="small text-secondary mt-2">
-        <i class="bi bi-info-circle me-1"></i>
-        <strong>Tradeable</strong> = has a bid and spread within the limit. Open interest is
-        shown but is a weak filter on its own &mdash; contracts quoted at $0.01 routinely carry
-        OI in the thousands with no bid at all.
-    </div>
-</div>
-
-<!-- ── Panel A · Chain ───────────────────────────────────────── -->
-<div class="table-responsive">
-    <table class="table table-sm table-hover align-middle">
-        <thead>
-        <tr class="small text-secondary">
-            <th>Right</th>
-            <th class="text-end">Strike</th>
-            <th class="text-end">Bid</th>
-            <th class="text-end">Ask</th>
-            <th class="text-end">Mid</th>
-            <th class="text-end">Spread %</th>
-            <th class="text-end">Delta</th>
-            <th class="text-end">Theta</th>
-            <th class="text-end">IV</th>
-            <th class="text-end">Vol</th>
-            <th class="text-end">OI</th>
-            <th class="text-end">Extrinsic</th>
-            <th class="text-end">Comm %</th>
-            <th></th>
-            <th class="text-center">Add</th>
-        </tr>
-        </thead>
-        <tbody id="chain-body">
-        <tr>
-            <td colspan="15" class="text-center text-secondary py-4">
-                Enter an underlying and press Load.
-            </td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
 @section Scripts {
     <script>
         const TOKEN = '@Html.Raw(Antiforgery.GetAndStoreTokens(HttpContext).RequestToken)';
@@ -659,9 +649,10 @@ else
 
         function showErr(msg, reauth) {
             const e = $('err');
-            e.className = 'alert alert-danger';
-            e.innerHTML = msg + (reauth
-                ? ' <a href="/setup/brokers" class="btn btn-sm btn-warning ms-2">Reconnect Schwab</a>' : '');
+            e.className = 'c-note bad mb-3';
+            e.innerHTML = '<i class="bi bi-exclamation-octagon"></i><span>' + msg + (reauth
+                ? ' <a href="/setup/brokers">Reconnect Schwab</a>' : '') + '</span>';
+            e.scrollIntoView({block: 'nearest'});
         }
 
         function clearErr() {
@@ -1091,37 +1082,37 @@ else
             let svg = '';
             // zero line
             const y0 = py(0);
-            svg += `<line x1="${L}" y1="${y0}" x2="${W - R}" y2="${y0}" stroke="#6c757d" stroke-dasharray="3 3" stroke-width="1"/>`;
+            svg += `<line x1="${L}" y1="${y0}" x2="${W - R}" y2="${y0}" style="stroke:var(--c-muted)" stroke-dasharray="3 3" stroke-width="1"/>`;
             // axes
-            svg += `<line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" stroke="#495057" stroke-width="1"/>`;
+            svg += `<line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" style="stroke:var(--c-line)" stroke-width="1"/>`;
 
             // payoff, coloured per segment by sign
             for (let i = 0; i < curve.length - 1; i++) {
                 const a = curve[i], b = curve[i + 1];
-                const colour = (a.y >= 0 && b.y >= 0) ? '#22c55e' : (a.y < 0 && b.y < 0) ? '#ef4444' : '#eab308';
+                const colour = (a.y >= 0 && b.y >= 0) ? 'var(--c-up)' : (a.y < 0 && b.y < 0) ? 'var(--c-down)' : 'var(--c-accent)';
                 svg += `<line x1="${px(a.x)}" y1="${py(a.y)}" x2="${px(b.x)}" y2="${py(b.y)}" stroke="${colour}" stroke-width="2"/>`;
             }
 
             // breakevens
             for (const be of breakevens) {
                 if (be < xMin || be > xMax) continue;
-                svg += `<line x1="${px(be)}" y1="${T}" x2="${px(be)}" y2="${H - B}" stroke="#eab308" stroke-dasharray="2 3" stroke-width="1"/>`;
-                svg += `<text x="${px(be)}" y="${H - B + 14}" fill="#eab308" font-size="10" text-anchor="middle">${Number(be).toFixed(2)}</text>`;
+                svg += `<line x1="${px(be)}" y1="${T}" x2="${px(be)}" y2="${H - B}" style="stroke:var(--c-accent)" stroke-dasharray="2 3" stroke-width="1"/>`;
+                svg += `<text x="${px(be)}" y="${H - B + 14}" style="fill:var(--c-accent)" font-size="10" text-anchor="middle">${Number(be).toFixed(2)}</text>`;
             }
 
             // current underlying
             if (UNDERLYING >= xMin && UNDERLYING <= xMax) {
-                svg += `<line x1="${px(UNDERLYING)}" y1="${T}" x2="${px(UNDERLYING)}" y2="${H - B}" stroke="#0dcaf0" stroke-width="1"/>`;
-                svg += `<text x="${px(UNDERLYING)}" y="${T + 10}" fill="#0dcaf0" font-size="10" text-anchor="middle">spot</text>`;
+                svg += `<line x1="${px(UNDERLYING)}" y1="${T}" x2="${px(UNDERLYING)}" y2="${H - B}" style="stroke:var(--c-paper)" stroke-width="1"/>`;
+                svg += `<text x="${px(UNDERLYING)}" y="${T + 10}" style="fill:var(--c-paper)" font-size="10" text-anchor="middle">spot</text>`;
             }
 
             // y labels
             for (const v of [yMax, 0, yMin]) {
-                svg += `<text x="${L - 6}" y="${py(v) + 3}" fill="#adb5bd" font-size="10" text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
+                svg += `<text x="${L - 6}" y="${py(v) + 3}" style="fill:var(--c-muted)" font-size="10" text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
             }
             // x labels
-            svg += `<text x="${L}" y="${H - 6}" fill="#adb5bd" font-size="10">${xMin.toFixed(0)}</text>`;
-            svg += `<text x="${W - R}" y="${H - 6}" fill="#adb5bd" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
+            svg += `<text x="${L}" y="${H - 6}" style="fill:var(--c-muted)" font-size="10">${xMin.toFixed(0)}</text>`;
+            svg += `<text x="${W - R}" y="${H - 6}" style="fill:var(--c-muted)" font-size="10" text-anchor="end">${xMax.toFixed(0)}</text>`;
 
             $('payoff').innerHTML = svg;
         }
@@ -1521,8 +1512,10 @@ else
 
         function showOk(msg) {
             const e = $('err');
-            e.className = 'alert alert-success';
-            e.textContent = msg;
+            e.className = 'c-note mb-3';
+            e.innerHTML = '<i class="bi bi-check-circle"></i><span></span>';
+            e.lastChild.textContent = msg;
+            e.scrollIntoView({block: 'nearest'});
         }
 
         function escapeHtml(s) {
@@ -2039,17 +2032,41 @@ else
                 expiry: $('f-expiry').value, quotedAt: Date.now(),
             }));
             renderLegs();
+            showStep('build');
             $('panel-b').scrollIntoView({block: 'center'});
         }
 
         $('f-symbol').addEventListener('keydown', e => {
             if (e.key === 'Enter') loadExpirations();
         });
+        // ── Steps. On a phone only the chosen step shows (CSS keys off data-ox-step);
+        // on a wide screen all show and the tabs are hidden. ──
+        function showStep(step) {
+            document.body.dataset.oxStep = step;
+            document.querySelectorAll('.ox-tabs [role=tab]').forEach(t =>
+                t.setAttribute('aria-selected', t.dataset.step === step ? 'true' : 'false'));
+        }
+        document.querySelectorAll('.ox-tabs [role=tab]').forEach(t =>
+            t.addEventListener('click', () => { showStep(t.dataset.step); window.scrollTo({top: 0}); }));
+        showStep('pick');
+
+        // Keep the empty state and the Build tab's leg count in step with the structure.
+        function syncSteps() {
+            $('ox-empty').classList.toggle('d-none', LEGS.length > 0);
+            document.body.classList.toggle('ox-has-legs', LEGS.length > 0);
+            const n = $('ox-legcount');
+            n.textContent = LEGS.length;
+            n.classList.toggle('d-none', LEGS.length === 0);
+        }
+        const renderLegsBase = renderLegs;
+        renderLegs = function (resetSize = true) { renderLegsBase(resetSize); syncSteps(); };
+
         loadPositions();
         loadRecent();
         loadWorking();
         loadPortfolioRisk();
         restoreDraft();
+        syncSteps();
     </script>
     <style>
         .btn-xs {
