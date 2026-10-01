@@ -48,6 +48,16 @@
         });
     }, true);
 
+    // ── Engine bar height, as --crv-engine-h, for anything else that sticks to the top ─
+    // The bar is sticky at top: 0 and wraps differently by width, so its height is measured.
+    (function () {
+        const bar = document.querySelector('.crv-engine');
+        if (!bar) return;
+        const set = () => document.documentElement.style.setProperty('--crv-engine-h', bar.offsetHeight + 'px');
+        set();
+        if (window.ResizeObserver) new ResizeObserver(set).observe(bar);
+    })();
+
     // ── Toast ────────────────────────────────────────────────────
     let toastTimer = 0;
     CRV.toast = function (text) {
