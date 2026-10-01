@@ -145,6 +145,46 @@ public static class ContractRollCalendar
         return segments;
     }
 
+    /// <summary>
+    /// The given contract if it has not expired as of <paramref name="asOf"/>, otherwise
+    /// the next contract in its cycle that has not, e.g. <c>("MNQU26", Oct 1 2026)</c> → <c>"MNQZ26"</c>.
+    /// </summary>
+    public static string FirstLiveContract(string ticker, DateTime asOf)
+    {
+        var t    = FuturesSymbol.Normalize(ticker);
+        var root = t[..^3];
+        while (LastTradingDay(t) < asOf.Date)
+            t = ActiveContract(root, RollDate(t));
+        return t;
+    }
+
+    /// <summary>
+    /// Replaces each expired contract in <paramref name="segments"/> with the first live one,
+    /// for brokers that drop all history once a contract expires. Adjacent segments that end up
+    /// on the same contract are merged. Returns the new segments and what was replaced.
+    /// </summary>
+    public static (List<(string Ticker, DateTime From, DateTime To)> Segments,
+                   List<(string Expired, string Used, DateTime From, DateTime To)> Substitutions)
+        SubstituteExpired(List<(string Ticker, DateTime From, DateTime To)> segments, DateTime asOf)
+    {
+        var result = new List<(string Ticker, DateTime From, DateTime To)>();
+        var subs   = new List<(string Expired, string Used, DateTime From, DateTime To)>();
+
+        foreach (var (ticker, from, to) in segments)
+        {
+            var live = FirstLiveContract(ticker, asOf);
+            if (!string.Equals(live, FuturesSymbol.Normalize(ticker), StringComparison.OrdinalIgnoreCase))
+                subs.Add((ticker, live, from, to));
+
+            if (result.Count > 0 && string.Equals(result[^1].Ticker, live, StringComparison.OrdinalIgnoreCase))
+                result[^1] = (live, result[^1].From, to);
+            else
+                result.Add((live, from, to));
+        }
+
+        return (result, subs);
+    }
+
     // ── Private: family lookup ──────────────────────────────────────
 
     private static RollFamily GetFamily(string rootSymbol)

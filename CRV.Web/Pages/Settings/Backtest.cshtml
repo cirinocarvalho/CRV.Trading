@@ -52,6 +52,16 @@
     </div>
 }
 
+@if (Model.Result?.DataNotes is { Count: > 0 } notes)
+{
+    <div class="alert alert-info small py-2 mb-3">
+        @foreach (var n in notes)
+        {
+            <div><i class="bi bi-info-circle me-1"></i>@n</div>
+        }
+    </div>
+}
+
 <div class="row g-3">
 
     <div class="col-12 col-xl-4">
