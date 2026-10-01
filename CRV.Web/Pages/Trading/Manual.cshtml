@@ -520,7 +520,10 @@
                             <td class="text-end">
                                 @if (g.Status == CRV.Core.Models.GroupOrderStatus.Active || g.Status == CRV.Core.Models.GroupOrderStatus.PartialFilled)
                                 {
-                                    <form method="post" asp-page-handler="MoveToBE" class="d-inline">
+                                    <form method="post" asp-page-handler="MoveToBE" class="d-inline"
+                                          data-confirm-title="Move stop to break-even?"
+                                          data-confirm-body="@($"Moves the stop on {g.SetupId} {g.Ticker} ({g.TotalContracts} contracts) to the entry price{(entryDisplay is decimal e ? $", {e:F2}" : "")}.")"
+                                          data-confirm-ok="Move to break-even">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="setupId" value="@g.SetupId" />
                                         <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-2"

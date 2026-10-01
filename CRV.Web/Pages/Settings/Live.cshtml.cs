@@ -26,8 +26,6 @@ public class LiveModel : PageModel
     [BindProperty] public string? SessionsJson { get; set; } = "[]";
     // Consuming read — badge shows once after save, disappears on refresh
     public bool   Saved           => TempData["live_saved"] is not null;
-    public bool   IsRunning       => _orchestrator.IsRunning;
-    public string EngineStatus    => _orchestrator.Status;
     public bool   SchwabConnected => _schwab.IsAuthenticated;
     public bool   TsConnected     => _ts.IsAuthenticated;
     public bool   TvConnected     => _tv.IsAuthenticated;
@@ -168,18 +166,6 @@ public class LiveModel : PageModel
         // (no-op if the engine is stopped — next start picks up the fresh config).
         _orchestrator.ApplyRuntimeSettings(Config);
         TempData["live_saved"] = "1";
-        return RedirectToPage();
-    }
-
-    public async Task<IActionResult> OnPostStartAsync()
-    {
-        await _orchestrator.StartAsync(_cfgSvc.Current);
-        return RedirectToPage();
-    }
-
-    public IActionResult OnPostStop()
-    {
-        _orchestrator.StopEngine();
         return RedirectToPage();
     }
 }

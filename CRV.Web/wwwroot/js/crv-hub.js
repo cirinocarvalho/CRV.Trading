@@ -8,7 +8,8 @@ const connection = new signalR.HubConnectionBuilder()
 
 // ── Receive full engine snapshot ──────────────────────────────
 connection.on("Update", (data) => {
-    _updateNavBar(data.ticker, data.isLive);
+    _engine()?.snapshot(data);
+    if (data?.sessionEnded) _engine()?.status("Session Ended");
     document.dispatchEvent(new CustomEvent("crv:update", { detail: data }));
 });
 
@@ -49,35 +50,23 @@ connection.on("Trade", (trade) => {
 
 // ── Receive engine status string ──────────────────────────────
 connection.on("EngineStatusChanged", (status) => {
-    _updateNavBar(null, status);
+    _engine()?.status(status);
     document.dispatchEvent(new CustomEvent("crv:status", { detail: status }));
 });
 
-// ── Nav bar helper ────────────────────────────────────────────
-function _updateNavBar(ticker, status) {
-    const tickerEl = document.getElementById("nav-ticker");
-    const statusEl = document.getElementById("nav-status");
-    if (tickerEl && ticker != null) tickerEl.textContent = ticker;
-    if (statusEl && status != null) {
-        if (status === "Live")              { statusEl.textContent = "LIVE";           statusEl.className = "badge bg-success"; }
-        else if (status === "Session Ended") { statusEl.textContent = "SESSION ENDED"; statusEl.className = "badge bg-warning text-dark"; }
-        else if (status === true)           { statusEl.textContent = "LIVE";           statusEl.className = "badge bg-success"; }
-        else if (status === false)          { statusEl.textContent = "OFFLINE";        statusEl.className = "badge bg-secondary"; }
-        else                                { statusEl.textContent = status;           statusEl.className = "badge bg-secondary"; }
-    }
-}
+// ── Engine bar (crv-ui.js) ────────────────────────────────────
+const _engine = () => window.CRV?.engine;
 
-// ── Sync badge + last snapshot from REST after connect ────────
+// ── Sync engine bar + last snapshot from REST after connect ───
 function _syncCurrentState() {
-    return fetch('/api/engine/status')
-        .then(r => r.json())
-        .then(d => {
-            _updateNavBar(d.snapshot?.ticker ?? null, d.running ? (d.snapshot?.sessionEnded ? "Session Ended" : "Live") : false);
-            if (d.snapshot)
-                document.dispatchEvent(new CustomEvent("crv:update", { detail: d.snapshot }));
-            document.dispatchEvent(new CustomEvent("crv:status", { detail: d.status }));
-        })
-        .catch(() => {}); // best-effort — don't break the hub on API failure
+    const eng = _engine();
+    const p = eng ? eng.sync() : fetch('/api/engine/status').then(r => r.json()).catch(() => null);
+    return p.then(d => {
+        if (!d) return;
+        if (d.snapshot)
+            document.dispatchEvent(new CustomEvent("crv:update", { detail: d.snapshot }));
+        document.dispatchEvent(new CustomEvent("crv:status", { detail: d.status }));
+    });
 }
 
 // ── Start connection ──────────────────────────────────────────
@@ -86,7 +75,7 @@ connection.start()
     .catch(err => console.error("CRV Hub error:", err));
 
 // Show OFFLINE immediately when the websocket drops
-connection.onclose(() => _updateNavBar(null, "OFFLINE"));
+connection.onclose(() => _engine()?.status("OFFLINE"));
 
 // Re-sync after automatic reconnect so badge reflects live reality
 connection.onreconnected(() => _syncCurrentState());

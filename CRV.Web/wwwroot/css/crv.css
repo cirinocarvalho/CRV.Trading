@@ -1,29 +1,21 @@
 /* CRV Trading — dark theme stylesheet */
-:root {
-    --crv-green:  #00ff88;
-    --crv-red:    #ff4466;
-    --crv-yellow: #ffd700;
-    --crv-blue:   #4db8ff;
-    --crv-bg:     #0d0d0d;
-    --crv-card:   #111318;
-    --crv-border: #2a2d36;
-}
+/* Colors come from tokens.css (--crv-* are aliases there). */
 
-body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+body { background: var(--c-bg); color: var(--c-text); font-family: var(--font-body); }
 
 .card { background: var(--crv-card) !important; border: 1px solid var(--crv-border) !important; border-radius: 10px; }
 .card-header { background: rgba(255,255,255,.04) !important; border-bottom: 1px solid var(--crv-border); }
 
 .stat-value      { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat-label      { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: #888; }
+.stat-label      { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--c-muted); }
 
 /* Make all top stat cards equal height with centered content */
 .stat-card-row > div > .card { height: 100%; display: flex; flex-direction: column; justify-content: center; }
-.font-monospace  { font-family: 'Cascadia Code','Fira Code','Consolas',monospace !important; }
+.font-monospace  { font-family: var(--font-mono) !important; }
 
 .pnl-pos  { color: var(--crv-green);  }
 .pnl-neg  { color: var(--crv-red);    }
-.pnl-zero { color: #888; }
+.pnl-zero { color: var(--c-muted); }
 
 .badge-live   { background: var(--crv-green);   color: #000; }
 .badge-paper  { background: var(--crv-yellow);  color: #000; }
@@ -44,12 +36,12 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
 .setup-short     { background: #2a0f1a; border: 1px solid #cc0033;           color: #ff4466; }
 
 /* DD progress bar */
-.dd-bar-track { background: #1a1a1a; border-radius: 4px; height: 8px; overflow:hidden; }
+.dd-bar-track { background: var(--c-raise); border-radius: 4px; height: 8px; overflow:hidden; }
 .dd-bar-fill  { height: 100%; border-radius: 4px; transition: width .5s ease; }
 
 /* Alerts feed */
 .alert-feed { max-height: 320px; overflow-y: auto; font-size: .82rem; }
-.alert-item { padding: 6px 10px; border-bottom: 1px solid var(--crv-border); font-family: monospace; }
+.alert-item { padding: 6px 10px; border-bottom: 1px solid var(--crv-border); font-family: var(--font-mono); }
 .alert-item:last-child { border-bottom: none; }
 .alert-item.entry   { border-left: 3px solid var(--crv-green); }
 .alert-item.exit    { border-left: 3px solid var(--crv-red); }
@@ -57,8 +49,8 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
 .alert-item.info    { border-left: 3px solid var(--crv-blue); }
 
 /* Trade table */
-.trade-table th { background: #0d0f14; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #888; border-color: var(--crv-border); }
-.trade-table td { border-color: var(--crv-border); font-size: .85rem; font-family: monospace; }
+.trade-table th { background: var(--c-raise); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--c-muted); border-color: var(--crv-border); }
+.trade-table td { border-color: var(--crv-border); font-size: .85rem; font-family: var(--font-mono); }
 /* Dim (secondary) cells — fixed gray that stays readable on both win/loss row tints.
    Overrides Bootstrap dark-mode text-muted which renders as near-white. */
 .trade-table .td-dim  { color: #7a8393 !important; }
@@ -66,18 +58,18 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
 .trade-table .td-time { font-size: .75rem; white-space: nowrap; }
 
 /* Settings form */
-.settings-section { background: #111318; border: 1px solid var(--crv-border); border-radius: 8px; padding: 1.25rem; }
+.settings-section { background: var(--c-surface); border: 1px solid var(--crv-border); border-radius: 8px; padding: 1.25rem; }
 .row > [class*="col"] > .settings-section { height: 100%; }
 .settings-section h6 { color: var(--crv-yellow); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .75rem; }
 
 .form-control, .form-select {
-    background: #0d0f14 !important;
+    background: var(--c-raise) !important;
     border: 1px solid var(--crv-border) !important;
-    color: #e0e0e0 !important;
+    color: var(--c-text) !important;
 }
 .form-control:focus, .form-select:focus {
     border-color: var(--crv-yellow) !important;
-    box-shadow: 0 0 0 2px rgba(255,215,0,.15) !important;
+    box-shadow: 0 0 0 2px var(--c-accent-soft) !important;
 }
 .form-check-input:checked { background-color: var(--crv-yellow); border-color: var(--crv-yellow); }
 
@@ -100,44 +92,10 @@ body { background: var(--crv-bg); color: #e0e0e0; font-family: 'Segoe UI', syste
     50%      { opacity: .3; }
 }
 
-/* Navbar
-   `height` (rather than min-height) let the single non-wrapping row of nav links
-   overflow the 52px box and paint over the page heading at narrow widths. The links
-   now scroll horizontally inside the bar instead of escaping it. */
-.navbar { min-height: 52px; }
-.navbar .container-fluid { min-width: 0; }
-.navbar .navbar-nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    min-width: 0;
-    scrollbar-width: thin;
-}
-.navbar .navbar-nav::-webkit-scrollbar { height: 3px; }
-.navbar .navbar-nav::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
-.navbar .navbar-nav .nav-link { white-space: nowrap; }
-
-/* Section tabs. Splitting the nav in two is what actually fixes the crowding — the
-   horizontal scroll above is the fallback for narrow windows, not the fix. */
-.nav-sections { display: flex; gap: .25rem; }
-.nav-sections .section-link {
-    color: #888 !important;
-    font-size: .8rem;
-    font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    padding: .15rem .7rem;
-    border-radius: 999px;
-    border: 1px solid transparent;
-}
-.nav-sections .section-link:hover { color: #ddd !important; }
-.nav-sections .section-link.active {
-    color: var(--crv-yellow) !important;
-    border-color: rgba(255, 208, 0, .35);
-    background: rgba(255, 208, 0, .08);
-}
-.nav-link { color: #aaa !important; font-size: .875rem; }
-.nav-link.active { color: var(--crv-yellow) !important; }
-.nav-link:hover  { color: #fff !important; }
+/* In-page tab strips (nav-tabs / nav-pills) */
+.nav-link { color: var(--c-muted); font-size: .875rem; }
+.nav-link:hover { color: var(--c-text); }
+.nav-link.active { color: var(--c-accent) !important; }
 
 /* Cards grid */
 .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .75rem; }

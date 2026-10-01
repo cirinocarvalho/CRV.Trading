@@ -1,5 +1,6 @@
 @page "/settings/live"
 @model CRV.Web.Pages.Settings.LiveModel
+@inject CRV.Live.Brokers.Tradovate.TradovateAuthService TvAuth
 @{
     ViewData["Title"] = "Live Settings";
     ViewData["Page"]  = "live-settings";
@@ -22,9 +23,6 @@
     <small class="text-muted" style="font-size:0.75rem">
         Last saved: <span class="font-monospace">@Model.Config.UpdatedAt.ToLocalTime().ToString("MM/dd HH:mm:ss")</span>
     </small>
-    <span class="badge @(Model.IsRunning ? "bg-success" : "bg-secondary") ms-auto">
-        <i class="bi bi-circle-fill me-1" style="font-size:0.6rem"></i>@Model.EngineStatus
-    </span>
 </div>
 
 @if (Model.Config.HasNoArmedSetups())
@@ -43,30 +41,11 @@
     </div>
 }
 
-<!-- ── Engine Start / Stop ──────────────────────────────────── -->
-<div class="d-flex gap-2 mb-3">
-    @if (!Model.IsRunning)
-    {
-        <form method="post" asp-page-handler="Start">
-            <button type="submit" class="btn btn-success btn-sm fw-bold">
-                <i class="bi bi-play-fill me-1"></i>Start Engine
-            </button>
-        </form>
-    }
-    else
-    {
-        <form method="post" asp-page-handler="Stop">
-            <button type="submit" class="btn btn-danger btn-sm fw-bold">
-                <i class="bi bi-stop-fill me-1"></i>Stop Engine
-            </button>
-        </form>
-    }
-    <small class="text-muted align-self-center">
-        Save settings first, then start the engine. Account IDs are read from
-        <code>appsettings.json</code> / user-secrets (<code>Schwab:AccountId</code>,
-        <code>TradeStation:AccountId</code>, <code>Tradovate:AccountId</code>).
-    </small>
-</div>
+<p class="text-muted small mb-3">
+    Start and stop the engine from the bar at the top of every page. Save settings first.
+    Account IDs are read from <code>appsettings.json</code> / user-secrets
+    (<code>Schwab:AccountId</code>, <code>TradeStation:AccountId</code>, <code>Tradovate:AccountId</code>).
+</p>
 
 <!-- ── Broker Auth Status ───────────────────────────────────── -->
 <div class="alert @(Model.SchwabConnected ? "alert-success" : "alert-warning") d-flex align-items-center gap-2 py-2 mb-2" role="alert">
@@ -126,7 +105,9 @@
     </a>
 </div>
 
-<form method="post" novalidate>
+<form method="post" novalidate id="live-settings-form"
+      data-exec-broker="@Model.Config.EffectiveExecBroker"
+      data-tradovate-demo="@(CRV.Live.AccountMode.For("Tradovate", TvAuth.AuthBaseUrl).Kind == CRV.Live.AccountKind.Demo ? "true" : "false")">
 
 @if (!ViewData.ModelState.IsValid)
 {
@@ -886,6 +867,36 @@ async function sendTestEmail() {
 @section Scripts {
 <script src="~/js/crv-instruments.js" asp-append-version="true"></script>
 <script>
+// ── Confirm before orders start going to a real-money broker ──
+(function () {
+    var form = document.getElementById('live-settings-form');
+    if (!form || !window.CRV) return;
+    var initial = form.dataset.execBroker || '';
+    var tvDemo = form.dataset.tradovateDemo === 'true';
+    var names = { Mock: 'Mock (paper)', TradovateReplay: 'Tradovate Replay' };
+    function realMoney(b) { return b && b !== 'Mock' && b !== 'TradovateReplay' && !(b === 'Tradovate' && tvDemo); }
+    form.addEventListener('submit', function (e) {
+        if (form.dataset.confirmed === '1') return;
+        var data = form.querySelector('select[name="Config.Broker"]');
+        var exec = form.querySelector('select[name="Config.ExecBroker"]');
+        var target = (exec && exec.value) || (data && data.value) || '';
+        if (target === initial || !realMoney(target)) return;
+        e.preventDefault();
+        CRV.confirm({
+            title: 'Send orders to ' + target + '?',
+            html: '<p class="mb-2">Right now orders go to <strong>' + CRV.esc(names[initial] || initial) + '</strong>.</p>' +
+                  '<p class="mb-0">After saving, the engine and the order ticket send orders to your <strong>' + CRV.esc(target) +
+                  '</strong> account. This is real money.</p>',
+            ok: 'Save and use ' + target,
+            okClass: 'btn-danger',
+        }).then(function (yes) {
+            if (!yes) return;
+            form.dataset.confirmed = '1';
+            form.submit();
+        });
+    });
+})();
+
 // ── Instrument selector for Live Settings ─────────────────────
 function instrOnChange() {
     const base = document.getElementById('instr-select').value;
@@ -973,7 +984,7 @@ function instrOnChange() {
 
 // ── Session tabs: gather values into SessionsJson on submit ────
 (function () {
-    // Target the main settings form (has novalidate), not the Start/Stop engine forms
+    // Target the main settings form (has novalidate)
     const form = document.querySelector('form[method="post"][novalidate]');
     if (!form) return;
     form.addEventListener('submit', function () {
