@@ -1,14 +1,5 @@
 namespace CRV.Web.Pages;
 
-/// <summary>View model passed to _SetupCard.cshtml partial.</summary>
-public sealed record SetupCardModel(
-    string  SetupId,   // lowercase: "a", "b", "c", "d"
-    string  Icon,      // Bootstrap icon class, e.g. "bi-triangle-fill"
-    string  Title,     // Display title, e.g. "A — Pullback"
-    int     MaxTrades,
-    string? CardId     // optional HTML id on the outer card div
-);
-
 /// <summary>
 /// View model passed to _SetupConfigSection.cshtml partial.
 /// Carries both the base config (all common fields) and the subclass-specific

@@ -1,0 +1,149 @@
+/* CRV Trading — shared components for rebuilt pages. Colors come only from tokens.css,
+   so every component works in dark and light. Prefix c- keeps them apart from legacy CSS. */
+
+/* ── Page head ───────────────────────────────────────────── */
+.c-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: 1rem; }
+.c-head h1 { margin: 0; font: 700 1.6rem/1.1 var(--font-display); }
+.c-head .c-sub { color: var(--c-muted); font: .8rem var(--font-mono); }
+.c-head .c-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: .5rem; }
+@media (max-width: 767.98px) { .c-head h1 { font-size: 1.35rem; } .c-head .c-acts { margin-left: 0; width: 100%; } }
+
+.c-stack { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.c-cols { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+@media (max-width: 1199.98px) { .c-cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Panel ───────────────────────────────────────────────── */
+.c-panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--radius); min-width: 0; }
+.c-panel-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap;
+             padding: .65rem .9rem; border-bottom: 1px solid var(--c-line); }
+.c-panel-h h2 { margin: 0; font: 600 .72rem var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--c-muted); }
+.c-panel-h .c-right { font: .75rem var(--font-mono); color: var(--c-muted); }
+.c-panel-b { padding: .75rem .9rem; }
+.c-panel-b > p { margin: 0 0 .5rem; }
+.c-panel-b > p:last-child { margin-bottom: 0; }
+.c-plain { font-size: .9rem; line-height: 1.55; max-width: 72ch; }
+
+/* ── Tiles ───────────────────────────────────────────────── */
+.c-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+@media (max-width: 767.98px) { .c-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; } }
+.c-tile { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--radius); padding: .75rem .9rem; display: grid; gap: .2rem; min-width: 0; }
+.c-tile small { font: 500 .66rem var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--c-muted); }
+.c-tile b { font: 600 1.45rem/1.1 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (max-width: 767.98px) { .c-tile b { font-size: 1.2rem; } }
+
+/* ── Numbers, badges, notes ──────────────────────────────── */
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.c-up   { color: var(--c-up) !important; }
+.c-down { color: var(--c-down) !important; }
+.c-mut  { color: var(--c-muted) !important; }
+.c-acc  { color: var(--c-accent) !important; }
+.c-badge { display: inline-flex; align-items: center; gap: .3rem; font: 600 .68rem/1 var(--font-mono); letter-spacing: .04em;
+           padding: .3rem .45rem; border-radius: 6px; white-space: nowrap; background: var(--c-raise); color: var(--c-muted); }
+.c-badge.ok   { background: var(--c-up-soft);     color: var(--c-up); }
+.c-badge.bad  { background: var(--c-down-soft);   color: var(--c-down); }
+.c-badge.warn { background: var(--c-accent-soft); color: var(--c-accent); }
+.c-badge.info { background: var(--c-paper-soft);  color: var(--c-paper); }
+.c-note { display: flex; gap: .55rem; align-items: flex-start; border-radius: var(--radius); padding: .6rem .8rem; font-size: .875rem;
+          background: var(--c-paper-soft); border: 1px solid var(--c-paper); }
+.c-note.warn { background: var(--c-accent-soft); border-color: var(--c-accent); }
+.c-note.bad  { background: var(--c-down-soft);   border-color: var(--c-down); }
+.c-note i { margin-top: .1rem; }
+
+/* ── Chips & segmented control (links) ───────────────────── */
+.c-chips { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.c-seg { display: inline-flex; background: var(--c-raise); border: 1px solid var(--c-line); border-radius: var(--radius); padding: 3px; }
+.c-seg a, .c-seg button { border: 0; background: transparent; color: var(--c-muted); text-decoration: none; font: 600 .82rem var(--font-body);
+                          padding: .38rem .85rem; border-radius: var(--radius-sm); white-space: nowrap; }
+.c-seg a:hover, .c-seg button:hover { color: var(--c-text); }
+.c-seg .active { background: var(--c-surface); color: var(--c-text); box-shadow: 0 1px 0 var(--c-line); }
+.c-select { width: auto; min-width: 0; }
+
+/* ── Key/value rows ──────────────────────────────────────── */
+.c-kv { display: flex; justify-content: space-between; gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--c-line); font-size: .875rem; }
+.c-kv:first-child { border-top: 0; }
+.c-kv > span:first-child { color: var(--c-muted); }
+.c-kv > span:last-child { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ── Tables ──────────────────────────────────────────────── */
+.c-table-wrap { overflow-x: auto; }
+.c-table { width: 100%; border-collapse: collapse; font-size: .82rem; color: var(--c-text); }
+.c-table th { position: sticky; top: 0; z-index: 1; background: var(--c-surface); text-align: left; font: 600 .66rem var(--font-mono);
+              text-transform: uppercase; letter-spacing: .06em; color: var(--c-muted); padding: .55rem .6rem; border-bottom: 1px solid var(--c-line); white-space: nowrap; }
+.c-table td { padding: .5rem .6rem; border-bottom: 1px solid var(--c-line); white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.c-table tr:last-child td { border-bottom: 0; }
+.c-table tbody tr:hover td { background: var(--c-raise); }
+.c-table .r { text-align: right; }
+.c-table .t { font-family: var(--font-body); }
+.c-table tr.hl td { background: var(--c-accent-soft); }
+.c-scroll { max-height: 520px; overflow: auto; }
+
+.c-side { font: 700 .62rem var(--font-mono); padding: .15rem .35rem; border-radius: 4px; }
+.c-side.long  { background: var(--c-up-soft);   color: var(--c-up); }
+.c-side.short { background: var(--c-down-soft); color: var(--c-down); }
+
+/* ── Trade list: table on desktop, cards on phones ───────── */
+.c-trades-cards { display: none; }
+@media (max-width: 767.98px) {
+    .c-trades-table { display: none; }
+    .c-trades-cards { display: grid; }
+}
+.c-tcard { border-top: 1px solid var(--c-line); }
+.c-tcard:first-child { border-top: 0; }
+.c-tcard summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: .7rem;
+                   align-items: center; padding: .65rem .8rem .65rem 0; min-height: 52px; }
+.c-tcard summary::-webkit-details-marker { display: none; }
+.c-tcard .s { align-self: stretch; border-radius: 0 2px 2px 0; background: var(--c-muted); }
+.c-tcard.win .s  { background: var(--c-up); }
+.c-tcard.loss .s { background: var(--c-down); }
+.c-tcard b { display: block; font-size: .875rem; font-weight: 600; }
+.c-tcard small { display: block; font: .72rem var(--font-mono); color: var(--c-muted); }
+.c-tcard .rr { text-align: right; font: 600 .875rem var(--font-mono); }
+.c-tcard .rr small { font-weight: 400; }
+.c-tcard .d { display: grid; grid-template-columns: 1fr 1fr; gap: .1rem 1rem; padding: 0 .9rem .7rem 1rem; font-size: .8rem; }
+.c-tcard .d > div { display: flex; justify-content: space-between; gap: .5rem; padding-top: .35rem; }
+.c-tcard .d span { color: var(--c-muted); }
+.c-tcard .d b { display: inline; font: 500 .8rem var(--font-mono); }
+
+/* ── Breakdown rows (per setup) ──────────────────────────── */
+.c-break details { border-top: 1px solid var(--c-line); }
+.c-break details:first-child { border-top: 0; }
+.c-break summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 4px minmax(0, 1fr) auto auto; gap: .7rem;
+                   align-items: center; padding: .6rem .8rem .6rem 0; }
+.c-break summary::-webkit-details-marker { display: none; }
+.c-break summary .s { align-self: stretch; background: var(--c-muted); border-radius: 0 2px 2px 0; }
+.c-break summary .s.up { background: var(--c-up); } .c-break summary .s.down { background: var(--c-down); }
+.c-break summary b { display: block; font-size: .875rem; }
+.c-break summary small { display: block; font: .72rem var(--font-mono); color: var(--c-muted); }
+.c-break summary .rr { text-align: right; font: 600 .875rem var(--font-mono); }
+.c-break summary .rr small { font-weight: 400; }
+.c-break summary .chev { color: var(--c-muted); transition: transform .15s; }
+.c-break details[open] .chev { transform: rotate(90deg); }
+.c-break .c-panel-b { padding-top: 0; }
+
+/* ── Chart ───────────────────────────────────────────────── */
+.c-chart { position: relative; height: 240px; padding: .5rem .75rem .75rem; }
+@media (max-width: 767.98px) { .c-chart { height: 180px; } }
+
+/* ── Empty state ─────────────────────────────────────────── */
+.c-empty { text-align: center; padding: 2.5rem 1rem; color: var(--c-muted); }
+.c-empty i { font-size: 2.2rem; color: var(--c-accent); }
+.c-empty b { display: block; color: var(--c-text); margin: .6rem 0 .2rem; font-weight: 600; }
+
+/* ── Sheet (Bootstrap modal that becomes a bottom sheet on phones) ── */
+.c-sheet .modal-content { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 14px; color: var(--c-text); }
+.c-sheet .modal-header, .c-sheet .modal-footer { border-color: var(--c-line); }
+.c-sheet .modal-title { font: 700 1.25rem var(--font-display); }
+@media (max-width: 575.98px) {
+    .c-sheet .modal-dialog { margin: 0; position: fixed; left: 0; right: 0; bottom: 0; max-width: none; min-height: 0; }
+    .c-sheet .modal-content { border-radius: 18px 18px 0 0; max-height: 92vh; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .c-sheet .modal-body { overflow-y: auto; }
+    .c-sheet.fade .modal-dialog { transform: translateY(24px); }
+    .c-sheet.show .modal-dialog { transform: none; }
+}
+
+/* Form controls on rebuilt pages: token colors instead of the legacy !important dark ones. */
+.c-form .form-label { font-size: .78rem; color: var(--c-muted); margin-bottom: .25rem; }
+.c-form .form-text { color: var(--c-muted); font-size: .74rem; }
+.c-busy { display: none; }
+form.is-busy .c-busy { display: inline-block; }
+form.is-busy .c-idle { display: none; }
