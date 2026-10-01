@@ -1,0 +1,200 @@
+@page "/trading/positions"
+@model CRV.Web.Pages.Trading.PositionsModel
+@{
+    ViewData["Title"] = "Positions & orders";
+    ViewData["Page"]  = "positions";
+    ViewData["LightReady"] = true;
+}
+
+<div class="c-head">
+    <h1>Positions &amp; orders</h1>
+    <span class="c-sub" id="pb-sub">Loading…</span>
+    <div class="c-acts">
+        <a class="btn btn-sm btn-warning" href="/trading/manual"><i class="bi bi-plus-lg me-1"></i>New order</a>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('flatten-open').click()"><i class="bi bi-x-octagon me-1"></i>Flatten all</button>
+        <a class="btn btn-sm btn-link" href="/trading/orders">Order history</a>
+    </div>
+</div>
+
+<div id="pb-notes"></div>
+
+<div class="c-stack">
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Engine brackets</h2><span class="c-right" id="pb-groups-count"></span></div>
+        <div class="pb-list" id="pb-groups"><div class="c-empty py-4">Loading…</div></div>
+    </section>
+
+    <div class="pb-cols">
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Broker positions</h2><span class="c-right" id="pb-pos-count"></span></div>
+            <div class="pb-list" id="pb-positions"><div class="c-empty py-4">Loading…</div></div>
+        </section>
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Working orders</h2><span class="c-right" id="pb-orders-count"></span></div>
+            <div class="pb-list" id="pb-orders"><div class="c-empty py-4">Loading…</div></div>
+        </section>
+    </div>
+</div>
+
+<p class="c-mut small mt-3">
+    Refreshes every 5 seconds · <span id="pb-updated">—</span> ·
+    <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="pb-refresh">Refresh now</button>
+</p>
+
+@section Scripts {
+<script>
+(function () {
+    'use strict';
+    const $ = id => document.getElementById(id);
+    const esc = CRV.esc;
+    const num = (v, d = 2) => v == null ? '—' : Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const money = v => v == null ? '—' : (v >= 0 ? '+$' : '−$') + Math.round(Math.abs(v)).toLocaleString('en-US');
+    const tone = v => v > 0 ? 'c-up' : v < 0 ? 'c-down' : '';
+    let book = null, timer = 0;
+
+    function legLadder(g) {
+        const legs = (g.legs || []).slice().sort((a, b) => (b.price || 0) - (a.price || 0));
+        if (!legs.length) return '';
+        return `<div class="pb-legs">` + legs.map(l => {
+            const kind = l.type === 'Stop' ? 'c-down' : l.type === 'Entry' ? '' : 'c-up';
+            return `<div class="pb-leg"><span class="${kind}">${esc(l.type)}</span><span class="num">${num(l.price)}</span>` +
+                   `<span class="num c-mut">${esc(l.qty)} ct</span><span class="c-badge ${l.status === 'Filled' ? 'ok' : l.status === 'Working' ? 'warn' : ''}">${esc(l.status)}</span></div>`;
+        }).join('') + `</div>`;
+    }
+
+    function renderGroups(groups) {
+        $('pb-groups-count').textContent = groups.length ? groups.length + ' open' : '';
+        if (!groups.length) {
+            $('pb-groups').innerHTML = `<div class="c-empty py-4"><b>No engine brackets open</b><span>Brackets the engine or the order ticket places show up here.</span></div>`;
+            return;
+        }
+        $('pb-groups').innerHTML = groups.map((g, i) => {
+            const long = g.direction === 'Long';
+            const pending = g.status === 'Pending';
+            const canBe = !pending && g.entry != null;
+            return `<article class="pb-item ${long ? 'long' : 'short'}">
+                <div class="pb-item-h">
+                    <b>${esc(g.setup)}</b><span class="c-mut num">${esc(g.ticker)}</span>
+                    <span class="c-side ${long ? 'long' : 'short'}">${long ? 'LONG' : 'SHORT'} ${esc(g.contracts)}</span>
+                    <span class="c-badge ${pending ? 'warn' : 'ok'}">${pending ? 'ENTRY WORKING' : esc(g.status.toUpperCase())}</span>
+                    <span class="ms-auto num ${tone(g.unrealized)}"><b>${money(g.unrealized)}</b></span>
+                </div>
+                <div class="pb-meta num c-mut">entry ${num(g.entry)} · last ${num(g.last)}</div>
+                ${legLadder(g)}
+                <div class="pb-acts">
+                    ${canBe ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-act="be" data-i="${i}">Move stop to break-even</button>` : ''}
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-act="exit" data-i="${i}">${pending ? 'Cancel entry' : 'Exit at market'}</button>
+                </div>
+            </article>`;
+        }).join('');
+    }
+
+    function renderPositions(b) {
+        const list = b.positions || [];
+        $('pb-pos-count').textContent = b.hasBrokerAccount ? (list.length ? list.length + ' open' : '') : '';
+        if (!b.hasBrokerAccount) {
+            $('pb-positions').innerHTML = `<div class="c-empty py-4"><b>${esc(b.broker)} has no separate account</b><span>Its positions are the engine brackets above.</span></div>`;
+            return;
+        }
+        if (!list.length) { $('pb-positions').innerHTML = `<div class="c-empty py-4"><b>No positions</b></div>`; return; }
+        $('pb-positions').innerHTML = list.map((p, i) => {
+            const long = p.direction === 'LONG';
+            const action = !p.canClose ? `<span class="c-mut small">${p.assetType === 'OPTION' ? 'Close in Options' : 'Not a futures position'}</span>`
+                : p.trackedByEngine ? `<span class="c-mut small">Managed by the engine</span>`
+                : `<button type="button" class="btn btn-sm btn-outline-danger" data-act="close" data-i="${i}">Close at market</button>`;
+            return `<div class="pb-row">
+                <span><b class="num">${esc(p.description || p.symbol)}</b><small class="c-mut d-block">${long ? 'Long' : 'Short'} ${esc(p.quantity)} · avg ${num(p.average)}</small></span>
+                <span class="num ${tone(p.unrealized)}">${money(p.unrealized)}</span>
+                <span class="pb-row-act">${action}</span>
+            </div>`;
+        }).join('');
+    }
+
+    function renderOrders(b) {
+        const list = b.orders || [];
+        $('pb-orders-count').textContent = list.length ? list.length + ' working' : '';
+        if (!b.hasBrokerAccount) {
+            $('pb-orders').innerHTML = `<div class="c-empty py-4"><b>Shown with each bracket above</b></div>`;
+            return;
+        }
+        if (!list.length) { $('pb-orders').innerHTML = `<div class="c-empty py-4"><b>No working orders</b></div>`; return; }
+        $('pb-orders').innerHTML = list.map((o, i) => `<div class="pb-row">
+                <span><b class="num">${esc(o.action)} ${esc(o.quantity)} ${esc(o.symbol)}</b><small class="c-mut d-block">${esc(o.type)}${o.limit != null ? ' ' + num(o.limit) : ''}${o.stop != null ? ' stop ' + num(o.stop) : ''} · ${esc(o.placed)}</small></span>
+                <span class="c-badge warn">${esc(o.status)}</span>
+                <span class="pb-row-act"><button type="button" class="btn btn-sm btn-outline-secondary" data-act="cancel" data-i="${i}">Cancel</button></span>
+            </div>`).join('');
+    }
+
+    function render(b) {
+        book = b;
+        $('pb-sub').innerHTML = `<span class="crv-acct ${b.realMoney ? '' : 'sim'}">${esc(b.account)} · ${esc(b.broker)}</span> · engine ${b.engineRunning ? 'running' : 'stopped'}`;
+        $('pb-notes').innerHTML = b.problem ? `<div class="c-note bad mb-3"><i class="bi bi-exclamation-octagon"></i><span>${esc(b.problem)}</span></div>` : '';
+        renderGroups(b.groups || []);
+        renderPositions(b);
+        renderOrders(b);
+        $('pb-updated').textContent = 'updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+    }
+
+    async function load() {
+        clearTimeout(timer);
+        try {
+            const r = await fetch('/api/orders/book', { headers: { Accept: 'application/json' } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            render(await r.json());
+        } catch (err) {
+            $('pb-notes').innerHTML = `<div class="c-note bad mb-3"><i class="bi bi-exclamation-octagon"></i><span>Couldn't load positions (${esc(err.message)}). Retrying.</span></div>`;
+        }
+        timer = setTimeout(() => { if (!document.hidden) load(); else timer = setTimeout(load, 5000); }, 5000);
+    }
+
+    async function act(kind, i) {
+        if (!book) return;
+        const acct = `<p class="mb-2"><span class="crv-acct ${book.realMoney ? '' : 'sim'}">${esc(book.account)} · ${esc(book.broker)}</span></p>`;
+        let ask, call;
+        if (kind === 'be') {
+            const g = book.groups[i];
+            ask = { title: 'Move stop to break-even?', ok: 'Move stop', okClass: 'btn-warning',
+                    html: acct + `<p class="mb-0">Moves the stop on <strong>${esc(g.setup)}</strong> ${esc(g.ticker)} to the entry price, <span class="num">${num(g.entry)}</span>.</p>` };
+            call = () => CRV.post('/api/orders/groups/break-even', { setupId: g.setup, groupOrderId: g.id });
+        } else if (kind === 'exit') {
+            const g = book.groups[i];
+            const pending = g.status === 'Pending';
+            ask = { title: pending ? 'Cancel this entry?' : 'Exit at market?', ok: pending ? 'Cancel entry' : 'Exit at market', okClass: 'btn-danger',
+                    html: acct + (pending
+                        ? `<p class="mb-0">Cancels the unfilled entry for <strong>${esc(g.setup)}</strong> ${esc(g.ticker)} and its bracket orders.</p>`
+                        : `<p class="mb-0">Closes <strong>${esc(g.setup)}</strong>: ${esc(g.direction.toLowerCase())} ${esc(g.contracts)} ${esc(g.ticker)} at market.</p>`) };
+            call = () => CRV.post('/api/orders/groups/exit', { setupId: g.setup, groupOrderId: g.id });
+        } else if (kind === 'close') {
+            const p = book.positions[i];
+            const long = p.direction === 'LONG';
+            ask = { title: 'Close at market?', ok: 'Close position', okClass: 'btn-danger',
+                    html: acct + `<p class="mb-0">Cancels the working orders on <strong>${esc(p.symbol)}</strong>, then ${long ? 'sells' : 'buys'} ${esc(p.quantity)} at market to close it.</p>` };
+            call = () => CRV.post('/api/orders/positions/close', { symbol: p.symbol, quantity: Math.round(p.quantity), isLong: long });
+        } else if (kind === 'cancel') {
+            const o = book.orders[i];
+            ask = { title: 'Cancel this order?', ok: 'Cancel order', okClass: 'btn-danger',
+                    html: acct + `<p class="mb-0">${esc(o.action)} ${esc(o.quantity)} ${esc(o.symbol)} ${esc(o.type)}${o.limit != null ? ' ' + num(o.limit) : ''}${o.stop != null ? ' stop ' + num(o.stop) : ''}.</p>` };
+            call = () => CRV.post('/api/orders/cancel', { orderId: o.id });
+        } else return;
+
+        if (!(await CRV.confirm(ask))) return;
+        try {
+            const res = await call();
+            CRV.toast(res?.message || (res?.messages || []).join(' · ') || 'Sent.');
+        } catch (err) {
+            CRV.toast('Not done: ' + err.message);
+        }
+        load();
+    }
+
+    document.addEventListener('click', e => {
+        const b = e.target.closest('[data-act]');
+        if (b) act(b.dataset.act, +b.dataset.i);
+    });
+    $('pb-refresh').addEventListener('click', load);
+    document.addEventListener('crv:book-changed', load);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+    load();
+})();
+</script>
+}
