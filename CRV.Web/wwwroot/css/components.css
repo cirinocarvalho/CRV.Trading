@@ -381,3 +381,8 @@ form.is-busy .c-idle { display: none; }
 #confirm-modal .table-warning { background: var(--c-accent-soft); }
 #confirm-modal .table-danger  { background: var(--c-down-soft); }
 #confirm-modal .table-info    { background: var(--c-paper-soft); }
+
+/* ── Option positions ──────────────────────────────────────── */
+.op-group + .op-group { margin-top: 1rem; }
+.op-group-h { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+.op-table td { vertical-align: middle; }

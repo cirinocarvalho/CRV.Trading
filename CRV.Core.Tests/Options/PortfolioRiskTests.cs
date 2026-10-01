@@ -26,6 +26,24 @@ public class PortfolioRiskTests
     }
 
     [Fact]
+    public void EachPositionsDollarGreeksAddUpToThePortfolio()
+    {
+        OptionPositionLeg[] legs =
+        [
+            Leg(OptionRight.Call, true,  700m, qty: 2, delta: 0.55m, theta: -0.08m, vega: 0.12m),
+            Leg(OptionRight.Call, false, 710m, qty: 2, delta: 0.40m, theta: -0.06m, vega: 0.10m),
+            Leg(OptionRight.Put,  false, 680m, qty: 1, delta: -0.30m, theta: -0.05m, vega: 0.09m, exp: Oct),
+        ];
+        var r = PortfolioRiskCalculator.Aggregate(legs);
+
+        Assert.Equal(r.NetDeltaDollars, legs.Sum(l => PortfolioRiskCalculator.Dollars(l, l.Delta)));
+        Assert.Equal(r.NetThetaDollars, legs.Sum(l => PortfolioRiskCalculator.Dollars(l, l.Theta)));
+        Assert.Equal(r.NetVegaDollars,  legs.Sum(l => PortfolioRiskCalculator.Dollars(l, l.Vega)));
+        // A short put's negative delta becomes positive dollar delta.
+        Assert.Equal(30m, PortfolioRiskCalculator.Dollars(legs[2], legs[2].Delta));
+    }
+
+    [Fact]
     public void GreeksAreReportedInDollars()
     {
         // delta 0.5 on 2 contracts of 100 = $100 per point of underlying

@@ -50,13 +50,19 @@ public sealed record PortfolioRisk(
 /// </summary>
 public static class PortfolioRiskCalculator
 {
+    /// <summary>
+    /// One position's greek in dollars: per-contract greek × contracts × multiplier, negative for
+    /// a short. The portfolio figures are the sum of these, so a position's row and the totals agree.
+    /// </summary>
+    public static decimal Dollars(OptionPositionLeg leg, decimal greek)
+        => (leg.IsLong ? 1m : -1m) * greek * leg.Quantity * leg.Multiplier;
+
     public static PortfolioRisk Aggregate(IReadOnlyList<OptionPositionLeg> legs)
     {
         if (legs.Count == 0)
             return new PortfolioRisk(0m, 0m, 0m, 0m, 0m, [], 0);
 
-        decimal Sum(Func<OptionPositionLeg, decimal> greek)
-            => legs.Sum(l => (l.IsLong ? 1m : -1m) * greek(l) * l.Quantity * l.Multiplier);
+        decimal Sum(Func<OptionPositionLeg, decimal> greek) => legs.Sum(l => Dollars(l, greek(l)));
 
         decimal longPremium = legs
             .Where(l => l.IsLong)

@@ -99,7 +99,7 @@
         if (!list.length) { $('pb-positions').innerHTML = `<div class="c-empty py-4"><b>No positions</b></div>`; return; }
         $('pb-positions').innerHTML = list.map((p, i) => {
             const long = p.direction === 'LONG';
-            const action = !p.canClose ? `<span class="c-mut small">${p.assetType === 'OPTION' ? 'Close in Options' : 'Not a futures position'}</span>`
+            const action = !p.canClose ? `<span class="c-mut small">${p.assetType === 'OPTION' ? '<a href="/options/positions">Close in Options</a>' : 'Not a futures position'}</span>`
                 : p.trackedByEngine ? `<span class="c-mut small">Managed by the engine</span>`
                 : `<button type="button" class="btn btn-sm btn-outline-danger" data-act="close" data-i="${i}">Close at market</button>`;
             return `<div class="pb-row">

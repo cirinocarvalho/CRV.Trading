@@ -702,21 +702,52 @@ public class ExplorerModel : PageModel
         try
         {
             var all = await ManualBrokerOps.GetPositionsSchwabAsync(_schwab, SchwabAccountId, _httpFactory);
-            var opts = all.Where(p => string.Equals(p.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase))
-                          .Select(p => new
-                          {
-                              symbol      = p.Symbol,
-                              description = p.Description,
-                              direction   = p.Direction,
-                              quantity    = p.Quantity,
-                              avgPrice    = p.AveragePrice,
-                              costBasis   = p.CostBasis,
-                              unrealized  = p.UnrealizedPnl,
-                              dayPnl      = p.DayPnl,
-                              multiplier  = p.Multiplier,
-                          })
-                          .ToList();
-            return new JsonResult(new { positions = opts });
+            var options = all.Where(p => string.Equals(p.AssetType, "OPTION", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            // Marks and greeks come from a fresh quote. Without one the positions still show;
+            // only the market-dependent columns are blank.
+            Dictionary<string, SchwabOptionChain.OptionQuote> quotes = new();
+            bool quotesFailed = false;
+            if (options.Count > 0)
+            {
+                try { quotes = await SchwabOptionChain.FetchQuotesAsync(_schwab, options.Select(p => p.Symbol).ToList(), _httpFactory, ct); }
+                catch (Exception ex) { quotesFailed = true; _log.LogWarning(ex, "Option position quotes failed"); }
+            }
+
+            var today = DateTime.Today;
+            var rows = options.Select(p =>
+            {
+                quotes.TryGetValue(p.Symbol, out var q);
+                OptionPositionLeg? leg = q is null ? null : new OptionPositionLeg(
+                    Symbol: p.Symbol, Underlying: string.IsNullOrEmpty(q.Underlying) ? p.Symbol[..6].Trim() : q.Underlying,
+                    Right: q.Right, Strike: q.Strike, Expiration: q.Expiration,
+                    IsLong: string.Equals(p.Direction, "LONG", StringComparison.OrdinalIgnoreCase),
+                    Quantity: (int)Math.Abs(p.Quantity), Multiplier: q.Multiplier, Mid: q.Mid,
+                    Delta: q.Delta, Gamma: q.Gamma, Theta: q.Theta, Vega: q.Vega);
+                return new
+                {
+                    symbol      = p.Symbol,
+                    description = p.Description,
+                    direction   = p.Direction,
+                    quantity    = p.Quantity,
+                    avgPrice    = p.AveragePrice,
+                    costBasis   = p.CostBasis,
+                    unrealized  = p.UnrealizedPnl,
+                    dayPnl      = p.DayPnl,
+                    multiplier  = p.Multiplier,
+                    underlying  = leg?.Underlying ?? p.Symbol[..Math.Min(6, p.Symbol.Length)].Trim(),
+                    right       = q?.Right.ToString(),
+                    strike      = q?.Strike,
+                    expiration  = q is null || q.Expiration == default ? null : q.Expiration.ToString("yyyy-MM-dd"),
+                    dte         = q is null || q.Expiration == default ? (int?)null : (q.Expiration.Date - today).Days,
+                    mark        = q?.Mid,
+                    american    = q?.IsAmerican,
+                    deltaDollars = leg is null ? (decimal?)null : Math.Round(PortfolioRiskCalculator.Dollars(leg, leg.Delta), 2),
+                    thetaDollars = leg is null ? (decimal?)null : Math.Round(PortfolioRiskCalculator.Dollars(leg, leg.Theta), 2),
+                    vegaDollars  = leg is null ? (decimal?)null : Math.Round(PortfolioRiskCalculator.Dollars(leg, leg.Vega), 2),
+                };
+            }).ToList();
+            return new JsonResult(new { positions = rows, quotesFailed });
         }
         catch (Exception ex) { return Fail(ex, "positions"); }
     }
