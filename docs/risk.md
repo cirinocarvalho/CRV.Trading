@@ -121,7 +121,7 @@ It used to default to true. In the live config every entry carried `"Enabled": f
 except one that omitted the key — so the only setup trading was the one nobody had
 switched on, and its record was a single trade for −$277.80.
 
-`/settings/live` warns when nothing in the basket is armed, because a config with
+The Strategies page (`/setup/strategies`) warns when nothing in the basket is armed, because a config with
 twelve entries and none enabled looks busy and trades nothing.
 
 ## Still missing

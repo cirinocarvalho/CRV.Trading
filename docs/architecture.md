@@ -189,7 +189,9 @@ handle transport only. See [Options](options.md).
 | `/validation` | In/out-of-sample split, ORB duration sweep, filter ablation — see [validation.md](validation.md) |
 | `/setup/strategies` | Strategies: the basket setups with on/off switches; `/setup/strategies/{id}` edits one setup |
 | `/setup/brokers` | Brokers: Schwab / TradeStation / Tradovate logins, market-data and order brokers, commission, replay |
-| `/settings/live` | Engine settings: instrument, sessions, risk limits and filters |
+| `/setup/risk` | Sessions & risk: daily loss limit, portfolio cap, sessions, instrument and bar size, chop and false-breakout filters (setups A–D when no strategy exists) |
+| `/setup/alerts` | Alerts: email on/off, recipients, which events, instant or batched, test email |
+| `/settings/live` | Redirects to Sessions & risk |
 | `/options/explorer` | Options chain, structure builder, order ticket, positions and working orders — see [Options](options.md) |
 | `/auth/schwab`, `/auth/tradestation` | OAuth2 redirect URIs: finish the login, then return to Brokers (`/auth/tradovate` redirects to Brokers) |
 

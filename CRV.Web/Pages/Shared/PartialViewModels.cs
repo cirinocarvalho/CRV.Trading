@@ -38,3 +38,6 @@ public sealed record SetupConfigSectionModel(
     // UseCloseConfirmation: only A
     bool? UseCloseConfirmation
 );
+
+/// <summary>Model for _LegacySetups.cshtml: setups A–D of one session.</summary>
+public sealed record LegacySetupsModel(int SessionIndex, CRV.Core.Models.SessionConfig Session);
