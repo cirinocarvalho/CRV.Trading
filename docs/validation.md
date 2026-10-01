@@ -83,8 +83,10 @@ session's range is inert — that setup does not read the opening range at all.
 
 ## Filter ablation
 
-The engine stacks VWAP, ATR, chop, EMA and ORB-close filters on the raw opening-range
-break, and not one had been measured against that break alone.
+The engine stacks VWAP, chop, EMA and ORB-close filters on the raw opening-range
+break, and not one had been measured against that break alone. (The ORB/ATR ratio
+setting, `AtrFilterPct`, is not read by the engine, so it is not in the study: toggling
+it would always show no effect.)
 
 `AblateAsync` runs the baseline with **every** filter off, then the baseline plus each
 filter on its own — so what is measured is that filter's own contribution, not its

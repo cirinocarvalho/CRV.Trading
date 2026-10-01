@@ -1,0 +1,272 @@
+@page "/setup/risk"
+@model CRV.Web.Pages.Setup.RiskModel
+@using CRV.Core.Models
+@using CRV.Web.Pages
+@using System.Globalization
+@{
+    ViewData["Title"] = "Sessions & risk";
+    ViewData["Page"]  = "risk";
+    ViewData["LightReady"] = true;
+
+    var c = Model.Config;
+    var inv = CultureInfo.InvariantCulture;
+    string N(decimal v) => v.ToString("0.#####", inv);
+
+    void Num(string name, string label, string value, string? help = null, string step = "any", string? unit = null, string? min = "0")
+    {
+        <div class="st-field">
+            <label class="form-label" for="@name">@label</label>
+            <div class="st-input">
+                <input class="form-control num" id="@name" name="@name" type="number" step="@step" min="@min" inputmode="decimal" value="@value" />
+                @if (unit != null) { <span class="c-mut">@unit</span> }
+            </div>
+            @if (help != null) { <div class="form-text">@help</div> }
+        </div>
+    }
+    void Check(string name, string label, bool on, string? help = null)
+    {
+        <label class="c-switch st-field">
+            <span>@label@if (help != null) { <small class="d-block c-mut">@help</small> }</span>
+            <input class="form-check-input" type="checkbox" role="switch" name="@name" value="true" @(on ? "checked" : "") />
+            <input type="hidden" name="@name" value="false" />
+        </label>
+    }
+    string T(TimeOnly t) => t.ToString("HH:mm");
+}
+
+<div class="c-head">
+    <h1>Sessions &amp; risk</h1>
+    <span class="c-sub">Loss limits, trading sessions, instrument and market filters</span>
+</div>
+
+@if (Model.Message != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Message</span></div> }
+@if (Model.Error != null) { <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.Error</span></div> }
+@if (Model.Warnings.Count > 0)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i><span>Saved, but check these settings: @string.Join(" ", Model.Warnings)</span></div>
+}
+
+<form method="post" id="risk-form" class="c-form d-grid gap-3" data-exec-broker="@c.EffectiveExecBroker">
+    <input type="hidden" name="SessionsJson" id="sessionsJson" />
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Daily limits</h2></div>
+        <div class="c-panel-b st-grid">
+            @{ Check("Config.UseDailyLossLimit", "Stop trading after a daily loss", c.UseDailyLossLimit,
+                     "No new trades for the rest of the trading day once the loss below is reached."); }
+            @{ Num("Config.MaxDailyLoss", "Daily loss limit", N(c.MaxDailyLoss), unit: "$", step: "50"); }
+            <div class="st-field">
+                <label class="form-label" for="risk-dlm">Measure the loss</label>
+                <select class="form-select" id="risk-dlm" name="Config.DailyLossMode">
+                    <option value="Floor" selected="@(c.DailyLossMode == DailyLossMode.Floor ? "selected" : null)">From the start of the day</option>
+                    <option value="Peak"  selected="@(c.DailyLossMode == DailyLossMode.Peak  ? "selected" : null)">From the day's high point</option>
+                </select>
+                <div class="form-text">"From the high point" also stops a good day that gives back this much.</div>
+            </div>
+            @{ Num("Config.MaxPortfolioRisk", "Most risk open at once", N(c.MaxPortfolioRisk),
+                   "Total dollars at risk across all open and working trades. 0 = no limit.", step: "50", unit: "$"); }
+        </div>
+    </section>
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Sessions</h2><span class="c-right">Times in @c.Timezone</span></div>
+        <div class="c-panel-b d-grid gap-3">
+            @for (int i = 0; i < Model.Sessions.Count; i++)
+            {
+                var s = Model.Sessions[i];
+                <div class="rk-session">
+                    <label class="c-switch">
+                        <span><b>@s.SessionId</b><small class="d-block c-mut">Trade this session</small></span>
+                        <input class="form-check-input session-field" type="checkbox" role="switch" data-session="@i" data-field="Enabled" @(s.Enabled ? "checked" : "") />
+                    </label>
+                    <div class="rk-times">
+                        <div class="st-field"><label class="form-label">Opening range</label>
+                            <div class="rk-range">
+                                <input type="time" class="form-control num session-field" aria-label="@s.SessionId opening range start" data-session="@i" data-field="OrbStart" value="@T(s.OrbStart)" />
+                                <span class="c-mut">to</span>
+                                <input type="time" class="form-control num session-field" aria-label="@s.SessionId opening range end" data-session="@i" data-field="OrbEnd" value="@T(s.OrbEnd)" />
+                            </div></div>
+                        <div class="st-field"><label class="form-label">Session hours</label>
+                            <div class="rk-range">
+                                <input type="time" class="form-control num session-field" aria-label="@s.SessionId start" data-session="@i" data-field="RthStart" value="@T(s.RthStart)" />
+                                <span class="c-mut">to</span>
+                                <input type="time" class="form-control num session-field" aria-label="@s.SessionId end" data-session="@i" data-field="RthEnd" value="@T(s.RthEnd)" />
+                            </div></div>
+                        <div class="st-field"><label class="form-label" for="exit-@i">Close open trades</label>
+                            <div class="st-input">
+                                <input type="number" id="exit-@i" class="form-control num session-field" min="0" step="1" data-session="@i" data-field="ExitMinutesBefore" value="@s.ExitMinutesBefore" />
+                                <span class="c-mut">min before the end</span>
+                            </div></div>
+                    </div>
+                    <details class="rk-more">
+                        <summary>Trend-day detection</summary>
+                        <div class="st-grid mt-2">
+                            <div class="st-field"><label class="form-label">Trend-day score needed</label>
+                                <input type="number" class="form-control num session-field" min="0" max="10" data-session="@i" data-field="SetupF.TrendDayThreshold" value="@s.SetupF.TrendDayThreshold" /></div>
+                            <div class="st-field"><label class="form-label">Shallow pullback, at most</label>
+                                <input type="number" class="form-control num session-field" min="0" max="1" step="0.01" data-session="@i" data-field="SetupF.ShallowPullbackMax" value="@N(s.SetupF.ShallowPullbackMax)" /></div>
+                            <div class="st-field"><label class="form-label">VWAP deviation bars</label>
+                                <input type="number" class="form-control num session-field" min="1" max="100" data-session="@i" data-field="SetupF.VwapDevPeriod" value="@s.SetupF.VwapDevPeriod" /></div>
+                        </div>
+                    </details>
+                    @if (!Model.BasketInUse)
+                    {
+                        <details class="rk-more" open>
+                            <summary>Setups A–D</summary>
+                            <p class="c-mut small my-2">The engine uses these because you have no opening-range strategies on <a href="/setup/strategies">Strategies</a>.</p>
+                            @await Html.PartialAsync("_LegacySetups", new LegacySetupsModel(i, s))
+                        </details>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Instrument and bars</h2></div>
+        <div class="c-panel-b st-grid">
+            <div class="st-field">
+                <label class="form-label" for="instr-select">Main instrument</label>
+                <select id="instr-select" class="form-select"></select>
+                <div class="form-text" id="instr-note"></div>
+                <input type="hidden" name="Config.Ticker"     id="instr-ticker" value="@c.Ticker" />
+                <input type="hidden" name="Config.PointValue" id="instr-pv"     value="@N(c.PointValue)" />
+                <!-- Commission lives on Brokers; it is re-filled here only when the instrument changes. -->
+                <input type="hidden" name="Config.CommissionPerSide" id="instr-commission" disabled />
+            </div>
+            @{ Num("Config.TickSize", "Tick size", N(c.TickSize)); }
+            <div class="st-field">
+                <label class="form-label" for="risk-tf">Bar size</label>
+                <select class="form-select" id="risk-tf" name="Config.ExecutionTFMinutes">
+                    @foreach (var m in new[] { 1, 2, 5, 10, 15, 20, 30, 60 })
+                    { <option value="@m" selected="@(c.ExecutionTFMinutes == m ? "selected" : null)">@m min</option> }
+                </select>
+                <div class="form-text">A strategy can use its own bar size.</div>
+            </div>
+            <div class="st-field">
+                <label class="form-label" for="risk-tz">Time zone</label>
+                <select class="form-select" id="risk-tz" name="Config.Timezone">
+                    @foreach (var (v, l) in new[] { ("America/New_York", "New York (ET)"), ("America/Chicago", "Chicago (CT)"), ("America/Los_Angeles", "Los Angeles (PT)"), ("UTC", "UTC") })
+                    { <option value="@v" selected="@(c.Timezone == v ? "selected" : null)">@l</option> }
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Market filters</h2></div>
+        <div class="c-panel-b d-grid gap-3">
+            <div class="st-grid">
+                @{ Check("Config.UseChopFilter", "Skip choppy markets", c.UseChopFilter,
+                         "Blocks new entries while the signs below say the market is going sideways. A strategy can opt out."); }
+                @{ Check("Config.AllowBothSameBar", "Allow two setups on the same bar", c.AllowBothSameBar,
+                         "Off: once one setup enters on a bar, others on that instrument wait for the next bar."); }
+            </div>
+            <details class="rk-more">
+                <summary>Chop filter details</summary>
+                <div class="st-grid mt-2">
+                    <div class="st-field">
+                        <label class="form-label" for="risk-cbm">Once chop is seen</label>
+                        <select class="form-select" id="risk-cbm" name="Config.ChopBlockMode">
+                            <option value="UntilClear" selected="@(c.ChopBlockMode == ChopBlockMode.UntilClear ? "selected" : null)">Block until it clears</option>
+                            <option value="RestOfDay"  selected="@(c.ChopBlockMode == ChopBlockMode.RestOfDay  ? "selected" : null)">Block for the rest of the day</option>
+                        </select>
+                    </div>
+                    @{ Num("Config.ChopMinVotes", "Signs needed (1–4)", c.ChopMinVotes.ToString(inv), step: "1", min: "1"); }
+                    @{ Check("Config.ChopUseRangeCompression", "Narrow opening range", c.ChopUseRangeCompression); }
+                    @{ Num("Config.ChopCompressionRatio", "Range ÷ ATR below", N(c.ChopCompressionRatio)); }
+                    @{ Check("Config.ChopUseFlatVwap", "Flat VWAP", c.ChopUseFlatVwap); }
+                    @{ Num("Config.ChopFlatSlopeThresholdPct", "VWAP slope below", N(c.ChopFlatSlopeThresholdPct), unit: "% of price"); }
+                    @{ Check("Config.ChopUseWeakDrive", "Weak opening drive", c.ChopUseWeakDrive); }
+                    @{ Num("Config.ChopMinDriveRatio", "Drive ratio below", N(c.ChopMinDriveRatio)); }
+                    @{ Check("Config.ChopUseLowVolume", "Low volume", c.ChopUseLowVolume); }
+                    @{ Num("Config.ChopMinVolumeRatio", "Volume ratio below", N(c.ChopMinVolumeRatio)); }
+                </div>
+            </details>
+            <details class="rk-more">
+                <summary>False-breakout detection</summary>
+                <p class="c-mut small my-2">Used by the fakeout strategies to decide a break of the range has failed.</p>
+                <div class="st-grid">
+                    @{ Num("Config.FBMaxTimeOutsideMinutesOrb", "Most time outside the opening range", c.FBMaxTimeOutsideMinutesOrb.ToString(inv), step: "1", unit: "min"); }
+                    @{ Num("Config.FBMaxTimeOutsideMinutesSR", "Most time outside a session range", c.FBMaxTimeOutsideMinutesSR.ToString(inv), step: "1", unit: "min"); }
+                    @{ Num("Config.FBMaxPenetrationPctOrb", "Deepest break of the opening range", N(c.FBMaxPenetrationPctOrb), step: "0.01", unit: "× range"); }
+                    @{ Num("Config.FBMaxPenetrationPctSR", "Deepest break of a session range", N(c.FBMaxPenetrationPctSR), step: "0.01", unit: "× range"); }
+                    @{ Num("Config.FBMinRejectionBodyPct", "Smallest rejection candle body", N(c.FBMinRejectionBodyPct), step: "0.01", unit: "× bar"); }
+                    @{ Num("Config.FBMaxTrendDayScore", "Highest trend-day score", c.FBMaxTrendDayScore.ToString(inv), step: "1"); }
+                </div>
+            </details>
+        </div>
+    </section>
+
+    <div class="rk-save">
+        @if (Model.EngineRunning) { <span class="c-mut small">The engine is running.</span> }
+        <button type="submit" class="btn btn-warning">Save</button>
+    </div>
+</form>
+
+@section Scripts {
+@if (!Model.BasketInUse) { <script src="~/js/crv-legacy-setups.js" asp-append-version="true"></script> }
+<script>
+(function () {
+    var form = document.getElementById('risk-form');
+
+    // ── Main instrument: shows the current front month; changing it fills ticker, point value,
+    // tick size and (only then) the commission for micro vs mini. ──
+    var sel = document.getElementById('instr-select');
+    var ticker = document.getElementById('instr-ticker'), pv = document.getElementById('instr-pv');
+    var tick = document.querySelector('input[name="Config.TickSize"]');
+    var comm = document.getElementById('instr-commission'), note = document.getElementById('instr-note');
+    sel.innerHTML = ['micro', 'mini'].map(function (g) {
+        return '<optgroup label="' + (g === 'micro' ? 'Micro' : 'E-mini') + '">' + CRV_INSTRUMENTS[g].map(function (i) {
+            return '<option value="' + i.code + '">' + CRV.esc(i.label) + '</option>';
+        }).join('') + '</optgroup>';
+    }).join('');
+    function show() { note.textContent = ticker.value + ' · $' + pv.value + ' a point'; }
+    var base = CRV_parseBase(ticker.value);
+    if (base) {
+        sel.value = base;
+        ticker.value = CRV_activeContract(base);   // the saved contract may have rolled
+    }
+    show();
+    sel.addEventListener('change', function () {
+        var info = CRV_findInstrument(sel.value);
+        if (!info) return;
+        ticker.value = CRV_activeContract(sel.value);
+        pv.value = info.pointValue;
+        tick.value = info.tickSize;
+        comm.value = CRV_getCommission(form.dataset.execBroker, sel.value);
+        comm.disabled = false;
+        show();
+    });
+
+    // ── A field that fails validation inside a closed section can't show its message, so
+    // Save would seem to do nothing: open the section (and an A–D detail row) first. ──
+    form.addEventListener('invalid', function (e) {
+        var d = e.target.closest('details');
+        if (d) d.open = true;
+        var row = e.target.closest('.setup-detail-row');
+        if (row && row.style.display === 'none') row.style.display = '';
+    }, true);
+
+    // ── Sessions: gather the session fields into SessionsJson on submit. Starts from the saved
+    // sessions, so anything not shown keeps its value. ──
+    var sessions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Sessions));
+    form.addEventListener('submit', function () {
+        document.querySelectorAll('.session-field').forEach(function (el) {
+            var idx = parseInt(el.dataset.session), field = el.dataset.field, val;
+            if (el.type === 'checkbox')    val = el.checked;
+            else if (el.type === 'number') val = (el.value === '' && el.dataset.nullable === 'true') ? null : (parseFloat(el.value) || 0);
+            else if (el.type === 'time')   val = el.value + ':00';
+            else                           val = el.value;
+            var parts = field.split('.'), obj = sessions[idx];
+            for (var p = 0; p < parts.length - 1; p++) {
+                if (obj[parts[p]] == null || typeof obj[parts[p]] !== 'object') obj[parts[p]] = {};
+                obj = obj[parts[p]];
+            }
+            obj[parts[parts.length - 1]] = val;
+        });
+        document.getElementById('sessionsJson').value = JSON.stringify(sessions);
+    });
+})();
+</script>
+}

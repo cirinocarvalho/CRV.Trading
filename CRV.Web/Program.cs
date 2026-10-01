@@ -309,6 +309,8 @@ app.MapGet("/trading/manual", () => Results.Redirect("/trading/positions?ticket=
 // The Tradovate login page is part of Brokers. (/auth/schwab and /auth/tradestation stay:
 // they are the OAuth redirect URIs registered with those brokers.)
 app.MapGet("/auth/tradovate", () => Results.Redirect("/setup/brokers"));
+// Engine settings was split into Sessions & risk, Brokers and Alerts.
+app.MapGet("/settings/live", () => Results.Redirect("/setup/risk"));
 
 app.MapRazorPages();
 app.MapControllers();

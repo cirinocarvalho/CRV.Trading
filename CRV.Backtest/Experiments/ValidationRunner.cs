@@ -126,7 +126,6 @@ public sealed class ValidationRunner
         ("vwap",     c => c.MapBasketEntries(e => e.Config.UseVwap = true)),
         ("chop",     c => { c.UseChopFilter = true; c.MapBasketEntries(e => e.Config.BypassChopFilter = false); }),
         ("ema",      c => c.MapBasketEntries(e => e.Config.UseEmaFilter = true)),
-        ("atr",      c => c.AtrFilterPct = 0.50m),
         ("orbclose", c => c.MapBasketEntries(e => e.Config.UseOrbClose = true)),
     };
 

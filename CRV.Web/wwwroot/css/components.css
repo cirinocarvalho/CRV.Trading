@@ -314,3 +314,22 @@ form.is-busy .c-idle { display: none; }
 .br-replay { border: 1px solid var(--c-line); border-radius: var(--radius); padding: .25rem .8rem .8rem; }
 .br-replay legend { float: none; width: auto; padding: 0 .35rem; margin: 0; }
 .br-replay[hidden] { display: none; }
+
+/* ── Sessions & risk, Alerts ───────────────────────────────── */
+.rk-session { border: 1px solid var(--c-line); border-radius: var(--radius); padding: .75rem .9rem; display: grid; gap: .75rem; }
+.rk-times { display: grid; gap: .75rem 1.25rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 991.98px) { .rk-times { grid-template-columns: minmax(0, 1fr); } }
+.rk-range { display: flex; align-items: center; gap: .5rem; }
+.rk-range input { min-width: 0; }
+.rk-more > summary { cursor: pointer; color: var(--c-muted); font-size: .875rem; }
+.rk-more > summary:hover { color: var(--c-text); }
+.rk-more .table-responsive { margin-top: .5rem; }
+.rk-save { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; flex-wrap: wrap; }
+.al-list { display: grid; }
+.al-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem 1rem; flex-wrap: wrap; padding: .6rem 0; border-top: 1px solid var(--c-line); }
+.al-row:first-child { border-top: 0; padding-top: 0; }
+.al-row > .c-switch { flex: 1 1 16rem; }
+.c-seg .btn-check + label { border: 0; color: var(--c-muted); font: 600 .78rem var(--font-body); padding: .3rem .7rem; border-radius: var(--radius-sm); }
+.c-seg .btn-check:checked + label { background: var(--c-surface); color: var(--c-text); box-shadow: 0 1px 0 var(--c-line); }
+.c-seg .btn-check:focus-visible + label { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.al-row > .c-switch, .rk-session > .c-switch { border-top: 0; padding: 0; }

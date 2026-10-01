@@ -1,0 +1,113 @@
+@page "/setup/alerts"
+@model CRV.Web.Pages.Setup.AlertsModel
+@using CRV.Web.Pages.Setup
+@{
+    ViewData["Title"] = "Alerts";
+    ViewData["Page"]  = "alerts";
+    ViewData["LightReady"] = true;
+    var c = Model.Config;
+    var smtpSet = Model.SmtpHost != "" && Model.SmtpFrom != "";
+}
+
+<div class="c-head">
+    <h1>Alerts</h1>
+    <span class="c-sub">Emails about trades and the engine</span>
+</div>
+
+@if (Model.Message != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Message</span></div> }
+@if (Model.Error != null) { <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.Error</span></div> }
+@if (!smtpSet)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i>
+        <span>No mail server is set up, so no email can be sent. Set <code>Smtp:Host</code> and <code>Smtp:FromAddress</code> in the app settings, and the user name and password in user-secrets.</span></div>
+}
+
+<form method="post" class="c-form d-grid gap-3" id="al-form">
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>Email</h2></div>
+        <div class="c-panel-b st-grid">
+            <label class="c-switch st-field">
+                <span>Send email alerts<small class="d-block c-mut">Off sends nothing, whatever is ticked below.</small></span>
+                <input class="form-check-input" type="checkbox" role="switch" name="Config.EmailEnabled" value="true" @(c.EmailEnabled ? "checked" : "") />
+                <input type="hidden" name="Config.EmailEnabled" value="false" />
+            </label>
+            <div class="st-field">
+                <label class="form-label" for="al-to">Send to</label>
+                <input class="form-control" id="al-to" name="Config.EmailRecipients" type="text" inputmode="email" autocomplete="email"
+                       placeholder="you@example.com, other@example.com" value="@c.EmailRecipients" />
+                <div class="form-text">Separate addresses with commas.</div>
+            </div>
+            <div class="st-field">
+                <label class="form-label" for="al-batch">Send batched alerts every</label>
+                <div class="st-input">
+                    <input class="form-control num" id="al-batch" name="Config.EmailBatchIntervalMinutes" type="number" min="1" max="60" step="1" value="@c.EmailBatchIntervalMinutes" />
+                    <span class="c-mut">min</span>
+                </div>
+                <div class="form-text">Batched alerts are grouped into one email.</div>
+            </div>
+            <div class="st-field">
+                <span class="form-label d-block">Mail server</span>
+                <div class="small">@(smtpSet ? $"{Model.SmtpHost}:{Model.SmtpPort}, from {Model.SmtpFrom}" : "Not set")</div>
+                <div class="form-text">Set in the app settings, not here.</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="c-panel">
+        <div class="c-panel-h"><h2>What to email</h2></div>
+        <div class="c-panel-b">
+            <div class="al-list">
+                @foreach (var (on, mode, label, help) in AlertsModel.Types)
+                {
+                    var current = Model.Mode(mode);
+                    <div class="al-row">
+                        <label class="c-switch">
+                            <span>@label@if (help != null) { <small class="d-block c-mut">@help</small> }</span>
+                            <input class="form-check-input" type="checkbox" role="switch" name="Config.@on" value="true" @(Model.On(on) ? "checked" : "") />
+                            <input type="hidden" name="Config.@on" value="false" />
+                        </label>
+                        <div class="c-seg" role="radiogroup" aria-label="@label: when to send">
+                            <input type="radio" class="btn-check" name="Config.@mode" id="@mode-i" value="instant" @(current != "batched" ? "checked" : "") />
+                            <label class="btn btn-sm" for="@mode-i">Right away</label>
+                            <input type="radio" class="btn-check" name="Config.@mode" id="@mode-b" value="batched" @(current == "batched" ? "checked" : "") />
+                            <label class="btn btn-sm" for="@mode-b">Batched</label>
+                        </div>
+                    </div>
+                }
+                <div class="al-row">
+                    <label class="c-switch">
+                        <span>Session summary<small class="d-block c-mut">After each session: result, win rate and each setup's numbers.</small></span>
+                        <input class="form-check-input" type="checkbox" role="switch" name="Config.EmailOnSessionEnd" value="true" @(c.EmailOnSessionEnd ? "checked" : "") />
+                        <input type="hidden" name="Config.EmailOnSessionEnd" value="false" />
+                    </label>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="rk-save">
+        <button type="button" class="btn btn-outline-secondary" id="al-test" @(smtpSet ? "" : "disabled")><i class="bi bi-send me-1"></i>Send a test email</button>
+        <button type="submit" class="btn btn-warning">Save</button>
+    </div>
+    <p class="c-mut small text-end mb-0">The test goes to the saved addresses, so save first if you changed them.</p>
+</form>
+
+@section Scripts {
+<script>
+(function () {
+    var btn = document.getElementById('al-test');
+    btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        try {
+            // Not CRV.post: this endpoint explains a failure in "message", which CRV.post drops.
+            var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            var res = await fetch('/api/engine/email/test', { method: 'POST', headers: { 'RequestVerificationToken': token } });
+            var data = await res.json().catch(function () { return {}; });
+            CRV.toast(data.message || (res.ok ? 'Test email sent.' : 'The test email wasn\'t sent.'));
+        } catch (e) {
+            CRV.toast('The test email wasn\'t sent: ' + e.message);
+        } finally { btn.disabled = false; }
+    });
+})();
+</script>
+}

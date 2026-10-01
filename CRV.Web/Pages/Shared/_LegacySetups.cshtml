@@ -1,0 +1,86 @@
+@model CRV.Web.Pages.LegacySetupsModel
+@using CRV.Web.Pages
+@* Setups A–D for one session (the older per-session setups). Fields are .session-field inputs
+   gathered into SessionsJson on submit; crv-legacy-setups.js drives the rows. *@
+@{
+    var i = Model.SessionIndex;
+    var s = Model.Session;
+}
+<h6 class="mb-2 text-muted"><i class="bi bi-sliders me-1"></i>Setups <small class="text-muted fw-normal">(click row to expand)</small></h6>
+<div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle mb-0" style="font-size:.85rem">
+        <thead class="table-light">
+            <tr>
+                <th style="width:80px">Setup</th>
+                <th style="width:70px" class="text-center">Enabled</th>
+                <th style="width:80px">Contracts</th>
+                <th style="width:80px">Max Trades</th>
+                <th style="width:120px">Cutoff (HH:MM)</th>
+                <th style="width:80px">Min R:R</th>
+                <th style="width:80px">Order Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                SessionIndex:   i,
+                SessionId:      s.SessionId.ToString(),
+                SetupLetter:    "A",
+                Setup:          s.SetupA,
+                NearPct:        s.SetupA.NearPct,
+                StopPct:        s.SetupA.StopPct,
+                TargetPct:      s.SetupA.TargetPct,
+                EntryTickOffset: s.SetupA.EntryTickOffset,
+                Mode:           s.SetupA.Mode,
+                PullbackPct:    s.SetupA.PullbackPct,
+                RetestPct:      null,
+                UseVwap:                s.SetupA.UseVwap,
+                UseOrbClose:            s.SetupA.UseOrbClose,
+                UseCloseConfirmation:   null))
+            @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                SessionIndex:   i,
+                SessionId:      s.SessionId.ToString(),
+                SetupLetter:    "B",
+                Setup:          s.SetupB,
+                NearPct:        s.SetupB.NearPct,
+                StopPct:        s.SetupB.StopPct,
+                TargetPct:      s.SetupB.TargetPct,
+                EntryTickOffset: s.SetupB.EntryTickOffset,
+                Mode:           s.SetupB.Mode,
+                PullbackPct:    null,
+                RetestPct:      s.SetupB.RetestPct,
+                UseVwap:                s.SetupB.UseVwap,
+                UseOrbClose:            s.SetupB.UseOrbClose,
+                UseCloseConfirmation:   null))
+            @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                SessionIndex:   i,
+                SessionId:      s.SessionId.ToString(),
+                SetupLetter:    "C",
+                Setup:          s.SetupC,
+                NearPct:        s.SetupC.NearPct,
+                StopPct:        s.SetupC.StopPct,
+                TargetPct:      s.SetupC.TargetPct,
+                EntryTickOffset: s.SetupC.EntryTickOffset,
+                Mode:           null,
+                PullbackPct:    null,
+                RetestPct:      null,
+                UseVwap:        null,
+                UseOrbClose:    null,
+                UseCloseConfirmation: null))
+            @await Html.PartialAsync("_SetupConfigSection", new SetupConfigSectionModel(
+                SessionIndex:   i,
+                SessionId:      s.SessionId.ToString(),
+                SetupLetter:    "D",
+                Setup:          s.SetupD,
+                NearPct:        s.SetupD.NearPct,
+                StopPct:        s.SetupD.StopPct,
+                TargetPct:      s.SetupD.TargetPct,
+                EntryTickOffset: s.SetupD.EntryTickOffset,
+                Mode:           null,
+                PullbackPct:    null,
+                RetestPct:      null,
+                UseVwap:        null,
+                UseOrbClose:    null,
+                UseCloseConfirmation: null))
+            </tbody>
+    </table>
+</div>
