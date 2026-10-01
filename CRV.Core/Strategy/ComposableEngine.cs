@@ -283,12 +283,15 @@ public class ComposableEngine
     /// <summary>Enable tick-based entry/exit evaluation.</summary>
     public void EnableTickMode() => _tickModeEnabled = true;
 
+    /// <summary>The engine-level settings in force (tests check reconfigure keeps them).</summary>
+    internal EngineConfig CurrentConfig => _config;
+
     /// <summary>
     /// Swap config for a new session. Resets session-scoped state but preserves daily-scoped state.
     /// </summary>
     public void Reconfigure(StrategyConfig cfg, SessionId sessionId)
     {
-        _config = BuildEngineConfigFromStrategy(cfg);
+        _config = cfg.ToEngineConfig();
         _activeSessionId = sessionId.ToString();
 
         // Push each strategy's config first so its OrbStart/OrbEnd reflects the new
@@ -327,7 +330,7 @@ public class ComposableEngine
     /// </summary>
     public void ApplyRuntimeSettings(StrategyConfig cfg)
     {
-        _config = BuildEngineConfigFromStrategy(cfg);
+        _config = cfg.ToEngineConfig();
 
         // Push per-setup config to each registered strategy
         var newSetupConfigs = cfg.ToSetupConfigs();
@@ -751,38 +754,6 @@ public class ComposableEngine
         UseDailyLossLimit = cfg.UseDailyLossLimit,
         MaxDailyLoss = cfg.MaxDailyLoss,
         DailyLossMode = cfg.DailyLossMode,
-        UseChopFilter             = cfg.UseChopFilter,
-        ChopBlockMode             = cfg.ChopBlockMode,
-        ChopMinVotes              = cfg.ChopMinVotes,
-        ChopUseRangeCompression   = cfg.ChopUseRangeCompression,
-        ChopCompressionRatio      = cfg.ChopCompressionRatio,
-        ChopUseFlatVwap           = cfg.ChopUseFlatVwap,
-        ChopFlatSlopeThresholdPct = cfg.ChopFlatSlopeThresholdPct,
-        ChopUseWeakDrive          = cfg.ChopUseWeakDrive,
-        ChopMinDriveRatio         = cfg.ChopMinDriveRatio,
-        ChopUseLowVolume          = cfg.ChopUseLowVolume,
-        ChopMinVolumeRatio        = cfg.ChopMinVolumeRatio,
-    };
-
-    /// <summary>Build an EngineConfig from a StrategyConfig (for Reconfigure path).</summary>
-    private static EngineConfig BuildEngineConfigFromStrategy(StrategyConfig cfg) => new()
-    {
-        Ticker = cfg.Ticker,
-        PointValue = cfg.PointValue,
-        TickSize = cfg.TickSize,
-        Timezone = cfg.Timezone,
-        OrbStart = cfg.OrbStart,
-        OrbEnd = cfg.OrbEnd,
-        ExecutionTFMinutes = cfg.ExecutionTFMinutes,
-        AllowBothSameBar = cfg.AllowBothSameBar,
-        CommissionPerSide = cfg.CommissionPerSide,
-        UseDailyLossLimit = cfg.UseDailyLossLimit,
-        MaxDailyLoss = cfg.MaxDailyLoss,
-        DailyLossMode = cfg.DailyLossMode,
-        SessionStartHour = cfg.SessionStartHour,
-        RthStart = cfg.RthStart,
-        RthEnd = cfg.RthEnd,
-        ExitMinutesBefore = cfg.ExitMinutesBefore,
         UseChopFilter             = cfg.UseChopFilter,
         ChopBlockMode             = cfg.ChopBlockMode,
         ChopMinVotes              = cfg.ChopMinVotes,

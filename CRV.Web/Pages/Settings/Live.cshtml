@@ -25,6 +25,16 @@
     </small>
 </div>
 
+@if (Model.ValidationWarnings.Count > 0)
+{
+    <div class="alert alert-warning py-2 small">
+        <strong>Saved, but check these settings:</strong>
+        <ul class="mb-0 mt-1">
+            @foreach (var w in Model.ValidationWarnings) { <li>@w</li> }
+        </ul>
+    </div>
+}
+
 @if (Model.Config.HasNoArmedSetups())
 {
     <div class="alert alert-warning py-2 small d-flex align-items-start gap-2">
@@ -993,20 +1003,20 @@ function instrOnChange() {
             const field = el.dataset.field;
             var val;
             if (el.type === 'checkbox')      val = el.checked;
-            else if (el.type === 'number')   val = parseFloat(el.value) || 0;
+            else if (el.type === 'number')   val = (el.value === '' && el.dataset.nullable === 'true') ? null : (parseFloat(el.value) || 0);
             else if (el.type === 'time')     val = el.value + ':00';
             else                             val = el.value;
-            // Support nested paths like "SetupA.Enabled"
+            // Nested paths of any depth, e.g. "SetupA.Enabled" or "SetupA.AutoTrail.Trigger".
+            // Only two levels used to be handled, so per-session auto-trail edits were dropped.
             var parts = field.split('.');
-            if (parts.length === 2) {
-                sessions[idx][parts[0]][parts[1]] = val;
-            } else {
-                sessions[idx][field] = val;
+            var obj = sessions[idx];
+            for (var p = 0; p < parts.length - 1; p++) {
+                if (obj[parts[p]] == null || typeof obj[parts[p]] !== 'object') obj[parts[p]] = {};
+                obj = obj[parts[p]];
             }
+            obj[parts[parts.length - 1]] = val;
         });
         var json = JSON.stringify(sessions);
-        console.log('Sessions JSON being submitted:', json);
-        console.log('Asia Enabled:', sessions[0]?.Enabled, 'London Enabled:', sessions[1]?.Enabled, 'NY Enabled:', sessions[2]?.Enabled);
         document.getElementById('sessionsJson').value = json;
     });
 })();
@@ -1086,6 +1096,7 @@ function addBasketEntry() {
     var id = 'setup-' + Date.now();
     _basket.push({
         Id: id,
+        Enabled: false,   // the engine treats a missing flag as off; show it the same way
         Label: '',
         StrategyType: 1,
         Ticker: '',
@@ -1279,7 +1290,7 @@ function renderBasket() {
         var at = entry.AutoTrail || {};
 
         var collapseId = 'basket-collapse-' + entry.Id;
-        var dimStyle = entry.Enabled === false ? ' style="opacity:0.45"' : '';
+        var dimStyle = entry.Enabled !== true ? ' style="opacity:0.45"' : '';
         return '<div class="basket-entry border rounded p-2 mb-2" data-id="' + entry.Id + '"' + dimStyle + '>' +
             '<div class="d-flex gap-2 align-items-center">' +
                 '<button type="button" class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" style="width:20px">' +
@@ -1290,8 +1301,8 @@ function renderBasket() {
                 '<select class="form-select form-select-sm" style="width:220px" onchange="updateBasketInstrument(\'' + entry.Id + '\',this.value)">' + instrOptions + '</select>' +
                 _bTfSelect(entry) +
                 '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateBasketField(\'' + entry.Id + '\',\'Label\',this.value)">' +
-                '<div class="form-check form-switch ms-auto mb-0" title="' + (entry.Enabled !== false ? 'Enabled' : 'Disabled') + '">' +
-                    '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled !== false ? 'checked' : '') +
+                '<div class="form-check form-switch ms-auto mb-0" title="' + (entry.Enabled === true ? 'Enabled' : 'Disabled') + '">' +
+                    '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled === true ? 'checked' : '') +
                     ' onchange="updateBasketField(\'' + entry.Id + '\',\'Enabled\',this.checked)">' +
                 '</div>' +
                 '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeBasketEntry(\'' + entry.Id + '\')">' +
@@ -1590,7 +1601,7 @@ function renderEma21Basket() {
             '<optgroup label="Mini">' + _instrOpts(instrData.mini, entry) + '</optgroup>';
         var cfg = entry.Config || {};
         var collapseId = 'ema21-collapse-' + entry.Id;
-        var dimStyle = entry.Enabled === false ? ' style="opacity:0.45"' : '';
+        var dimStyle = entry.Enabled !== true ? ' style="opacity:0.45"' : '';
         return '<div class="basket-entry border rounded p-2 mb-2" data-id="' + entry.Id + '"' + dimStyle + '>' +
             '<div class="d-flex gap-2 align-items-center">' +
                 '<button type="button" class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" style="width:20px">' +
@@ -1602,7 +1613,7 @@ function renderEma21Basket() {
                 _bTfSelect(entry, 'updateEma21Tf') +
                 '<input type="text" class="form-control form-control-sm" style="width:140px" placeholder="Label" value="' + (entry.Label || '') + '" onchange="updateEma21Field(\'' + entry.Id + '\',\'Label\',this.value)">' +
                 '<div class="form-check form-switch ms-auto mb-0">' +
-                    '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled !== false ? 'checked' : '') +
+                    '<input class="form-check-input" type="checkbox" role="switch" ' + (entry.Enabled === true ? 'checked' : '') +
                     ' onchange="updateEma21Field(\'' + entry.Id + '\',\'Enabled\',this.checked)">' +
                 '</div>' +
                 '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEma21Entry(\'' + entry.Id + '\')">' +

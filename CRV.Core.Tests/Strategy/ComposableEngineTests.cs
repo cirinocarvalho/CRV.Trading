@@ -180,6 +180,26 @@ public class ComposableEngineTests
             config ?? DefaultEngineConfig());
     }
 
+    // ── Reconfigure keeps the engine-level settings it was started with ──
+
+    [Fact]
+    public void Reconfigure_And_ApplyRuntimeSettings_KeepPortfolioRiskCap()
+    {
+        // The session-change and save paths used to rebuild the engine config without
+        // MaxPortfolioRisk, which turned the cap off (0) until the next restart.
+        var engine = CreateEngine();
+        var cfg = new StrategyConfig { MaxPortfolioRisk = 750m, MaxDailyLoss = 600m, SessionStartHour = 17 };
+
+        engine.Reconfigure(cfg, SessionId.NY);
+        Assert.Equal(750m, engine.CurrentConfig.MaxPortfolioRisk);
+        Assert.Equal(17, engine.CurrentConfig.SessionStartHour);
+
+        cfg.MaxPortfolioRisk = 900m;
+        engine.ApplyRuntimeSettings(cfg);
+        Assert.Equal(900m, engine.CurrentConfig.MaxPortfolioRisk);
+        Assert.Equal(600m, engine.CurrentConfig.MaxDailyLoss);
+    }
+
     // ── 1. AddSetup creates strategy and assigns to correct TickerGroup ──
 
     [Fact]
