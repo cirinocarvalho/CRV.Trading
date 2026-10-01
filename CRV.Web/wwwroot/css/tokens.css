@@ -1,0 +1,123 @@
+/* CRV Trading — design tokens.
+   Loaded after Bootstrap. Colors are defined once per theme here; components use the
+   tokens, never literal colors. The old --crv-* names are kept as aliases so pages that
+   haven't been rebuilt yet pick up the new palette. */
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans Condensed"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-condensed-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans Condensed"; font-weight: 700; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-sans-condensed-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2"); }
+
+:root {
+    --font-body:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-mono:    "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+
+    --radius:    10px;
+    --radius-sm: 7px;
+    --side-w:    212px;
+    --tabs-h:    60px;
+}
+
+/* ── Dark (default) ─────────────────────────────────────────── */
+[data-bs-theme="dark"] {
+    --c-bg:          #0e1117;
+    --c-surface:     #151a22;
+    --c-raise:       #1c2230;
+    --c-line:        #273041;
+    --c-text:        #e7eaf0;
+    --c-muted:       #8b95a7;
+    --c-accent:      #f2b33d;
+    --c-accent-ink:  #1a1305;
+    --c-up:          #2fc4a0;
+    --c-down:        #ff6b5e;
+    --c-paper:       #6aa8ff;
+    --c-up-soft:     rgba(47, 196, 160, .13);
+    --c-down-soft:   rgba(255, 107, 94, .13);
+    --c-accent-soft: rgba(242, 179, 61, .14);
+    --c-paper-soft:  rgba(106, 168, 255, .14);
+    --c-dim:         rgba(5, 7, 10, .6);
+
+    --bs-success-rgb: 47, 196, 160;
+    --bs-danger-rgb:  255, 107, 94;
+    --bs-warning-rgb: 242, 179, 61;
+    --bs-info-rgb:    106, 168, 255;
+}
+
+/* ── Light (switch arrives as pages are rebuilt) ───────────── */
+[data-bs-theme="light"] {
+    --c-bg:          #f4f5f7;
+    --c-surface:     #ffffff;
+    --c-raise:       #eef0f4;
+    --c-line:        #d9dde5;
+    --c-text:        #141821;
+    --c-muted:       #5b6475;
+    --c-accent:      #b7791f;
+    --c-accent-ink:  #ffffff;
+    --c-up:          #0f8f6e;
+    --c-down:        #d64535;
+    --c-paper:       #2f6fd6;
+    --c-up-soft:     rgba(15, 143, 110, .10);
+    --c-down-soft:   rgba(214, 69, 53, .10);
+    --c-accent-soft: rgba(183, 121, 31, .12);
+    --c-paper-soft:  rgba(47, 111, 214, .10);
+    --c-dim:         rgba(20, 24, 33, .35);
+
+    --bs-success-rgb: 15, 143, 110;
+    --bs-danger-rgb:  214, 69, 53;
+    --bs-warning-rgb: 183, 121, 31;
+    --bs-info-rgb:    47, 111, 214;
+}
+
+/* ── Bootstrap + legacy aliases (both themes) ──────────────── */
+[data-bs-theme] {
+    --bs-body-bg:            var(--c-bg);
+    --bs-body-color:         var(--c-text);
+    --bs-body-font-family:   var(--font-body);
+    --bs-font-monospace:     var(--font-mono);
+    --bs-border-color:       var(--c-line);
+    --bs-secondary-color:    var(--c-muted);
+    --bs-secondary-bg:       var(--c-raise);
+    --bs-tertiary-bg:        var(--c-surface);
+    --bs-emphasis-color:     var(--c-text);
+    --bs-link-color:         var(--c-accent);
+    --bs-link-hover-color:   var(--c-accent);
+    --bs-link-color-rgb:     var(--bs-warning-rgb);
+    --bs-link-hover-color-rgb: var(--bs-warning-rgb);
+    --bs-success:            var(--c-up);
+    --bs-danger:             var(--c-down);
+    --bs-warning:            var(--c-accent);
+    --bs-info:               var(--c-paper);
+
+    --crv-green:  var(--c-up);
+    --crv-red:    var(--c-down);
+    --crv-yellow: var(--c-accent);
+    --crv-blue:   var(--c-paper);
+    --crv-bg:     var(--c-bg);
+    --crv-card:   var(--c-surface);
+    --crv-border: var(--c-line);
+
+    color-scheme: dark;
+}
+[data-bs-theme="light"] { color-scheme: light; }
+
+/* Primary action buttons use amber across the app. */
+.btn-warning {
+    --bs-btn-bg: var(--c-accent);
+    --bs-btn-border-color: var(--c-accent);
+    --bs-btn-color: var(--c-accent-ink);
+    --bs-btn-hover-bg: var(--c-accent);
+    --bs-btn-hover-border-color: var(--c-accent);
+    --bs-btn-hover-color: var(--c-accent-ink);
+    --bs-btn-active-bg: var(--c-accent);
+    --bs-btn-active-border-color: var(--c-accent);
+    --bs-btn-active-color: var(--c-accent-ink);
+    --bs-btn-disabled-bg: var(--c-accent);
+    --bs-btn-disabled-border-color: var(--c-accent);
+}
+.btn-warning:hover { filter: brightness(1.06); }

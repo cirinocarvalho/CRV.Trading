@@ -1,0 +1,61 @@
+@using CRV.Live
+@using CRV.Web.Services
+@using CRV.Live.Brokers.Tradovate
+@inject StrategyConfigService CfgSvc
+@inject LiveEngineOrchestrator Engine
+@inject TradovateAuthService TradovateAuth
+@{
+    var cfg     = CfgSvc.Current;
+    var account = AccountMode.For(cfg.EffectiveExecBroker, TradovateAuth.AuthBaseUrl);
+    var snap    = Engine.LastSnapshot;
+    var running = Engine.IsRunning;
+    var armed   = cfg.ToSetupConfigs()
+        .Where(s => s.Enabled)
+        .Select(s => string.IsNullOrEmpty(s.Id) ? s.Name : s.Id)
+        .Distinct()
+        .ToArray();
+
+    var (stateText, stateCls) = !running
+        ? ("Stopped", "mut")
+        : snap?.SessionEnded == true ? ("Session ended", "warn") : ("Running", "up");
+
+    string Money(decimal v) => (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0");
+    var pnlText = snap != null ? Money(snap.TodayPnl) : "—";
+    var pnlCls  = snap == null ? "mut" : snap.TodayPnl > 0 ? "up" : snap.TodayPnl < 0 ? "down" : "";
+    var lossPct = snap is { DailyLossLimit: > 0 } ? Math.Clamp(snap.DailyLossUsed / snap.DailyLossLimit * 100m, 0m, 100m) : 0m;
+}
+<div class="crv-engine" id="crv-engine"
+     data-real-money="@(account.IsRealMoney ? "true" : "false")"
+     data-account="@account.Label"
+     data-broker="@account.BrokerLabel"
+     data-running="@(running ? "true" : "false")"
+     data-setups="@string.Join("\n", armed)">
+    <span class="crv-acct @(account.IsRealMoney ? "" : "sim")" title="Orders go to @account.BrokerLabel">
+        @account.Label<span class="d-none d-sm-inline">&nbsp;· @account.BrokerLabel</span>
+    </span>
+    <span class="crv-stat">
+        <small>Engine</small>
+        <b id="eng-state" class="@stateCls"><span class="crv-dot"></span><span id="eng-state-text">@stateText</span></b>
+    </span>
+    <span class="crv-stat">
+        <small>Today</small>
+        <b id="eng-pnl" class="@pnlCls">@pnlText</b>
+    </span>
+    <span class="crv-stat d-none d-lg-grid" title="Share of the daily loss limit used today">
+        <small>Loss limit <span id="eng-loss-txt">@(snap is { DailyLossLimit: > 0 } ? $"{lossPct:0}%" : "")</span></small>
+        <span class="crv-meter @(lossPct >= 75 ? "hot" : "")" id="eng-loss"><i style="width:@lossPct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%"></i></span>
+    </span>
+    <span class="crv-stat d-none d-md-grid">
+        <small>ET</small>
+        <b id="eng-clock">--:--:--</b>
+    </span>
+    <span class="crv-stat d-none d-xl-grid">
+        <small>Instrument</small>
+        <b id="nav-ticker">@(snap?.Ticker ?? cfg.Ticker)</b>
+    </span>
+    <span class="crv-engine-acts">
+        <button type="button" class="crv-btn @(running ? "stop" : "start")" id="eng-toggle" aria-label="@(running ? "Stop the engine" : "Start the engine")">
+            <i class="bi @(running ? "bi-stop-fill" : "bi-play-fill")"></i><span class="d-none d-sm-inline" id="eng-toggle-text">@(running ? "Stop engine" : "Start engine")</span>
+        </button>
+    </span>
+</div>
