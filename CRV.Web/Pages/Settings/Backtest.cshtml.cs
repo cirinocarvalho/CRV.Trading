@@ -1,3 +1,4 @@
+using CRV.Backtest.DataLoaders;
 using CRV.Backtest.Engine;
 using CRV.Backtest.Results;
 using CRV.Core.Data;
@@ -120,9 +121,11 @@ public class BacktestSettingsModel : PageModel
         catch (Exception ex)
         {
             _log.LogError(ex, "Backtest run failed.");
-            // Show full stack trace so divide-by-zero and similar bugs can be pinpointed
-            var inner = ex.InnerException != null ? $"\nInner: {ex.InnerException.Message}" : "";
-            ModelState.AddModelError("", $"Backtest failed: {ex.Message}{inner}\n{ex.StackTrace}");
+            // Data-loading failures carry a message written for the user; anything else is a
+            // bug whose details belong in the log, not on the page.
+            ModelState.AddModelError("", ex is BarLoadException
+                ? $"Backtest failed: {ex.Message}"
+                : "Backtest failed because of an unexpected error. The details are in the app log.");
             return Page();
         }
 
