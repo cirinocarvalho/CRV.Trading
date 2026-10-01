@@ -1,0 +1,293 @@
+@page "/setup/strategies/{id}"
+@model CRV.Web.Pages.Setup.StrategyModel
+@using CRV.Core.Models
+@using CRV.Core.Strategy
+@using CRV.Web.Pages.Setup
+@using System.Globalization
+@{
+    ViewData["Title"] = Model.Entry.Label is { Length: > 0 } l ? l : Model.Id;
+    ViewData["Page"]  = "strategies";
+    ViewData["LightReady"] = true;
+
+    var e = Model.Entry;
+    var c = e.Config;
+    var inv = CultureInfo.InvariantCulture;
+    string N(decimal v) => v.ToString("0.#####", inv);
+    string P(decimal fraction) => (fraction * 100m).ToString("0.###", inv);
+    var orbTypes = new[] { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout };
+
+    // Field helpers. data-types limits a field to strategy types; hidden fields still post their values.
+    void Num(string name, string label, string value, string? help = null, string step = "any", string? types = null, string? unit = null)
+    {
+        <div class="st-field" data-types="@types">
+            <label class="form-label" for="@name">@label</label>
+            <div class="st-input">
+                <input class="form-control num" id="@name" name="@name" type="number" step="@step" inputmode="decimal" value="@value" />
+                @if (unit != null) { <span class="c-mut">@unit</span> }
+            </div>
+            @if (help != null) { <div class="form-text">@help</div> }
+        </div>
+    }
+    void Check(string name, string label, bool on, string? help = null, string? types = null)
+    {
+        <label class="c-switch st-field" data-types="@types">
+            <span>@label@if (help != null) { <small class="d-block c-mut">@help</small> }</span>
+            <input class="form-check-input" type="checkbox" role="switch" name="@name" value="true" @(on ? "checked" : "") />
+            <input type="hidden" name="@name" value="false" />
+        </label>
+    }
+}
+
+<div class="c-head">
+    <div>
+        <a class="crumb c-mut small" href="/setup/strategies">Strategies</a>
+        <h1>@(e.Label is { Length: > 0 } ? e.Label : e.Id)</h1>
+    </div>
+    <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker@(Model.IsEma21 ? " · EMA21 list" : "")</span>
+</div>
+
+@if (Model.Saved != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Saved</span></div> }
+@if (Model.Warnings.Count > 0)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i><span>Saved, but check these settings: @string.Join(" ", Model.Warnings)</span></div>
+}
+@if (Model.RemoveError != null) { <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i><span>@Model.RemoveError</span></div> }
+@if (Model.Errors.Count > 0)
+{
+    <div class="c-note bad mb-3" role="alert"><i class="bi bi-exclamation-octagon"></i>
+        <span>Not saved. @string.Join(" ", Model.Errors)</span></div>
+}
+
+<form method="post" asp-page-handler="Save" id="st-form" class="c-form" novalidate>
+<div class="c-cols">
+    <div class="c-stack">
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Basics</h2></div>
+            <div class="c-panel-b st-grid">
+                @{ Check("Entry.Enabled", "On", e.Enabled, "Off keeps it in the list without trading."); }
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Label">Name</label>
+                    <input class="form-control" id="Entry.Label" name="Entry.Label" value="@e.Label" maxlength="60" />
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="st-type">Strategy</label>
+                    @if (Model.IsEma21)
+                    {
+                        <input type="hidden" name="Entry.StrategyType" value="@((int)e.StrategyType)" id="st-type" />
+                        <div class="form-control-plaintext">@StrategyText.TypeName(e.StrategyType)</div>
+                    }
+                    else
+                    {
+                        <select class="form-select" name="Entry.StrategyType" id="st-type">
+                            @foreach (var t in orbTypes) { <option value="@((int)t)" selected="@(t == e.StrategyType)">@StrategyText.TypeName(t)</option> }
+                        </select>
+                    }
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="st-instr">Instrument</label>
+                    <select class="form-select" id="st-instr" data-ticker="@e.Ticker"></select>
+                    <input type="hidden" name="Entry.Ticker" id="st-ticker" value="@e.Ticker" />
+                    <input type="hidden" name="Entry.PointValue" id="st-pv" value="@N(e.PointValue)" />
+                    <input type="hidden" name="Entry.TickSize" id="st-tick" value="@N(e.TickSize)" />
+                    <div class="form-text" id="st-instr-note">@e.Ticker · $@N(e.PointValue)/pt · tick @N(e.TickSize)</div>
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="Entry.ExecutionTFMinutes">Bar size</label>
+                    <select class="form-select" id="Entry.ExecutionTFMinutes" name="Entry.ExecutionTFMinutes">
+                        <option value="" selected="@(e.ExecutionTFMinutes == null)">Same as the engine</option>
+                        @foreach (var m in new[] { 1, 2, 5, 10, 15, 20, 30, 60 }) { <option value="@m" selected="@(e.ExecutionTFMinutes == m)">@m minute@(m == 1 ? "" : "s")</option> }
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Sessions</h2></div>
+            <div class="c-panel-b">
+                @if (e.Sessions is not { Count: > 0 })
+                {
+                    <p class="c-mut mb-0">This strategy has no session list, so it trades in every session. That's kept as is.</p>
+                }
+                else
+                {
+                    @for (var i = 0; i < StrategyModel.SessionNames.Length; i++)
+                    {
+                        var name = StrategyModel.SessionNames[i];
+                        var slot = e.Sessions.FirstOrDefault(s => s.SessionId == name);
+                        <div class="st-session">
+                            <label class="c-switch m-0 border-0 p-0">
+                                <span><b>@name</b></span>
+                                <input class="form-check-input" type="checkbox" role="switch" name="session.@(i).on" value="true" @(slot?.Enabled == true ? "checked" : "") />
+                            </label>
+                            <label class="st-cutoff"><span class="c-mut small">No new entries after</span>
+                                <input class="form-control num" type="time" name="session.@(i).cutoff" value="@(slot != null ? $"{slot.CutoffHour:00}:{slot.CutoffMinute:00}" : "14:30")" /></label>
+                        </div>
+                    }
+                }
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Entry</h2></div>
+            <div class="c-panel-b st-grid">
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.Mode">Entry mode</label>
+                    <select class="form-select" id="Entry.Config.Mode" name="Entry.Config.Mode">
+                        @foreach (var (v, label) in new[] { ("Conservative", "Conservative: wait for the entry level"), ("Aggressive", "Aggressive: enter as soon as it arms"), ("SmartAggressive", "Smart aggressive"), ("ConservativeSmart", "Conservative smart") })
+                        { <option value="@v" selected="@(c.Mode == v)">@label</option> }
+                    </select>
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.OrderType">Entry order</label>
+                    <select class="form-select" id="Entry.Config.OrderType" name="Entry.Config.OrderType">
+                        <option value="Market" selected="@(c.OrderType == "Market")">Market</option>
+                        <option value="Limit" selected="@(c.OrderType == "Limit")">Limit</option>
+                    </select>
+                </div>
+                @{ Num("pct.PullbackPct", "Pullback depth", P(c.PullbackPct), "How far back into the range to enter.", types: "Pullback", unit: "% of range"); }
+                @{ Num("pct.RetestPct", "Retest tolerance", P(c.RetestPct), "How close to the range edge counts as a retest.", types: "Retest", unit: "% of range"); }
+                @{ Num("pct.NearPct", "Near the edge", P(c.NearPct), "How close to the range edge counts as a break.", types: "Pullback Retest", unit: "% of range"); }
+                @{ Num("Entry.Config.MinRr", "Minimum reward / risk", N(c.MinRr), unit: "R"); }
+                @{ Num("Entry.Config.EntryTickOffset", "Entry offset", c.EntryTickOffset.ToString(inv), "Ticks added to the entry price.", "1", unit: "ticks"); }
+                @{ Num("pct.MaxEntrySlippage", "Most slippage allowed", P(c.MaxEntrySlippage), "0 = no limit.", unit: "% of range"); }
+                <div class="st-field" data-types="SessionFakeout">
+                    <label class="form-label" for="Entry.Config.FakeoutReferenceSession">Range to fade</label>
+                    <select class="form-select" id="Entry.Config.FakeoutReferenceSession" name="Entry.Config.FakeoutReferenceSession">
+                        @foreach (var (v, label) in new[] { (FakeoutSession.Auto, "The session that just ended"), (FakeoutSession.PreviousDayNY, "Previous day's NY"), (FakeoutSession.Asia, "Asia"), (FakeoutSession.London, "London") })
+                        { <option value="@v" selected="@(c.FakeoutReferenceSession == v)">@label</option> }
+                    </select>
+                </div>
+                @{ Check("Entry.Config.QuickReentry", "Quick re-entry after a stop-out", c.QuickReentry, "Skips the full retest cycle for the next entry on that side.", types: "Retest"); }
+                @{ Num("Entry.Config.SlopeLen", "Slope lookback", c.SlopeLen.ToString(inv), step: "1", types: "Ema21", unit: "bars"); }
+                @{ Num("Entry.Config.AtrTouchMult", "Touch zone", N(c.AtrTouchMult), types: "Ema21", unit: "× ATR"); }
+                @{ Num("Entry.Config.MinSlopePct", "Minimum slope", N(c.MinSlopePct), types: "Ema21", unit: "% of price"); }
+                @{ Num("Entry.Config.OpenTicksToEma", "Signal bar opens within", c.OpenTicksToEma.ToString(inv), step: "1", types: "Ema21", unit: "ticks of EMA"); }
+                @{ Check("Entry.Config.UseVolumeFilter", "Require above-average volume", c.UseVolumeFilter, types: "Ema21"); }
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Stop and exits</h2></div>
+            <div class="c-panel-b st-grid">
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.StopMode">Stop at</label>
+                    <select class="form-select" id="Entry.Config.StopMode" name="Entry.Config.StopMode">
+                        <option value="OrbPct" selected="@(c.StopMode == "OrbPct")">A share of the range from entry</option>
+                        <option value="BarHL" selected="@(c.StopMode == "BarHL")">The signal bar's high / low</option>
+                        <option value="Vwap" selected="@(c.StopMode == "Vwap")">VWAP ± ticks</option>
+                    </select>
+                </div>
+                @{ Num("pct.StopPct", "Stop distance", P(c.StopPct), "Also the most a bar or VWAP stop can risk.", unit: "% of range"); }
+                @{ Num("Entry.Config.StopVwapTicks", "VWAP buffer", c.StopVwapTicks.ToString(inv), step: "1", unit: "ticks"); }
+                @{ Num("Entry.Config.TargetPct", "Target", c.TargetPct.ToString(inv), step: "1", unit: "% of range"); }
+                @{ Check("Entry.Config.UsePartial", "Take a partial at a first target", c.UsePartial); }
+                @{ Num("Entry.Config.PartialPct", "First target", c.PartialPct.ToString(inv), step: "1", unit: "% of the way"); }
+                @{ Num("Entry.Config.PartialCts", "Contracts at first target", c.PartialCts.ToString(inv), "0 = half.", "1", unit: "cts"); }
+                @{ Check("Entry.Config.UseBe", "Move stop to break-even after the first target", c.UseBe); }
+                @{ Check("Entry.Config.AllowRearmAfterBe", "Allow a new entry after a break-even exit", c.AllowRearmAfterBe); }
+                @{ Check("Entry.Config.CloseAtRthClose", "Close at the end of the session", c.CloseAtRthClose); }
+                @{ Check("Entry.AutoTrail.Enabled", "Trail the stop automatically", e.AutoTrail?.Enabled == true); }
+                @{ Num("Entry.AutoTrail.StopLoss", "Trail distance", N(e.AutoTrail?.StopLoss ?? 0), unit: "× range"); }
+                @{ Num("Entry.AutoTrail.Trigger", "Start trailing after", e.AutoTrail?.Trigger is decimal tg ? N(tg) : "", "Blank = from entry.", unit: "× range"); }
+                @{ Num("Entry.AutoTrail.Freq", "Trail step", N(e.AutoTrail?.Freq ?? 0), unit: "× range"); }
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Size and limits</h2></div>
+            <div class="c-panel-b st-grid">
+                @{ Num("Entry.Config.Contracts", "Contracts", c.Contracts.ToString(inv), step: "1"); }
+                @{ Check("Entry.Config.AutoSizeByRisk", "Size by risk", c.AutoSizeByRisk, "Scales between the contracts above and the most below to use the risk budget."); }
+                @{ Num("Entry.Config.MaxContracts", "Most contracts", c.MaxContracts.ToString(inv), step: "1"); }
+                @{ Num("Entry.Config.MaxTradeRisk", "Most risk per trade", N(c.MaxTradeRisk), "0 = no limit.", unit: "$"); }
+                @{ Num("Entry.Config.HiVolMult", "High-volatility size multiplier", N(c.HiVolMult), unit: "×"); }
+                @{ Num("Entry.Config.MaxTrades", "Trades per session", c.MaxTrades.ToString(inv), step: "1"); }
+                @{ Num("Entry.Config.MaxLongTrades", "Most longs", c.MaxLongTrades.ToString(inv), "0 = same as trades per session.", "1"); }
+                @{ Num("Entry.Config.MaxShortTrades", "Most shorts", c.MaxShortTrades.ToString(inv), "0 = same as trades per session.", "1"); }
+            </div>
+        </section>
+
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>Filters and timing</h2></div>
+            <div class="c-panel-b st-grid">
+                @{ Check("Entry.Config.UseVwap", "Only trade on the VWAP side", c.UseVwap); }
+                @{ Check("Entry.Config.UseOrbClose", "Require the range to close in the trade's direction", c.UseOrbClose); }
+                @{ Check("Entry.Config.UseEmaFilter", "Only trade on the EMA21 side", c.UseEmaFilter); }
+                @{ Check("Entry.Config.BypassChopFilter", "Ignore the chop filter", c.BypassChopFilter); }
+                @{ Check("Entry.Config.UseTickConfirmation", "Enter on ticks (off = on bar close)", c.UseTickConfirmation, "Backtests use bar close."); }
+                @{ Check("Entry.Config.UseCustomOrbWindow", "Use its own opening range", c.UseCustomOrbWindow); }
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.OrbStart">Range from</label>
+                    <input class="form-control num" type="time" id="Entry.Config.OrbStart" name="Entry.Config.OrbStart" value="@c.OrbStart.ToString("HH:mm")" />
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.OrbEnd">Range to</label>
+                    <input class="form-control num" type="time" id="Entry.Config.OrbEnd" name="Entry.Config.OrbEnd" value="@c.OrbEnd.ToString("HH:mm")" />
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div class="c-stack st-side">
+        <section class="c-panel">
+            <div class="c-panel-h"><h2>In plain words</h2></div>
+            <div class="c-panel-b"><p class="c-plain mb-0">@StrategyText.Describe(e)</p>
+                <p class="c-mut small mt-2 mb-0">Updates after you save.</p></div>
+        </section>
+        <section class="c-panel">
+            <div class="c-panel-b d-grid gap-2">
+                <button type="submit" class="btn btn-warning">Save</button>
+                <a class="btn btn-outline-secondary" href="/setup/strategies">Back without saving</a>
+            </div>
+        </section>
+        <section class="c-panel">
+            <div class="c-panel-b">
+                <button type="submit" form="st-remove" class="btn btn-sm btn-outline-danger w-100">Remove this strategy</button>
+            </div>
+        </section>
+    </div>
+</div>
+</form>
+
+<form method="post" asp-page-handler="Remove" id="st-remove"
+      data-confirm-title="Remove @(e.Label is { Length: > 0 } ? e.Label : e.Id)?"
+      data-confirm-body="It's deleted from your strategy list. To keep it but stop trading it, turn it off instead."
+      data-confirm-ok="Remove" data-confirm-class="btn-danger"></form>
+
+@section Scripts {
+<script>
+(function () {
+    // Show only the fields that apply to the chosen strategy (hidden ones still post their values).
+    const type = document.getElementById('st-type');
+    const names = ['Pullback', 'Retest', 'OrbFakeout', 'SessionFakeout', 'Ema21'];
+    function sync() {
+        const t = names[parseInt(type.value, 10)];
+        document.querySelectorAll('[data-types]').forEach(el => {
+            const list = el.dataset.types;
+            el.hidden = !!list && !list.split(' ').includes(t);
+        });
+    }
+    if (type.tagName === 'SELECT') type.addEventListener('change', sync);
+    sync();
+
+    // Instrument picker: front-month contract and point value from the shared catalog.
+    const sel = document.getElementById('st-instr');
+    const cur = (sel.dataset.ticker || '').replace(/^\//, '');
+    const all = [...CRV_INSTRUMENTS.micro, ...CRV_INSTRUMENTS.mini];
+    const match = all.slice().sort((a, b) => b.code.length - a.code.length).find(i => cur.startsWith(i.code));
+    sel.innerHTML = (match ? '' : `<option value="">${CRV.esc(cur || 'Choose…')} (keep)</option>`) +
+        ['micro', 'mini'].map(g => `<optgroup label="${g === 'micro' ? 'Micro' : 'E-mini'}">` +
+            CRV_INSTRUMENTS[g].map(i => `<option value="${i.code}">${CRV.esc(i.label)} · $${i.pointValue}/pt</option>`).join('') + '</optgroup>').join('');
+    if (match) sel.value = match.code;
+    sel.addEventListener('change', () => {
+        const i = all.find(x => x.code === sel.value);
+        if (!i) return;
+        const t = CRV_activeContract(i.code);
+        document.getElementById('st-ticker').value = t;
+        document.getElementById('st-pv').value = i.pointValue;
+        document.getElementById('st-tick').value = i.tickSize;
+        document.getElementById('st-instr-note').textContent = `${t} · $${i.pointValue}/pt · tick ${i.tickSize}`;
+    });
+})();
+</script>
+}

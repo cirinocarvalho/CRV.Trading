@@ -54,7 +54,8 @@
         }),
         ("setup", "Setup", "bi-sliders", new[]
         {
-            ("live-settings",  "", "/settings/live",      "bi-sliders",     "Strategy settings"),
+            ("strategies",     "", "/setup/strategies",  "bi-diagram-2",   "Strategies"),
+            ("live-settings",  "", "/settings/live",      "bi-sliders",     "Engine settings"),
             ("schwab-auth",    "", "/auth/schwab",        "bi-plug",        "Schwab"),
             ("ts-auth",        "", "/auth/tradestation",  "bi-plug",        "TradeStation"),
             ("tradovate-auth", "", "/auth/tradovate",     "bi-plug",        "Tradovate"),
@@ -74,7 +75,7 @@
         ("/trading/positions", "bi-list-ul",       "Positions", onPositions),
         ("/options/explorer", "bi-diagram-3",      "Options",   currentArea.Key == "options"),
         ("/review/results",   "bi-bar-chart-line", "Review",    currentArea.Key == "review"),
-        ("/settings/live",    "bi-sliders",        "Setup",     currentArea.Key == "setup"),
+        ("/setup/strategies", "bi-sliders",        "Setup",     currentArea.Key == "setup"),
     };
 }
 <body class="crv-app" data-light-ready="@(ViewData["LightReady"] is true ? "true" : "false")">

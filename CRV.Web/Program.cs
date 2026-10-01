@@ -157,6 +157,7 @@ builder.Services.AddSingleton<MockEventStream>();
 builder.Services.AddSingleton<LiveEngineOrchestrator>();
 builder.Services.AddSingleton<CRV.Web.Services.BrokerAccountService>();
 builder.Services.AddSingleton<CRV.Web.Services.FlattenAllService>();
+builder.Services.AddSingleton<CRV.Web.Services.StrategyBasketService>();
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<LiveEngineOrchestrator>());
 builder.Services.AddSingleton<SnapshotBroadcastService>();
