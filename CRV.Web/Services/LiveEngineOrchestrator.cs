@@ -474,6 +474,23 @@ public class LiveEngineOrchestrator : BackgroundService
             _emailSvc.FlushBatch(); // send any queued alerts before shutdown
             _log.LogInformation("Live engine stopped.");
         }
+        // Tell every open page, not only the one that pressed Stop, as starting already does.
+        _ = BroadcastStatusAsync("Stopped");
+    }
+
+    private async Task BroadcastStatusAsync(string status)
+    {
+        try
+        {
+            using var scope = _sp.CreateScope();
+            var hub = scope.ServiceProvider.GetRequiredService<IHubContext<TradingHub>>();
+            await hub.Clients.All.SendAsync("EngineStatusChanged", status);
+        }
+        catch (Exception ex)
+        {
+            // Shutting down, or no clients: the pages re-sync from /api/engine/status on reconnect.
+            _log.LogDebug(ex, "Engine status broadcast ({Status}) failed", status);
+        }
     }
 
     private async Task RunEngineAsync(StrategyConfig cfg, CancellationToken ct)

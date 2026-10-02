@@ -254,7 +254,8 @@
             else if (status === false || status === 'Stopped') { setState('Stopped', 'mut'); setRunning(false); }
             else if (status === 'Session Ended') { setState('Session ended', 'warn'); setRunning(true); }
             else if (status === 'OFFLINE') { setState('No connection', 'down'); }
-            else if (typeof status === 'string' && status.startsWith('Error')) { setState('Error', 'down'); }
+            // A faulted engine has stopped (the server sets IsRunning = false), so it is not running.
+            else if (typeof status === 'string' && status.startsWith('Error')) { setState('Error', 'down'); setRunning(false); }
             else if (typeof status === 'string' && status) { setState(status.replace(/…$/, ''), 'warn'); }
         },
         snapshot(s) {
