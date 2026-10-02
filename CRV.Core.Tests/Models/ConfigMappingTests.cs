@@ -312,6 +312,34 @@ public class ConfigMappingTests
     }
 
     [Fact]
+    public void ToSetupConfigs_FromBasket_PropagatesDirectionSwitchesAndCloseConfirmation()
+    {
+        // ToSetupConfig(BasketEntry) dropped these, so a basket entry stored as long-only or
+        // short-only still armed both sides, and close confirmation never reached Pullback.
+        var basket = """
+        [{
+          "Id":"a-long","Enabled":true,"Label":"A - long only","StrategyType":0,"Ticker":"/MNQZ26",
+          "Config":{ "AllowLong":true, "AllowShort":false, "UseCloseConfirmation":true }
+        },{
+          "Id":"a-short","Enabled":true,"Label":"A - short only","StrategyType":0,"Ticker":"/MNQZ26",
+          "Config":{ "AllowLong":false, "AllowShort":true }
+        }]
+        """;
+        var cfg = new StrategyConfig { BasketJson = basket };
+
+        var setups = cfg.ToSetupConfigs();
+
+        var longOnly  = setups.Single(s => s.Id == "a-long");
+        var shortOnly = setups.Single(s => s.Id == "a-short");
+        Assert.True(longOnly.UseCloseConfirmation);
+        Assert.Equal(0, longOnly.EffectiveMaxShort);
+        Assert.True(longOnly.EffectiveMaxLong > 0);
+        Assert.False(shortOnly.UseCloseConfirmation);
+        Assert.Equal(0, shortOnly.EffectiveMaxLong);
+        Assert.True(shortOnly.EffectiveMaxShort > 0);
+    }
+
+    [Fact]
     public void ToSetupConfigs_FromBasket_PropagatesBypassChopAndFakeoutSession()
     {
         // Regression: ToSetupConfig(BasketEntry) used to silently drop BypassChopFilter
