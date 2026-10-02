@@ -35,7 +35,7 @@ public sealed class StrategyBasketService
     public BasketItem? Find(string id) => All().FirstOrDefault(i => i.Entry.Id == id);
 
     public BasketChange Update(string id, Action<BasketEntry> apply, string who) =>
-        Change(who, $"edit {id}", (orb, ema) =>
+        Change(who, $"edit {id}", (orb, ema, _) =>
         {
             var entry = orb.FirstOrDefault(e => e.Id == id) ?? ema.FirstOrDefault(e => e.Id == id);
             if (entry == null) return "That strategy no longer exists. It may have been removed on another page.";
@@ -43,26 +43,40 @@ public sealed class StrategyBasketService
             return null;
         });
 
-    /// <summary>Replace one entry with an edited copy (same Id), leaving every other entry untouched.</summary>
+    /// <summary>Replace one entry with an edited copy (same Id), leaving every other entry untouched.
+    /// Refused when the edited entry can't trade (<see cref="SetupValidation.SaveErrors"/>).</summary>
     public BasketChange Replace(string id, BasketEntry edited, string who) =>
-        Change(who, $"edit {id}", (orb, ema) =>
+        Change(who, $"edit {id}", (orb, ema, cfg) =>
         {
             edited.Id = id;
             foreach (var list in new[] { orb, ema })
             {
                 var i = list.FindIndex(e => e.Id == id);
-                if (i >= 0) { list[i] = edited; return null; }
+                if (i < 0) continue;
+                var problems = SetupValidation.SaveErrors(edited, cfg);
+                if (problems.Count > 0) return SetupValidation.Sentences(problems);
+                list[i] = edited;
+                return null;
             }
             return "That strategy no longer exists. It may have been removed on another page.";
         });
 
+    /// <summary>Switching on is refused when the entry can't trade. Switching off never is.</summary>
     public BasketChange SetEnabled(string id, bool enabled, string who) =>
-        Update(id, e => e.Enabled = enabled, who);
+        Change(who, $"edit {id}", (orb, ema, cfg) =>
+        {
+            var entry = orb.FirstOrDefault(e => e.Id == id) ?? ema.FirstOrDefault(e => e.Id == id);
+            if (entry == null) return "That strategy no longer exists. It may have been removed on another page.";
+            entry.Enabled = enabled;
+            if (!enabled) return null;
+            var problems = SetupValidation.SaveErrors(entry, cfg);
+            return problems.Count > 0 ? SetupValidation.Sentences(problems) : null;
+        });
 
     public (BasketChange Change, string? Id) Add(StrategyType type, string ticker, decimal pointValue, decimal tickSize, string who)
     {
         string? newId = null;
-        var change = Change(who, $"add {type} {ticker}", (orb, ema) =>
+        var change = Change(who, $"add {type} {ticker}", (orb, ema, _) =>
         {
             var root = FuturesSymbol.RootSymbol(ticker).ToLowerInvariant();
             var stem = $"{type.ToString().ToLowerInvariant()}-{root}";
@@ -90,7 +104,7 @@ public sealed class StrategyBasketService
     }
 
     public BasketChange Remove(string id, string who) =>
-        Change(who, $"remove {id}", (orb, ema) =>
+        Change(who, $"remove {id}", (orb, ema, _) =>
         {
             if (orb.RemoveAll(e => e.Id == id) > 0)
             {
@@ -102,7 +116,7 @@ public sealed class StrategyBasketService
             return ema.RemoveAll(e => e.Id == id) > 0 ? null : "That strategy no longer exists.";
         });
 
-    private BasketChange Change(string who, string what, Func<List<BasketEntry>, List<BasketEntry>, string?> edit)
+    private BasketChange Change(string who, string what, Func<List<BasketEntry>, List<BasketEntry>, StrategyConfig, string?> edit)
     {
         lock (_lock)
         {
@@ -119,7 +133,7 @@ public sealed class StrategyBasketService
                 return new BasketChange(false, "The saved strategy list couldn't be read, so nothing was changed. Check the app log.", Array.Empty<string>());
             }
 
-            var error = edit(orb, ema);
+            var error = edit(orb, ema, cfg);
             if (error != null) return new BasketChange(false, error, Array.Empty<string>());
 
             cfg.BasketJson      = BasketCodec.Serialize(orb);

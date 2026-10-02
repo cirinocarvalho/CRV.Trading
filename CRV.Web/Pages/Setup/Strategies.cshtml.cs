@@ -1,4 +1,5 @@
 using CRV.Core.Data;
+using CRV.Core.Models;
 using CRV.Core.Strategy;
 using CRV.Live;
 using CRV.Web.Services;
@@ -14,10 +15,11 @@ public class StrategiesModel : PageModel
     private readonly StrategyConfigService _cfgSvc;
     private readonly LiveEngineOrchestrator _engine;
     private readonly TradingDbContext _db;
+    private readonly ILogger<StrategiesModel> _log;
 
-    public StrategiesModel(StrategyBasketService basket, StrategyConfigService cfgSvc, LiveEngineOrchestrator engine, TradingDbContext db)
+    public StrategiesModel(StrategyBasketService basket, StrategyConfigService cfgSvc, LiveEngineOrchestrator engine, TradingDbContext db, ILogger<StrategiesModel> log)
     {
-        _basket = basket; _cfgSvc = cfgSvc; _engine = engine; _db = db;
+        _basket = basket; _cfgSvc = cfgSvc; _engine = engine; _db = db; _log = log;
     }
 
     public List<BasketItem> Items { get; private set; } = new();
@@ -32,9 +34,16 @@ public class StrategiesModel : PageModel
     {
         Message = TempData["strategies_msg"] as string;
         Error = TempData["strategies_err"] as string;
+        var readable = true;
         try { Items = _basket.All(); }
-        catch { Error ??= "The saved strategy list couldn't be read. Nothing has been changed; check the app log."; }
-        LegacyInUse = !Items.Any(i => !i.IsEmaBasket);
+        catch (Exception ex)
+        {
+            readable = false;
+            _log.LogError(ex, "Strategies: the saved strategy list can't be read");
+            Error ??= string.Join(" ", SetupValidation.BasketErrors(_cfgSvc.Current)) + " Nothing has been changed; check the app log.";
+        }
+        // A list that can't be read trades nothing; it doesn't switch the engine to the A–D setups.
+        LegacyInUse = readable && !Items.Any(i => !i.IsEmaBasket);
 
         // Results by setup for the last 30 days, from the account orders go to.
         ResultSource = _cfgSvc.Current.EffectiveExecBroker == "Mock" ? "mock" : "live";
