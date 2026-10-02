@@ -1097,12 +1097,15 @@ function updateDashboard(d) {
 
     // ── Stream health ─────────────────────────────────────────
     if (d.lastPrice > 0) setText("stream-price", d.lastPrice.toFixed(2));
+    // The snapshot's own time, not when this page drew it. On load the server replays the last
+    // snapshot, which can be hours old; stamping it "now" made a stopped engine look live.
     if (d.lastUpdate) {
-        _lastUpdateMs = new Date(d.lastUpdate).getTime();
-        // If server sends UTC without Z suffix, handle it
-        if (_lastUpdateMs < Date.now() - 86400000) _lastUpdateMs = Date.now();
+        const t = String(d.lastUpdate);
+        // The server's time is UTC; read it as UTC even if it arrives without a zone suffix.
+        const ms = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : t + 'Z').getTime();
+        _lastUpdateMs = isNaN(ms) || ms <= 0 ? 0 : Math.min(ms, Date.now());
     } else {
-        _lastUpdateMs = Date.now();
+        _lastUpdateMs = 0;   // unknown: no dot and no age, rather than a fake "live"
     }
 
     // ── Daily P&L stats ──────────────────────────────────────
@@ -1455,8 +1458,8 @@ function updateSetup(id, setup, sessionEnded) {
     // ── Per-setup last price (always shown, even when idle) ───
     if (lastPrice > 0) {
         setText(id + "-price", lastPrice.toFixed(2), "num");
-        if (!_setupLastPriceMs[id]) _setupLastPriceMs[id] = 0;
-        _setupLastPriceMs[id] = Date.now();  // track when we last got a valid price
+        // When the price is from: the snapshot's time, so a replayed snapshot shows its real age.
+        _setupLastPriceMs[id] = _lastUpdateMs;
     } else {
         setText(id + "-price", "—", "num");
     }
