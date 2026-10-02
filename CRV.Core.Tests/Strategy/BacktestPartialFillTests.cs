@@ -150,6 +150,40 @@ public class BacktestPartialFillTests
         Assert.True(completedTrade.PartialFilled, "Tg1 should fill on H before Tg2 fills on C");
     }
 
+    [Theory]
+    [InlineData(1, true)]   // sized down to one contract with partials on
+    [InlineData(2, false)]  // partials off
+    public async Task SingleTarget_ReachingTarget_IsRecordedAsTheTarget_NotAPartial(int contracts, bool usePartial)
+    {
+        // A lone bracket used to be labelled Tg1 by its list position, so the completed trade
+        // read Target = 0, Partial = the target price and PartialFilled = true.
+        var cfg = new StrategyConfig { PointValue = 10, TickSize = 0.1m };
+        var executor = new BacktestGroupOrderExecutor(new BacktestConfig { FillMode = FillMode.AtTouch }, cfg);
+        var handler = new BrokerEventHandler(executor);
+        TradeRecord? completedTrade = null;
+        handler.OnTradeCompleted += (_, trade) => completedTrade = trade;
+        executor.OnEvent = evt => handler.HandleEventAsync(evt);
+
+        var signal = new EntrySignal(
+            SetupId.A, Direction.Long,
+            Entry: 5025.1m, Stop: 4959.7m, Tg2Price: 5123.2m, Tg1Price: 5074.2m,
+            TotalContracts: contracts, Time: new DateTime(2026, 3, 3, 15, 0, 0, DateTimeKind.Utc),
+            OrderType: "Limit", Ticker: "MGCM26", SetupLabel: "orbfakeout-mgc",
+            PartialContracts: usePartial ? 1 : 0, PointValue: 10m, UsePartial: usePartial, UseBe: true);
+        await handler.PlaceEntryAsync(signal, new FakeSetup());
+
+        var t = new DateTime(2026, 3, 3, 15, 0, 0, DateTimeKind.Utc);
+        await Tick(executor, 5020m, t, "MGCM26");                 // entry fills
+        await Tick(executor, 5130m, t.AddMinutes(1), "MGCM26");   // through the target
+
+        Assert.NotNull(completedTrade);
+        Assert.Equal(ExitReason.Target, completedTrade!.ExitReason);
+        Assert.Equal(5123.2m, completedTrade.Target);
+        Assert.Equal(0m, completedTrade.Partial);
+        Assert.False(completedTrade.PartialFilled);
+        Assert.Equal((5123.2m - 5025.1m) * 10m * contracts, completedTrade.GrossPnl);
+    }
+
     private static Task Tick(BacktestGroupOrderExecutor exec, decimal price, DateTime t, string ticker)
         => exec.EvaluateFillsAsync(price, t, ticker);
 }

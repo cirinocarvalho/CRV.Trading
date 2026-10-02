@@ -357,22 +357,12 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             _ => OrderLegStatus.Working
         };
 
-        // Helper to map bracket index → Tg1/Tg2/Tg3/Tg4
-        static LegType TargetLegTypeForIndex(int i) => i switch
-        {
-            0 => LegType.Tg1,
-            1 => LegType.Tg2,
-            2 => LegType.Tg3,
-            3 => LegType.Tg4,
-            _ => LegType.Tg4,
-        };
-
         // Register discovered legs with WSS (best-effort — REST is primary)
         if (disc.Entry is not null) EventStream?.RegisterOrder(disc.Entry.Id, groupId, LegType.Entry);
         for (int i = 0; i < disc.Targets.Count; i++)
         {
             var t = disc.Targets[i];
-            if (t is not null) EventStream?.RegisterOrder(t.Id, groupId, TargetLegTypeForIndex(i));
+            if (t is not null) EventStream?.RegisterOrder(t.Id, groupId, BracketLegTypes.For(i, bracketList.Count));
         }
         for (int i = 0; i < disc.Stops.Count; i++)
         {
@@ -420,7 +410,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
             {
                 GroupOrderId = groupId,
                 OrderId = t.Id.ToString(),
-                LegType = TargetLegTypeForIndex(i),
+                LegType = BracketLegTypes.For(i, bracketList.Count),
                 OrderType = "Limit",
                 Action = sellAction,
                 Quantity = t.Qty > 0 ? t.Qty : expectedQty,
@@ -478,7 +468,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
                         {
                             var t = fullDisc.Targets[k];
                             if (t is null) continue;
-                            var legType = TargetLegTypeForIndex(k);
+                            var legType = BracketLegTypes.For(k, bracketList.Count);
                             if (group.GetLeg(legType) != null) continue; // already added
                             var expectedQty = k < bracketList.Count ? bracketList[k].Qty : 0;
                             group.Legs.Add(new OrderLeg

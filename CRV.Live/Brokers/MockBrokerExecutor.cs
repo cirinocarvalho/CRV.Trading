@@ -414,14 +414,6 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
             Broker = "Mock",
         };
 
-        static LegType TargetLegTypeForIndex(int i) => i switch
-        {
-            0 => LegType.Tg1,
-            1 => LegType.Tg2,
-            2 => LegType.Tg3,
-            3 => LegType.Tg4,
-            _ => LegType.Tg4,
-        };
 
         var entryLeg = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-e", LegType = LegType.Entry, OrderType = sig.OrderType, Action = entryAction, Quantity = sig.TotalContracts, Price = sig.Entry };
         var stopLeg  = new OrderLeg { GroupOrderId = groupId, OrderId = $"{groupId}-s", LegType = LegType.Stop,  OrderType = "Stop",   Action = exitAction, Quantity = sig.TotalContracts, Price = sig.Stop };
@@ -439,7 +431,7 @@ public class MockGroupOrderExecutor : IGroupOrderExecutor
         {
             var bl = bracketList[i];
             if (bl.Qty <= 0) continue;
-            var legType = TargetLegTypeForIndex(i);
+            var legType = BracketLegTypes.For(i, bracketList.Count);
             var legId = $"{groupId}-t{i + 1}";
             var tgLeg = new OrderLeg
             {
