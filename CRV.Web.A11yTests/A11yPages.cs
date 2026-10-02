@@ -17,7 +17,7 @@ public static class A11yPages
         "/options/positions",
         "/setup/strategies",
         "/setup/strategies/" + A11ySeed.RetestId,
-        "/setup/strategies/" + A11ySeed.Ema21Id,
+        "/setup/strategies/" + A11ySeed.RetiredId,
         "/setup/brokers",
         "/setup/risk",
         "/setup/alerts",

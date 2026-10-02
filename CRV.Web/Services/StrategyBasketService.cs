@@ -83,7 +83,7 @@ public sealed class StrategyBasketService
                     MaxTradeRisk = 0, StopMode = "OrbPct", StopVwapTicks = 4,
                 },
             };
-            (type == StrategyType.Ema21 ? ema : orb).Add(entry);
+            (type == StrategyType.Ema ? ema : orb).Add(entry);
             return null;
         });
         return (change, change.Ok ? newId : null);

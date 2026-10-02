@@ -776,12 +776,7 @@ public class StrategyConfig
         BypassChopFilter = b.Config.BypassChopFilter,
         // Setup-D: which prior-session range to fade (Auto = default chain)
         FakeoutReferenceSession = b.Config.FakeoutReferenceSession,
-        // EMA21-specific
-        SlopeLen = b.Config.SlopeLen,
-        AtrTouchMult = b.Config.AtrTouchMult,
-        MinSlopePct = b.Config.MinSlopePct,
-        OpenTicksToEma = b.Config.OpenTicksToEma,
-        UseVolumeFilter = b.Config.UseVolumeFilter,
+        // ATR targets
         AtrTp1Mult = b.Config.AtrTp1Mult,
         AtrTp2Mult = b.Config.AtrTp2Mult,
     };

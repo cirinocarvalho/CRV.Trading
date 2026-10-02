@@ -158,11 +158,6 @@
                     </select>
                 </div>
                 @{ Check("Entry.Config.QuickReentry", "Quick re-entry after a stop-out", c.QuickReentry, "Skips the full retest cycle for the next entry on that side.", types: "Retest"); }
-                @{ Num("Entry.Config.SlopeLen", "Slope lookback", c.SlopeLen.ToString(inv), step: "1", types: "Ema21", unit: "bars"); }
-                @{ Num("Entry.Config.AtrTouchMult", "Touch zone", N(c.AtrTouchMult), types: "Ema21", unit: "× ATR"); }
-                @{ Num("Entry.Config.MinSlopePct", "Minimum slope", N(c.MinSlopePct), types: "Ema21", unit: "% of price"); }
-                @{ Num("Entry.Config.OpenTicksToEma", "Signal bar opens within", c.OpenTicksToEma.ToString(inv), step: "1", types: "Ema21", unit: "ticks of EMA"); }
-                @{ Check("Entry.Config.UseVolumeFilter", "Require above-average volume", c.UseVolumeFilter, types: "Ema21"); }
             </div>
         </section>
 
@@ -259,7 +254,7 @@
 (function () {
     // Show only the fields that apply to the chosen strategy (hidden ones still post their values).
     const type = document.getElementById('st-type');
-    const names = ['Pullback', 'Retest', 'OrbFakeout', 'SessionFakeout', 'Ema21'];
+    const names = ['Pullback', 'Retest', 'OrbFakeout', 'SessionFakeout'];
     function sync() {
         const t = names[parseInt(type.value, 10)];
         document.querySelectorAll('[data-types]').forEach(el => {
