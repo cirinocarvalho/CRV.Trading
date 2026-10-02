@@ -166,7 +166,7 @@ git commit -m "fix(stats): a single trade splits into in-sample instead of throw
 - Test: `CRV.Core.Tests/Models/EmaBasketMappingTests.cs`, `CRV.Core.Tests/Backtest/EmaConfirmationSwitchesTests.cs`, `CRV.Core.Tests/Backtest/EmaPlanSurfaceTests.cs`
 
 **Interfaces:**
-- Consumes (plans 1, 3, 4, 5): `StrategyConfig.EmaBasketJson`, `StrategyConfig.ToEmaSetupConfigs()`, `StrategyType.Ema`, the EMA fields on `StrategySetupConfig`, `ConfirmationKind`, `ConfirmationConfig`, `Confirmations`, `ConfirmationsNeeded` (Decision 7), `SessionBarAggregator(SignalTimeframe)`, `HtfBar? OnExecutionBar(Bar)`, `EmaIndicator(int)` with `Add`, `IsReady`, `Value`, `HistoryRequirement.For(int)`, `EasternTime.ToEastern(DateTime)`, `HtfBarRow`.
+- Consumes (plans 1, 3, 4, 5): `StrategyConfig.EmaBasketJson`, `StrategyConfig.ToEmaSetupConfigs()`, `StrategyType.Ema`, the EMA fields on `StrategySetupConfig`, `ConfirmationKind`, `ConfirmationConfig`, `Confirmations`, `ConfirmationsNeeded` (Decision 7), `SessionBarAggregator(SignalTimeframe, int executionMinutes)`, `HtfBar? OnExecutionBar(Bar)`, `EmaIndicator(int)` with `Add`, `IsReady`, `Value`, `HistoryRequirement.For(int)`, `EasternTime.ToEastern(DateTime)`, `HtfBarRow`.
 - Produces:
   - `void StrategyConfig.MapEmaBasketEntries(Action<BasketEntry> change)`
   - `static class EmaConfirmationSwitches` (namespace `CRV.Backtest.Experiments`): `void ClearAll(StrategySetupConfig setup)`, `IReadOnlyList<(string Name, Action<StrategySetupConfig> Enable)> For(EmaEntry entry)`, `string Label(ConfirmationKind kind)`.
@@ -214,7 +214,7 @@ public class EmaPlanSurfaceTests
     [Fact]
     public void HigherTimeframeSurface_IsWhatTheTraceUses()
     {
-        var aggregator = new SessionBarAggregator(SignalTimeframe.M5);
+        var aggregator = new SessionBarAggregator(SignalTimeframe.M5, executionMinutes: 1);
         HtfBar? closed = aggregator.OnExecutionBar(
             new Bar(new DateTime(2026, 4, 15, 13, 30, 0, DateTimeKind.Utc), 1m, 2m, 0.5m, 1.5m, 10));
         var ema = new EmaIndicator(3);
@@ -1679,7 +1679,7 @@ public static class EmaSignalTrace
     {
         var tf         = setup.SignalTimeframe;
         bool twoEmas   = setup.EmaSource == EmaSource.EmaVsEma;
-        var aggregator = new SessionBarAggregator(tf);
+        var aggregator = new SessionBarAggregator(tf, setup.ExecutionTFMinutes);
         var emaA       = new EmaIndicator(twoEmas ? setup.FastEma : setup.EmaPeriod);
         var emaB       = twoEmas ? new EmaIndicator(setup.SlowEma) : null;
         var atr        = new AtrIndicator();
