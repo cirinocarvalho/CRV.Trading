@@ -1,5 +1,7 @@
 # EMA21 Strategy Integration Design
 
+> **Superseded** by [EMA21 Removal Design](2026-10-02-ema21-removal-design.md): the EMA21 strategy is retired; type 4 is reserved.
+
 ## Overview
 
 Add a new EMA21-based strategy to the CRV.Trading platform alongside existing ORB-based strategies. The EMA21 strategy detects EMA cross and touch signals, enters on the next bar, and uses ATR-based targets with the EMA value at entry as stop. It runs for the full trading session (no ORB window dependency) and owns its own indicators internally.
