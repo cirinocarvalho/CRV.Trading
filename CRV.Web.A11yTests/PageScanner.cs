@@ -6,14 +6,16 @@ namespace CRV.Web.A11yTests;
 
 /// <summary>
 /// Opens one route in one theme and viewport, checks the page really rendered in that theme,
-/// opens every collapsed section, runs an optional interaction, and scans with axe.
+/// opens every collapsed section, runs an optional interaction, and scans with axe — the whole
+/// page, or only <c>scope</c> when an open modal's backdrop dims everything else.
 /// </summary>
 public static class PageScanner
 {
     private static readonly string ScreenshotDir = Path.Combine(AppContext.BaseDirectory, "a11y-screens");
 
     public static async Task<string?> ScanAsync(A11yAppFixture app, string route, string theme,
-        int width, int height, Func<IPage, Task>? interact = null, ITestOutputHelper? output = null)
+        int width, int height, Func<IPage, Task>? interact = null, ITestOutputHelper? output = null,
+        string? scope = null)
     {
         await using var context = await app.Browser.NewContextAsync(new()
         {
@@ -32,7 +34,9 @@ public static class PageScanner
         await page.EvaluateAsync("document.querySelectorAll('details:not([open])').forEach(d => d.open = true)");
         if (interact != null) await interact(page);
 
-        var result = await AxeReport.RunAsync(page);
+        var result = scope == null
+            ? await AxeReport.RunAsync(page)
+            : await AxeReport.RunAsync(page.Locator(scope));
         var scan = $"{route} [{theme}, {width}px]";
 
         foreach (var item in result.Incomplete)

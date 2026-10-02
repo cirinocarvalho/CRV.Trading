@@ -44,7 +44,7 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
         {
             await page.ClickAsync("#flatten-open");
             await page.Locator("#flatten-sheet").WaitForAsync(new() { State = WaitForSelectorState.Visible });
-        }, output);
+        }, output, scope: "#flatten-sheet");
 
         Assert.True(report is null, report);
     }
@@ -57,7 +57,7 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
         var report = await PageScanner.ScanAsync(app, "/dashboard?ticket=1", theme, width, height, async page =>
         {
             await page.Locator("#ticket").WaitForAsync(new() { State = WaitForSelectorState.Visible });
-        }, output);
+        }, output, scope: "#ticket");
 
         Assert.True(report is null, report);
     }

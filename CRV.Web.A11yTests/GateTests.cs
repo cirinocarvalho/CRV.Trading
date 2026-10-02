@@ -20,4 +20,16 @@ public class GateTests(A11yAppFixture app)
         Assert.Contains("does not have an alt attribute", report);
         await page.CloseAsync();
     }
+
+    [Fact]
+    public async Task ScopedScan_IgnoresViolationsOutsideTheScope()
+    {
+        var page = await app.Browser.NewPageAsync();
+        await page.SetContentAsync("<!doctype html><html lang='en'><head><title>t</title></head><body><main><img src='x.png'><div id='sheet'><p>Fine</p></div></main></body></html>");
+
+        var result = await AxeReport.RunAsync(page.Locator("#sheet"));
+
+        Assert.Empty(result.Violations);
+        await page.CloseAsync();
+    }
 }

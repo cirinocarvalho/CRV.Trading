@@ -10,15 +10,18 @@ public static class AxeReport
 {
     public static readonly string[] WcagTags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
-    public static Task<AxeResult> RunAsync(IPage page, params string[] disabledRules)
+    public static Task<AxeResult> RunAsync(IPage page, params string[] disabledRules) =>
+        page.RunAxe(Options(disabledRules));
+
+    /// <summary>Scans only <paramref name="scope"/>, e.g. an open modal whose backdrop dims the page behind it.</summary>
+    public static Task<AxeResult> RunAsync(ILocator scope, params string[] disabledRules) =>
+        scope.RunAxe(Options(disabledRules));
+
+    private static AxeRunOptions Options(string[] disabledRules) => new()
     {
-        var options = new AxeRunOptions
-        {
-            RunOnly = new RunOnlyOptions { Type = "tag", Values = WcagTags.ToList() },
-            Rules   = disabledRules.ToDictionary(r => r, _ => new RuleOptions { Enabled = false }),
-        };
-        return page.RunAxe(options);
-    }
+        RunOnly = new RunOnlyOptions { Type = "tag", Values = WcagTags.ToList() },
+        Rules   = disabledRules.ToDictionary(r => r, _ => new RuleOptions { Enabled = false }),
+    };
 
     public static string Format(string scan, AxeResult result)
     {
