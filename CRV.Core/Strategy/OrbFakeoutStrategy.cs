@@ -180,12 +180,13 @@ public class OrbFakeoutStrategy : ISetupStrategy
             bool fakeoutBear = modules.OrbFakeoutBear;
 
             // Direction is OPPOSITE of breakout: bull fakeout -> arm SHORT, bear fakeout -> arm LONG
-            if (fakeoutBull && !_bearTraded)
+            // A long-only or short-only setup never arms the other side.
+            if (fakeoutBull && !_bearTraded && _cfg.EffectiveMaxShort > 0)
             {
                 _state = -1;  // arm SHORT (fade the long breakout)
                 _armEntry = bar.Close;
             }
-            else if (fakeoutBear && !_bullTraded)
+            else if (fakeoutBear && !_bullTraded && _cfg.EffectiveMaxLong > 0)
             {
                 _state = 1;   // arm LONG (fade the short breakout)
                 _armEntry = bar.Close;
