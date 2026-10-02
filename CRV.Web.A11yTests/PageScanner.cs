@@ -20,6 +20,8 @@ public static class PageScanner
         await using var context = await app.Browser.NewContextAsync(new()
         {
             ViewportSize = new() { Width = width, Height = height },
+            // Bootstrap skips its fade transitions, so colours are measured settled, not mid-fade.
+            ReducedMotion = ReducedMotion.Reduce,
         });
         await context.AddInitScriptAsync($"try {{ localStorage.setItem('crv-theme', '{theme}'); }} catch (e) {{ }}");
         var page = await context.NewPageAsync();
