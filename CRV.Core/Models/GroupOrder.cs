@@ -104,6 +104,23 @@ public class GroupOrder
 /// </summary>
 public record BracketLeg(decimal TargetPrice, int Qty, bool MoveBe = false);
 
+/// <summary>Which target leg each bracket of an order becomes.</summary>
+public static class BracketLegTypes
+{
+    /// <summary>
+    /// The leg type of bracket <paramref name="index"/> out of <paramref name="count"/>. A lone
+    /// bracket is the full target, so it is Tg2: trade records read Tg2 as the target and Tg1
+    /// as the partial.
+    /// </summary>
+    public static LegType For(int index, int count) => count == 1 ? LegType.Tg2 : index switch
+    {
+        0 => LegType.Tg1,
+        1 => LegType.Tg2,
+        2 => LegType.Tg3,
+        _ => LegType.Tg4,
+    };
+}
+
 // ── Order Leg — individual order within a group ─────────────
 public class OrderLeg
 {
