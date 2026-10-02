@@ -702,13 +702,13 @@ public class LiveEngineOrchestrator : BackgroundService
             }
 
             // ── Run ─────────────────────────────────────────────────
+            foreach (var problem in SetupValidation.BasketErrors(cfg))
+                _log.LogError("Strategies: {Problem}", problem);
             var engineConfig = cfg.ToEngineConfig();
             var newEngine = new ComposableEngine(executor, wrappedSink, prices, engineConfig, brokerHandler);
-            foreach (var setupCfg in cfg.ToSetupConfigs())
-            {
-                if (setupCfg.Enabled)
-                    newEngine.AddSetup(setupCfg);
-            }
+            newEngine.AddSetups(cfg);
+            foreach (var d in newEngine.DisabledSetups)
+                _log.LogWarning("Strategies: {Label} ({Id}) not started. Disabled: {Reason}", d.Label, d.Id, d.Reason);
             lock (_lifecycleLock) { _engine = newEngine; _brokerHandler = brokerHandler; _groupExecutor = groupExecutor; }
 
             // Wire trade completion: record P&L in RiskManager + persist via sink

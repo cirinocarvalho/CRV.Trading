@@ -265,6 +265,8 @@ public class SetupSnapshot
     public bool     Enabled        { get; set; }
     public int      State          { get; set; }          // state machine value
     public bool     PastCutoff     { get; set; }
+    /// <summary>Why a switched-on strategy isn't trading (e.g. "retired EMA21 strategy"); null while it trades.</summary>
+    public string?  DisabledReason { get; set; }
 
     // Trade
     public ActiveTradeView? Trade  { get; set; }

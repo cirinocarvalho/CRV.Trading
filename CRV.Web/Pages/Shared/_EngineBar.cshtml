@@ -9,8 +9,9 @@
     var account = AccountMode.For(cfg.EffectiveExecBroker, TradovateAuth.AuthBaseUrl);
     var snap    = Engine.LastSnapshot;
     var running = Engine.IsRunning;
+    var cantTrade = CRV.Core.Models.SetupValidation.DisabledSetups(cfg).Select(d => d.Id).ToHashSet();
     var armed   = cfg.ToSetupConfigs()
-        .Where(s => s.Enabled)
+        .Where(s => s.Enabled && !cantTrade.Contains(s.Id))
         .Select(s => string.IsNullOrEmpty(s.Id) ? s.Name : s.Id)
         .Distinct()
         .ToArray();

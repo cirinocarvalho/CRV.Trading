@@ -4,6 +4,7 @@ using CRV.Web.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Playwright;
 using Xunit;
 
 namespace CRV.Web.A11yTests;
@@ -62,5 +63,18 @@ public class FixtureTests(A11yAppFixture app)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
         Assert.Equal($"Data Source={Path.Combine(app.DataDir, "crv_trading.db")}", db.Database.GetConnectionString());
+    }
+
+    [Fact]
+    public async Task EngineBar_StartList_LeavesOutStrategiesThatCantTrade()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+
+        var setups = (await page.GetAttributeAsync("#crv-engine", "data-setups"))!.Split('\n');
+
+        Assert.Contains(A11ySeed.RetestId, setups);
+        Assert.DoesNotContain(A11ySeed.RetiredId, setups);
     }
 }

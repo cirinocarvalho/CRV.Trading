@@ -111,18 +111,10 @@ public class BacktestEngine
             engine.Risk.RecordTrade(trade.NetPnl);
         };
 
-        // Only register enabled setups.
-        // Collect distinct tickers for multi-ticker bar loading.
-        var setupTickers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var setupCfg in _cfg.ToSetupConfigs())
-        {
-            if (setupCfg.Enabled)
-            {
-                engine.AddSetup(setupCfg);
-                setupTickers.Add(setupCfg.Ticker);
-            }
-        }
+        // Register every switched-on setup that can trade; one that can't is skipped, not fatal.
+        engine.AddSetups(_cfg);
+        foreach (var d in engine.DisabledSetups)
+            _log.LogWarning("Backtest: {Label} ({Id}) skipped. Disabled: {Reason}", d.Label, d.Id, d.Reason);
 
         // Enable tick mode: bar-level entry/exit skipped in ProcessBarAsync;
         // instead, four OHLC ticks per input bar drive entries and exits.

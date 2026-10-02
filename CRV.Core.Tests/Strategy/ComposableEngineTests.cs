@@ -624,4 +624,54 @@ public class ComposableEngineTests
         Assert.Equal(21100m, engine.GetSnapshot().Setups.Single(s => s.Id == "pullback-mnq").OrbHigh);
         Assert.Equal(15, engine.Groups["NQ"].BarMinutes);
     }
+
+    // ── Engine start: an entry that can't trade disables only itself ──
+
+    private static StrategyConfig BasketWithEntriesThatCantTrade()
+    {
+        var cfg = DefaultStrategyConfig();
+        cfg.BasketJson = BasketCodec.Serialize(new[]
+        {
+            BasketEntryFor("pullback-mnq", StrategyType.Pullback, "/MNQZ26", 5),
+            BasketEntryFor("retest-nq",    StrategyType.Retest,   "/NQZ26",  15),
+            BasketEntryFor("unknown-mes",  (StrategyType)9,       "/MESZ26", 5),
+            BasketEntryFor("retest-mes",   StrategyType.Retest,   "/MESZ26", 5),
+        });
+        cfg.EmaBasketJson = BasketCodec.Serialize(new[]
+        {
+            BasketEntryFor("ema21-mnq", SetupValidation.RetiredEma21, "/MNQZ26", 5),
+        });
+        return cfg;
+    }
+
+    [Fact]
+    public void AddSetups_SkipsEntriesThatCantTrade_AndRegistersTheRest()
+    {
+        var engine = CreateEngine();
+
+        engine.AddSetups(BasketWithEntriesThatCantTrade());
+
+        Assert.Equal(new[] { "pullback-mnq", "retest-mes" },
+            engine.GetStrategies().Select(s => s.Id).OrderBy(id => id, StringComparer.Ordinal));
+        var reasons = engine.DisabledSetups.ToDictionary(d => d.Id, d => d.Reason);
+        Assert.Equal(3, reasons.Count);
+        Assert.Equal("retired EMA21 strategy", reasons["ema21-mnq"]);
+        Assert.Equal("unknown strategy type 9", reasons["unknown-mes"]);
+        Assert.StartsWith("bar size 15 min differs from the 5 min pullback-mnq uses", reasons["retest-nq"]);
+    }
+
+    [Fact]
+    public void GetSnapshot_ShowsEachSkippedEntryAsADisabledCard()
+    {
+        var engine = CreateEngine();
+        engine.AddSetups(BasketWithEntriesThatCantTrade());
+
+        var setups = engine.GetSnapshot().Setups;
+
+        var card = setups.Single(s => s.Id == "ema21-mnq");
+        Assert.False(card.Enabled);
+        Assert.Equal("retired EMA21 strategy", card.DisabledReason);
+        Assert.Equal("MNQZ26", card.Ticker);
+        Assert.Null(setups.Single(s => s.Id == "pullback-mnq").DisabledReason);
+    }
 }

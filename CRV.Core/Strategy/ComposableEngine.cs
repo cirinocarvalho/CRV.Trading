@@ -26,6 +26,11 @@ public class ComposableEngine
     /// <summary>Groups by key ("NQ", "ES", …). For tests.</summary>
     internal IReadOnlyDictionary<string, TickerGroup> Groups => _groups;
 
+    private readonly List<DisabledSetup> _disabledSetups = new();
+
+    /// <summary>Switched-on entries <see cref="AddSetups"/> skipped, with the reason.</summary>
+    public IReadOnlyList<DisabledSetup> DisabledSetups => _disabledSetups;
+
     private bool _idle;
     private bool _tickModeEnabled;
     private string _activeSessionId = "";
@@ -93,6 +98,24 @@ public class ComposableEngine
         group.AddStrategy(strategy);
         _strategies[config.Id] = strategy;
         _setupToGroupKey[config.Id] = groupKey;
+    }
+
+    /// <summary>
+    /// Registers every switched-on setup in <paramref name="cfg"/>. An entry that
+    /// <see cref="SetupValidation.DisabledSetups"/> rejects is skipped and kept in
+    /// <see cref="DisabledSetups"/>, so the cockpit can say why; the rest trade.
+    /// </summary>
+    public void AddSetups(StrategyConfig cfg)
+    {
+        var disabled = SetupValidation.DisabledSetups(cfg);
+        _disabledSetups.AddRange(disabled);
+        var skip = disabled.Select(d => d.Id).ToHashSet();
+
+        foreach (var setupCfg in cfg.ToSetupConfigs())
+        {
+            if (setupCfg.Enabled && !skip.Contains(setupCfg.Id))
+                AddSetup(setupCfg);
+        }
     }
 
     // ── Bar/Tick processing ─────────────────────────────────────────
@@ -477,6 +500,7 @@ public class ComposableEngine
         var inputs = new SnapshotAggregator.Inputs
         {
             Strategies = allStrategies,
+            DisabledSetups = _disabledSetups,
             Risk = Risk,
             Prices = _prices,
             BrokerHandler = _brokerHandler,
