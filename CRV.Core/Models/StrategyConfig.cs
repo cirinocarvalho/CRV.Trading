@@ -530,36 +530,35 @@ public class StrategyConfig
     };
 
     /// <summary>
-    /// Produce per-setup configs for all 4 setups (A, B, C, D).
-    /// Results are identical to the engine's BuildSetupConfigA/B/C/D helpers.
+    /// Per-setup configs: the ORB basket's entries (the legacy A–D setups when that basket is empty),
+    /// then the EMA basket's. A basket that can't be read contributes none — never A–D — and
+    /// <see cref="SetupValidation.BasketErrors"/> says why.
     /// </summary>
     public List<StrategySetupConfig> ToSetupConfigs()
     {
         List<StrategySetupConfig> configs;
-        if (!string.IsNullOrEmpty(BasketJson))
-        {
-            try
-            {
-                var opts = new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
-                };
-                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
-                configs = basket?.Count > 0
-                    ? basket.Select(b => ToSetupConfig(b)).ToList()
-                    : new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() };
-            }
-            catch { configs = new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() }; }
-        }
+        if (string.IsNullOrEmpty(BasketJson))
+            configs = LegacySetupConfigs();
         else
         {
-            configs = new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() };
+            var basket = ReadBasket(BasketJson);
+            configs = basket == null ? new()
+                : basket.Count > 0 ? basket.Select(ToSetupConfig).ToList()
+                : LegacySetupConfigs();
         }
 
-        // Append EMA basket entries
         configs.AddRange(ToEmaSetupConfigs());
         return configs;
+    }
+
+    private List<StrategySetupConfig> LegacySetupConfigs() =>
+        new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() };
+
+    /// <summary>The entries in <paramref name="json"/>, or null when it can't be read.</summary>
+    private static List<BasketEntry>? ReadBasket(string? json)
+    {
+        try { return BasketCodec.Parse(json); }
+        catch { return null; }
     }
 
     /// <summary>Number of basket entries the engine will actually register.</summary>
@@ -601,41 +600,27 @@ public class StrategyConfig
         Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
     };
 
-    /// <summary>Parse EMA basket JSON into setup configs. Returns empty list if no basket.</summary>
-    public List<StrategySetupConfig> ToEmaSetupConfigs()
-    {
-        if (string.IsNullOrEmpty(EmaBasketJson)) return new();
-        try
-        {
-            var opts = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
-            };
-            var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(EmaBasketJson, opts);
-            if (basket?.Count > 0)
-                return basket.Select(b => ToSetupConfig(b)).ToList();
-        }
-        catch { /* ignore malformed JSON */ }
-        return new();
-    }
+    /// <summary>EMA basket entries as setup configs; none when there is no basket or it can't be read
+    /// (<see cref="SetupValidation.BasketErrors"/> reports that).</summary>
+    public List<StrategySetupConfig> ToEmaSetupConfigs() =>
+        (ReadBasket(EmaBasketJson) ?? new()).Select(ToSetupConfig).ToList();
 
     /// <summary>
-    /// Resolves the execution TF (minutes) for a ticker. Looks up the basket entry (ORB + EMA)
-    /// for a per-symbol override; falls back to the global <see cref="ExecutionTFMinutes"/>.
+    /// Bar size (minutes) the feed for <paramref name="ticker"/> runs on. Strategies on one root
+    /// (NQ and MNQ, …) share a feed, so this is the bar size of the first switched-on entry on the
+    /// ticker's root that can trade, in basket order (ORB, then EMA). It is the fallback when there
+    /// is no such entry or that entry has no bar size of its own.
     /// </summary>
     public int TfMinutesFor(string ticker, int? fallbackMinutes = null)
     {
-        if (!string.IsNullOrWhiteSpace(ticker))
-        {
-            foreach (var b in EnumerateBasketEntries())
-            {
-                if (b.ExecutionTFMinutes is int tf && tf > 0 &&
-                    string.Equals(b.Ticker, ticker, StringComparison.OrdinalIgnoreCase))
-                    return tf;
-            }
-        }
-        return Math.Max(1, fallbackMinutes ?? ExecutionTFMinutes);
+        var fallback = Math.Max(1, fallbackMinutes ?? ExecutionTFMinutes);
+        if (string.IsNullOrWhiteSpace(ticker)) return fallback;
+
+        var root = CRV.Core.Strategy.TickerGroup.GetGroupKey(ticker);
+        var first = EnumerateBasketEntries().FirstOrDefault(b =>
+            b.Enabled && SetupValidation.Entry(b, this).Count == 0 &&
+            CRV.Core.Strategy.TickerGroup.GetGroupKey(b.Ticker) == root);
+        return first?.ExecutionTFMinutes is int tf && tf > 0 ? tf : fallback;
     }
 
     /// <summary>
@@ -701,23 +686,9 @@ public class StrategyConfig
         return max;
     }
 
-    internal IEnumerable<BasketEntry> EnumerateBasketEntries()
-    {
-        var opts = new System.Text.Json.JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
-        };
-        foreach (var json in new[] { BasketJson, EmaBasketJson })
-        {
-            if (string.IsNullOrEmpty(json)) continue;
-            List<BasketEntry>? parsed = null;
-            try { parsed = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(json, opts); }
-            catch { /* malformed — skip */ }
-            if (parsed is null) continue;
-            foreach (var b in parsed) yield return b;
-        }
-    }
+    /// <summary>Every entry of both baskets, ORB basket first. A basket that can't be read adds none.</summary>
+    internal IEnumerable<BasketEntry> EnumerateBasketEntries() =>
+        (ReadBasket(BasketJson) ?? new()).Concat(ReadBasket(EmaBasketJson) ?? new());
 
     private StrategySetupConfig ToSetupConfig(BasketEntry b) => new()
     {
@@ -976,31 +947,12 @@ public class StrategyConfig
                 errors.Add("CutoffMinuteB must be 0-59.");
         }
 
-        // Validate per-basket-entry ORB window overrides.
-        if (!string.IsNullOrEmpty(BasketJson))
-        {
-            try
-            {
-                var opts = new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
-                };
-                var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(BasketJson, opts);
-                if (basket != null)
-                {
-                    var allowedTfs = new HashSet<int> { 1, 2, 5, 10, 15, 20, 30, 60 };
-                    foreach (var b in basket)
-                    {
-                        if (b.Config.UseCustomOrbWindow && b.Config.OrbEnd <= b.Config.OrbStart)
-                            errors.Add($"Basket entry '{b.Label ?? b.Id}': OrbEnd must be after OrbStart.");
-                        if (b.ExecutionTFMinutes is int tf && !allowedTfs.Contains(tf))
-                            errors.Add($"Basket entry '{b.Label ?? b.Id}': ExecutionTFMinutes must be one of 1,2,5,10,15,20,30,60.");
-                    }
-                }
-            }
-            catch { /* basket parse errors surfaced elsewhere; don't double-report */ }
-        }
+        // Both baskets: lists that can't be read, each switched-on entry's own problems, and one bar size per root.
+        errors.AddRange(SetupValidation.BasketErrors(this));
+        foreach (var b in EnumerateBasketEntries().Where(e => e.Enabled))
+            foreach (var problem in SetupValidation.Entry(b, this))
+                errors.Add($"Basket entry '{SetupValidation.Name(b)}': {problem}.");
+        errors.AddRange(SetupValidation.RootBarSizes(this));
 
         return errors;
     }
