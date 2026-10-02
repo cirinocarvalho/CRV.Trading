@@ -73,6 +73,8 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
             var report = await PageScanner.ScanAsync(app, "/setup/risk", theme, width, height, async page =>
             {
                 await page.GetByText("Setups A–D").First.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+                // Each setup's detail row starts collapsed; show them all so their fields are scanned too.
+                await page.EvaluateAsync("document.querySelectorAll('.setup-detail-row').forEach(r => r.style.display = '')");
             }, output);
 
             Assert.True(report is null, report);

@@ -23,32 +23,32 @@
     <td class="fw-bold"><i class="bi bi-chevron-right setup-chevron me-1" style="font-size:.7rem"></i>@sl</td>
     <td class="text-center" onclick="event.stopPropagation()">
         <input class="form-check-input session-field" type="checkbox"
-               data-session="@i" data-field="@(fieldPfx).Enabled" @(setup.Enabled ? "checked" : "") />
+               data-session="@i" aria-label="@sid setup @sl enabled" data-field="@(fieldPfx).Enabled" @(setup.Enabled ? "checked" : "") />
     </td>
     <td onclick="event.stopPropagation()">
         <input type="number" class="form-control form-control-sm session-field"
-               data-session="@i" data-field="@(fieldPfx).Contracts" value="@setup.Contracts" min="1" max="@setup.MaxContracts" />
+               data-session="@i" aria-label="@sid setup @sl contracts" data-field="@(fieldPfx).Contracts" value="@setup.Contracts" min="1" max="@setup.MaxContracts" />
     </td>
     <td onclick="event.stopPropagation()">
         <input type="number" class="form-control form-control-sm session-field"
-               data-session="@i" data-field="@(fieldPfx).MaxTrades" value="@setup.MaxTrades" min="0" max="20" />
+               data-session="@i" aria-label="@sid setup @sl max trades" data-field="@(fieldPfx).MaxTrades" value="@setup.MaxTrades" min="0" max="20" />
     </td>
     <td onclick="event.stopPropagation()">
         <div class="d-flex gap-1">
             <input type="number" class="form-control form-control-sm session-field" style="width:50px"
-                   data-session="@i" data-field="@(fieldPfx).CutoffHour" value="@setup.CutoffHour" min="0" max="23" />
+                   data-session="@i" aria-label="@sid setup @sl cutoff hour" data-field="@(fieldPfx).CutoffHour" value="@setup.CutoffHour" min="0" max="23" />
             <span class="align-self-center">:</span>
             <input type="number" class="form-control form-control-sm session-field" style="width:50px"
-                   data-session="@i" data-field="@(fieldPfx).CutoffMinute" value="@setup.CutoffMinute" min="0" max="59" />
+                   data-session="@i" aria-label="@sid setup @sl cutoff minute" data-field="@(fieldPfx).CutoffMinute" value="@setup.CutoffMinute" min="0" max="59" />
         </div>
     </td>
     <td onclick="event.stopPropagation()">
         <input type="number" class="form-control form-control-sm session-field"
-               data-session="@i" data-field="@(fieldPfx).MinRr" value="@setup.MinRr" min="0" max="10" step="0.1" />
+               data-session="@i" aria-label="@sid setup @sl minimum R:R" data-field="@(fieldPfx).MinRr" value="@setup.MinRr" min="0" max="10" step="0.1" />
     </td>
     <td onclick="event.stopPropagation()">
         <select class="form-select form-select-sm session-field"
-                data-session="@i" data-field="@(fieldPfx).OrderType">
+                data-session="@i" aria-label="@sid setup @sl order type" data-field="@(fieldPfx).OrderType">
             <option value="Market" selected="@(setup.OrderType == "Market" ? "selected" : null)">Market</option>
             <option value="Limit"  selected="@(setup.OrderType == "Limit"  ? "selected" : null)">Limit</option>
         </select>
@@ -62,8 +62,8 @@
             @if (Model.Mode != null)
             {
                 <div class="col-md-2">
-                    <label class="form-label small mb-0">Mode</label>
-                    <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).Mode">
+                    <label for="@(detailId)-Mode" class="form-label small mb-0">Mode</label>
+                    <select id="@(detailId)-Mode" class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).Mode">
                         <option value="Conservative"    selected="@(Model.Mode == "Conservative"    ? "selected" : null)">Conservative</option>
                         <option value="Aggressive"       selected="@(Model.Mode == "Aggressive"       ? "selected" : null)">Aggressive</option>
                         <option value="SmartAggressive"  selected="@(Model.Mode == "SmartAggressive"  ? "selected" : null)">SmartAggressive</option>
@@ -73,62 +73,62 @@
             @if (Model.PullbackPct != null)
             {
                 <div class="col-md-2">
-                    <label class="form-label small mb-0">Pullback %</label>
-                    <input type="number" class="form-control form-control-sm session-field" step="any"
+                    <label for="@(detailId)-PullbackPct" class="form-label small mb-0">Pullback %</label>
+                    <input id="@(detailId)-PullbackPct" type="number" class="form-control form-control-sm session-field" step="any"
                            data-session="@i" data-field="@(fieldPfx).PullbackPct" value="@Model.PullbackPct" />
                 </div>
             }
             <div class="col-md-2">
-                <label class="form-label small mb-0">Target (% ORB)</label>
-                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).TargetPct">
+                <label for="@(detailId)-TargetPct" class="form-label small mb-0">Target (% ORB)</label>
+                <select id="@(detailId)-TargetPct" class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).TargetPct">
                     @foreach (var v in new[]{25,50,75,100,125,150,200,250,300,350,400,450,500})
                     { <option value="@v" selected="@(Model.TargetPct == v ? "selected" : null)">@v%</option> }
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small mb-0">Near Pct</label>
-                <input type="number" class="form-control form-control-sm session-field" step="any"
+                <label for="@(detailId)-NearPct" class="form-label small mb-0">Near Pct</label>
+                <input id="@(detailId)-NearPct" type="number" class="form-control form-control-sm session-field" step="any"
                        data-session="@i" data-field="@(fieldPfx).NearPct" value="@Model.NearPct" />
             </div>
             @if (Model.RetestPct != null)
             {
                 <div class="col-md-2">
-                    <label class="form-label small mb-0">Retest Zone</label>
-                    <input type="number" class="form-control form-control-sm session-field" step="any"
+                    <label for="@(detailId)-RetestPct" class="form-label small mb-0">Retest Zone</label>
+                    <input id="@(detailId)-RetestPct" type="number" class="form-control form-control-sm session-field" step="any"
                            data-session="@i" data-field="@(fieldPfx).RetestPct" value="@Model.RetestPct" />
                 </div>
             }
             <div class="col-md-2">
-                <label class="form-label small mb-0">Stop Mode</label>
-                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).StopMode">
+                <label for="@(detailId)-StopMode" class="form-label small mb-0">Stop Mode</label>
+                <select id="@(detailId)-StopMode" class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).StopMode">
                     <option value="OrbPct" selected="@(setup.StopMode == "OrbPct" ? "selected" : null)">% ORB</option>
                     <option value="BarHL"  selected="@(setup.StopMode == "BarHL"  ? "selected" : null)">Bar H/L</option>
                     <option value="Vwap"   selected="@(setup.StopMode == "Vwap"   ? "selected" : null)">VWAP</option>
                 </select>
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">VWAP Ticks</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                <label for="@(detailId)-StopVwapTicks" class="form-label small mb-0">VWAP Ticks</label>
+                <input id="@(detailId)-StopVwapTicks" type="number" class="form-control form-control-sm session-field" min="0" max="20"
                        data-session="@i" data-field="@(fieldPfx).StopVwapTicks" value="@setup.StopVwapTicks" />
             </div>
             <div class="col-md-2">
-                <label class="form-label small mb-0">Stop Dist (% ORB)</label>
-                <input type="number" class="form-control form-control-sm session-field" step="any"
+                <label for="@(detailId)-StopPct" class="form-label small mb-0">Stop Dist (% ORB)</label>
+                <input id="@(detailId)-StopPct" type="number" class="form-control form-control-sm session-field" step="any"
                        data-session="@i" data-field="@(fieldPfx).StopPct" value="@Model.StopPct" />
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Tick Offset</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                <label for="@(detailId)-EntryTickOffset" class="form-label small mb-0">Tick Offset</label>
+                <input id="@(detailId)-EntryTickOffset" type="number" class="form-control form-control-sm session-field" min="0" max="20"
                        data-session="@i" data-field="@(fieldPfx).EntryTickOffset" value="@Model.EntryTickOffset" />
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Hi-Vol</label>
-                <input type="number" class="form-control form-control-sm session-field" step="0.5" min="1" max="5"
+                <label for="@(detailId)-HiVolMult" class="form-label small mb-0">Hi-Vol</label>
+                <input id="@(detailId)-HiVolMult" type="number" class="form-control form-control-sm session-field" step="0.5" min="1" max="5"
                        data-session="@i" data-field="@(fieldPfx).HiVolMult" value="@setup.HiVolMult" />
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Max Cts</label>
-                <input type="number" class="form-control form-control-sm session-field" min="1" max="50"
+                <label for="@(detailId)-MaxContracts" class="form-label small mb-0">Max Cts</label>
+                <input id="@(detailId)-MaxContracts" type="number" class="form-control form-control-sm session-field" min="1" max="50"
                        data-session="@i" data-field="@(fieldPfx).MaxContracts" value="@setup.MaxContracts" />
                 <label class="ms-2 small">
                     <input type="checkbox"
@@ -139,95 +139,95 @@
                 </label>
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Max Long</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                <label for="@(detailId)-MaxLongTrades" class="form-label small mb-0">Max Long</label>
+                <input id="@(detailId)-MaxLongTrades" type="number" class="form-control form-control-sm session-field" min="0" max="20"
                        data-session="@i" data-field="@(fieldPfx).MaxLongTrades" value="@setup.MaxLongTrades" />
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Max Short</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0" max="20"
+                <label for="@(detailId)-MaxShortTrades" class="form-label small mb-0">Max Short</label>
+                <input id="@(detailId)-MaxShortTrades" type="number" class="form-control form-control-sm session-field" min="0" max="20"
                        data-session="@i" data-field="@(fieldPfx).MaxShortTrades" value="@setup.MaxShortTrades" />
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Partial %</label>
-                <select class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).PartialPct">
+                <label for="@(detailId)-PartialPct" class="form-label small mb-0">Partial %</label>
+                <select id="@(detailId)-PartialPct" class="form-select form-select-sm session-field" data-session="@i" data-field="@(fieldPfx).PartialPct">
                     <option value="25" selected="@(setup.PartialPct == 25 ? "selected" : null)">25%</option>
                     <option value="50" selected="@(setup.PartialPct == 50 ? "selected" : null)">50%</option>
                     <option value="75" selected="@(setup.PartialPct == 75 ? "selected" : null)">75%</option>
                 </select>
             </div>
             <div class="col-md-1">
-                <label class="form-label small mb-0">Part Cts</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0"
+                <label for="@(detailId)-PartialCts" class="form-label small mb-0">Part Cts</label>
+                <input id="@(detailId)-PartialCts" type="number" class="form-control form-control-sm session-field" min="0"
                        data-session="@i" data-field="@(fieldPfx).PartialCts" value="@setup.PartialCts" />
             </div>
             <div class="col-md-2">
-                <label class="form-label small mb-0">Max Risk $</label>
-                <input type="number" class="form-control form-control-sm session-field" min="0" step="10"
+                <label for="@(detailId)-MaxTradeRisk" class="form-label small mb-0">Max Risk $</label>
+                <input id="@(detailId)-MaxTradeRisk" type="number" class="form-control form-control-sm session-field" min="0" step="10"
                        data-session="@i" data-field="@(fieldPfx).MaxTradeRisk" value="@setup.MaxTradeRisk" />
             </div>
             <div class="col-md-12 d-flex flex-wrap gap-3 mt-1">
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UsePartial" @(setup.UsePartial ? "checked" : "") />
-                    <label class="form-check-label small">Partial</label>
+                    <input id="@(detailId)-UsePartial" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UsePartial" @(setup.UsePartial ? "checked" : "") />
+                    <label for="@(detailId)-UsePartial" class="form-check-label small">Partial</label>
                 </div>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseBe" @(setup.UseBe ? "checked" : "") />
-                    <label class="form-check-label small">BE</label>
+                    <input id="@(detailId)-UseBe" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseBe" @(setup.UseBe ? "checked" : "") />
+                    <label for="@(detailId)-UseBe" class="form-check-label small">BE</label>
                 </div>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AutoTrail.Enabled"
+                    <input id="@(detailId)-AutoTrail-Enabled" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AutoTrail.Enabled"
                            @(setup.AutoTrail?.Enabled == true ? "checked" : "")
                            onchange="toggleSetupAutoTrail(this, @i, '@sl')" />
-                    <label class="form-check-label small">Trail</label>
+                    <label for="@(detailId)-AutoTrail-Enabled" class="form-check-label small">Trail</label>
                 </div>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AllowRearmAfterBE" @(setup.AllowRearmAfterBE ? "checked" : "") />
-                    <label class="form-check-label small">Rearm BE</label>
+                    <input id="@(detailId)-AllowRearmAfterBE" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).AllowRearmAfterBE" @(setup.AllowRearmAfterBE ? "checked" : "") />
+                    <label for="@(detailId)-AllowRearmAfterBE" class="form-check-label small">Rearm BE</label>
                 </div>
                 @if (Model.UseVwap != null)
                 {
                     <div class="form-check form-check-inline">
-                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseVwap" @(Model.UseVwap.Value ? "checked" : "") />
-                        <label class="form-check-label small">VWAP</label>
+                        <input id="@(detailId)-UseVwap" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseVwap" @(Model.UseVwap.Value ? "checked" : "") />
+                        <label for="@(detailId)-UseVwap" class="form-check-label small">VWAP</label>
                     </div>
                 }
                 @if (Model.UseOrbClose != null)
                 {
                     <div class="form-check form-check-inline">
-                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseOrbClose" @(Model.UseOrbClose.Value ? "checked" : "") />
-                        <label class="form-check-label small">ORB Close</label>
+                        <input id="@(detailId)-UseOrbClose" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseOrbClose" @(Model.UseOrbClose.Value ? "checked" : "") />
+                        <label for="@(detailId)-UseOrbClose" class="form-check-label small">ORB Close</label>
                     </div>
                 }
                 @if (Model.UseCloseConfirmation != null)
                 {
                     <div class="form-check form-check-inline">
-                        <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseCloseConfirmation" @(Model.UseCloseConfirmation.Value ? "checked" : "") />
-                        <label class="form-check-label small">Close Confirm</label>
+                        <input id="@(detailId)-UseCloseConfirmation" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).UseCloseConfirmation" @(Model.UseCloseConfirmation.Value ? "checked" : "") />
+                        <label for="@(detailId)-UseCloseConfirmation" class="form-check-label small">Close Confirm</label>
                     </div>
                 }
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).CloseAtRthClose" @(setup.CloseAtRthClose ? "checked" : "") />
-                    <label class="form-check-label small">Close RTH</label>
+                    <input id="@(detailId)-CloseAtRthClose" class="form-check-input session-field" type="checkbox" data-session="@i" data-field="@(fieldPfx).CloseAtRthClose" @(setup.CloseAtRthClose ? "checked" : "") />
+                    <label for="@(detailId)-CloseAtRthClose" class="form-check-label small">Close RTH</label>
                 </div>
             </div>
             <div id="autotrail-setup-@(i)-@sl" class="col-md-12 mt-1 @(setup.AutoTrail?.Enabled == true ? "" : "d-none")">
                 <div class="row g-2">
                     <div class="col-4">
-                        <label class="form-label small text-muted">Trail StopLoss</label>
-                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                        <label for="@(detailId)-AutoTrail-StopLoss" class="form-label small text-muted">Trail StopLoss</label>
+                        <input id="@(detailId)-AutoTrail-StopLoss" class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
                                data-session="@i" data-field="@(fieldPfx).AutoTrail.StopLoss"
                                value="@(setup.AutoTrail?.StopLoss)" placeholder="e.g. 4.0" />
                     </div>
                     <div class="col-4">
-                        <label class="form-label small text-muted">Trail Trigger</label>
-                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                        <label for="@(detailId)-AutoTrail-Trigger" class="form-label small text-muted">Trail Trigger</label>
+                        <input id="@(detailId)-AutoTrail-Trigger" class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
                                data-session="@i" data-field="@(fieldPfx).AutoTrail.Trigger" data-nullable="true"
                                value="@(setup.AutoTrail?.Trigger)" placeholder="Tg1 auto" />
                     </div>
                     <div class="col-4">
-                        <label class="form-label small text-muted">Trail Freq</label>
-                        <input class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
+                        <label for="@(detailId)-AutoTrail-Freq" class="form-label small text-muted">Trail Freq</label>
+                        <input id="@(detailId)-AutoTrail-Freq" class="form-control form-control-sm font-monospace session-field" type="number" step="0.25"
                                data-session="@i" data-field="@(fieldPfx).AutoTrail.Freq"
                                value="@(setup.AutoTrail?.Freq)" placeholder="e.g. 0.25" />
                     </div>
@@ -236,12 +236,12 @@
             <!-- Per-setup instrument override -->
             <div class="col-md-12 d-flex align-items-end gap-2 mt-1 pt-1 border-top border-secondary border-opacity-25">
                 <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input session-field setup-custom-instr-chk" type="checkbox"
+                    <input id="@(detailId)-UseCustomTicker" class="form-check-input session-field setup-custom-instr-chk" type="checkbox"
                            data-session="@i" data-field="@(fieldPfx).UseCustomTicker" data-setup="@sl"
                            @(setup.UseCustomTicker ? "checked" : "") />
-                    <label class="form-check-label small">Custom Instrument</label>
+                    <label for="@(detailId)-UseCustomTicker" class="form-check-label small">Custom Instrument</label>
                 </div>
-                <select class="form-select form-select-sm setup-custom-instr-sel" style="width:200px"
+                <select class="form-select form-select-sm setup-custom-instr-sel" style="width:200px" aria-label="@sid setup @sl custom instrument"
                         data-session="@i" data-setup="@sl"
                         @(!setup.UseCustomTicker ? "disabled" : "")>
                     <optgroup label="Mini">

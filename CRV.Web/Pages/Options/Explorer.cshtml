@@ -150,7 +150,7 @@ else
             <summary>Filters and commission</summary>
     <div class="row g-2 align-items-end">
         <div class="col-auto">
-            <label class="form-label small">Right</label>
+            <label for="f-right" class="form-label small">Right</label>
             <select id="f-right" class="form-select form-select-sm" onchange="render()">
                 <option value="">Both</option>
                 <option value="Call">Calls</option>
@@ -158,32 +158,32 @@ else
             </select>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Ask min</label>
+            <label for="f-askmin" class="form-label small">Ask min</label>
             <input id="f-askmin" type="number" step="0.01" min="0" class="form-control form-control-sm"
                    style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Ask max</label>
+            <label for="f-askmax" class="form-label small">Ask max</label>
             <input id="f-askmax" type="number" step="0.01" min="0" class="form-control form-control-sm"
                    style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
-            <label class="form-label small">|Delta| min</label>
+            <label for="f-deltamin" class="form-label small">|Delta| min</label>
             <input id="f-deltamin" type="number" step="0.01" min="0" max="1" class="form-control form-control-sm"
                    style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Max spread %</label>
+            <label for="f-spread" class="form-label small">Max spread %</label>
             <input id="f-spread" type="number" step="0.5" min="0" value="10" class="form-control form-control-sm"
                    style="width:110px" oninput="render()"/>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Min OI</label>
+            <label for="f-oi" class="form-label small">Min OI</label>
             <input id="f-oi" type="number" step="1" min="0" value="0" class="form-control form-control-sm"
                    style="width:100px" oninput="render()"/>
         </div>
         <div class="col-auto">
-            <label class="form-label small">Commission /ct</label>
+            <label for="f-comm" class="form-label small">Commission /ct</label>
             <input id="f-comm" type="number" step="0.01" min="0" value="0.65" class="form-control form-control-sm"
                    style="width:120px" oninput="onCommissionChanged()"/>
         </div>

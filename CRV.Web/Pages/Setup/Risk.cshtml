@@ -101,12 +101,12 @@
                     <details class="rk-more">
                         <summary>Trend-day detection</summary>
                         <div class="st-grid mt-2">
-                            <div class="st-field"><label class="form-label">Trend-day score needed</label>
-                                <input type="number" class="form-control num session-field" min="0" max="10" data-session="@i" data-field="SetupF.TrendDayThreshold" value="@s.SetupF.TrendDayThreshold" /></div>
-                            <div class="st-field"><label class="form-label">Shallow pullback, at most</label>
-                                <input type="number" class="form-control num session-field" min="0" max="1" step="0.01" data-session="@i" data-field="SetupF.ShallowPullbackMax" value="@N(s.SetupF.ShallowPullbackMax)" /></div>
-                            <div class="st-field"><label class="form-label">VWAP deviation bars</label>
-                                <input type="number" class="form-control num session-field" min="1" max="100" data-session="@i" data-field="SetupF.VwapDevPeriod" value="@s.SetupF.VwapDevPeriod" /></div>
+                            <div class="st-field"><label for="setupf-@i-TrendDayThreshold" class="form-label">Trend-day score needed</label>
+                                <input id="setupf-@i-TrendDayThreshold" type="number" class="form-control num session-field" min="0" max="10" data-session="@i" data-field="SetupF.TrendDayThreshold" value="@s.SetupF.TrendDayThreshold" /></div>
+                            <div class="st-field"><label for="setupf-@i-ShallowPullbackMax" class="form-label">Shallow pullback, at most</label>
+                                <input id="setupf-@i-ShallowPullbackMax" type="number" class="form-control num session-field" min="0" max="1" step="0.01" data-session="@i" data-field="SetupF.ShallowPullbackMax" value="@N(s.SetupF.ShallowPullbackMax)" /></div>
+                            <div class="st-field"><label for="setupf-@i-VwapDevPeriod" class="form-label">VWAP deviation bars</label>
+                                <input id="setupf-@i-VwapDevPeriod" type="number" class="form-control num session-field" min="1" max="100" data-session="@i" data-field="SetupF.VwapDevPeriod" value="@s.SetupF.VwapDevPeriod" /></div>
                         </div>
                     </details>
                     @if (!Model.BasketInUse)
