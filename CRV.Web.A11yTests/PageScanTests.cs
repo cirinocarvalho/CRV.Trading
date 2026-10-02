@@ -108,4 +108,29 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
 
         Assert.True(report is null, report);
     }
+
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public async Task CockpitSetupCards_InEveryState_HaveNoWcagViolations(string theme, int width, int height)
+    {
+        // Cards are built from engine snapshots, and the test host never starts the engine. The page
+        // is told the engine runs (display only, nothing is sent) and given the snapshot event the hub sends.
+        var report = await PageScanner.ScanAsync(app, "/dashboard", theme, width, height, async page =>
+        {
+            await page.EvaluateAsync("""
+                json => {
+                    CRV.engine.status('Live');
+                    document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+                }
+                """, CockpitSnapshot.Json());
+            // Every card has finished drawing once each status badge reads what its snapshot implies.
+            // A listener error leaves a card on its placeholder, so this times out instead of scanning it.
+            await page.WaitForFunctionAsync("""
+                expected => JSON.stringify([...document.querySelectorAll('#setup-cards-container [id^="status-"]')]
+                    .map(b => b.textContent)) === JSON.stringify(expected)
+                """, CockpitSnapshot.ExpectedStatuses, new() { Timeout = 10_000 });
+        }, output);
+
+        Assert.True(report is null, report);
+    }
 }
