@@ -1072,8 +1072,15 @@ function createSetupCard(setup) {
 }
 
 // ── Main update ───────────────────────────────────────────────
+// A stopped engine isn't watching anything: setup states and the ORB status are left over from
+// its last run, so they're shown as stopped rather than as if they were live.
+const engineRunning = () => window.CRV?.engine?.running !== false;
+let _lastDashboard = null;
+document.addEventListener('crv:engine', () => { if (_lastDashboard) updateDashboard(_lastDashboard); });
+
 function updateDashboard(d) {
     if (!d) return;
+    _lastDashboard = d;
     _clearPlaceholder();   // remove "Waiting for engine..." on first live snapshot
 
     // ── Auto-create setup cards (recreate when count changes or on first snapshot) ──
@@ -1090,12 +1097,15 @@ function updateDashboard(d) {
 
     // ── Stream health ─────────────────────────────────────────
     if (d.lastPrice > 0) setText("stream-price", d.lastPrice.toFixed(2));
+    // The snapshot's own time, not when this page drew it. On load the server replays the last
+    // snapshot, which can be hours old; stamping it "now" made a stopped engine look live.
     if (d.lastUpdate) {
-        _lastUpdateMs = new Date(d.lastUpdate).getTime();
-        // If server sends UTC without Z suffix, handle it
-        if (_lastUpdateMs < Date.now() - 86400000) _lastUpdateMs = Date.now();
+        const t = String(d.lastUpdate);
+        // The server's time is UTC; read it as UTC even if it arrives without a zone suffix.
+        const ms = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : t + 'Z').getTime();
+        _lastUpdateMs = isNaN(ms) || ms <= 0 ? 0 : Math.min(ms, Date.now());
     } else {
-        _lastUpdateMs = Date.now();
+        _lastUpdateMs = 0;   // unknown: no dot and no age, rather than a fake "live"
     }
 
     // ── Daily P&L stats ──────────────────────────────────────
@@ -1190,7 +1200,8 @@ function updateDashboard(d) {
     if (sessBadge) {
         var allCutoff = d.setups && d.setups.length > 0 && d.setups.every(s => s.pastCutoff);
         var someCutoff = d.setups && d.setups.some(s => s.pastCutoff);
-        if (d.sessionEnded)                        { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
+        if (!engineRunning())                      { sessBadge.textContent = "ENGINE STOPPED"; sessBadge.className = "badge bg-secondary"; }
+        else if (d.sessionEnded)                   { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
         else if (allCutoff)
                                                    { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
         else if (someCutoff) {
@@ -1447,8 +1458,8 @@ function updateSetup(id, setup, sessionEnded) {
     // ── Per-setup last price (always shown, even when idle) ───
     if (lastPrice > 0) {
         setText(id + "-price", lastPrice.toFixed(2), "num");
-        if (!_setupLastPriceMs[id]) _setupLastPriceMs[id] = 0;
-        _setupLastPriceMs[id] = Date.now();  // track when we last got a valid price
+        // When the price is from: the snapshot's time, so a replayed snapshot shows its real age.
+        _setupLastPriceMs[id] = _lastUpdateMs;
     } else {
         setText(id + "-price", "—", "num");
     }
@@ -1474,7 +1485,8 @@ function updateSetup(id, setup, sessionEnded) {
     if (!trade) {
         // Override state badge when past cutoff, session ended, or max trades reached
         let badge;
-        if (sessionEnded)        badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
+        if (!engineRunning())    badge = { text: "STOPPED",       cls: "badge bg-secondary" };
+        else if (sessionEnded)   badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
         else if (maxTradesReached) badge = { text: "MAX TRADES",   cls: "badge badge-halted" };
         else if (pastCutoff)     badge = { text: "CUTOFF",        cls: "badge setup-armed" };
         else                     badge = _setupBadge(state ?? 0, setup.strategyType);
