@@ -123,8 +123,12 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
                     document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
                 }
                 """, CockpitSnapshot.Json());
-            await page.Locator("#setup-cards-container article.ck-setup").Nth(3).WaitForAsync();
-            await page.Locator("#setup-cards-container .btn-danger:visible").First.WaitForAsync();
+            // Every card has finished drawing once each status badge reads what its snapshot implies.
+            // A listener error leaves a card on its placeholder, so this times out instead of scanning it.
+            await page.WaitForFunctionAsync("""
+                expected => JSON.stringify([...document.querySelectorAll('#setup-cards-container [id^="status-"]')]
+                    .map(b => b.textContent)) === JSON.stringify(expected)
+                """, CockpitSnapshot.ExpectedStatuses, new() { Timeout = 10_000 });
         }, output);
 
         Assert.True(report is null, report);
