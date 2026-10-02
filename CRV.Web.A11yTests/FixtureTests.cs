@@ -77,4 +77,28 @@ public class FixtureTests(A11yAppFixture app)
         Assert.Contains(A11ySeed.RetestId, setups);
         Assert.DoesNotContain(A11ySeed.RetiredId, setups);
     }
+
+    [Fact]
+    public async Task RetiredStrategyPage_IsReadOnly_AndSaysWhyItIsDisabled()
+    {
+        using var http = new HttpClient { BaseAddress = app.BaseAddress };
+
+        var html = await http.GetStringAsync("/setup/strategies/" + A11ySeed.RetiredId);
+
+        Assert.Contains("Disabled: retired EMA21 strategy", html);
+        Assert.Contains(">DISABLED<", html);
+        Assert.DoesNotContain("id=\"st-form\"", html);
+        Assert.Contains("form=\"st-remove\"", html);
+    }
+
+    [Fact]
+    public async Task StrategyPage_BarSize_SaysWhichStrategiesShareIt()
+    {
+        using var http = new HttpClient { BaseAddress = app.BaseAddress };
+
+        var html = await http.GetStringAsync("/setup/strategies/" + A11ySeed.RetestId);
+
+        Assert.Contains("Shared by every NQ / MNQ strategy", html);
+        Assert.DoesNotContain("Disabled:", html);
+    }
 }
