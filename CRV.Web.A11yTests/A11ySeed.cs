@@ -27,7 +27,7 @@ public static class A11ySeed
         Entry("a11y-sessionfakeout", StrategyType.SessionFakeout, "Session fakeout [MES]"),
     });
 
-    private static readonly string Ema21BasketJson = BasketCodec.Serialize(new[]
+    private static readonly string RetiredBasketJson = BasketCodec.Serialize(new[]
     {
         Entry(RetiredId, SetupValidation.RetiredEma21, "EMA21 [MNQ]"),
     });
@@ -39,7 +39,7 @@ public static class A11ySeed
         cfg.Broker          = "Mock";
         cfg.ExecBroker      = null;
         cfg.BasketJson      = OrbBasketJson;
-        cfg.Ema21BasketJson = Ema21BasketJson;
+        cfg.EmaBasketJson = RetiredBasketJson;
         configs.Update(cfg);
 
         using var scope = services.CreateScope();

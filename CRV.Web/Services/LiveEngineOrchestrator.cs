@@ -1478,8 +1478,8 @@ public class LiveEngineOrchestrator : BackgroundService
         var (basketJson, basketRw) = TickerAutoRoller.RewriteBasket(cfg.BasketJson, "Basket");
         if (basketRw.Count > 0) { cfg.BasketJson = basketJson; rewrites.AddRange(basketRw); }
 
-        var (ema21Json, ema21Rw) = TickerAutoRoller.RewriteBasket(cfg.Ema21BasketJson, "Ema21Basket");
-        if (ema21Rw.Count > 0) { cfg.Ema21BasketJson = ema21Json; rewrites.AddRange(ema21Rw); }
+        var (emaJson, emaRw) = TickerAutoRoller.RewriteBasket(cfg.EmaBasketJson, "EmaBasket");
+        if (emaRw.Count > 0) { cfg.EmaBasketJson = emaJson; rewrites.AddRange(emaRw); }
 
         if (rewrites.Count == 0) return;
 

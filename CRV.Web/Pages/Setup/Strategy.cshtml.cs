@@ -25,7 +25,7 @@ public class StrategyModel : PageModel
     [BindProperty(SupportsGet = true)] public string Id { get; set; } = "";
 
     public BasketEntry Entry { get; private set; } = new();
-    public bool IsEma21 { get; private set; }
+    public bool IsEmaBasket { get; private set; }
     public bool EngineRunning => _engine.IsRunning;
     public List<string> Errors { get; } = new();
     public List<string> Warnings { get; } = new();
@@ -123,7 +123,7 @@ public class StrategyModel : PageModel
         var item = _basket.Find(Id);
         if (item == null) return false;
         Entry = item.Entry;
-        IsEma21 = item.IsEma21;
+        IsEmaBasket = item.IsEmaBasket;
         return true;
     }
 

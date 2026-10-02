@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 /// based on <see cref="ContractRollCalendar"/>.
 ///
 /// Applies to both the top-level <c>Ticker</c> string and the <c>Ticker</c>
-/// field inside each entry of <c>BasketJson</c> / <c>Ema21BasketJson</c>.
+/// field inside each entry of <c>BasketJson</c> / <c>EmaBasketJson</c>.
 /// Uses <see cref="JsonNode"/> for basket rewrites so extra JSON fields are
 /// preserved verbatim — avoids the default-stripping trap that bit us with
 /// Python-based JSON edits.

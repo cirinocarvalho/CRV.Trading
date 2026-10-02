@@ -34,7 +34,7 @@ public class StrategiesModel : PageModel
         Error = TempData["strategies_err"] as string;
         try { Items = _basket.All(); }
         catch { Error ??= "The saved strategy list couldn't be read. Nothing has been changed; check the app log."; }
-        LegacyInUse = !Items.Any(i => !i.IsEma21);
+        LegacyInUse = !Items.Any(i => !i.IsEmaBasket);
 
         // Results by setup for the last 30 days, from the account orders go to.
         ResultSource = _cfgSvc.Current.EffectiveExecBroker == "Mock" ? "mock" : "live";

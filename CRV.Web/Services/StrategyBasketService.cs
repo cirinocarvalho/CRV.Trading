@@ -4,7 +4,7 @@ using CRV.Live;
 
 namespace CRV.Web.Services;
 
-public sealed record BasketItem(BasketEntry Entry, bool IsEma21);
+public sealed record BasketItem(BasketEntry Entry, bool IsEmaBasket);
 public sealed record BasketChange(bool Ok, string? Error, IReadOnlyList<string> Warnings);
 
 /// <summary>
@@ -28,7 +28,7 @@ public sealed class StrategyBasketService
     {
         var c = _cfgSvc.Current;
         return BasketCodec.Parse(c.BasketJson).Select(e => new BasketItem(e, false))
-            .Concat(BasketCodec.Parse(c.Ema21BasketJson).Select(e => new BasketItem(e, true)))
+            .Concat(BasketCodec.Parse(c.EmaBasketJson).Select(e => new BasketItem(e, true)))
             .ToList();
     }
 
@@ -111,7 +111,7 @@ public sealed class StrategyBasketService
             try
             {
                 orb = BasketCodec.Parse(cfg.BasketJson);
-                ema = BasketCodec.Parse(cfg.Ema21BasketJson);
+                ema = BasketCodec.Parse(cfg.EmaBasketJson);
             }
             catch (Exception ex)
             {
@@ -123,7 +123,7 @@ public sealed class StrategyBasketService
             if (error != null) return new BasketChange(false, error, Array.Empty<string>());
 
             cfg.BasketJson      = BasketCodec.Serialize(orb);
-            cfg.Ema21BasketJson = BasketCodec.Serialize(ema);
+            cfg.EmaBasketJson = BasketCodec.Serialize(ema);
             _cfgSvc.Update(cfg);
             _engine.ApplyRuntimeSettings(cfg);
             _log.LogWarning("Strategies: {Who} {What}", who, what);

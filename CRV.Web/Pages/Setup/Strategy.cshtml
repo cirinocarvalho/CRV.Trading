@@ -43,7 +43,7 @@
         <a class="crumb c-mut small" href="/setup/strategies">Strategies</a>
         <h1>@(e.Label is { Length: > 0 } ? e.Label : e.Id)</h1>
     </div>
-    <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker@(Model.IsEma21 ? " · EMA21 list" : "")</span>
+    <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker@(Model.IsEmaBasket ? " · EMA list" : "")</span>
 </div>
 
 @if (Model.Saved != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Saved</span></div> }
@@ -71,7 +71,7 @@
                 </div>
                 <div class="st-field">
                     <label class="form-label" for="st-type">Strategy</label>
-                    @if (Model.IsEma21)
+                    @if (Model.IsEmaBasket)
                     {
                         <input type="hidden" name="Entry.StrategyType" value="@((int)e.StrategyType)" id="st-type" />
                         <div class="form-control-plaintext">@StrategyText.TypeName(e.StrategyType)</div>

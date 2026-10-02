@@ -350,9 +350,9 @@ public class StrategyConfig
     public decimal PointValueD       { get; set; } = 0;
     public decimal TickSizeD         { get; set; } = 0;
 
-    // ── EMA21 Basket ──────────────────────────────────────────────────
-    /// <summary>JSON array of EMA21 basket entries (same schema as BasketJson but for EMA21 setups).</summary>
-    public string? Ema21BasketJson { get; set; }
+    // ── EMA Basket ────────────────────────────────────────────────────
+    /// <summary>JSON array of EMA basket entries (same schema as BasketJson).</summary>
+    public string? EmaBasketJson { get; set; }
 
     // ── False Breakout Module Params ──────────────────────────────────────
     public int     FBMaxTimeOutsideMinutesOrb { get; set; } = 15;
@@ -557,8 +557,8 @@ public class StrategyConfig
             configs = new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() };
         }
 
-        // Append EMA21 basket entries
-        configs.AddRange(ToEma21SetupConfigs());
+        // Append EMA basket entries
+        configs.AddRange(ToEmaSetupConfigs());
         return configs;
     }
 
@@ -601,10 +601,10 @@ public class StrategyConfig
         Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
     };
 
-    /// <summary>Parse EMA21 basket JSON into setup configs. Returns empty list if no basket.</summary>
-    public List<StrategySetupConfig> ToEma21SetupConfigs()
+    /// <summary>Parse EMA basket JSON into setup configs. Returns empty list if no basket.</summary>
+    public List<StrategySetupConfig> ToEmaSetupConfigs()
     {
-        if (string.IsNullOrEmpty(Ema21BasketJson)) return new();
+        if (string.IsNullOrEmpty(EmaBasketJson)) return new();
         try
         {
             var opts = new System.Text.Json.JsonSerializerOptions
@@ -612,7 +612,7 @@ public class StrategyConfig
                 PropertyNameCaseInsensitive = true,
                 Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
             };
-            var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(Ema21BasketJson, opts);
+            var basket = System.Text.Json.JsonSerializer.Deserialize<List<BasketEntry>>(EmaBasketJson, opts);
             if (basket?.Count > 0)
                 return basket.Select(b => ToSetupConfig(b)).ToList();
         }
@@ -621,7 +621,7 @@ public class StrategyConfig
     }
 
     /// <summary>
-    /// Resolves the execution TF (minutes) for a ticker. Looks up the basket entry (ORB + EMA21)
+    /// Resolves the execution TF (minutes) for a ticker. Looks up the basket entry (ORB + EMA)
     /// for a per-symbol override; falls back to the global <see cref="ExecutionTFMinutes"/>.
     /// </summary>
     public int TfMinutesFor(string ticker, int? fallbackMinutes = null)
@@ -708,7 +708,7 @@ public class StrategyConfig
             PropertyNameCaseInsensitive = true,
             Converters = { new LenientIntConverter(), new LenientTimeOnlyConverter() },
         };
-        foreach (var json in new[] { BasketJson, Ema21BasketJson })
+        foreach (var json in new[] { BasketJson, EmaBasketJson })
         {
             if (string.IsNullOrEmpty(json)) continue;
             List<BasketEntry>? parsed = null;

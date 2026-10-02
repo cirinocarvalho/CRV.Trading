@@ -48,7 +48,7 @@ public class StrategyConfigService
         // on every restart").
         cfg.EmailRecipients ??= "";
         cfg.BasketJson      ??= "";
-        cfg.Ema21BasketJson ??= "";
+        cfg.EmaBasketJson ??= "";
 
         lock (_lock) { _current = cfg; }
 

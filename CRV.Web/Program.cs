@@ -251,7 +251,7 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"EmailRecipients\" = '' WHERE \"EmailRecipients\" IS NULL");
         db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"BasketJson\"      = '' WHERE \"BasketJson\"      IS NULL");
-        db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"Ema21BasketJson\" = '' WHERE \"Ema21BasketJson\" IS NULL");
+        db.Database.ExecuteSqlRaw("UPDATE \"Configs\" SET \"EmaBasketJson\" = '' WHERE \"EmaBasketJson\" IS NULL");
     }
     catch { /* Table may not exist on first run — Migrate() above handled it. */ }
 }
