@@ -331,4 +331,51 @@ public class OrbFakeoutStrategyTests
         s.ClearPendingSignals();
         Assert.Null(s.PendingSizeRefusal);
     }
+
+    [Fact]
+    public void LongOnly_DoesNotArmShort_OnBullFakeout()
+    {
+        var cfg = DefaultConfig();
+        cfg.AllowShort = false;
+        var s = new OrbFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5202m, 5205m, 5198m, 5201m), MakeOrb(), MakeIndicators(), FakeoutBullModules());
+
+        Assert.Null(s.PendingEntry);
+        Assert.False(s.IsArmed);
+    }
+
+    [Fact]
+    public void ShortOnly_DoesNotArmLong_OnBearFakeout()
+    {
+        var cfg = DefaultConfig();
+        cfg.AllowLong = false;
+        var s = new OrbFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5178m, 5182m, 5175m, 5179m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Null(s.PendingEntry);
+        Assert.False(s.IsArmed);
+    }
+
+    [Fact]
+    public void ArmedSide_SwitchedOffWhileArmed_DoesNotEnter()
+    {
+        // A rejected entry leaves the strategy armed; a settings change can then switch that side
+        // off without disarming it. The next bar must not enter the side that is now off.
+        var cfg = DefaultConfig();
+        cfg.MinRr = 1000m;                       // every entry is rejected, so the long stays armed
+        var s = new OrbFakeoutStrategy(cfg);
+        s.OnBar(MakeBar(5178m, 5182m, 5175m, 5179m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.True(s.IsArmed);
+        Assert.Null(s.PendingEntry);
+
+        var shortOnly = DefaultConfig();
+        shortOnly.AllowLong = false;
+        s.Reconfigure(shortOnly);
+        s.OnBar(MakeBar(5178m, 5182m, 5175m, 5179m), MakeOrb(), MakeIndicators(), EmptyModules());
+
+        Assert.Null(s.PendingEntry);
+        Assert.False(s.IsArmed);
+    }
 }

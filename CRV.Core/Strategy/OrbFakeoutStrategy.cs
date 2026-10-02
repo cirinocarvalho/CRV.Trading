@@ -180,12 +180,13 @@ public class OrbFakeoutStrategy : ISetupStrategy
             bool fakeoutBear = modules.OrbFakeoutBear;
 
             // Direction is OPPOSITE of breakout: bull fakeout -> arm SHORT, bear fakeout -> arm LONG
-            if (fakeoutBull && !_bearTraded)
+            // A long-only or short-only setup never arms the other side.
+            if (fakeoutBull && !_bearTraded && _cfg.EffectiveMaxShort > 0)
             {
                 _state = -1;  // arm SHORT (fade the long breakout)
                 _armEntry = bar.Close;
             }
-            else if (fakeoutBear && !_bullTraded)
+            else if (fakeoutBear && !_bullTraded && _cfg.EffectiveMaxLong > 0)
             {
                 _state = 1;   // arm LONG (fade the short breakout)
                 _armEntry = bar.Close;
@@ -256,6 +257,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {
         if (_inTrade) return; // already in trade
+        // A side switched off while armed (a settings change after a rejected entry, or a revert)
+        // disarms instead of entering.
+        if ((isLong ? _cfg.EffectiveMaxLong : _cfg.EffectiveMaxShort) <= 0) { _state = 0; _armEntry = 0; return; }
 
         // Calculate levels from ORIGINAL entry (offset applied to entry only, below)
         var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
