@@ -419,3 +419,7 @@ form.is-busy .c-idle { display: none; }
   .ox-chain td:last-child .btn { min-width: 2.4rem; min-height: 2.1rem; font-weight: 700; font-size: .85rem; }
   .ox-chain td:last-child .btn + .btn { margin-left: .25rem; }
 }
+/* Tablets still show the sidebar: keep the leg bar in the content column, not over the nav. */
+@media (min-width: 768px) and (max-width: 991.98px) {
+  body[data-ox-step="pick"].ox-has-legs .ox-legbar { left: calc(var(--side-w) + .75rem); }
+}
