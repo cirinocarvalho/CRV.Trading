@@ -265,6 +265,9 @@ public class SessionFakeoutStrategy : ISetupStrategy
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time, ModuleState modules)
     {
         if (_inTrade) return; // already in trade
+        // A side switched off while armed (a settings change after a rejected entry, or a revert)
+        // disarms instead of entering.
+        if ((isLong ? _cfg.EffectiveMaxLong : _cfg.EffectiveMaxShort) <= 0) { _state = 0; _armEntry = 0; return; }
 
         decimal rangeSize = modules.SessionRangeHigh - modules.SessionRangeLow;
         if (rangeSize <= 0) rangeSize = orb.Range;

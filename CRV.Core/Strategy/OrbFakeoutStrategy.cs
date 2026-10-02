@@ -257,6 +257,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
     private void TryEntry(decimal ep, bool isLong, OrbState orb, DateTime time)
     {
         if (_inTrade) return; // already in trade
+        // A side switched off while armed (a settings change after a rejected entry, or a revert)
+        // disarms instead of entering.
+        if ((isLong ? _cfg.EffectiveMaxLong : _cfg.EffectiveMaxShort) <= 0) { _state = 0; _armEntry = 0; return; }
 
         // Calculate levels from ORIGINAL entry (offset applied to entry only, below)
         var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
