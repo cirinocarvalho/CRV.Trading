@@ -408,6 +408,12 @@ else
 </aside>
 </div>
 
+@* Phone, Pick step: what's in the structure so far, and the way to it. *@
+<div id="ox-legbar" class="ox-legbar" role="status" aria-live="polite">
+    <span id="ox-legbar-text"></span>
+    <button type="button" class="btn btn-sm btn-warning" onclick="showStep('build'); window.scrollTo({top: 0});">Review <i class="bi bi-chevron-right"></i></button>
+</div>
+
 
 
 <!-- ── Commit dialog ─────────────────────────────────────────── -->
@@ -752,6 +758,21 @@ else
                 quotedAt: Date.now(),
             });
             renderLegs();
+            legAdded(symbol, action);
+        }
+
+        // Each tap in the chain says what it did. On a phone the structure is on another step, so
+        // without this a tap looked like nothing happened and repeated taps stacked up legs.
+        let LEGBAR_FLASH = null;
+        function legAdded(symbol, action) {
+            const leg = LEGS.find(l => l.symbol === symbol && l.action === action);
+            if (!leg) return;
+            const text = $('ox-legbar-text');
+            text.textContent = `Added: ${action} ${leg.right} ${fmt(leg.strike)}${leg.quantity > 1 ? ' ×' + leg.quantity : ''}`;
+            const bar = $('ox-legbar');
+            bar.classList.remove('flash'); void bar.offsetWidth; bar.classList.add('flash');
+            clearTimeout(LEGBAR_FLASH);
+            LEGBAR_FLASH = setTimeout(syncSteps, 1600);
         }
 
         function saveDraft() {
@@ -1517,6 +1538,8 @@ else
             const n = $('ox-legcount');
             n.textContent = LEGS.length;
             n.classList.toggle('d-none', LEGS.length === 0);
+            if (LEGS.length) $('ox-legbar-text').textContent =
+                `${LEGS.length} leg${LEGS.length === 1 ? '' : 's'} · ${structureName()}`;
         }
         const renderLegsBase = renderLegs;
         renderLegs = function (resetSize = true) { renderLegsBase(resetSize); syncSteps(); };

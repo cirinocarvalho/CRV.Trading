@@ -397,3 +397,29 @@ form.is-busy .c-idle { display: none; }
 .ho-working { color: var(--c-accent); }
 .c-seg .active[aria-selected] { background: var(--c-surface); color: var(--c-text); }
 @media (max-width: 575.98px) { .ho-field { flex: 1 1 calc(50% - .5rem); min-width: 0; } .ho-actions { flex-basis: 100%; } }
+/* Phone, Pick step: a bar with the structure so far and the way to it (the Explorer sets ox-has-legs). */
+.ox-legbar { display: none; }
+@media (max-width: 991.98px) {
+  body[data-ox-step="pick"].ox-has-legs .ox-legbar {
+    display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+    position: fixed; left: .75rem; right: .75rem; bottom: calc(.75rem + env(safe-area-inset-bottom, 0px)); z-index: 1030;
+    padding: .55rem .6rem .55rem .9rem; border-radius: var(--radius);
+    background: var(--c-surface); border: 1px solid var(--c-accent); box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+    font-weight: 600; font-size: .9rem;
+  }
+  body[data-ox-step="pick"].ox-has-legs .ox-grid { padding-bottom: 4rem; }
+  .ox-legbar.flash { animation: ox-flash .6s ease-out; }
+}
+@media (max-width: 767.98px) {
+  body[data-ox-step="pick"].ox-has-legs .ox-legbar { bottom: calc(var(--tabs-h) + .6rem + env(safe-area-inset-bottom, 0px)); }
+}
+@keyframes ox-flash { from { background: var(--c-accent-soft); } to { background: var(--c-surface); } }
+/* Chain Buy / Sell buttons: big enough to tap on a phone without hitting the neighbour. */
+@media (max-width: 991.98px) {
+  .ox-chain td:last-child .btn { min-width: 2.4rem; min-height: 2.1rem; font-weight: 700; font-size: .85rem; }
+  .ox-chain td:last-child .btn + .btn { margin-left: .25rem; }
+}
+/* Tablets still show the sidebar: keep the leg bar in the content column, not over the nav. */
+@media (min-width: 768px) and (max-width: 991.98px) {
+  body[data-ox-step="pick"].ox-has-legs .ox-legbar { left: calc(var(--side-w) + .75rem); }
+}
