@@ -836,6 +836,19 @@ public class TickerGroup
         return t;
     }
 
+    /// <summary>The mini and micro symbols that share a group's feed, for messages: "NQ" → "NQ / MNQ".</summary>
+    public static string GroupLabel(string groupKey) => groupKey switch
+    {
+        "NQ"  => "NQ / MNQ",
+        "ES"  => "ES / MES",
+        "GC"  => "GC / MGC",
+        "CL"  => "CL / MCL",
+        "YM"  => "YM / MYM",
+        "RTY" => "RTY / M2K",
+        "BTC" => "BTC / MBT",
+        _     => groupKey,
+    };
+
     // ── Private helpers ──────────────────────────────────────────
 
     /// <summary>Returns true when <paramref name="strategy"/> has the EMA filter enabled and

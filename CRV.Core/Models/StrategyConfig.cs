@@ -701,7 +701,7 @@ public class StrategyConfig
         return max;
     }
 
-    private IEnumerable<BasketEntry> EnumerateBasketEntries()
+    internal IEnumerable<BasketEntry> EnumerateBasketEntries()
     {
         var opts = new System.Text.Json.JsonSerializerOptions
         {
