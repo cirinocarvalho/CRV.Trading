@@ -317,3 +317,6 @@ app.MapControllers();
 app.MapHub<TradingHub>("/hubs/trading");
 
 app.Run();
+
+// Lets CRV.Web.A11yTests host the app through WebApplicationFactory<Program>.
+public partial class Program { }
