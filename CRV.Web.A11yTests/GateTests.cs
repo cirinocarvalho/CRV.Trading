@@ -17,6 +17,7 @@ public class GateTests(A11yAppFixture app)
         Assert.Contains(result.Violations, v => v.Id == "image-alt");
         Assert.Contains("image-alt", report);
         Assert.Contains("<img src=\"x.png\">", report);
+        Assert.Contains("does not have an alt attribute", report);
         await page.CloseAsync();
     }
 }

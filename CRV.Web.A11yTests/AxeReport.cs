@@ -32,6 +32,8 @@ public static class AxeReport
             {
                 sb.AppendLine($"    at   {n.Target}");
                 sb.AppendLine($"    html {n.Html}");
+                foreach (var check in n.Any.Concat(n.All).Concat(n.None))
+                    sb.AppendLine($"    why  {check.Message}");
             }
         }
         return sb.ToString();
