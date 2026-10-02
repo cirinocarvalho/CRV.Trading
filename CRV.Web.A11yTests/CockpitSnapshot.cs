@@ -5,7 +5,7 @@ namespace CRV.Web.A11yTests;
 
 /// <summary>
 /// An engine snapshot with one setup card in each state the cockpit draws while the engine runs
-/// (idle, armed, retest, cutoff, max trades, long and short in a trade), serialized the way the
+/// (idle, armed, retest, cutoff, max trades, long and short in a trade, disabled), serialized the way the
 /// SignalR hub sends it (camelCase, enums as numbers), so the scan sees the cards a running engine shows.
 /// </summary>
 public static class CockpitSnapshot
@@ -14,7 +14,7 @@ public static class CockpitSnapshot
     public static readonly string[] ExpectedStatuses =
     [
         "IDLE", "▶ ARMED LONG", "↩ RETEST SHORT", "CUTOFF", "MAX TRADES",
-        "● LONG ACTIVE [PARTIALFILLED]", "● SHORT ACTIVE [FILLED]",
+        "● LONG ACTIVE [PARTIALFILLED]", "● SHORT ACTIVE [FILLED]", "DISABLED",
     ];
 
     public static string Json() => Json(EveryState());
@@ -58,6 +58,7 @@ public static class CockpitSnapshot
                 LastPrice = 21236.25m, UnrealizedPnl = 27.5m, EnteredAt = now.AddMinutes(-5), Ticker = "/MESZ26",
                 PointValue = 2m, GroupStatus = "Filled",
             }),
+            Disabled(A11ySeed.RetiredId, "EMA21 [MNQ]", "retired EMA21 strategy"),
         ];
     }
 
@@ -68,5 +69,11 @@ public static class CockpitSnapshot
         Enabled = true, State = state, PastCutoff = pastCutoff, Trade = trade, TradeCount = trade == null ? tradeCount : 1,
         MaxTrades = 2, Wins = 1, Losses = 1, WinPnl = 140m, LossPnl = -40m, Expectancy = 50m,
         OrbHigh = 21250m, OrbLow = 21180m, OrbMid = 21215m, OrbRange = 70m, OrbFormed = true,
+    };
+
+    /// <summary>A switched-on strategy the engine didn't start, as the snapshot carries it.</summary>
+    public static SetupSnapshot Disabled(string id, string label, string reason) => new()
+    {
+        Id = id, Label = label, StrategyType = "", Ticker = "MNQZ26", Enabled = false, DisabledReason = reason,
     };
 }
