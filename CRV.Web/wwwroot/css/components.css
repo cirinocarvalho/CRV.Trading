@@ -190,6 +190,13 @@ form.is-busy .c-idle { display: none; }
 
 .ck-main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1rem; align-items: start; }
 @media (max-width: 1199.98px) { .ck-main { grid-template-columns: minmax(0, 1fr); } }
+/* Side by side, the chart grows to the height of the context column beside it instead of
+   leaving an empty gap under it. The chart follows its box (ResizeObserver in the Cockpit). */
+@media (min-width: 1200px) {
+  .ck-main { align-items: stretch; }
+  .ck-chart { display: flex; flex-direction: column; }
+  .ck-chart .ck-chart-box { flex: 1 1 auto; height: auto; min-height: 470px; }
+}
 .ck-overlays { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .78rem; color: var(--c-muted); }
 .ck-overlays label { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
 .ck-chart-box { position: relative; height: 470px; }
