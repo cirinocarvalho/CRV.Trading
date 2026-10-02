@@ -1527,8 +1527,8 @@ function updateSetup(id, setup, sessionEnded) {
     }
     setText(id + "-stop", stopLabel);
 
-    // Partial — dollar gain + points distance
-    const partPrice = trade.partial;
+    // Partial — dollar gain + points distance. A trade with one target has no partial price (0).
+    const partPrice = trade.partial > 0 ? trade.partial : null;
     let partLabel = partPrice?.toFixed(2) ?? "—";
     if (partPrice != null && trade.entry != null && pv > 0) {
         const partCts = trade.partialFilled
@@ -1546,7 +1546,7 @@ function updateSetup(id, setup, sessionEnded) {
     let tgtLabel = tgtPrice?.toFixed(2) ?? "—";
     if (tgtPrice != null && trade.entry != null && pv > 0) {
         const tgtPts = Math.abs(tgtPrice - trade.entry);
-        const partCts = trade.partialContracts || Math.floor(trade.contracts / 2);
+        const partCts = partPrice == null ? 0 : (trade.partialContracts || Math.floor(trade.contracts / 2));
         const remCts  = trade.contracts - partCts;  // contracts that ride to target
         // Target P&L for remaining contracts
         const tgtRemUsd = tgtPts * remCts * pv;
