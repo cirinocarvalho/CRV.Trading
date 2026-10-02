@@ -109,6 +109,28 @@ dotnet run --launch-profile https
 dotnet test CRV.Core.Tests/CRV.Core.Tests.csproj
 ```
 
+## Accessibility
+
+CI scans every page with [axe-core](https://github.com/dequelabs/axe-core) against the WCAG 2.2 A and AA rules, in the dark and light themes, at 1440 px and 390 px wide, plus the flatten sheet, the order ticket and Setups A–D. Any violation fails the build and blocks deploys.
+
+```bash
+dotnet build CRV.Web.A11yTests
+pwsh CRV.Web.A11yTests/bin/Debug/net10.0/playwright.ps1 install chromium   # once
+dotnet test CRV.Web.A11yTests
+```
+
+The tests host the app in-process against an empty temp data directory with the Mock broker, so they never touch your DB or broker tokens. Failing scans save screenshots under `CRV.Web.A11yTests/bin/*/net10.0/a11y-screens/`.
+
+axe checks only what can be automated. These criteria need a manual check after UI changes:
+
+- 2.1.2 No Keyboard Trap
+- 2.4.3 Focus Order
+- 2.4.7 Focus Visible
+- 2.4.11 Focus Not Obscured (Minimum) — watch the sticky engine bar
+- 2.5.7 Dragging Movements
+- 3.3.7 Redundant Entry
+- 3.3.8 Accessible Authentication (Minimum)
+
 ## Cloud deployment (Azure)
 
 Deployed to Azure App Service (Linux, container) via GitHub Actions with
@@ -165,7 +187,7 @@ gh workflow run deploy.yml          # first real image build
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `.github/workflows/ci.yml` | Every push + PR | Build + test (.NET 10) |
+| `.github/workflows/ci.yml` | Every push + PR | Build + test (.NET 10); WCAG 2.2 accessibility scans |
 | `.github/workflows/deploy.yml` | Push to master + manual | Build image in ACR, update Web App, smoke test |
 | `.github/workflows/infra.yml` | Bicep file change + manual | `what-if` on PR, `apply` on master |
 

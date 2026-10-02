@@ -61,3 +61,46 @@ jobs:
         with:
           name: coverage-report
           path: "**/coverage.cobertura.xml"
+
+  a11y:
+    name: Accessibility (WCAG 2.2 A/AA)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore dependencies
+        run: dotnet restore CRV.Web.A11yTests/CRV.Web.A11yTests.csproj
+
+      - name: Build (Release)
+        run: dotnet build CRV.Web.A11yTests/CRV.Web.A11yTests.csproj --no-restore --configuration Release
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('CRV.Web.A11yTests/CRV.Web.A11yTests.csproj') }}
+
+      - name: Install Chromium
+        run: pwsh CRV.Web.A11yTests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      - name: Run accessibility scans
+        run: >
+          dotnet test CRV.Web.A11yTests/CRV.Web.A11yTests.csproj
+          --no-build --configuration Release
+          --logger "trx;LogFileName=a11y-results.trx"
+
+      - name: Upload accessibility results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: a11y-results
+          path: |
+            **/a11y-results.trx
+            **/a11y-screens/*.png

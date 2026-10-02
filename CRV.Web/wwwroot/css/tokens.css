@@ -47,6 +47,7 @@
     --bs-danger-rgb:  255, 107, 94;
     --bs-warning-rgb: 242, 179, 61;
     --bs-info-rgb:    106, 168, 255;
+    --bs-secondary-rgb: 139, 149, 167;
 }
 
 /* ── Light (switch arrives as pages are rebuilt) ───────────── */
@@ -57,21 +58,23 @@
     --c-line:        #d9dde5;
     --c-text:        #141821;
     --c-muted:       #5b6475;
-    --c-accent:      #b7791f;
+    --c-accent:      #8b5b17;
     --c-accent-ink:  #ffffff;
-    --c-up:          #0f8f6e;
-    --c-down:        #d64535;
-    --c-paper:       #2f6fd6;
+    --c-up:          #0b7257;
+    --c-down:        #b53a2d;
+    --c-paper:       #2a63c0;
     --c-up-soft:     rgba(15, 143, 110, .10);
     --c-down-soft:   rgba(214, 69, 53, .10);
     --c-accent-soft: rgba(183, 121, 31, .12);
     --c-paper-soft:  rgba(47, 111, 214, .10);
     --c-dim:         rgba(20, 24, 33, .35);
 
-    --bs-success-rgb: 15, 143, 110;
-    --bs-danger-rgb:  214, 69, 53;
-    --bs-warning-rgb: 183, 121, 31;
-    --bs-info-rgb:    47, 111, 214;
+    --bs-success-rgb: 11, 114, 87;
+    --bs-danger-rgb:  181, 58, 45;
+    --bs-warning-rgb: 139, 91, 23;
+    --bs-info-rgb:    42, 99, 192;
+    --bs-secondary-rgb: 91, 100, 117;
+    --bs-code-color:  #b82b71;
 }
 
 /* ── Bootstrap + legacy aliases (both themes) ──────────────── */
@@ -121,3 +124,26 @@
     --bs-btn-disabled-border-color: var(--c-accent);
 }
 .btn-warning:hover { filter: brightness(1.06); }
+
+/* Bootstrap's outline buttons carry their own greys and reds; use the themed ones so their
+   text keeps 4.5:1 against the page in both themes. */
+.btn-outline-secondary {
+    --bs-btn-color: var(--c-muted);
+    --bs-btn-disabled-color: var(--c-muted);
+}
+.btn-outline-danger {
+    --bs-btn-color: var(--c-down);
+    --bs-btn-border-color: var(--c-down);
+    --bs-btn-hover-bg: var(--c-down);
+    --bs-btn-hover-border-color: var(--c-down);
+    --bs-btn-hover-color: var(--c-bg);
+    --bs-btn-active-bg: var(--c-down);
+    --bs-btn-active-border-color: var(--c-down);
+    --bs-btn-active-color: var(--c-bg);
+    --bs-btn-disabled-color: var(--c-down);
+    --bs-btn-disabled-border-color: var(--c-down);
+}
+
+/* Solid status pills: the fills are bright in dark mode and deep in light mode, so the page
+   background reads on them in both; Bootstrap's fixed white does not. */
+.badge.bg-secondary, .badge.bg-success, .badge.bg-danger, .badge.bg-warning { color: var(--c-bg); }
