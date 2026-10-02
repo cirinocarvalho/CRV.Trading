@@ -38,7 +38,7 @@ body.crv-app { background: var(--c-bg); color: var(--c-text); font-family: var(-
 .crv-engine::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--c-down); transition: background .3s; }
 .crv-engine[data-running="true"]::before { background: var(--c-up); }
 .crv-acct { display: inline-flex; align-items: center; gap: .35rem; font: 600 .7rem/1 var(--font-mono); letter-spacing: .04em;
-            padding: .32rem .5rem; border-radius: 6px; white-space: nowrap; color: #fff; background: var(--c-down); }
+            padding: .32rem .5rem; border-radius: 6px; white-space: nowrap; color: var(--c-bg); background: var(--c-down); }
 .crv-acct.sim { background: var(--c-paper); }
 .crv-stat { display: grid; gap: 1px; min-width: 0; }
 .crv-stat > small { font: 500 .62rem var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--c-muted); white-space: nowrap; }

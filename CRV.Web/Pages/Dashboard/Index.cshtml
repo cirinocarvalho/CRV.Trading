@@ -23,7 +23,7 @@
         }
         <span class="badge setup-idle" id="dash-session-badge">—</span>
         <span class="badge bg-secondary" id="sessionBadge">--</span>
-        <span class="badge" id="dash-dd-badge">OK</span>
+        <span class="c-badge ok" id="dash-dd-badge">OK</span>
         <span class="ck-stream" id="stream-health" title="Market data stream">
             <span class="stream-dot" id="stream-dot"></span>
             <span class="num" id="stream-price">—</span>
@@ -1192,7 +1192,7 @@ function updateDashboard(d) {
     if (ddBadge) {
         const halted = d.tradingHalted ?? false;
         ddBadge.textContent = halted ? "DD HALTED" : "OK";
-        ddBadge.className   = "badge " + (halted ? "badge-halted" : "bg-success text-dark");
+        ddBadge.className   = halted ? "badge badge-halted" : "c-badge ok";
     }
 
     // ── Session state badge ──────────────────────────────────
