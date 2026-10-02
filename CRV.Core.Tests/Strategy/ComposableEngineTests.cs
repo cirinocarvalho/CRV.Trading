@@ -167,6 +167,17 @@ public class ComposableEngineTests
         PartialPct = 50,
     };
 
+    private static BasketEntry BasketEntryFor(string id, StrategyType type, string ticker, int? barMinutes = null) => new()
+    {
+        Id = id, Label = id, Enabled = true, StrategyType = type, Ticker = ticker,
+        PointValue = 2m, TickSize = 0.25m, ExecutionTFMinutes = barMinutes,
+        Config = new StrategySetupConfig { Contracts = 1, MaxContracts = 1, MaxTrades = 3, StopPct = 0.10m, TargetPct = 100, PartialPct = 50 },
+    };
+
+    // 2026-09-15 is a Tuesday in EDT, so ET = UTC-4.
+    private static Bar EtBar(int hour, int minute, decimal high, decimal low) =>
+        new(new DateTime(2026, 9, 15, hour + 4, minute, 0, DateTimeKind.Utc), low, high, low, high, 100);
+
     private ComposableEngine CreateEngine(
         FakeExecutor? executor = null,
         FakeSink? sink = null,
@@ -564,5 +575,53 @@ public class ComposableEngineTests
         Assert.Equal("retest-mnq", alert.SetupLabel);
         Assert.Equal("MNQM26", alert.Ticker);
         Assert.Equal(refusal.Describe(), alert.Message);
+    }
+
+    // ── A group runs on its root's bar size ──
+
+    [Fact]
+    public async Task GroupOrb_UsesTheSetupsBarSize_NotTheEngines()
+    {
+        var engine = CreateEngine();                    // engine-wide bar size: 1 min
+        var setup = MakeSetupConfig(SetupId.A, "/MNQZ26");
+        setup.ExecutionTFMinutes = 15;
+        engine.AddSetup(setup);
+
+        // A 15-minute bar opening at 09:20 runs to 09:35 and overlaps the 09:30–10:00 range.
+        // Read as a 1-minute bar it would end at 09:21 and be left out.
+        await engine.ProcessBarAsync(EtBar(9, 20, 21100m, 21000m), "/MNQZ26");
+        await engine.ProcessBarAsync(EtBar(9, 45, 21050m, 20990m), "/MNQZ26");
+        await engine.ProcessBarAsync(EtBar(10, 0, 21045m, 21020m), "/MNQZ26");
+
+        var a = engine.GetSnapshot().Setups.Single(s => s.Id == "A");
+        Assert.True(a.OrbFormed);
+        Assert.Equal(21100m, a.OrbHigh);
+        Assert.Equal(15, engine.Groups["NQ"].BarMinutes);
+    }
+
+    [Fact]
+    public async Task HotReload_KeepsTheGroupOnItsRootsBarSize()
+    {
+        var engine = CreateEngine();
+        var entry = BasketEntryFor("pullback-mnq", StrategyType.Pullback, "/MNQZ26", barMinutes: 15);
+        var cfg = DefaultStrategyConfig();              // engine-wide bar size: 1 min
+        cfg.BasketJson = BasketCodec.Serialize(new[] { entry });
+        engine.AddSetup(cfg.ToSetupConfigs().Single());
+
+        // A save gives the setup its own 09:30–09:45 range. The hot reload swaps the engine-wide
+        // config into the group, and the new range gets a fresh calculator.
+        entry.Config.UseCustomOrbWindow = true;
+        entry.Config.OrbStart = new TimeOnly(9, 30);
+        entry.Config.OrbEnd = new TimeOnly(9, 45);
+        cfg.BasketJson = BasketCodec.Serialize(new[] { entry });
+        engine.ApplyRuntimeSettings(cfg);
+        engine.Reconfigure(cfg.ToEngineConfig(), cfg.ToSetupConfigs());
+
+        await engine.ProcessBarAsync(EtBar(9, 20, 21100m, 21000m), "/MNQZ26");
+        await engine.ProcessBarAsync(EtBar(9, 30, 21050m, 20990m), "/MNQZ26");
+        await engine.ProcessBarAsync(EtBar(9, 45, 21045m, 21020m), "/MNQZ26");
+
+        Assert.Equal(21100m, engine.GetSnapshot().Setups.Single(s => s.Id == "pullback-mnq").OrbHigh);
+        Assert.Equal(15, engine.Groups["NQ"].BarMinutes);
     }
 }

@@ -23,6 +23,9 @@ public class ComposableEngine
     private readonly Dictionary<string, ISetupStrategy> _strategies = new();
     private readonly Dictionary<string, string> _setupToGroupKey = new();
 
+    /// <summary>Groups by key ("NQ", "ES", …). For tests.</summary>
+    internal IReadOnlyDictionary<string, TickerGroup> Groups => _groups;
+
     private bool _idle;
     private bool _tickModeEnabled;
     private string _activeSessionId = "";
@@ -79,8 +82,10 @@ public class ComposableEngine
 
         if (!_groups.TryGetValue(groupKey, out var group))
         {
-            // Create a StrategyConfig for TickerGroup construction
+            // Create a StrategyConfig for TickerGroup construction. The group runs on its root's
+            // bar size; validation keeps every setup on one root to one bar size.
             var stratCfg = BuildStrategyConfigFromEngine(_config);
+            stratCfg.ExecutionTFMinutes = config.ExecutionTFMinutes;
             group = new TickerGroup(groupKey, stratCfg, _brokerHandler);
             _groups[groupKey] = group;
         }
