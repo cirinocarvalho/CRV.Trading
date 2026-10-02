@@ -38,6 +38,7 @@ public sealed class A11yAppFixture : IAsyncLifetime
         var addresses = _factory.Services.GetRequiredService<IServer>()
             .Features.GetRequiredFeature<IServerAddressesFeature>().Addresses;
         BaseAddress = new Uri(addresses.First());
+        A11ySeed.Apply(_factory.Services);
 
         _playwright = await Playwright.CreateAsync();
         Browser = await _playwright.Chromium.LaunchAsync(new() { Headless = true });
