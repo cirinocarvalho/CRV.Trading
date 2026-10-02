@@ -43,8 +43,9 @@ public record EntrySignal(
     {
         if (Brackets is { Count: > 0 }) return Brackets;
 
-        // Legacy builder: 1 or 2 brackets from Tg1/Tg2
-        if (UsePartial && Tg1Price > 0)
+        // Legacy builder: 1 or 2 brackets from Tg1/Tg2. A partial needs at least two contracts
+        // to split; a single contract goes to Tg2 with its stop left where it is.
+        if (UsePartial && Tg1Price > 0 && TotalContracts > 1)
         {
             var partialCts = PartialContracts > 0 ? PartialContracts : TotalContracts / 2;
             if (partialCts < 1) partialCts = 1;

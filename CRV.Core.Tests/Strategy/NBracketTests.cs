@@ -160,6 +160,44 @@ public class NBracketTests
     }
 
     [Fact]
+    public void ResolveBrackets_OneContractWithPartial_ReturnsSingleBracketToTg2WithoutBe()
+    {
+        // Sizing down to one contract leaves nothing to take off at Tg1. A 0-qty Tg1 leg was
+        // skipped by backtest and mock but sent to Tradovate, which also armed break-even at Tg1.
+        var sig = new EntrySignal(SetupId.F, Direction.Long, Entry: 100m, Stop: 99m,
+            Tg2Price: 105m, Tg1Price: 102m,
+            TotalContracts: 1, Time: DateTime.UtcNow, PartialContracts: 1,
+            UsePartial: true, UseBe: true);
+
+        var brackets = sig.ResolveBrackets();
+
+        var only = Assert.Single(brackets);
+        Assert.Equal(105m, only.TargetPrice);
+        Assert.Equal(1, only.Qty);
+        Assert.False(only.MoveBe);
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(1, 1)]
+    [InlineData(2, 0)]
+    [InlineData(2, 5)]
+    [InlineData(3, 3)]
+    [InlineData(4, 0)]
+    public void ResolveBrackets_WithPartial_NeverHasEmptyLeg_AndSumsToTotal(int total, int partial)
+    {
+        var sig = new EntrySignal(SetupId.F, Direction.Short, Entry: 100m, Stop: 101m,
+            Tg2Price: 95m, Tg1Price: 98m,
+            TotalContracts: total, Time: DateTime.UtcNow, PartialContracts: partial,
+            UsePartial: true, UseBe: true);
+
+        var brackets = sig.ResolveBrackets();
+
+        Assert.All(brackets, b => Assert.True(b.Qty > 0, $"leg at {b.TargetPrice} has qty {b.Qty}"));
+        Assert.Equal(total, brackets.Sum(b => b.Qty));
+    }
+
+    [Fact]
     public void ResolveBrackets_ExplicitList_ReturnsVerbatim()
     {
         var explicitList = new[]
