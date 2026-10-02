@@ -210,6 +210,31 @@
         show();
     })();
 
+    // ── Scrollable tables ────────────────────────────────────────
+    // A table wider than its wrapper scrolls sideways; keyboard users can only scroll it
+    // once the wrapper takes focus. Wrappers that fit stay out of the tab order.
+    (function () {
+        function mark(wrap) {
+            if (wrap.scrollWidth > wrap.clientWidth) {
+                const h = wrap.closest('.c-panel')?.querySelector('.c-panel-h h2, .c-panel-h h3');
+                wrap.tabIndex = 0;
+                wrap.setAttribute('role', 'region');
+                wrap.setAttribute('aria-label', (h ? h.textContent.trim() : 'Table') + ', scrolls sideways');
+            } else {
+                wrap.removeAttribute('tabindex');
+                wrap.removeAttribute('role');
+                wrap.removeAttribute('aria-label');
+            }
+        }
+        const ro = new ResizeObserver(entries => entries.forEach(e => mark(e.target.closest('.c-table-wrap'))));
+        document.querySelectorAll('.c-table-wrap').forEach(wrap => {
+            ro.observe(wrap);
+            const table = wrap.querySelector('table');
+            if (table) ro.observe(table);
+            mark(wrap);
+        });
+    })();
+
     // ── Engine bar ───────────────────────────────────────────────
     const bar = document.getElementById('crv-engine');
     if (!bar) return;
