@@ -17,9 +17,9 @@ body { background: var(--c-bg); color: var(--c-text); font-family: var(--font-bo
 .pnl-neg  { color: var(--crv-red);    }
 .pnl-zero { color: var(--c-muted); }
 
-.badge-live   { background: var(--c-up);   color: #062018; }
-.badge-paper  { background: var(--crv-yellow);  color: #000; }
-.badge-halted { background: var(--crv-red);     color: #fff; }
+.badge-live   { background: var(--c-up);   color: var(--c-bg); }
+.badge-paper  { background: var(--crv-yellow);  color: var(--c-bg); }
+.badge-halted { background: var(--crv-red);     color: var(--c-bg); }
 
 /* DD gauge flash animation */
 @keyframes dd-flash {

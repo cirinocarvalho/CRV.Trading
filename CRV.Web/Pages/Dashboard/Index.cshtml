@@ -910,7 +910,7 @@ function _applyGroupContext(g) {
     var fbOrbEl = document.getElementById("fb-orb-status");
     if (fbOrbEl) {
         if (g.fbOrbActivated)             { fbOrbEl.textContent = "Activated"; fbOrbEl.className = "badge bg-success"; }
-        else if (g.fbOrbBreakoutActive)   { fbOrbEl.textContent = "Tracking";  fbOrbEl.className = "badge bg-warning text-dark"; }
+        else if (g.fbOrbBreakoutActive)   { fbOrbEl.textContent = "Tracking";  fbOrbEl.className = "badge bg-warning"; }
         else                              { fbOrbEl.textContent = "Idle";      fbOrbEl.className = "badge bg-secondary"; }
     }
     setText("fb-orb-bars",  g.fbOrbBarsInBreakout > 0 ? g.fbOrbBarsInBreakout + " bars" : "—");
@@ -919,7 +919,7 @@ function _applyGroupContext(g) {
     var fbSessEl = document.getElementById("fb-session-status");
     if (fbSessEl) {
         if (g.fbSessionActivated)             { fbSessEl.textContent = "Activated"; fbSessEl.className = "badge bg-success"; }
-        else if (g.fbSessionBreakoutActive)   { fbSessEl.textContent = "Tracking";  fbSessEl.className = "badge bg-warning text-dark"; }
+        else if (g.fbSessionBreakoutActive)   { fbSessEl.textContent = "Tracking";  fbSessEl.className = "badge bg-warning"; }
         else                                  { fbSessEl.textContent = "Idle";      fbSessEl.className = "badge bg-secondary"; }
     }
     setText("fb-session-bars",  g.fbSessionBarsInBreakout > 0 ? g.fbSessionBarsInBreakout + " bars" : "—");
@@ -930,8 +930,8 @@ function _applyGroupContext(g) {
         var orbOn = g.fbOrbActivated || g.fbOrbBreakoutActive;
         var sessOn = g.fbSessionActivated || g.fbSessionBreakoutActive;
         if (orbOn && sessOn)  { fbCompound.textContent = "Compound"; fbCompound.className = "badge bg-danger ms-auto"; }
-        else if (orbOn)       { fbCompound.textContent = "ORB Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
-        else if (sessOn)      { fbCompound.textContent = "Session Only"; fbCompound.className = "badge bg-warning text-dark ms-auto"; }
+        else if (orbOn)       { fbCompound.textContent = "ORB Only"; fbCompound.className = "badge bg-warning ms-auto"; }
+        else if (sessOn)      { fbCompound.textContent = "Session Only"; fbCompound.className = "badge bg-warning ms-auto"; }
         else                  { fbCompound.textContent = "Idle"; fbCompound.className = "badge bg-secondary ms-auto"; }
     }
 

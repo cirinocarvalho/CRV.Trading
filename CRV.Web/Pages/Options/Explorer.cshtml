@@ -693,7 +693,7 @@ else
 
                 return `<tr class="${r.itm ? 'table-active' : ''}">
             <td><span class="badge ${r.right === 'Call' ? 'bg-success' : 'bg-danger'}">${r.right}</span>
-                ${r.nonStandard ? '<span class="badge bg-warning text-dark ms-1" title="Non-standard deliverable">NS</span>' : ''}</td>
+                ${r.nonStandard ? '<span class="badge bg-warning ms-1" title="Non-standard deliverable">NS</span>' : ''}</td>
             <td class="text-end">${fmt(r.strike)}</td>
             <td class="text-end ${r.hasBid ? '' : 'text-danger fw-bold'}">${fmt(r.bid)}</td>
             <td class="text-end">${fmt(r.ask)}</td>

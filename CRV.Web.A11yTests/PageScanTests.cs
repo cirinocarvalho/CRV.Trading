@@ -42,8 +42,12 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
         // Opens the confirmation sheet only. The hold-to-flatten button is never pressed.
         var report = await PageScanner.ScanAsync(app, "/dashboard", theme, width, height, async page =>
         {
-            await page.ClickAsync("#flatten-open");
+            // A slow answer from the plan endpoint must not let the scan see the "Checking…" placeholder.
+            await page.RouteAsync("**/api/orders/flatten-all", async route => { await Task.Delay(500); await route.ContinueAsync(); });
+            await page.RunAndWaitForResponseAsync(() => page.ClickAsync("#flatten-open"), r => r.Url.EndsWith("/api/orders/flatten-all"));
             await page.Locator("#flatten-sheet").WaitForAsync(new() { State = WaitForSelectorState.Visible });
+            await page.Locator("#flatten-body .spinner-border").WaitForAsync(new() { State = WaitForSelectorState.Detached });
+            Assert.Equal(0, await page.Locator("#flatten-body .spinner-border").CountAsync());
         }, output, scope: "#flatten-sheet");
 
         Assert.True(report is null, report);
@@ -83,5 +87,25 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
         {
             A11ySeed.SetOrbBasket(app.Services, A11ySeed.OrbBasketJson);
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public async Task StatusBadges_InEveryState_HaveNoWcagViolations(string theme, int width, int height)
+    {
+        // The cockpit script switches badges between these classes as the engine runs. A stopped
+        // engine shows only a few of them, so one badge per state is added next to the drawdown badge.
+        var report = await PageScanner.ScanAsync(app, "/dashboard", theme, width, height, page => page.EvaluateAsync("""
+            const host = document.getElementById('dash-dd-badge').parentElement;
+            ['bg-success', 'bg-danger', 'bg-secondary', 'bg-warning', 'badge-halted', 'badge-live',
+             'badge-paper', 'setup-armed', 'setup-idle', 'setup-retest', 'setup-long', 'setup-short'].forEach(c => {
+                const b = document.createElement('span');
+                b.className = 'badge ' + c;
+                b.textContent = c;
+                host.appendChild(b);
+            });
+            """), output);
+
+        Assert.True(report is null, report);
     }
 }

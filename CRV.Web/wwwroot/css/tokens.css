@@ -61,8 +61,8 @@
     --c-accent:      #8b5b17;
     --c-accent-ink:  #ffffff;
     --c-up:          #0b7257;
-    --c-down:        #c03e2f;
-    --c-paper:       #2c69cb;
+    --c-down:        #b53a2d;
+    --c-paper:       #2a63c0;
     --c-up-soft:     rgba(15, 143, 110, .10);
     --c-down-soft:   rgba(214, 69, 53, .10);
     --c-accent-soft: rgba(183, 121, 31, .12);
@@ -70,9 +70,9 @@
     --c-dim:         rgba(20, 24, 33, .35);
 
     --bs-success-rgb: 11, 114, 87;
-    --bs-danger-rgb:  192, 62, 47;
+    --bs-danger-rgb:  181, 58, 45;
     --bs-warning-rgb: 139, 91, 23;
-    --bs-info-rgb:    44, 105, 203;
+    --bs-info-rgb:    42, 99, 192;
     --bs-secondary-rgb: 91, 100, 117;
     --bs-code-color:  #b82b71;
 }
@@ -144,5 +144,6 @@
     --bs-btn-disabled-border-color: var(--c-down);
 }
 
-/* Grey status pills: Bootstrap's white text is too faint on the themed grey. */
-.badge.bg-secondary { color: var(--c-bg); }
+/* Solid status pills: the fills are bright in dark mode and deep in light mode, so the page
+   background reads on them in both; Bootstrap's fixed white does not. */
+.badge.bg-secondary, .badge.bg-success, .badge.bg-danger, .badge.bg-warning { color: var(--c-bg); }
