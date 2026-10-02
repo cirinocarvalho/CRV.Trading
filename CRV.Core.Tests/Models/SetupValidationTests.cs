@@ -43,6 +43,19 @@ public class SetupValidationTests
     public void Entry_KnownTypeOnAListedBarSize_HasNoProblems()
         => Assert.Empty(SetupValidation.Entry(Entry("pullback-mnq", StrategyType.Pullback, "/MNQZ26", 5), Config([])));
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Entry_NonPositiveBarSize_MeansNoOverrideAndUsesTheConfigs(int barMinutes)
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26", barMinutes);
+        var cfg = Config([e]);
+        cfg.ExecutionTFMinutes = 5;
+
+        Assert.Empty(SetupValidation.Entry(e, cfg));
+        Assert.Equal(5, SetupValidation.BarMinutes(e, cfg));
+    }
+
     [Fact]
     public void Entry_BarSizeOffTheList_IsReported()
         => Assert.Contains("bar size 7 min isn't one of 1, 2, 5, 10, 15, 20, 30, 60 min",

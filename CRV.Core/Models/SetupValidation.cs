@@ -40,7 +40,7 @@ public static class SetupValidation
         else if (!Tradable.Contains(entry.StrategyType))
             problems.Add($"unknown strategy type {(int)entry.StrategyType}");
 
-        if (entry.ExecutionTFMinutes is int tf && !BarSizes.Contains(tf))
+        if (entry.ExecutionTFMinutes is int tf && tf > 0 && !BarSizes.Contains(tf))
             problems.Add($"bar size {tf} min isn't one of {string.Join(", ", BarSizes)} min");
         if (entry.Config.UseCustomOrbWindow && entry.Config.OrbEnd <= entry.Config.OrbStart)
             problems.Add("its opening range ends before it starts");
