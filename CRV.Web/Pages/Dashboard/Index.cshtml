@@ -1072,8 +1072,15 @@ function createSetupCard(setup) {
 }
 
 // ── Main update ───────────────────────────────────────────────
+// A stopped engine isn't watching anything: setup states and the ORB status are left over from
+// its last run, so they're shown as stopped rather than as if they were live.
+const engineRunning = () => window.CRV?.engine?.running !== false;
+let _lastDashboard = null;
+document.addEventListener('crv:engine', () => { if (_lastDashboard) updateDashboard(_lastDashboard); });
+
 function updateDashboard(d) {
     if (!d) return;
+    _lastDashboard = d;
     _clearPlaceholder();   // remove "Waiting for engine..." on first live snapshot
 
     // ── Auto-create setup cards (recreate when count changes or on first snapshot) ──
@@ -1190,7 +1197,8 @@ function updateDashboard(d) {
     if (sessBadge) {
         var allCutoff = d.setups && d.setups.length > 0 && d.setups.every(s => s.pastCutoff);
         var someCutoff = d.setups && d.setups.some(s => s.pastCutoff);
-        if (d.sessionEnded)                        { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
+        if (!engineRunning())                      { sessBadge.textContent = "ENGINE STOPPED"; sessBadge.className = "badge bg-secondary"; }
+        else if (d.sessionEnded)                   { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
         else if (allCutoff)
                                                    { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
         else if (someCutoff) {
@@ -1474,7 +1482,8 @@ function updateSetup(id, setup, sessionEnded) {
     if (!trade) {
         // Override state badge when past cutoff, session ended, or max trades reached
         let badge;
-        if (sessionEnded)        badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
+        if (!engineRunning())    badge = { text: "STOPPED",       cls: "badge bg-secondary" };
+        else if (sessionEnded)   badge = { text: "SESSION ENDED", cls: "badge badge-halted" };
         else if (maxTradesReached) badge = { text: "MAX TRADES",   cls: "badge badge-halted" };
         else if (pastCutoff)     badge = { text: "CUTOFF",        cls: "badge setup-armed" };
         else                     badge = _setupBadge(state ?? 0, setup.strategyType);
