@@ -33,8 +33,10 @@ body.crv-app { background: var(--c-bg); color: var(--c-text); font-family: var(-
     padding: .6rem 1.5rem .55rem; padding-top: calc(.6rem + env(safe-area-inset-top, 0px));
     background: var(--c-surface); border-bottom: 1px solid var(--c-line);
 }
-.crv-engine::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--c-down); }
-.crv-engine[data-real-money="false"]::before { background: var(--c-paper); }
+/* Top stripe: engine state at a glance. Green while running, red while stopped (or faulted).
+   Which account orders go to is shown by the LIVE / DEMO / PAPER badge. */
+.crv-engine::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--c-down); transition: background .3s; }
+.crv-engine[data-running="true"]::before { background: var(--c-up); }
 .crv-acct { display: inline-flex; align-items: center; gap: .35rem; font: 600 .7rem/1 var(--font-mono); letter-spacing: .04em;
             padding: .32rem .5rem; border-radius: 6px; white-space: nowrap; color: #fff; background: var(--c-down); }
 .crv-acct.sim { background: var(--c-paper); }
