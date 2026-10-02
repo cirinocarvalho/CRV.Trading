@@ -30,8 +30,22 @@ public sealed class A11yAppFixture : IAsyncLifetime
         // Program.cs moves the working directory to DATA_DIR, so the DB and token files land there.
         Environment.SetEnvironmentVariable("DATA_DIR", DataDir);
 
+        // Pinned settings win over environment variables, so an exported deploy setting
+        // (absolute DB or token paths, live orders on) can't reach the real files from a test run.
+        var pinned = new Dictionary<string, string>
+        {
+            ["ConnectionStrings:DefaultConnection"] = $"Data Source={Path.Combine(DataDir, "crv_trading.db")}",
+            ["Schwab:TokenFile"]                    = Path.Combine(DataDir, "schwab_tokens.json"),
+            ["TradeStation:TokenFile"]              = Path.Combine(DataDir, "tradestation_tokens.json"),
+            ["Tradovate:TokenFile"]                 = Path.Combine(DataDir, "tradovate_tokens.json"),
+            ["Options:AllowLiveOrders"]             = "false",
+        };
         _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(b => b.UseEnvironment("Production"));
+            .WithWebHostBuilder(b =>
+            {
+                b.UseEnvironment("Production");
+                foreach (var (key, value) in pinned) b.UseSetting(key, value);
+            });
         _factory.UseKestrel(o => o.Listen(IPAddress.Loopback, 0));
         _factory.StartServer();
 
