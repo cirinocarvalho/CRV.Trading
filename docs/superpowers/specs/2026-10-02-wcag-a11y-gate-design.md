@@ -48,9 +48,7 @@ An xUnit collection fixture shared by every test in the project.
 - Builds a `WebApplicationFactory<Program>` that serves over real Kestrel on `http://127.0.0.1:<free port>` (`UseKestrel()`, new in .NET 10), so Playwright can reach it. The plan's first task verifies this works with the top-level `Program`; if not, the fallback is to start Kestrel through `IWebHostBuilder.UseUrls` in `ConfigureWebHost`.
 - Environment `Production`. Development is ruled out: it binds HTTPS with a dev cert and sets `Options:AllowLiveOrders: true`.
 - `DATA_DIR` points at a fresh temp folder per run, so the SQLite DB, token files and `live_settings.json` start empty. `Program.cs` changes the working directory to `DATA_DIR`; the fixture sets the variable before the host builds and restores the original directory on dispose.
-- Configuration overrides through `ConfigureAppConfiguration`:
-  - `Options:SnapshotSymbols` empty, so `OptionChainSnapshotService` never calls Schwab.
-  - `Seq:Url` empty, to stop the sink retrying `localhost:5341`.
+- No configuration overrides. Broker token files resolve inside the empty `DATA_DIR`, so `BrokerTokenKeepAlive` and `OptionChainSnapshotService` find no tokens and never reach a broker; the test run never sees the real token files or DB. The Seq sink retries `localhost:5341` harmlessly (`Seq:Url` cannot be blanked: `Program.cs` passes an empty string straight to the sink).
 - Launches one headless Chromium for the whole run and disposes it with the host.
 
 ### Seed data: `A11ySeed`
@@ -58,7 +56,7 @@ An xUnit collection fixture shared by every test in the project.
 Seeds the DB through the app's own `TradingDbContext` and `StrategyConfigService` after startup migrations have run, so pages render real content instead of empty states:
 
 - Config row `Id=1` with `Broker = "Mock"`, so broker-backed pages render the mock path instead of Schwab error states.
-- One basket entry of each strategy type (ORB basket and EMA21 basket). The first entry's id drives the `/setup/strategies/{id}` scan.
+- One basket entry of each strategy type: `a11y-pullback`, `a11y-retest`, `a11y-orbfakeout`, `a11y-sessionfakeout` in the ORB basket and `a11y-ema21` in the EMA21 basket.
 - A handful of closed trades for `live` and `paper`, spread over two trading days, so Sessions, Results and Prospectus render tables and charts.
 - One saved backtest run, so `/review/results?source=backtest` renders.
 
@@ -81,7 +79,8 @@ The scan list. Every real page is included; OAuth callbacks (`/auth/schwab`, `/a
 | `/options/explorer` | |
 | `/options/positions` | |
 | `/setup/strategies` | |
-| `/setup/strategies/{id}` | First seeded entry |
+| `/setup/strategies/a11y-retest` | Seeded ORB-basket entry |
+| `/setup/strategies/a11y-ema21` | Seeded EMA21-basket entry (renders the read-only type) |
 | `/setup/brokers` | |
 | `/setup/risk` | |
 | `/setup/alerts` | |
@@ -89,8 +88,12 @@ The scan list. Every real page is included; OAuth callbacks (`/auth/schwab`, `/a
 Each entry can carry an interaction to run before the scan, for UI that is hidden on load. Interactions shipped:
 
 - Flatten confirmation modal (shared layout), scanned on `/dashboard`.
-- Order ticket (`_OrderTicket`), opened and scanned on `/dashboard`.
-- Legacy setups expanded (`_LegacySetups`), scanned on `/setup/strategies`.
+- Order ticket (`_OrderTicket`), opened through `/dashboard?ticket=1` (the same query the ticket script already honours) and scanned.
+- Setups A–D (`_LegacySetups`), scanned on `/setup/risk`. They only render when the ORB basket is empty, so this scan empties the basket, scans, and restores it.
+
+Before every scan, all closed `<details>` elements on the page are opened, so collapsed sections are scanned too.
+
+Each scan first asserts the page answered HTTP 200 and that `<html data-bs-theme>` matches the theme under test, so an error page or a theme that failed to apply can't pass silently.
 
 ### Tests: `PageScanTests`
 
@@ -103,7 +106,7 @@ A `[Theory]` over page × theme × viewport:
 - On failure, saves a full-page screenshot to `TestResults/a11y/<page>-<theme>-<width>.png`.
 - `Incomplete` results (needs review) are written to the test output but do not fail the test.
 
-15 pages × 2 themes × 2 viewports = 60 scans, plus the 3 interaction scans per theme and viewport.
+16 routes × 2 themes × 2 viewports = 64 scans, plus the 3 interaction scans per theme and viewport (12).
 
 **Rule exceptions:** none planned. If a rule produces a confirmed false positive, it is disabled for that one page with `DisableRules("<rule-id>")` and a comment explaining why, and listed in the PR description.
 
@@ -118,7 +121,7 @@ New job `a11y` in `.github/workflows/ci.yml`, running in parallel with the exist
 5. `dotnet test CRV.Web.A11yTests --no-build -c Release --logger "trx;LogFileName=a11y-results.trx"`.
 6. On failure: upload the trx and `TestResults/a11y/*.png` as the `a11y-results` artifact.
 
-The existing test step stays scoped to `CRV.Core.Tests`. `deploy.yml` reuses `ci.yml` through `workflow_call`, and its deploy job is updated to need both jobs.
+The existing test step stays scoped to `CRV.Core.Tests`. `deploy.yml` reuses `ci.yml` through `workflow_call`; its `needs: build-and-test` waits for every job in the called workflow, so the new job gates deploys with no change to `deploy.yml`.
 
 Pages load Bootstrap, SignalR, Chart.js and lightweight-charts from jsDelivr and unpkg; the runner needs outbound network. A CDN outage fails the run; no retry logic is added.
 
@@ -168,14 +171,13 @@ A short "Accessibility" section is added to `README.md`. It states that the CI g
 | `CRV.Web/Program.cs` | `public partial class Program;` |
 | `CRV.Trading.sln` | Adds the test project |
 | `.github/workflows/ci.yml` | New `a11y` job |
-| `.github/workflows/deploy.yml` | Deploy needs both CI jobs |
 | `README.md` | Accessibility section |
 | `CRV.Web/Pages/**`, `CRV.Web/wwwroot/css/**`, `CRV.Web/wwwroot/js/**` | Violation fixes |
 
 ## Tests
 
-1. The fixture boots CRV.Web in Production with an empty `DATA_DIR` and serves `/dashboard` with HTTP 200.
-2. The seeded `/setup/strategies/{id}` returns 200, not 404.
+1. The fixture boots CRV.Web in Production with an empty temp `DATA_DIR`, creates its SQLite DB there, and serves `/dashboard` with HTTP 200.
+2. The seeded `/setup/strategies/a11y-retest` and `/setup/strategies/a11y-ema21` return 200, not 404.
 3. Every page × theme × viewport scan has zero WCAG A/AA violations.
 4. Each interaction scan (flatten modal, order ticket, legacy setups) has zero violations.
 5. A page loaded with `SetContentAsync("<img src='x.png'>")` (no `alt`) produces an `image-alt` violation through the same scan and report code. This proves the gate can go red.
