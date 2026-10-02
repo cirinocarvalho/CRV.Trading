@@ -108,4 +108,25 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
 
         Assert.True(report is null, report);
     }
+
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public async Task CockpitSetupCards_InEveryState_HaveNoWcagViolations(string theme, int width, int height)
+    {
+        // Cards are built from engine snapshots, and the test host never starts the engine. The page
+        // is told the engine runs (display only, nothing is sent) and given the snapshot event the hub sends.
+        var report = await PageScanner.ScanAsync(app, "/dashboard", theme, width, height, async page =>
+        {
+            await page.EvaluateAsync("""
+                json => {
+                    CRV.engine.status('Live');
+                    document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+                }
+                """, CockpitSnapshot.Json());
+            await page.Locator("#setup-cards-container article.ck-setup").Nth(3).WaitForAsync();
+            await page.Locator("#setup-cards-container .btn-danger:visible").First.WaitForAsync();
+        }, output);
+
+        Assert.True(report is null, report);
+    }
 }
