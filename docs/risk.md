@@ -25,8 +25,10 @@ Two decisions worth knowing:
   orders all fill on one move and breach a ceiling that was never checked against them
   — exactly the correlated case this exists to catch.
 - **A refused signal calls `RevertEntry()`**, so it does not consume the setup's trade
-  slot. A portfolio block is temporary — it lifts when a position closes — unlike a
-  daily-loss breach, which stops the engine outright.
+  slot. A portfolio block is temporary — it lifts when a position closes. A daily-loss
+  refusal reverts too, since held open loss is marked to market and the breach can clear.
+  A daily-loss breach stops new entries; open (and held) positions keep their stops and
+  targets.
 
 Exposure is read from the live group orders, never from a ledger kept alongside them.
 A parallel ledger drifts: an entry that never fills leaves risk booked forever and
