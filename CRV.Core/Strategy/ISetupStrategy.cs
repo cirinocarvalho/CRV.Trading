@@ -177,6 +177,13 @@ public interface ISetupStrategy
     /// <summary>Clear all pending signals after engine has processed them.</summary>
     void ClearPendingSignals();
 
+    /// <summary>
+    /// Forget the refusals and skips already reported, as though none had been. Warmup
+    /// discards its signals unrouted, so a refusal reported there must not dedupe the
+    /// first live one or show as the card's last skip.
+    /// </summary>
+    void ForgetRefusals() { }
+
     /// <summary>Revert an uncommitted entry (undo pending entry, keep armed state).</summary>
     void RevertEntry();
 

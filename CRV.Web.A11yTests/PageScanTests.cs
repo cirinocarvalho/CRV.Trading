@@ -1,3 +1,9 @@
+using System.Text.Json;
+using CRV.Backtest.Engine;
+using CRV.Backtest.Results;
+using CRV.Core.Data;
+using CRV.Core.Models;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using Xunit;
 using Xunit.Abstractions;
@@ -86,6 +92,55 @@ public class PageScanTests(A11yAppFixture app, ITestOutputHelper output)
         finally
         {
             A11ySeed.SetOrbBasket(app.Services, A11ySeed.OrbBasketJson);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public async Task BacktestWithNoTrades_ShowsItsSkipsAndRefusals(string theme, int width, int height)
+    {
+        // The guard skipped every signal of one setup and the budget refused the other's: no trades at all.
+        SizeRefusal Refusal(string setup, int minute, RefusalReason reason) => new(
+            Time: DateTime.UtcNow.Date.AddHours(14).AddMinutes(minute), SetupLabel: setup, Ticker: "/MESZ26",
+            StopDistance: 4m, RiskPerContract: 20m, Budget: 100m,
+            Reason: reason, Rr: reason == RefusalReason.MinRr ? 1.2m : 0m, MinRr: reason == RefusalReason.MinRr ? 1.5m : 0m);
+        var refusals = new List<SizeRefusal>
+        {
+            Refusal("a11y-skipped", 0, RefusalReason.MinRr),
+            Refusal("a11y-skipped", 5, RefusalReason.MinRr),
+            Refusal("a11y-refused", 10, RefusalReason.Size),
+        };
+        var result = BacktestResultCalculator.Calculate(new List<TradeRecord>(), new StrategyConfig(), new BacktestConfig(), refusals);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        var run = new BacktestRunRow
+        {
+            Ticker = "/MESZ26", ConfigName = "a11y-no-trades", RunAt = DateTime.UtcNow,
+            ResultJson = JsonSerializer.Serialize(result),
+        };
+        db.BacktestRuns.Add(run);
+        db.SaveChanges();
+        try
+        {
+            var report = await PageScanner.ScanAsync(app, $"/review/results?source=backtest&run={run.Id}", theme, width, height, async page =>
+            {
+                Assert.Equal(1, await page.Locator(".c-empty:visible").CountAsync());
+                var skips = page.Locator("[data-part='skips']");
+                Assert.True(await skips.IsVisibleAsync());
+                var text = await skips.InnerTextAsync();
+                Assert.Matches(@"Skipped below minimum R\s+2", text);
+                Assert.Matches(@"Refused for size\s+1", text);
+                Assert.Contains("a11y-skipped", text);
+                Assert.Contains("a11y-refused", text);
+            }, output);
+
+            Assert.True(report is null, report);
+        }
+        finally
+        {
+            db.BacktestRuns.Remove(run);
+            db.SaveChanges();
         }
     }
 

@@ -2,6 +2,7 @@ using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Core.Modules;
 using CRV.Core.Strategy;
+using CRV.Core.Tests.Backtest;
 using Xunit;
 
 namespace CRV.Core.Tests.Strategy;
@@ -601,6 +602,70 @@ public class ComposableEngineTests
         Assert.Equal("fade-mnq", alert.SetupLabel);
         Assert.Equal("Skipped: 8.0R below 9.0R", alert.Message);
         Assert.DoesNotContain(engine.GetSnapshot().RecentAlerts, a => a.Type == "RISK");
+    }
+
+    // ── Warmup discards its refusals, so the first live one is still reported ──
+
+    // The fixture's long arms at minute 30-40 and reaches the 18010 pullback at minute 48;
+    // the bars from minute 50 to 53 still dip to it, armed, after warmup ends.
+    private async Task<(ComposableEngine Engine, FakeSink Sink)> WarmUpThenGoLive(
+        StrategyConfig cfg, int warmupBars = 50)
+    {
+        var sink   = new FakeSink();
+        var engine = CreateEngine(sink: sink, config: cfg.ToEngineConfig());
+        engine.AddSetups(cfg);
+        engine.SetActiveSessionId("NY");
+
+        int i = 0;
+        await foreach (var (ticker, bar) in PullbackSessionFixture.Session())
+        {
+            if (i < warmupBars)
+            {
+                await engine.WarmupBarAsync(bar, ticker);
+                if (i == warmupBars - 1) engine.ResetWarmupCounters();
+            }
+            else if (i < 54)
+            {
+                await engine.ProcessBarAsync(bar, ticker);
+            }
+            i++;
+        }
+        return (engine, sink);
+    }
+
+    [Fact]
+    public async Task MinRrSkip_DuringWarmup_DoesNotSwallowTheFirstLiveSkip()
+    {
+        var cfg = PullbackSessionFixture.Config(s => s.MinRr = 3m);
+
+        var (engine, sink) = await WarmUpThenGoLive(cfg);
+
+        var skip = Assert.Single(sink.MinRrSkips);
+        Assert.True(skip.Time >= PullbackSessionFixture.Open.AddMinutes(50));
+        Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "SKIP");
+    }
+
+    [Fact]
+    public async Task MinRrSkip_DuringWarmup_IsNotTheCardsLastSkip()
+    {
+        var cfg = PullbackSessionFixture.Config(s => s.MinRr = 3m);
+
+        var (engine, _) = await WarmUpThenGoLive(cfg, warmupBars: 54);
+
+        Assert.Null(engine.GetSnapshot().Setups.Single(s => s.Id == "pullback-mnq").LastSkip);
+    }
+
+    [Fact]
+    public async Task SizeRefusal_DuringWarmup_DoesNotSwallowTheFirstLiveRefusal()
+    {
+        // The 10-point stop risks $20 a contract against a $10 budget.
+        var cfg = PullbackSessionFixture.Config(s => s.MaxTradeRisk = 10m);
+
+        var (engine, sink) = await WarmUpThenGoLive(cfg);
+
+        var refusal = Assert.Single(sink.Refusals);
+        Assert.True(refusal.Time >= PullbackSessionFixture.Open.AddMinutes(50));
+        Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "RISK");
     }
 
     // ── A group runs on its root's bar size ──

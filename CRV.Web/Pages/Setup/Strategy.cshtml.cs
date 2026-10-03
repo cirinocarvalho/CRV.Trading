@@ -19,9 +19,6 @@ public class StrategyModel : PageModel
     public static readonly StrategyType[] EditableTypes =
         { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout };
 
-    /// <summary>How many recent backtest runs the typical stop is read from.</summary>
-    private const int RunsScanned = 20;
-
     public const string GuardOnHelp     = "Checks the target when you save, and every trade before it's sent.";
     public const string GuardOffHelp    = "Off: no check on save, and trades are taken whatever their reward / risk. Your minimum R and what to do below it are kept for when you turn it back on.";
     public const string ActionSkipHelp  = "Each trade is still checked: if its stop makes the target less than {r}R, the trade is skipped.";
@@ -165,8 +162,9 @@ public class StrategyModel : PageModel
     private void LoadTypicalStop()
     {
         // Streamed newest first, not loaded into a list: FromRuns stops reading once it has 30 trades,
-        // so older runs' result JSON is never pulled from the database.
-        var runs = _db.BacktestRuns.OrderByDescending(r => r.RunAt).Take(RunsScanned)
+        // so the result JSON of runs older than those is never pulled from the database. A setup with
+        // fewer trades than that reads every run that has trades.
+        var runs = _db.BacktestRuns.Where(r => r.TotalTrades > 0).OrderByDescending(r => r.RunAt)
             .Select(r => r.ResultJson).AsEnumerable();
         var trades = TypicalStop.FromRuns(runs, Id);
         TypicalStopTrades     = TypicalStop.Recent(trades).Count;

@@ -90,6 +90,7 @@ public class StrategyPageTests(A11yAppFixture app)
         var run = new BacktestRunRow
         {
             Ticker = "/MESZ26", ConfigName = "a11y-history", RunAt = DateTime.UtcNow,
+            TotalTrades = trades.Count,
             ResultJson = JsonSerializer.Serialize(new BacktestResult { Trades = trades }),
         };
         db.BacktestRuns.Add(run);
@@ -113,6 +114,44 @@ public class StrategyPageTests(A11yAppFixture app)
             db.BacktestRuns.Remove(run);
             db.SaveChanges();
             A11ySeed.SetOrbBasket(app.Services, A11ySeed.OrbBasketJson);
+        }
+    }
+
+    [Fact]
+    public async Task TypicalStop_ReadsPastNewerRunsWithoutThisSetup()
+    {
+        // 25 newer runs hold only another setup's trades; this setup's 40-point stops are in an older run.
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        BacktestRunRow Run(string setup, int daysAgo)
+        {
+            var trades = Enumerable.Range(1, 3).Select(d => new TradeRecord
+            {
+                SetupLabel = setup, Ticker = "/MESZ26", Direction = Direction.Long, Contracts = 1,
+                Entry = 6000m, InitialStop = 5960m, Target = 6080m, Exit = 6080m, ExitReason = ExitReason.Target,
+                EnteredAt = DateTime.UtcNow.Date.AddDays(-daysAgo - d), ExitedAt = DateTime.UtcNow.Date.AddDays(-daysAgo - d).AddMinutes(30),
+            }).ToList();
+            return new BacktestRunRow
+            {
+                Ticker = "/MESZ26", ConfigName = "a11y-history", RunAt = DateTime.UtcNow.AddDays(-daysAgo),
+                TotalTrades = trades.Count,
+                ResultJson = JsonSerializer.Serialize(new BacktestResult { Trades = trades }),
+            };
+        }
+        var runs = Enumerable.Range(1, 25).Select(d => Run("another-setup", d))
+            .Append(Run(A11ySeed.DollarsId, 30)).ToList();
+        db.BacktestRuns.AddRange(runs);
+        db.SaveChanges();
+        try
+        {
+            await using var ctx = await app.Browser.NewContextAsync();
+            var page = await Open(ctx, A11ySeed.DollarsId);
+            Assert.Contains("40 pts", await page.Locator(".st-field", new() { HasText = "Typical stop" }).TextContentAsync());
+        }
+        finally
+        {
+            db.BacktestRuns.RemoveRange(runs);
+            db.SaveChanges();
         }
     }
 
