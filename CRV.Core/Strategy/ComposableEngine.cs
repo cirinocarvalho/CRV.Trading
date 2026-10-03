@@ -658,7 +658,8 @@ public class ComposableEngine
 
     /// <summary>
     /// Publishes the current engine state to the event sink.
-    /// Call after backfill so the dashboard shows warmed-up indicator values.
+    /// Call after backfill so the dashboard shows warmed-up indicator values, and after
+    /// setups are registered so disabled setups show even when no ticker group receives bars.
     /// </summary>
     public async Task PublishCurrentStateAsync()
     {
@@ -731,17 +732,11 @@ public class ComposableEngine
 
     // ── Private helpers ─────────────────────────────────────────────
 
-    /// <summary>
-    /// Publish the current snapshot to the sink. Called once setups are registered so the
-    /// cockpit shows disabled setups even when no ticker group exists to receive bars.
-    /// </summary>
-    public async Task PublishSnapshotAsync()
+    private async Task PublishSnapshotInternal()
     {
         var snap = GetSnapshot();
         await _sink.OnSnapshotAsync(snap);
     }
-
-    private Task PublishSnapshotInternal() => PublishSnapshotAsync();
 
     /// <summary>Add an alert to the ring buffer (visible in dashboard Alerts Feed).</summary>
     public void AddAlert(string type, SetupId setup, string message, string color, string setupLabel = "", string ticker = "")

@@ -686,13 +686,13 @@ public class ComposableEngineTests
     }
 
     [Fact]
-    public async Task PublishSnapshotAsync_WhenEveryEntryIsDisabled_PublishesTheDisabledCardsWithoutAnyBar()
+    public async Task PublishCurrentStateAsync_WhenEveryEntryIsDisabled_PublishesTheDisabledCardsWithoutAnyBar()
     {
         var sink = new FakeSink();
         var engine = CreateEngine(sink: sink);
         engine.AddSetups(RetiredOnlyBasket());
 
-        await engine.PublishSnapshotAsync();
+        await engine.PublishCurrentStateAsync();
 
         var setups = Assert.Single(sink.Snapshots).Setups;
         Assert.Empty(engine.Groups);
