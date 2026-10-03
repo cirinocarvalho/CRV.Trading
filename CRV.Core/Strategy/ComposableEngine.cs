@@ -202,11 +202,18 @@ public class ComposableEngine
             // A refusal is not an entry, but it is not nothing either: the strategy
             // wanted this trade and the budget declined it. Same channel as the
             // portfolio ceiling, so it shows in the feed and reaches whoever counts.
-            if (sig.Refusal is { } refusal)
+            if (sig.Refusal is { Reason: RefusalReason.Size } refusal)
             {
                 AddAlert("RISK", sig.Strategy.SetupId, refusal.Describe(),
                     "orange", sig.Strategy.Id, refusal.Ticker);
                 await _sink.OnSizeRefusedAsync(refusal);
+            }
+            else if (sig.Refusal is { } skip)
+            {
+                // A reward / risk skip is not a budget refusal: it must not reach the size-refusal counts.
+                AddAlert("SKIP", sig.Strategy.SetupId, skip.Describe(),
+                    "orange", sig.Strategy.Id, skip.Ticker);
+                await _sink.OnMinRrSkippedAsync(skip);
             }
 
             if (sig.Entry is not { } esig) continue;

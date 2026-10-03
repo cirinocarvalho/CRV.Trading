@@ -261,9 +261,10 @@ public class BacktestEngine
         if (lastBarTime != null)
             await handler.ExitAllAsync(t => buckets.TryGetValue(t, out var b) ? b.Close : 0m, lastBarTime);
 
-        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size.",
-            tfBarsOut, trades.Count, sink.Refusals.Count);
-        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals);
+        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size, {Skipped} skipped below the minimum R.",
+            tfBarsOut, trades.Count, sink.Refusals.Count, sink.MinRrSkips.Count);
+        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals.Concat(sink.MinRrSkips).ToList(),
+            recordRrGuard: true);
     }
 
     /// <summary>Emit a completed execution-TF bucket: fire OHLC ticks then process bar.</summary>
@@ -730,10 +731,14 @@ internal class BacktestSink : IStrategyEventSink
     /// <summary>Signals the risk budget refused, in order. The only place a backtest can learn of them.</summary>
     public List<SizeRefusal> Refusals { get; } = new();
 
+    /// <summary>Signals skipped for reward / risk, in order.</summary>
+    public List<SizeRefusal> MinRrSkips { get; } = new();
+
     public Task OnEntryAsync(EntrySignal s) => Task.CompletedTask;
     public Task OnExitAsync(TradeRecord t) => Task.CompletedTask; // Trades collected via BrokerEventHandler.OnTradeCompleted
     public Task OnSnapshotAsync(EngineSnapshot snap) => Task.CompletedTask;
     public Task OnSizeRefusedAsync(SizeRefusal r) { Refusals.Add(r); return Task.CompletedTask; }
+    public Task OnMinRrSkippedAsync(SizeRefusal r) { MinRrSkips.Add(r); return Task.CompletedTask; }
 }
 
 // ── Price Provider ────────────────────────────────────────────

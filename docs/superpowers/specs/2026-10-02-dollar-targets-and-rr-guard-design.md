@@ -52,8 +52,9 @@ One `LevelCalculator` overload takes the target mode inputs and the contract cou
 
 **On (`EnforceMinRr = true`):**
 
-- **Save check.** Saving is blocked when the target is below `MinRr` × the strategy's **typical stop**. Every target mode is checked. The error names the minimum in the field's own unit, e.g. "Raise the target to at least $240 a contract", "… at least 120% of the range", "… at least 1.5R".
-- **Typical stop** = the median stop distance of the strategy's last 30 trades in its saved backtest runs (`BacktestRuns.ResultJson`, matched by setup id). With no backtest yet the save is allowed with the warning "The reward / risk check runs once this strategy has a backtest" — no estimate is invented. The setup page shows the typical stop and where it came from.
+- **Save check.** Saving is blocked when the target is below `MinRr` × the strategy's **typical stop**. Every target mode except `Atr` is checked; `Atr` saves with a warning (see below). The error names the minimum in the field's own unit, e.g. "Raise the target to at least $240 a contract", "… at least 120% of the range", "… at least 1.5R".
+- **Range target.** `RangePct` is checked against the stop setting, not backtest history: with an `OrbPct` stop the minimum is `MinRr × StopPct` of the range; a bar or VWAP stop saves with a warning. `Atr` saves with a warning, since its check needs the ATR the EMA strategy owns (plan 5); `RiskMultiple` is checked as `AtrTp2Mult ≥ MinRr`.
+- **Typical stop (dollar targets)** = the median stop distance of the strategy's last 30 trades in its saved backtest runs (`BacktestRuns.ResultJson`, matched by setup id). With no backtest yet the save is allowed with the warning "The reward / risk check runs once this strategy has a backtest" — no estimate is invented. The setup page shows the typical stop and where it came from.
 - **Per trade.** `Skip`: the trade is not taken and the skip is recorded through the same path as a sizing refusal (`SizeRefusalGate` / `PendingSizeRefusal`), so it reaches the log and the cockpit card ("Skipped: 1.2R below 1.5R"). `RaiseTarget`: the trade's target moves out to `MinRr × risk`, the partial is recomputed at `PartialPct` of the new distance, and the trade is taken.
 
 **Off:** no save check and no per-trade check. `MinRr` and `MinRrAction` stay saved and are shown greyed out as "Not enforced".

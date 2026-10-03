@@ -45,6 +45,14 @@
         {
             <div class="c-kv" title="Signals the risk budget could not carry at even one contract. Not trades, but this run measured a different sample from one that took them."><span>Refused for size</span><span class="c-acc">@m.SizeRefusals</span></div>
         }
+        @if (m.MinRrSkips > 0)
+        {
+            <div class="c-kv" title="Signals whose reward / risk was below the strategy's minimum, skipped by the guard."><span>Skipped below minimum R</span><span class="c-acc">@m.MinRrSkips</span></div>
+        }
+        @if (m.RrGuard is { } g)
+        {
+            <div class="c-kv"><span>Minimum reward / risk</span><span class="@(g.Enforced ? "" : "c-mut")">@(g.Enforced ? $"{g.MinRr:0.##}R, {(g.Action == MinRrAction.Skip ? "skip" : "raise the target")}" : "Not enforced")</span></div>
+        }
         <div class="c-kv"><span>Avg win / loss</span><span><span class="c-up">@ViewFmt.Dollars(m.AvgWin)</span> / <span class="c-down">−@ViewFmt.Dollars(m.AvgLoss)</span></span></div>
         <div class="c-kv" title="(Win% × avg win) + (Loss% × avg loss)"><span>Expectancy</span><span class="@ViewFmt.Tone(m.Expectancy)">@ViewFmt.Money(m.Expectancy) / trade</span></div>
         <div class="c-kv"><span>Avg R</span><span class="@ViewFmt.Tone(m.AvgR)">@ViewFmt.R(m.AvgR)</span></div>
@@ -175,7 +183,7 @@
                 <section class="c-panel">
                     <div class="c-panel-h"><h2>By setup</h2><span class="c-right">tap for details</span></div>
                     <div class="c-break" data-part="break">
-                        @foreach (var (label, m) in r.PerSetup.Where(kv => kv.Value.TotalTrades > 0 || kv.Value.SizeRefusals > 0).OrderByDescending(kv => kv.Value.NetPnl))
+                        @foreach (var (label, m) in r.PerSetup.Where(kv => kv.Value.TotalTrades > 0 || kv.Value.SizeRefusals > 0 || kv.Value.MinRrSkips > 0).OrderByDescending(kv => kv.Value.NetPnl))
                         {
                             <details>
                                 <summary>

@@ -30,11 +30,13 @@ public class ComposableEngineTests
         public List<TradeRecord> Exits { get; } = new();
         public List<EngineSnapshot> Snapshots { get; } = new();
         public List<SizeRefusal> Refusals { get; } = new();
+        public List<SizeRefusal> MinRrSkips { get; } = new();
 
         public Task OnEntryAsync(EntrySignal signal) { Entries.Add(signal); return Task.CompletedTask; }
         public Task OnExitAsync(TradeRecord completed) { Exits.Add(completed); return Task.CompletedTask; }
         public Task OnSnapshotAsync(EngineSnapshot snapshot) { Snapshots.Add(snapshot); return Task.CompletedTask; }
         public Task OnSizeRefusedAsync(SizeRefusal refusal) { Refusals.Add(refusal); return Task.CompletedTask; }
+        public Task OnMinRrSkippedAsync(SizeRefusal skip) { MinRrSkips.Add(skip); return Task.CompletedTask; }
     }
 
     private class FakePrices : ILastPriceProvider
@@ -576,6 +578,29 @@ public class ComposableEngineTests
         Assert.Equal("retest-mnq", alert.SetupLabel);
         Assert.Equal("MNQM26", alert.Ticker);
         Assert.Equal(refusal.Describe(), alert.Message);
+    }
+
+    [Fact]
+    public async Task MinRrSkip_ReachesTheFeedButNotTheSizeRefusalSink()
+    {
+        var sink     = new FakeSink();
+        var engine   = CreateEngine(new FakeExecutor(), sink);
+        var strategy = new FakeStrategy { Id = "fade-mnq", Ticker = "MNQM26" };
+
+        var skip = new SizeRefusal(
+            Time: new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc),
+            SetupLabel: "fade-mnq", Ticker: "MNQM26",
+            StopDistance: 2m, RiskPerContract: 40m, Budget: 100m,
+            Reason: RefusalReason.MinRr, Rr: 8m, MinRr: 9m);
+
+        await engine.RouteSignalsAsync(new List<StrategySignals> { new(strategy, null, skip) });
+
+        Assert.Empty(sink.Refusals);
+        Assert.Single(sink.MinRrSkips);
+        var alert = Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "SKIP");
+        Assert.Equal("fade-mnq", alert.SetupLabel);
+        Assert.Equal("Skipped: 8.0R below 9.0R", alert.Message);
+        Assert.DoesNotContain(engine.GetSnapshot().RecentAlerts, a => a.Type == "RISK");
     }
 
     // ── A group runs on its root's bar size ──

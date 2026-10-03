@@ -73,6 +73,11 @@ public class SetupStateSnapshot
     public int Losses { get; set; }
     public decimal WinPnl { get; set; }
     public decimal LossPnl { get; set; }
+    /// <summary>False when the strategy takes trades below its minimum reward / risk.</summary>
+    public bool MinRrEnforced { get; set; } = true;
+    public decimal MinRr { get; set; }
+    /// <summary>The last trade skipped for reward / risk this session, in words; null when none.</summary>
+    public string? LastSkip { get; set; }
 }
 
 // ── Strategy interface ──────────────────────────────────────────
@@ -162,9 +167,10 @@ public interface ISetupStrategy
     EntrySignal? PendingEntry { get; }
 
     /// <summary>
-    /// A signal the strategy wanted to take and the risk budget could not carry at
-    /// even one contract. Set instead of <see cref="PendingEntry"/>, consumed and
-    /// cleared alongside it. Null for strategies that do not size against a budget.
+    /// A signal the strategy wanted to take and did not: the risk budget could not carry it
+    /// at even one contract, or the reward / risk guard skipped it (see
+    /// <see cref="SizeRefusal.Reason"/>). Set instead of <see cref="PendingEntry"/>, consumed
+    /// and cleared alongside it. Null for strategies that do neither.
     /// </summary>
     SizeRefusal? PendingSizeRefusal => null;
 

@@ -24,6 +24,10 @@
 {
     <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i><span>No strategy is on, so the engine won't place any trades.</span></div>
 }
+@if (Model.GuardOffCount > 0)
+{
+    <div class="c-note warn mb-3"><i class="bi bi-exclamation-triangle"></i><span>@StrategyText.GuardOffNote(Model.GuardOffCount)</span></div>
+}
 @if (Model.LegacyInUse)
 {
     <div class="c-note warn mb-3"><i class="bi bi-info-circle"></i>
@@ -50,8 +54,8 @@
                 <button type="submit" class="st-switch @(e.Enabled ? "on" : "")" role="switch" aria-checked="@(e.Enabled ? "true" : "false")" aria-label="@name is @(e.Enabled ? "on" : "off")"><i></i></button>
             </form>
             <a class="st-row-main" href="/setup/strategies/@Uri.EscapeDataString(e.Id)">
-                <b>@name</b>
-                <small class="c-mut">@StrategyText.TypeName(e.StrategyType) · @e.Ticker · @StrategyText.Sessions(e)</small>
+                <span class="st-row-title"><b>@name</b>@if (!e.Config.EnforceMinRr) {<span class="c-badge @(e.Enabled ? "warn" : "")" title="Minimum reward / risk is not enforced for this strategy">R:R not enforced</span>}</span>
+                <small class="c-mut">@StrategyText.TypeName(e.StrategyType) · @e.Ticker · @StrategyText.Sessions(e) · @StrategyText.Target(e.Config)</small>
             </a>
             <span class="num @(r.Net > 0 ? "c-up" : r.Net < 0 ? "c-down" : "c-mut") st-row-net">@(r.Trades > 0 ? ViewFmt.Money(r.Net) : "—")<small class="d-block c-mut">@r.Trades trade@(r.Trades == 1 ? "" : "s")</small></span>
             <a class="c-mut st-row-chev" href="/setup/strategies/@Uri.EscapeDataString(e.Id)" aria-hidden="true" tabindex="-1"><i class="bi bi-chevron-right"></i></a>

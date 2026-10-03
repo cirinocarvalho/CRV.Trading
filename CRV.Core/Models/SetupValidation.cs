@@ -47,6 +47,20 @@ public static class SetupValidation
             problems.Add($"bar size {tf} min isn't one of {string.Join(", ", BarSizes)} min");
         if (entry.Config.UseCustomOrbWindow && entry.Config.OrbEnd <= entry.Config.OrbStart)
             problems.Add("its opening range ends before it starts");
+        if (entry.Config.TargetMode == TargetMode.Dollars && entry.Config.TargetDollars <= 0)
+            problems.Add("dollars target must be above 0");
+        if (!Enum.IsDefined(entry.Config.TargetMode))
+            problems.Add("target mode isn't a known choice");
+        if (!Enum.IsDefined(entry.Config.TargetDollarsBasis))
+            problems.Add("dollars basis isn't a known choice");
+        if (!Enum.IsDefined(entry.Config.MinRrAction))
+            problems.Add("minimum R action isn't a known choice");
+        if (entry.Config.TargetPct < 0)
+            problems.Add("target can't be a negative share of the range");
+        if (entry.Config.AtrTp1Mult < 0)
+            problems.Add("first target multiple can't be negative");
+        if (entry.Config.AtrTp2Mult < 0)
+            problems.Add("second target multiple can't be negative");
         return problems;
     }
 

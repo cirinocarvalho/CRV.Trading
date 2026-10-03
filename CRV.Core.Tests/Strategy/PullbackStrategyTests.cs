@@ -317,4 +317,135 @@ public class PullbackStrategyTests
         s.ClearPendingSignals();
         Assert.Null(s.PendingSizeRefusal);
     }
+
+    // ─── Targets after sizing, and the reward / risk guard ─────────────────
+
+    private static PullbackStrategy EnterLongAt5190(StrategySetupConfig cfg)
+    {
+        var s = new PullbackStrategy(cfg);
+        ArmLong(s);
+        s.OnBar(MakeBar(5191m, 5192m, 5189m, 5191m), MakeOrb(), MakeIndicators(), EmptyModules());
+        return s;
+    }
+
+    [Fact]
+    public void TickOffset_RewardRiskIsMeasuredFromTheFill()
+    {
+        // Fill 5190.50, stop 5188, target 5210.50: 20 / 2.5 = 8R. Before, R used 5190: 10R.
+        var cfg = DefaultConfig();
+        cfg.EntryTickOffset = 2;
+        cfg.MinRr = 9m;
+
+        var s = EnterLongAt5190(cfg);
+
+        Assert.Null(s.PendingEntry);
+        var skip = s.PendingSizeRefusal!;
+        Assert.Equal(RefusalReason.MinRr, skip.Reason);
+        Assert.Equal(8m, skip.Rr);
+        Assert.Equal(skip.Describe(), s.GetSnapshot().LastSkip);
+    }
+
+    [Fact]
+    public void WholePositionDollars_TargetIsSpreadOverTheSizedContracts()
+    {
+        // Stop 2 pts x $20 = $40 a contract; $80 budget = 2 contracts; $400 / ($20 x 2) = 10 pts.
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk = 80m;
+        cfg.TargetMode = TargetMode.Dollars;
+        cfg.TargetDollars = 400m;
+        cfg.TargetDollarsBasis = TargetDollarsBasis.WholePosition;
+
+        var s = EnterLongAt5190(cfg);
+
+        Assert.Equal(2, s.PendingEntry!.TotalContracts);
+        Assert.Equal(5200m, s.PendingEntry.Tg2Price);
+        Assert.True(s.GetSnapshot().MinRrEnforced);
+    }
+
+    [Fact]
+    public void BelowMinimum_RaiseTarget_EntersAtTheMinimum()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 12m;
+        cfg.MinRrAction = MinRrAction.RaiseTarget;
+
+        var s = EnterLongAt5190(cfg);
+
+        Assert.Equal(5214m, s.PendingEntry!.Tg2Price);   // 12 x 2 pts
+        Assert.Equal(5202m, s.PendingEntry.Tg1Price);
+
+        var unraised = DefaultConfig();
+        unraised.MinRr = 1m;
+        var baseline = EnterLongAt5190(unraised);
+        Assert.Equal(baseline.PendingEntry!.Stop, s.PendingEntry.Stop);
+        Assert.Equal(baseline.PendingEntry.TotalContracts, s.PendingEntry.TotalContracts);
+    }
+
+    [Fact]
+    public void GuardOff_TakesTradeBelowMinimum()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 99m;
+        cfg.EnforceMinRr = false;
+
+        var s = EnterLongAt5190(cfg);
+
+        Assert.Equal(5210m, s.PendingEntry!.Tg2Price);
+        Assert.False(s.GetSnapshot().MinRrEnforced);
+        Assert.Equal(99m, s.GetSnapshot().MinRr);
+    }
+
+    [Fact]
+    public void FailsBudgetAndMinimum_ReportsTheSizeRefusalNotAMinRrSkip()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 99m;
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk = 1m;                           // below one contract's $40 stop
+
+        var s = EnterLongAt5190(cfg);
+
+        Assert.Null(s.PendingEntry);
+        Assert.Equal(RefusalReason.Size, s.PendingSizeRefusal!.Reason);
+        Assert.Null(s.GetSnapshot().LastSkip);
+    }
+
+    [Theory]
+    [InlineData("ForceExit")]
+    [InlineData("Disarm")]
+    [InlineData("LeaveZone")]
+    public void MinRrSkip_IsReportedOncePerArmedEpisode_AndLastSkipSurvivesTheEpisode(string endsEpisode)
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 99m;
+        cfg.UseOrbClose = true;                          // the leave-zone bar must not arm the short side
+        var s = EnterLongAt5190(cfg);
+        Assert.NotNull(s.PendingSizeRefusal);
+
+        s.ClearPendingSignals();
+        s.OnBar(MakeBar(5191m, 5192m, 5189m, 5191m), MakeOrb(), MakeIndicators(), EmptyModules());
+        Assert.Null(s.PendingSizeRefusal);               // same episode: already reported
+
+        switch (endsEpisode)
+        {
+            case "ForceExit":
+                s.ForceExit(5185m, new DateTime(2026, 3, 10, 16, 0, 0, DateTimeKind.Utc));
+                break;
+            case "Disarm":
+                s.Disarm();
+                s.ResetCutoff();
+                break;
+            default:
+                s.OnBar(MakeBar(5185m, 5185m, 5170m, 5175m), MakeOrb(), MakeIndicators(), EmptyModules());
+                break;
+        }
+        Assert.False(s.IsArmed);
+        Assert.NotNull(s.GetSnapshot().LastSkip);        // outlives the episode
+
+        s.ClearPendingSignals();
+        ArmLong(s);
+        s.OnBar(MakeBar(5191m, 5192m, 5189m, 5191m), MakeOrb(), MakeIndicators(), EmptyModules());
+        Assert.NotNull(s.PendingSizeRefusal);            // second episode reports again
+    }
 }

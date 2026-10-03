@@ -18,6 +18,8 @@ public static class A11ySeed
     public const string RetestId = "a11y-retest";
     /// <summary>A stored entry of the retired EMA21 type (4), switched on, as old live configs hold it.</summary>
     public const string RetiredId = "a11y-ema21";
+    public const string DollarsId  = "a11y-dollars";
+    public const string GuardOffId = "a11y-guard-off";
 
     public static string OrbBasketJson { get; } = BasketCodec.Serialize(new[]
     {
@@ -25,6 +27,10 @@ public static class A11ySeed
         Entry(RetestId,              StrategyType.Retest,         "Retest [MNQ]"),
         Entry("a11y-orbfakeout",     StrategyType.OrbFakeout,     "ORB fakeout [MES]"),
         Entry("a11y-sessionfakeout", StrategyType.SessionFakeout, "Session fakeout [MES]"),
+        DollarEntry(DollarsId,  StrategyType.OrbFakeout, "ORB fakeout $ [MES]", enabled: true,
+                    TargetDollarsBasis.WholePosition, 150m, minRr: 1.5m, MinRrAction.Skip),
+        DollarEntry(GuardOffId, StrategyType.Pullback,   "Pullback $ [MNQ]",    enabled: false,
+                    TargetDollarsBasis.PerContract,   400m, minRr: 2.5m, MinRrAction.RaiseTarget),
     });
 
     private static readonly string RetiredBasketJson = BasketCodec.Serialize(new[]
@@ -97,6 +103,20 @@ public static class A11ySeed
         PointValue   = label.Contains("MES") ? 5m : 2m,
         TickSize     = 0.25m,
     };
+
+    /// <summary>A dollar-target entry with the reward / risk guard off.</summary>
+    private static BasketEntry DollarEntry(string id, StrategyType type, string label, bool enabled,
+        TargetDollarsBasis basis, decimal dollars, decimal minRr, MinRrAction action)
+    {
+        var e = Entry(id, type, label);
+        e.Enabled = enabled;
+        e.Config = new StrategySetupConfig
+        {
+            TargetMode = TargetMode.Dollars, TargetDollars = dollars, TargetDollarsBasis = basis,
+            EnforceMinRr = false, MinRr = minRr, MinRrAction = action,
+        };
+        return e;
+    }
 
     private static TradeRecord Trade(string source, DateTime enteredAt, Direction dir,
         decimal entry, decimal stop, decimal exit, ExitReason reason)

@@ -616,4 +616,20 @@ public class SnapshotAggregatorTests
         Assert.True(snap.TradingHalted);
         Assert.Equal(200m, snap.DailyLossUsed);   // the gauge stays realized
     }
+
+    [Fact]
+    public void Setup_CarriesTheRewardRiskGuardAndLastSkip()
+    {
+        var ss = new SetupStateSnapshot
+        {
+            SetupId = SetupId.A, Enabled = true,
+            MinRrEnforced = false, MinRr = 1.5m, LastSkip = "Skipped: 1.2R below 1.5R",
+        };
+
+        var a = FindSetup(SnapshotAggregator.Build(DefaultInputs(MakeStub(SetupId.A, ss))), "A");
+
+        Assert.False(a.MinRrEnforced);
+        Assert.Equal(1.5m, a.MinRr);
+        Assert.Equal("Skipped: 1.2R below 1.5R", a.LastSkip);
+    }
 }

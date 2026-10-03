@@ -204,11 +204,9 @@ public class ProspectusModel : PageModel
                 var partialPct = setup.PartialPct / 100m; // fraction of targetDist
                 var usePartial = setup.UsePartial;
 
-                // EntryTickOffset shifts the entry price after sl/tp/pp are computed
-                // (see e.g. RetestStrategy.cs:507-515). Net effect on a positive offset:
-                // stop distance grows by offset, target/partial distances shrink by offset.
-                // Negative offsets reverse it. Mirror that here so the dollar columns
-                // reflect what the engine actually sizes against.
+                // EntryTickOffset moves the fill, not the stop: the stop is measured from the signal
+                // price, so its distance from the fill grows by the offset (negative offsets reverse
+                // it). Target and partial are measured from the fill, after sizing, like the strategies.
                 var entryOffsetPts = setup.EntryTickOffset * tickSize;
 
                 // Compute P&L for a given ORB range
@@ -217,8 +215,6 @@ public class ProspectusModel : PageModel
                     // Skip the offset adjustment when we have no range — otherwise an
                     // empty row would still register a phantom risk = offset*pv*cts.
                     var offset = orbRange > 0 ? entryOffsetPts : 0m;
-                    var targetDist = Math.Max(0m, orbRange * targetPct - offset);
-                    var partialDist = Math.Max(0m, orbRange * targetPct * partialPct - offset);
                     var stopDist = Math.Max(0m, orbRange * stopPct + offset);
 
                     // Route through AutoSizeByRiskCalculator so projections match runtime
@@ -233,6 +229,13 @@ public class ProspectusModel : PageModel
                     // For projection display fall back to baseline so the row still shows
                     // what the trade WOULD look like absent the budget veto.
                     int contracts = sizedCts > 0 ? sizedCts : setup.Contracts;
+
+                    // Distances from a fill at 0, so the returned prices are the distances.
+                    var (tgt, part, _) = orbRange > 0
+                        ? LevelCalculator.Targets(LevelRequest.From(setup, 0m, true, -stopDist, contracts, orbRange))
+                        : (0m, 0m, 0m);
+                    var targetDist  = Math.Max(0m, tgt);
+                    var partialDist = Math.Max(0m, part);
                     int partialCts = !usePartial
                         ? 0
                         : (sizedPartial > 0
