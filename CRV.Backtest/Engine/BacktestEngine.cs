@@ -153,8 +153,11 @@ public class BacktestEngine
         var buckets = new Dictionary<string, BucketState>(StringComparer.OrdinalIgnoreCase);
         int tfBarsOut = 0;   // completed TF bars emitted (global warmup counter)
 
+        DateTime? lastBarTime = null;
+
         await foreach (var (ticker, bar) in taggedBars.WithCancellation(ct))
         {
+            lastBarTime = bar.Time;
             var local     = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
             var localTime = TimeOnly.FromDateTime(local);
             var tradingDate = _cfg.TradingDate(local);
@@ -250,6 +253,11 @@ public class BacktestEngine
             }
         }
 
+        // A position still open when the data ends is closed at the last bar's close so the
+        // result includes it.
+        if (lastBarTime != null)
+            await handler.ExitAllAsync(t => buckets.TryGetValue(t, out var b) ? b.Close : 0m, lastBarTime);
+
         _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size.",
             tfBarsOut, trades.Count, sink.Refusals.Count);
         return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals);
@@ -271,36 +279,29 @@ public class BacktestEngine
             if (betweenSessions) engine.ClearIdle();
             await engine.WarmupBarAsync(tfBar, ticker, ct);
             if (betweenSessions) engine.SetIdle();
+
+            // Orders stay working at the broker between sessions, so a position held past
+            // session end can still hit its stop or target overnight. Session end cancels
+            // everything else, so this finds nothing to fill unless a position is held.
+            if (!isWarmup)
+            {
+                foreach (var p in bkt.Pending)
+                foreach (var (price, time) in TickPath(p.O, p.H, p.L, p.C, p.T))
+                {
+                    prices.UpdatePrice(ticker, price);
+                    await groupExec.EvaluateFillsAsync(price, time, ticker);
+                }
+            }
         }
         else
         {
             // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
-            foreach (var (o, h, l, c, t) in bkt.Pending)
+            foreach (var p in bkt.Pending)
+            foreach (var (price, time) in TickPath(p.O, p.H, p.L, p.C, p.T))
             {
-                prices.UpdatePrice(ticker, o);
-                await engine.ProcessPriceTickAsync(o, t, ticker);
-                await groupExec.EvaluateFillsAsync(o, t, ticker);
-                if (c >= o)
-                {   // Bullish: O → L → H → C
-                    prices.UpdatePrice(ticker, l);
-                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(15), ticker);
-                    prices.UpdatePrice(ticker, h);
-                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(30), ticker);
-                }
-                else
-                {   // Bearish: O → H → L → C
-                    prices.UpdatePrice(ticker, h);
-                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(15), ticker);
-                    prices.UpdatePrice(ticker, l);
-                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(30), ticker);
-                }
-                prices.UpdatePrice(ticker, c);
-                await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
-                await groupExec.EvaluateFillsAsync(c, t.AddSeconds(45), ticker);
+                prices.UpdatePrice(ticker, price);
+                await engine.ProcessPriceTickAsync(price, time, ticker);
+                await groupExec.EvaluateFillsAsync(price, time, ticker);
             }
             // 2. Process the completed TF bar to update indicators and arm state.
             //    Strategies armed by the bar will enter on the NEXT bucket's first
@@ -310,6 +311,26 @@ public class BacktestEngine
             await engine.ProcessBarAsync(tfBar, ticker, ct);
 
         }
+    }
+
+    /// <summary>
+    /// The four prices a one-minute bar is replayed as, 15 s apart:
+    /// bullish O → L → H → C, bearish O → H → L → C.
+    /// </summary>
+    private static IEnumerable<(decimal Price, DateTime Time)> TickPath(decimal o, decimal h, decimal l, decimal c, DateTime t)
+    {
+        yield return (o, t);
+        if (c >= o)
+        {
+            yield return (l, t.AddSeconds(15));
+            yield return (h, t.AddSeconds(30));
+        }
+        else
+        {
+            yield return (h, t.AddSeconds(15));
+            yield return (l, t.AddSeconds(30));
+        }
+        yield return (c, t.AddSeconds(45));
     }
 
     /// <summary>Returns the start DateTime of the N-minute execution-TF bucket containing <paramref name="t"/>.</summary>
