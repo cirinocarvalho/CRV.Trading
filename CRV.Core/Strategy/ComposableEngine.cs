@@ -221,7 +221,12 @@ public class ComposableEngine
                 esig = esig with { SessionId = _activeSessionId };
 
             if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode, HeldOpenLoss(esig.Time)))
+            {
+                // Held open loss is marked to market, so the breach can clear again;
+                // the refused signal must not cost the setup its trade slot.
+                sig.Strategy.RevertEntry();
                 continue;
+            }
 
             // Concurrent exposure ceiling. The per-trade cap and the daily loss limit
             // say nothing about how much is committed right now across every setup,
