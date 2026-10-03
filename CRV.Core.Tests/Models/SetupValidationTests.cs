@@ -124,6 +124,49 @@ public class SetupValidationTests
     }
 
     [Fact]
+    public void Entry_UndefinedMinRrAction_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.MinRrAction = (MinRrAction)7;
+
+        Assert.Contains("minimum R action isn't a known choice", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_UndefinedTargetMode_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetMode = (TargetMode)9;
+
+        Assert.Contains("target mode isn't a known choice", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_UndefinedTargetDollarsBasis_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetDollarsBasis = (TargetDollarsBasis)5;
+
+        Assert.Contains("dollars basis isn't a known choice", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_EveryDefinedTargetChoice_HasNoProblems()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetDollars = 400m;
+        foreach (var mode in Enum.GetValues<TargetMode>())
+        foreach (var basis in Enum.GetValues<TargetDollarsBasis>())
+        foreach (var action in Enum.GetValues<MinRrAction>())
+        {
+            e.Config.TargetMode = mode;
+            e.Config.TargetDollarsBasis = basis;
+            e.Config.MinRrAction = action;
+            Assert.Empty(SetupValidation.Entry(e, Config([])));
+        }
+    }
+
+    [Fact]
     public void Entry_NegativeTargetPct_IsReported()
     {
         var e = Entry("p", StrategyType.Pullback, "/MNQZ26");

@@ -49,6 +49,12 @@ public static class SetupValidation
             problems.Add("its opening range ends before it starts");
         if (entry.Config.TargetMode == TargetMode.Dollars && entry.Config.TargetDollars <= 0)
             problems.Add("dollars target must be above 0");
+        if (!Enum.IsDefined(entry.Config.TargetMode))
+            problems.Add("target mode isn't a known choice");
+        if (!Enum.IsDefined(entry.Config.TargetDollarsBasis))
+            problems.Add("dollars basis isn't a known choice");
+        if (!Enum.IsDefined(entry.Config.MinRrAction))
+            problems.Add("minimum R action isn't a known choice");
         if (entry.Config.TargetPct < 0)
             problems.Add("target can't be a negative share of the range");
         if (entry.Config.AtrTp1Mult < 0)
