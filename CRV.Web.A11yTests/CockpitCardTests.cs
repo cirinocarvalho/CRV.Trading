@@ -110,4 +110,58 @@ public class CockpitCardTests(A11yAppFixture app)
             await card.GetByRole(AriaRole.Link, new() { Name = "Fix in Setup" }).GetAttributeAsync("href"));
         Assert.Equal("", await card.EvaluateAsync<string>("c => c.style.opacity"));
     }
+
+    [Fact]
+    public async Task GuardOffCard_ShowsTheAmberBadgeAndTheLastSkip()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("""
+            json => {
+                CRV.engine.status('Live');
+                document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+            }
+            """, CockpitSnapshot.Json([CockpitSnapshot.GuardOff(CockpitSnapshot.Setup("a11y-rr", "Pullback $ [MNQ]", "Pullback", state: 0))]));
+
+        var badge = page.Locator("#rr-a11y-rr");
+        await badge.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        Assert.Equal("R:R not enforced", (await badge.TextContentAsync())!.Trim());
+        Assert.Contains("warn", await badge.GetAttributeAsync("class"));
+        Assert.Equal("Skipped: 1.2R below 1.5R", (await page.Locator("#a11y-rr-skip").TextContentAsync())!.Trim());
+    }
+
+    [Fact]
+    public async Task GuardOnCard_HidesTheBadgeAndTheSkipLine()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("""
+            json => {
+                CRV.engine.status('Live');
+                document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+            }
+            """, CockpitSnapshot.Json([CockpitSnapshot.Setup("a11y-rr-on", "Pullback [MNQ]", "Pullback", state: 0)]));
+
+        await page.Locator("#a11y-rr-on-hold").WaitForAsync();
+        Assert.True(await page.Locator("#rr-a11y-rr-on").IsHiddenAsync());
+        Assert.True(await page.Locator("#a11y-rr-on-skip").IsHiddenAsync());
+    }
+
+    [Fact]
+    public async Task SkipAlert_ShowsInTheFeedWithTheWarningStyle()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("""
+            () => document.dispatchEvent(new CustomEvent('crv:alert', { detail:
+                { type: 'SKIP', setupLabel: 'a11y-rr', message: 'Skipped: 1.2R below 1.5R', time: new Date().toISOString() } }))
+            """);
+
+        var item = page.Locator("#alert-feed .alert-item").First;
+        Assert.Contains("Skipped: 1.2R below 1.5R", await item.TextContentAsync());
+        Assert.Equal("alert-item partial", await item.GetAttributeAsync("class"));
+    }
 }

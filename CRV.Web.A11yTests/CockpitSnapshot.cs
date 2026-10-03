@@ -5,7 +5,7 @@ namespace CRV.Web.A11yTests;
 
 /// <summary>
 /// An engine snapshot with one setup card in each state the cockpit draws while the engine runs
-/// (idle, armed, retest, cutoff, max trades, long and short in a trade, disabled), serialized the way the
+/// (idle, armed, retest, cutoff, max trades, long and short in a trade, reward / risk guard off, disabled), serialized the way the
 /// SignalR hub sends it (camelCase, enums as numbers), so the scan sees the cards a running engine shows.
 /// </summary>
 public static class CockpitSnapshot
@@ -14,7 +14,7 @@ public static class CockpitSnapshot
     public static readonly string[] ExpectedStatuses =
     [
         "IDLE", "▶ ARMED LONG", "↩ RETEST SHORT", "CUTOFF", "MAX TRADES",
-        "● LONG ACTIVE [PARTIALFILLED]", "● SHORT ACTIVE [FILLED]", "DISABLED",
+        "● LONG ACTIVE [PARTIALFILLED]", "● SHORT ACTIVE [FILLED]", "IDLE", "DISABLED",
     ];
 
     public static string Json() => Json(EveryState());
@@ -58,6 +58,7 @@ public static class CockpitSnapshot
                 LastPrice = 21236.25m, UnrealizedPnl = 27.5m, EnteredAt = now.AddMinutes(-5), Ticker = "/MESZ26",
                 PointValue = 2m, GroupStatus = "Filled",
             }),
+            GuardOff(Setup("a11y-rr-off", "Pullback $ [MNQ]", "Pullback", state: 0)),
             Disabled(A11ySeed.RetiredId, "EMA21 [MNQ]", "retired EMA21 strategy"),
         ];
     }
@@ -71,6 +72,15 @@ public static class CockpitSnapshot
         OrbHigh = 21250m, OrbLow = 21180m, OrbMid = 21215m, OrbRange = 70m, OrbFormed = true,
         CloseAtRthClose = closeAtRthClose,
     };
+
+    /// <summary>A card whose strategy takes trades below its minimum R and has just skipped one.</summary>
+    public static SetupSnapshot GuardOff(SetupSnapshot s)
+    {
+        s.MinRrEnforced = false;
+        s.MinRr = 1.5m;
+        s.LastSkip = "Skipped: 1.2R below 1.5R";
+        return s;
+    }
 
     /// <summary>A switched-on strategy the engine didn't start, as the snapshot carries it.</summary>
     public static SetupSnapshot Disabled(string id, string label, string reason) => new()

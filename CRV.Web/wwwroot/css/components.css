@@ -170,6 +170,8 @@ form.is-busy .c-idle { display: none; }
 .ck-cell { display: flex; justify-content: space-between; gap: .5rem; padding: .32rem 0; border-top: 1px solid var(--c-line); font-size: .82rem; min-width: 0; }
 .ck-cell > span { color: var(--c-muted); flex: none; }
 .ck-cell > b { font: 500 .82rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.ck-rr { flex-basis: auto; }
+.ck-skip { margin: 0; padding: 0 .9rem .7rem; font-size: .8rem; }
 .ck-setup-f { padding: 0 .9rem .6rem; }
 @media (max-width: 420px) { .ck-grid { grid-template-columns: minmax(0, 1fr); } }
 
@@ -296,6 +298,7 @@ form.is-busy .c-idle { display: none; }
 .st-row-main { display: grid; gap: .1rem; color: var(--c-text); text-decoration: none; min-width: 0; }
 .st-row-main:hover b { text-decoration: underline; }
 .st-row-main small { overflow-wrap: anywhere; }
+.st-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .st-row-net { text-align: right; font-weight: 600; }
 .st-row-net small { font-weight: 400; font-size: .72rem; }
 .st-switch { width: 2.6rem; height: 1.5rem; border-radius: 999px; border: 1px solid var(--c-line); background: var(--c-raise); position: relative; padding: 0; cursor: pointer; }

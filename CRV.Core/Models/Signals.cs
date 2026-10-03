@@ -295,6 +295,12 @@ public class SetupSnapshot
     public bool     OrbBearClose   { get; set; }
     public decimal  OrbAtrRatio    { get; set; }
     public bool     OrbFormed      { get; set; }
+
+    // Reward / risk guard
+    public bool     MinRrEnforced  { get; set; } = true;
+    public decimal  MinRr          { get; set; }
+    /// <summary>The last trade skipped for reward / risk this session, in words; null when none.</summary>
+    public string?  LastSkip       { get; set; }
 }
 
 /// <summary>

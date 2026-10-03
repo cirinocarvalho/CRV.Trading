@@ -1047,6 +1047,7 @@ function createSetupCard(setup) {
         <header class="ck-setup-h">
             <span class="ck-type" title="${_esc(setup.strategyType)}">${typeChar}</span>
             <b class="ck-name">${_esc(setup.label)}</b>
+            <span class="c-badge ck-rr" id="rr-${id}" hidden>R:R not enforced</span>
             <span class="badge" id="enabled-${id}">ON</span>
             <span class="badge" id="status-${id}">IDLE</span>
             <span class="c-mut small num" id="count-${id}">[0/${Number(setup.maxTrades ?? 0)}]</span>
@@ -1071,6 +1072,7 @@ function createSetupCard(setup) {
             ${row("Expectancy", "expectancy", 'title="(Win% \u00D7 avg win) \u2212 (Loss% \u00D7 avg loss)"')}
             ${row("Unrealized", "unreal")}
         </div>
+        <p class="ck-skip c-mut" id="${id}-skip" hidden></p>
         <footer class="ck-setup-f c-mut small" id="${id}-hold">${_holdText(setup)}</footer>
     `;
     return card;
@@ -1495,6 +1497,16 @@ function updateSetup(id, setup, sessionEnded) {
         enabledEl.textContent = enabled ? "ON" : "OFF";
         enabledEl.className   = "badge " + (enabled ? "bg-success" : "bg-secondary");
     }
+
+    // Reward / risk guard: amber while the setup is on, grey while it's off; the last skip in words.
+    const rrEl = document.getElementById("rr-" + id);
+    if (rrEl) {
+        rrEl.hidden = setup.minRrEnforced !== false;
+        rrEl.className = "c-badge ck-rr" + (enabled ? " warn" : "");
+        rrEl.title = "Minimum reward / risk is not enforced: this setup can take trades below " + Number(setup.minRr ?? 0) + "R";
+    }
+    const skipEl = document.getElementById(id + "-skip");
+    if (skipEl) { skipEl.textContent = setup.lastSkip || ""; skipEl.hidden = !setup.lastSkip; }
 
     // When disabled, show DISABLED in status badge and dim the card
     if (!enabled) {

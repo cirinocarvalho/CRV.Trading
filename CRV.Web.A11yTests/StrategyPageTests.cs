@@ -182,4 +182,22 @@ public class StrategyPageTests(A11yAppFixture app)
             A11ySeed.SetOrbBasket(app.Services, A11ySeed.OrbBasketJson);
         }
     }
+
+    [Fact]
+    public async Task StrategiesList_FlagsGuardOffStrategies_AmberWhenOnGreyWhenOff()
+    {
+        await using var ctx = await app.Browser.NewContextAsync();
+        var page = await ctx.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/setup/strategies").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+
+        var notes = string.Join(" ", await page.Locator(".c-note.warn").AllTextContentsAsync());
+        Assert.Contains("1 strategy that's on doesn't enforce its minimum reward / risk", notes);
+        var on  = page.Locator($".st-row:has(a[href='/setup/strategies/{A11ySeed.DollarsId}'])");
+        var off = page.Locator($".st-row:has(a[href='/setup/strategies/{A11ySeed.GuardOffId}'])");
+        Assert.Equal("c-badge warn", await on.Locator(".c-badge").GetAttributeAsync("class"));
+        Assert.Equal("c-badge", (await off.Locator(".c-badge").GetAttributeAsync("class"))!.Trim());
+        Assert.Contains("target $150 / position", await on.InnerTextAsync());
+        Assert.Contains("target $400 / contract", await off.InnerTextAsync());
+        Assert.Equal(0, await page.Locator($".st-row:has(a[href='/setup/strategies/{A11ySeed.RetestId}']) .c-badge").CountAsync());
+    }
 }

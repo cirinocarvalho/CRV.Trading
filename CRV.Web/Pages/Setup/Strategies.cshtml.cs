@@ -29,6 +29,8 @@ public class StrategiesModel : PageModel
     public string? Message { get; private set; }
     public string? Error { get; private set; }
     public bool LegacyInUse { get; private set; }
+    /// <summary>Strategies that are on and take trades below their minimum reward / risk.</summary>
+    public int GuardOffCount => Items.Count(i => i.Entry.Enabled && !i.Entry.Config.EnforceMinRr);
 
     public async Task OnGetAsync()
     {
