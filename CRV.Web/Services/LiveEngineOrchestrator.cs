@@ -131,8 +131,17 @@ public class LiveEngineOrchestrator : BackgroundService
         if (handler == null || exec == null)
             return (false, "Engine not running — start the engine first.", null);
 
-        var group = await exec.RecoverStrategyAsync(strategyId, ticker, direction,
-            totalContracts, partialContracts, useBe, setupId);
+        GroupOrder? group;
+        try
+        {
+            group = await exec.RecoverStrategyAsync(strategyId, ticker, direction,
+                totalContracts, partialContracts, useBe, setupId);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Recovery of strategy {S} failed at the broker", strategyId);
+            return (false, $"Could not recover strategy {strategyId} — broker request failed: {ex.Message}", null);
+        }
         if (group == null)
             return (false, $"Could not recover strategy {strategyId} — no legs found at broker.", null);
 

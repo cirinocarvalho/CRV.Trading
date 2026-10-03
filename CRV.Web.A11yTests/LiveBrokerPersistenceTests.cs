@@ -1,4 +1,5 @@
 using CRV.Core.Data;
+using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Web.Services;
 using Microsoft.Data.Sqlite;
@@ -70,5 +71,61 @@ public class LiveBrokerPersistenceTests : IDisposable
         using var check = _sp.CreateScope();
         var logs = await check.ServiceProvider.GetRequiredService<TradingDbContext>().StrategyLogs.ToListAsync();
         Assert.All(logs, l => Assert.True(l.IsCompleted));
+    }
+
+    /// <summary>Recovery stand-in: either the broker lookup fails, or it finds no legs.</summary>
+    private sealed class RecoveringExecutor(bool lookupFails) : IGroupOrderExecutor
+    {
+        public Task<GroupOrder?> OnEntrySignalAsync(EntrySignal signal) => Task.FromResult<GroupOrder?>(null);
+        public Task ModifyOrderAsync(string orderId, decimal? newPrice, int? newQty) => Task.CompletedTask;
+        public Task CancelOrderAsync(string orderId) => Task.CompletedTask;
+        public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty) => Task.FromResult(0m);
+
+        public Task<GroupOrder?> RecoverStrategyAsync(long strategyId, string ticker, Direction direction,
+            int totalContracts, int partialContracts, bool useBe, string setupId)
+            => lookupFails
+                ? throw new InvalidOperationException("broker request failed")
+                : Task.FromResult<GroupOrder?>(null);
+    }
+
+    private async Task SeedOpenRow(string strategyId)
+    {
+        using var scope = _sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        db.StrategyLogs.Add(new StrategyLog
+        {
+            BrokerStrategyId = strategyId, SetupId = "retest-mnq", Ticker = "MNQZ26", TotalContracts = 1,
+            PointValue = 2m, CreatedAt = DateTime.UtcNow.AddDays(-1),
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<bool> IsCompleted(string strategyId)
+    {
+        using var scope = _sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        return (await db.StrategyLogs.SingleAsync(s => s.BrokerStrategyId == strategyId)).IsCompleted;
+    }
+
+    [Fact]
+    public async Task Recover_BrokerLookupFails_LeavesTheRowOpenForTheNextRestart()
+    {
+        await SeedOpenRow("3001");
+
+        var recovered = await new LiveBrokerPersistence(_sp).RecoverAsync(new RecoveringExecutor(lookupFails: true), CancellationToken.None);
+
+        Assert.Empty(recovered);
+        Assert.False(await IsCompleted("3001"));
+    }
+
+    [Fact]
+    public async Task Recover_BrokerReportsNoLegs_CompletesTheRow()
+    {
+        await SeedOpenRow("3002");
+
+        var recovered = await new LiveBrokerPersistence(_sp).RecoverAsync(new RecoveringExecutor(lookupFails: false), CancellationToken.None);
+
+        Assert.Empty(recovered);
+        Assert.True(await IsCompleted("3002"));
     }
 }
