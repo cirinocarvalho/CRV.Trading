@@ -13,7 +13,7 @@ namespace CRV.Core.Strategy;
 /// while its direction, entry and stop are the same.
 /// </para>
 /// <para>
-/// A min-R skip is reported once per direction and reason until <see cref="Reset"/>: the
+/// A min-R skip is reported once per direction and reason until <see cref="EndEpisode"/> or <see cref="Reset"/>: the
 /// strategies re-ask on every tick with the moving tick price as the entry, so keying on the
 /// price would alert on every tick.
 /// </para>
@@ -45,6 +45,12 @@ public sealed class SizeRefusalGate
             with { Reason = RefusalReason.MinRr, Rr = rr, MinRr = cfg.MinRr };
         return LastMinRrSkip;
     }
+
+    /// <summary>
+    /// End the armed episode: the next min-R skip is reported again. Keeps
+    /// <see cref="LastMinRrSkip"/>, which lasts until the session resets.
+    /// </summary>
+    public void EndEpisode() => _reportedSkips.Clear();
 
     /// <summary>Forget the last signals — a new day or session may legitimately refuse them again.</summary>
     public void Reset()

@@ -187,6 +187,20 @@ public class MinRrGuardTests
     }
 
     [Fact]
+    public void Gate_EndEpisode_ReportsTheSameSkipAgain_AndKeepsTheLastSkip()
+    {
+        var gate = new SizeRefusalGate();
+        var first = gate.ReportMinRr(true, 20000m, 19960m, 1.25m, Cfg(100m), T0);
+
+        gate.EndEpisode();
+
+        Assert.Same(first, gate.LastMinRrSkip);
+        var second = gate.ReportMinRr(true, 20010m, 19970m, 1.25m, Cfg(100m), T0.AddMinutes(5));
+        Assert.NotNull(second);
+        Assert.Same(second, gate.LastMinRrSkip);
+    }
+
+    [Fact]
     public void SizeRefusal_KeepsItsWording()
     {
         var r = new SizeRefusal(T0, "of-mnq", "MNQZ26", 40m, 80m, 50m);
