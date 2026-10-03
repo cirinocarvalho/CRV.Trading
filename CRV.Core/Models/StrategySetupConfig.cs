@@ -57,6 +57,20 @@ public class StrategySetupConfig
     /// <summary>Number of ticks offset from VWAP for Vwap stop mode. Default 4.</summary>
     public int StopVwapTicks { get; set; } = 4;
 
+    // ── Target and the reward / risk guard ─────────────────────────
+    /// <summary>How the target distance is set. RangePct = <see cref="TargetPct"/> of the range.
+    /// Atr and RiskMultiple use <see cref="AtrTp1Mult"/> / <see cref="AtrTp2Mult"/>.</summary>
+    public TargetMode TargetMode { get; set; } = TargetMode.RangePct;
+    /// <summary>Target size in dollars when <see cref="TargetMode"/> is Dollars.</summary>
+    public decimal TargetDollars { get; set; }
+    /// <summary>Whether <see cref="TargetDollars"/> is per contract or for the whole position after sizing.</summary>
+    public TargetDollarsBasis TargetDollarsBasis { get; set; } = TargetDollarsBasis.PerContract;
+    /// <summary>When true, saving checks the target against <see cref="MinRr"/> × the typical stop,
+    /// and every trade below <see cref="MinRr"/> is skipped or has its target raised.</summary>
+    public bool EnforceMinRr { get; set; } = true;
+    /// <summary>What a trade below <see cref="MinRr"/> does while <see cref="EnforceMinRr"/> is on.</summary>
+    public MinRrAction MinRrAction { get; set; } = MinRrAction.Skip;
+
     // ── EMA21 filter (usable by any strategy) ──────────────────────
     /// <summary>When true, only allow long if price > EMA21, short if price &lt; EMA21.</summary>
     public bool UseEmaFilter { get; set; }
@@ -152,3 +166,12 @@ public class StrategySetupConfig
         return SessionSlots.Any(s => s.Enabled && s.SessionId.Equals(sessionName, StringComparison.OrdinalIgnoreCase));
     }
 }
+
+/// <summary>How a strategy measures its target.</summary>
+public enum TargetMode { RangePct, Dollars, Atr, RiskMultiple }
+
+/// <summary>What a dollar target is measured over.</summary>
+public enum TargetDollarsBasis { PerContract, WholePosition }
+
+/// <summary>What a trade whose reward / risk is below the minimum does.</summary>
+public enum MinRrAction { Skip, RaiseTarget }

@@ -366,6 +366,50 @@ public class ConfigMappingTests
         Assert.Equal(FakeoutSession.Asia, setups[0].FakeoutReferenceSession);
     }
 
+    [Fact]
+    public void ToSetupConfigs_FromBasket_PropagatesTargetModeAndRrGuard()
+    {
+        var basket = """
+        [{
+          "Id":"of-mnq","Enabled":true,"Label":"ORB fakeout","StrategyType":2,"Ticker":"/MNQZ26",
+          "Config":{ "TargetMode":1, "TargetDollars":400, "TargetDollarsBasis":1, "EnforceMinRr":false, "MinRrAction":1 }
+        }]
+        """;
+
+        var s = new StrategyConfig { BasketJson = basket }.ToSetupConfigs().Single(x => x.Id == "of-mnq");
+
+        Assert.Equal(TargetMode.Dollars, s.TargetMode);
+        Assert.Equal(400m, s.TargetDollars);
+        Assert.Equal(TargetDollarsBasis.WholePosition, s.TargetDollarsBasis);
+        Assert.False(s.EnforceMinRr);
+        Assert.Equal(MinRrAction.RaiseTarget, s.MinRrAction);
+    }
+
+    [Fact]
+    public void ToSetupConfigs_EntryWithoutTheNewKeys_IsRangePctWithTheGuardOnAndSkipping()
+    {
+        var basket = """[{ "Id":"pb-mnq","Enabled":true,"StrategyType":0,"Ticker":"/MNQZ26","Config":{ "TargetPct":80 } }]""";
+
+        var s = new StrategyConfig { BasketJson = basket }.ToSetupConfigs().Single(x => x.Id == "pb-mnq");
+
+        Assert.Equal(TargetMode.RangePct, s.TargetMode);
+        Assert.Equal(0m, s.TargetDollars);
+        Assert.Equal(TargetDollarsBasis.PerContract, s.TargetDollarsBasis);
+        Assert.True(s.EnforceMinRr);
+        Assert.Equal(MinRrAction.Skip, s.MinRrAction);
+    }
+
+    [Fact]
+    public void LegacySetups_AreRangePctWithTheGuardOnAndSkipping()
+    {
+        foreach (var s in CustomConfig().ToSetupConfigs())
+        {
+            Assert.Equal(TargetMode.RangePct, s.TargetMode);
+            Assert.True(s.EnforceMinRr);
+            Assert.Equal(MinRrAction.Skip, s.MinRrAction);
+        }
+    }
+
     // ── ToSetupConfigs tests ─────────────────────────────────────
 
     [Fact]
