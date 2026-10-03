@@ -171,8 +171,9 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         _previousSessionEnded = snap.SessionEnded;
         _previousSessionId = snap.ActiveSessionId;
 
-        // Daily loss breached — send once per breach
-        if (cfg.EmailOnDailyLossBreached)
+        // Daily loss breached — send once per breach. A replay run's halt comes from its own
+        // risk on historical trades, so it neither alerts nor uses up today's live alert.
+        if (cfg.EmailOnDailyLossBreached && snap.Source != "replay")
         {
             var stats = _statsSvc.Get();
             var today = cfg.TradingDateOfUtc(snap.Time);

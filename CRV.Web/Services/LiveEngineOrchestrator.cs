@@ -1807,7 +1807,7 @@ public class LiveEngineOrchestrator : BackgroundService
 }
 
 /// <summary>
-/// Wraps IStrategyEventSink to override the Source field on all completed trades.
+/// Wraps IStrategyEventSink to override the Source field on all completed trades and snapshots.
 /// Used to tag mock-executor trades as Source="mock" without changing the engine.
 /// </summary>
 internal class SourceOverrideSink : IStrategyEventSink
@@ -1822,8 +1822,13 @@ internal class SourceOverrideSink : IStrategyEventSink
     }
 
     public Task OnEntryAsync(EntrySignal s)              => _inner.OnEntryAsync(s);
-    public Task OnSnapshotAsync(EngineSnapshot snap)     => _inner.OnSnapshotAsync(snap);
     public Task OnSizeRefusedAsync(SizeRefusal r)        => _inner.OnSizeRefusedAsync(r);
+
+    public Task OnSnapshotAsync(EngineSnapshot snap)
+    {
+        snap.Source = _source;
+        return _inner.OnSnapshotAsync(snap);
+    }
 
     public Task OnExitAsync(TradeRecord t)
     {

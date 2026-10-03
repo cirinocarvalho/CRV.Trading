@@ -126,6 +126,8 @@ public class EngineSnapshot
     public DateTime   Time           { get; set; }
     public string     Ticker         { get; set; } = "";
     public bool       IsLive         { get; set; }
+    /// <summary>Who produced the snapshot ("replay" for a replay run); empty for the live engine.</summary>
+    public string     Source         { get; set; } = "";
 
     // Daily P&L stats
     public decimal    TodayPnl        { get; set; }

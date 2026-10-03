@@ -142,6 +142,19 @@ public class DailyStatsServiceTests
         Assert.Empty(sent);
     }
 
+    [Fact]
+    public async Task AReplayHaltedSnapshot_SendsNoBreachEmail_AndALaterLiveBreachThatDaySendsOne()
+    {
+        var (email, sent) = BuildEmail(new DailyStatsService());
+        var replaySink    = new SourceOverrideSink(email, "replay");
+
+        await replaySink.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 0, 0, DateTimeKind.Utc), halted: true));
+        Assert.Empty(sent);
+
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 15, 0, 0, DateTimeKind.Utc), halted: true));
+        Assert.Single(sent);
+    }
+
     private static EngineSnapshot Snapshot(DateTime utc, bool halted) => new() { Time = utc, TradingHalted = halted };
 
     private static (RecordingEmail Email, List<AlertEvent> Sent) BuildEmail(DailyStatsService stats)
