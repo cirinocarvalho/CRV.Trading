@@ -290,14 +290,13 @@ public class ComposableEngine
     {
         foreach (var strategy in _strategies.Values)
         {
-            // Silently clear any active trades from warmup — those entries were
-            // discarded (no broker order placed), so the strategy must not think
-            // it has a real position. Disarm() resets _state to 0 (idle) without
-            // producing exit signals or recording phantom trades.
+            // Warmup entries are discarded before any order is placed, so a strategy
+            // in a trade here holds a real position recovered from the broker.
+            // ResetSession clears its arm state and counters and keeps InTrade.
             if (strategy.IsActive)
             {
                 strategy.ClearPendingSignals();
-                strategy.ResetSession();  // full reset: clears entry/stop/target/state
+                strategy.ResetSession();
             }
             else
             {

@@ -137,13 +137,17 @@ public interface ISetupStrategy
     /// <summary>Reconfigure for new session or settings change.</summary>
     void Reconfigure(StrategySetupConfig config);
 
-    /// <summary>Reset all state for new trading day (clears trade counts, P&amp;L stats).</summary>
+    /// <summary>
+    /// Reset all state for new trading day (clears trade counts, P&amp;L stats).
+    /// Never clears <see cref="InTrade"/>: a position held into the new day stays tracked.
+    /// </summary>
     void Reset();
 
     /// <summary>
     /// Reset for intra-day session transition.
     /// Clears trade state (arm, entry, stops) and per-session counters (trade count,
     /// direction-traded flags) but preserves daily P&amp;L stats (wins, losses, winPnl, lossPnl).
+    /// Never clears <see cref="InTrade"/>; only the broker event handler's completion does.
     /// </summary>
     void ResetSession();
 
