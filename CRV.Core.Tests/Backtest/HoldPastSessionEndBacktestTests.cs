@@ -36,6 +36,13 @@ public class HoldPastSessionEndBacktestTests
             yield return (PullbackSessionFixture.Ticker, new Bar(start.AddMinutes(i), 17990m, 17991m, 17989m, 17990m, 500));
     }
 
+    /// <summary>Opens at 17900, already 100 points through the 18000 stop, then stays there.</summary>
+    private static IEnumerable<(string, Bar)> GapBelowStop(DateTime start)
+    {
+        for (int i = 0; i < 10; i++)
+            yield return (PullbackSessionFixture.Ticker, new Bar(start.AddMinutes(i), 17900m, 17901m, 17899m, 17900m, 500));
+    }
+
     private static Task<BacktestResult> Run(bool closeAtRthClose, IAsyncEnumerable<(string, Bar)> bars)
     {
         var cfg = PullbackSessionFixture.Config(s => { s.TargetPct = 1000; s.CloseAtRthClose = closeAtRthClose; });
@@ -98,5 +105,37 @@ public class HoldPastSessionEndBacktestTests
 
         var t = Assert.Single(r.Trades);
         Assert.InRange(t.ExitedAt, DayOneOpen.AddMinutes(330), DayOneOpen.AddMinutes(390));
+    }
+
+    [Fact]
+    public async Task HeldStop_GappedThroughOvernight_FillsAtTheGapPrice()
+    {
+        var evening = DayOneOpen.Date.AddHours(23);   // 19:00 ET; only NY is backtested
+        var r = await Run(false, DayOneThen(GapBelowStop(evening)));
+
+        var t = Assert.Single(r.Trades);
+        Assert.Equal((ExitReason.Stop, evening), (t.ExitReason, t.ExitedAt));
+        Assert.InRange(t.Exit, 17890m, 17900m);
+    }
+
+    [Fact]
+    public async Task HeldStop_GappedThroughAtTheSessionOpen_FillsAtTheGapPrice()
+    {
+        var r = await Run(false, DayOneThen(GapBelowStop(DayTwoOpen)));
+
+        var t = Assert.Single(r.Trades);
+        Assert.Equal((ExitReason.Stop, DayTwoOpen), (t.ExitReason, t.ExitedAt));
+        Assert.InRange(t.Exit, 17890m, 17900m);
+    }
+
+    [Fact]
+    public async Task ClosingSetup_TradesAreUnchangedByAGapAtTheNextOpen()
+    {
+        var gapped = await Run(true, DayOneThen(GapBelowStop(DayTwoOpen)));
+        var flat   = await Run(true, DayOneThen(Array.Empty<(string, Bar)>()));
+
+        Assert.Equal(
+            flat.Trades.Select(t => (t.EnteredAt, t.Entry, t.ExitedAt, t.Exit, t.ExitReason)),
+            gapped.Trades.Select(t => (t.EnteredAt, t.Entry, t.ExitedAt, t.Exit, t.ExitReason)));
     }
 }
