@@ -479,7 +479,9 @@ public class ComposableEngine
     /// Open loss (≤ 0) of positions opened on an earlier trading day, marked at the last price.
     /// It counts against today's daily loss limit. A position in profit counts as zero, so a held
     /// winner never hides a realized loss. One with no price yet (0 after a restart) also counts
-    /// as zero rather than as a loss of its whole notional.
+    /// as zero rather than as a loss of its whole notional. Only the contracts still open are
+    /// marked: a partial booked on an earlier day is not today's P&amp;L and must not offset the
+    /// open loss of the remaining leg.
     /// </summary>
     internal decimal HeldOpenLoss(DateTime utcNow)
     {
@@ -493,9 +495,17 @@ public class ComposableEngine
             if (TradingDay.OfUtc(g.CreatedAt, Zone, _config.SessionStartHour) >= today) continue;
             var price = _prices.GetLastPrice(g.Ticker);
             if (price <= 0) continue;
-            loss += Math.Min(0m, _brokerHandler.GetUnrealizedPnl(g.SetupId, price));
+            loss += Math.Min(0m, OpenContractsPnl(g, price));
         }
         return loss;
+    }
+
+    /// <summary>Mark-to-market of the contracts still open in <paramref name="g"/>, excluding booked partials.</summary>
+    private static decimal OpenContractsPnl(GroupOrder g, decimal price)
+    {
+        var open = g.Status == GroupOrderStatus.PartialFilled ? g.RemainingContracts : g.TotalContracts;
+        var points = g.Direction == Direction.Long ? price - g.EntryPrice!.Value : g.EntryPrice!.Value - price;
+        return points * g.PointValue * open;
     }
 
     // ── State ───────────────────────────────────────────────────────

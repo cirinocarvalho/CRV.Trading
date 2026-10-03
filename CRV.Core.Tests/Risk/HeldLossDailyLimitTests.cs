@@ -169,6 +169,31 @@ public class HeldLossDailyLimitTests
     }
 
     [Fact]
+    public async Task HeldPartialFilledLoss_IsNotOffsetByItsBookedPartial()
+    {
+        var rig = Build(Yesterday, mnqPrice: 17600m);   // remaining 1 lot: -400 pts × 1 × $2 = -$800
+        var held = rig.Handler.GetAllActiveGroups().Single(g => g.SetupId == "hold-mnq");
+        held.Status = GroupOrderStatus.PartialFilled;
+        held.PartialContracts = 1;
+        held.AccruedPartialPnl = 1000m;                 // booked on the earlier day
+
+        Assert.Equal(-800m, rig.Engine.HeldOpenLoss(Now));
+
+        await TrySignal(rig);
+
+        Assert.Empty(rig.Exec.Placed);
+    }
+
+    [Fact]
+    public void HeldShortLoss_IsMarkedAgainstTheShort()
+    {
+        var rig = Build(Yesterday, mnqPrice: 18200m);   // short 2 lots: -200 pts × 2 × $2 = -$800
+        rig.Handler.GetAllActiveGroups().Single(g => g.SetupId == "hold-mnq").Direction = Direction.Short;
+
+        Assert.Equal(-800m, rig.Engine.HeldOpenLoss(Now));
+    }
+
+    [Fact]
     public void Snapshot_WithHeldLossPastTheLimitAndNoSignalYet_IsHalted()
     {
         var rig = Build(Yesterday, mnqPrice: 17800m);
