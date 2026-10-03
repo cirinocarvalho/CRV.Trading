@@ -79,13 +79,15 @@ public class DailyStatsService
 
     public DailyStats Get() { lock(_lock){ return _stats; } }
 
-    public void OnTradeClosed(TradeRecord r, decimal maxDailyLoss)
+    /// <summary>Adds a closed trade to the trading day it closed on (the engine's day, rolling at the session start hour).</summary>
+    public void OnTradeClosed(TradeRecord r, StrategyConfig cfg)
     {
         lock (_lock)
         {
-            if (_stats.Date != DateTime.UtcNow.Date)
+            var day = cfg.TradingDateOfUtc(r.ExitedAt);
+            if (_stats.Date != day)
             {
-                _stats = new DailyStats { Date = DateTime.UtcNow.Date };
+                _stats = new DailyStats { Date = day };
             }
 
             _stats.TodayPnL    += r.GrossPnl;
@@ -118,7 +120,7 @@ public class DailyStatsService
             _stats.TodayPeak = Math.Max(_stats.TodayPeak, _stats.TodayNetPnL);
             decimal dd = _stats.TodayPeak - _stats.TodayNetPnL;
             _stats.TodayMaxDD = Math.Max(_stats.TodayMaxDD, dd);
-            _stats.DDBreached = _stats.TodayNetPnL <= -Math.Abs(maxDailyLoss);
+            _stats.DDBreached = _stats.TodayNetPnL <= -Math.Abs(cfg.MaxDailyLoss);
         }
     }
 }

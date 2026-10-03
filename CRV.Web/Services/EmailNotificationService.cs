@@ -75,6 +75,7 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
     public Task OnExitAsync(TradeRecord trade)
     {
         var cfg = _cfgSvc.Current;
+        _statsSvc.OnTradeClosed(trade, cfg);
         if (!cfg.EmailEnabled || !cfg.EmailOnExit) return Task.CompletedTask;
 
         var label = !string.IsNullOrEmpty(trade.SetupLabel) ? trade.SetupLabel : trade.Setup.ToString();
@@ -173,7 +174,9 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         if (cfg.EmailOnDailyLossBreached)
         {
             var stats = _statsSvc.Get();
-            if (stats.DDBreached && !_dailyLossBreachSent)
+            // The engine's halt also counts the open loss of positions held in from an earlier day.
+            bool breached = stats.DDBreached || snap.TradingHalted;
+            if (breached && !_dailyLossBreachSent)
             {
                 _dailyLossBreachSent = true;
                 var alert = new AlertEvent
@@ -185,7 +188,7 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
                 };
                 EnqueueOrSend(alert, cfg.EmailOnDailyLossBreachedMode);
             }
-            else if (!stats.DDBreached)
+            else if (!breached)
             {
                 _dailyLossBreachSent = false;
             }
