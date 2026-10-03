@@ -144,7 +144,10 @@ $400 over 2 MNQ contracts is 100 pts. `PartialPct` is a share of that distance.
 
 Each strategy works in this order: entry (tick offset applied), final stop, size,
 target and partial, reward / risk from the fill, guard, signal. Targets are measured
-from the fill; stops from the signal price.
+from the fill. An `OrbPct` stop is measured from the signal price. A `BarHL` stop sits one
+tick beyond the previous bar's low (long) or high (short), and a `Vwap` stop sits
+`StopVwapTicks` ticks beyond VWAP. Both fall back to the `OrbPct` stop when they land on
+the wrong side of the entry or are wider than it.
 
 **The guard** (`EnforceMinRr`, on by default):
 
