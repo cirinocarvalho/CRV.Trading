@@ -132,6 +132,46 @@ Pinned by `AutoSizeByRiskTests`, a `BudgetBelowOneContract` test on each of the 
 strategies, `SizeRefusalReachesTheResultTests`, and the refusal studies in
 `ValidationRunnerTests`.
 
+## Targets and the reward / risk guard
+
+Every strategy sets its target one of two ways on the setup page: a share of the range
+(`TargetMode = RangePct`, `TargetPct`) or dollars (`Dollars`, `TargetDollars`), per contract
+or for the whole position (`TargetDollarsBasis`). A dollar target becomes points by the
+instrument's point value (MNQ $400 a contract is 200 pts, NQ $400 a contract is 20 pts),
+and a whole-position target is also divided by the contract count **after** sizing, so
+$400 over 2 MNQ contracts is 100 pts. `PartialPct` is a share of that distance.
+`SetupValidation` rejects a `Dollars` target of $0 and negative targets.
+
+Each strategy works in this order: entry (tick offset applied), final stop, size,
+target and partial, reward / risk from the fill, guard, signal. Targets are measured
+from the fill; stops from the signal price.
+
+**The guard** (`EnforceMinRr`, on by default):
+
+- **On save**, the target must be at least `MinRr` x the strategy's typical stop. For a
+  range target that is `MinRr x StopPct` of the range (the stop setting; a bar or VWAP stop
+  saves with a warning). For a dollar target it is the median stop of the strategy's last 30
+  backtest trades (contracts x stop for a whole-position target); the setup page blocks a
+  target below it. Without a backtest the save goes through with "The reward / risk check
+  runs once this strategy has a backtest."
+- **Per trade**, below `MinRr`: `Skip` drops the trade and records it through the size-refusal
+  path, as a distinct `SKIP` alert in the feed (not a `RISK` size refusal) reading
+  "Skipped: 1.2R below 1.5R", a warning log line, a line on the cockpit card, and
+  `MinRrSkips` in backtest results, counted separately from `SizeRefusals`. `RaiseTarget`
+  moves the target out to `MinRr x risk` with the partial recomputed.
+- **Off**: no save check and no per-trade check. The strategy shows "R:R not enforced" on
+  its setup page, its Strategies row and its cockpit card, and the Strategies page counts
+  the strategies that are on with the guard off. Backtest results record each setup's guard,
+  shown as a guard row in backtest runs only.
+
+A trade with no reward or no risk (a target or stop on the entry) is never sent, guard on
+or off. It is skipped as "Skipped: no reward or no risk".
+
+Pinned by `LevelCalculatorTests`, `MinRrGuardTests`, `MinRrSaveCheckTests`, `TypicalStopTests`,
+`SetupValidationTests`, the `TickOffset_*`, `WholePositionDollars_*` and `BelowMinimum_RaiseTarget_*`
+tests on each of the four ORB strategies, `MinRrGuardReachesTheResultTests` and
+`AddTargetModeAndRrGuardTests`.
+
 ## Arming a setup
 
 `BasketEntry.Enabled` defaults to **false**. An entry whose JSON omits the key is
