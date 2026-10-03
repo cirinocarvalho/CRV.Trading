@@ -17,7 +17,7 @@ public class RiskManager
     public decimal TodayWinPnl   { get; private set; }
     public decimal TodayLossPnl  { get; private set; }
 
-    // Cached limit config for DdBreached
+    // Limit settings read by DdBreached
     private bool          _useDailyLossLimit;
     private decimal       _maxDailyLoss;
     private DailyLossMode _mode = DailyLossMode.Floor;
@@ -76,6 +76,14 @@ public class RiskManager
             TodayMaxDD = dd;
     }
 
+    /// <summary>Sets the limit that <see cref="DdBreached"/> checks, so it holds before any entry is attempted.</summary>
+    public void ApplyLimit(bool useDailyLossLimit, decimal maxDailyLoss, DailyLossMode mode = DailyLossMode.Floor)
+    {
+        _useDailyLossLimit = useDailyLossLimit;
+        _maxDailyLoss = maxDailyLoss;
+        _mode = mode;
+    }
+
     /// <summary>
     /// Returns true when a new trade is allowed.
     /// Dynamic: if PnL recovers above -maxDailyLoss, trading resumes.
@@ -83,10 +91,7 @@ public class RiskManager
     public bool CanTrade(bool useDailyLossLimit, decimal maxDailyLoss,
                          DailyLossMode mode = DailyLossMode.Floor, decimal heldUnrealized = 0m)
     {
-        // Cache for DdBreached (used by ProcessPriceTickAsync and the snapshot)
-        _useDailyLossLimit = useDailyLossLimit;
-        _maxDailyLoss = maxDailyLoss;
-        _mode = mode;
+        ApplyLimit(useDailyLossLimit, maxDailyLoss, mode);
 
         return !DdBreached(heldUnrealized);
     }

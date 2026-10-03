@@ -167,4 +167,28 @@ public class HeldLossDailyLimitTests
         var rig = Build(Yesterday, mnqPrice: 17800m);
         Assert.Equal(-800m, rig.Engine.HeldOpenLoss(Now));
     }
+
+    [Fact]
+    public void Snapshot_WithHeldLossPastTheLimitAndNoSignalYet_IsHalted()
+    {
+        var rig = Build(Yesterday, mnqPrice: 17800m);
+
+        Assert.True(rig.Engine.GetSnapshot().TradingHalted);
+        Assert.True(rig.Engine.Risk.DdBreached(rig.Engine.HeldOpenLoss(DateTime.UtcNow)));
+    }
+
+    [Fact]
+    public void Snapshot_AfterTheLimitIsRaised_IsNoLongerHalted()
+    {
+        var rig = Build(Yesterday, mnqPrice: 17800m);
+        Assert.True(rig.Engine.GetSnapshot().TradingHalted);
+
+        rig.Engine.ApplyRuntimeSettings(new StrategyConfig
+        {
+            Ticker = "MNQM26", Timezone = "America/New_York", SessionStartHour = 18,
+            UseDailyLossLimit = true, MaxDailyLoss = 5000m, DailyLossMode = DailyLossMode.Floor,
+        });
+
+        Assert.False(rig.Engine.GetSnapshot().TradingHalted);
+    }
 }

@@ -71,6 +71,7 @@ public class ComposableEngine
         _sink = sink;
         _prices = prices;
         _config = config;
+        ApplyDailyLossLimit();
         _brokerHandler = brokerHandler;
     }
 
@@ -319,6 +320,7 @@ public class ComposableEngine
     public void Reconfigure(StrategyConfig cfg, SessionId sessionId)
     {
         _config = cfg.ToEngineConfig();
+        ApplyDailyLossLimit();
         _activeSessionId = sessionId.ToString();
 
         // Push each strategy's config first so its OrbStart/OrbEnd reflects the new
@@ -358,6 +360,7 @@ public class ComposableEngine
     public void ApplyRuntimeSettings(StrategyConfig cfg)
     {
         _config = cfg.ToEngineConfig();
+        ApplyDailyLossLimit();
 
         // Push per-setup config to each registered strategy
         var newSetupConfigs = cfg.ToSetupConfigs();
@@ -380,6 +383,7 @@ public class ComposableEngine
     public void Reconfigure(EngineConfig globalConfig, List<StrategySetupConfig> setupConfigs)
     {
         _config = globalConfig;
+        ApplyDailyLossLimit();
 
         // Reconfigure existing strategies
         foreach (var setupCfg in setupConfigs)
@@ -446,6 +450,9 @@ public class ComposableEngine
     internal static bool HoldsPastSessionEnd(GroupOrder group, ISetupStrategy strategy)
         => !strategy.CloseAtRthClose
            && group.Status is GroupOrderStatus.Active or GroupOrderStatus.PartialFilled;
+
+    private void ApplyDailyLossLimit()
+        => Risk.ApplyLimit(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode);
 
     private TimeZoneInfo? _zone;
     private string? _zoneId;
