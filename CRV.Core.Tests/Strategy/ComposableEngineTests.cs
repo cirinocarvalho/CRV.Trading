@@ -668,6 +668,45 @@ public class ComposableEngineTests
         Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "RISK");
     }
 
+    [Fact]
+    public async Task WarmupReplay_AfterALiveSkip_KeepsTheLiveSkipAndItsDedupe()
+    {
+        // BarHL stops make the risk follow the signal bar's low. A low of 18003 puts the
+        // stop 7.25 points under the 18010 pullback — inside the $16 budget, under 3R.
+        // A low of 18000 needs the full 10-point stop: $20, a size refusal.
+        var cfg = PullbackSessionFixture.Config(s =>
+        {
+            s.MinRr = 3m; s.StopMode = "BarHL"; s.MaxTradeRisk = 16m;
+        });
+        var sink   = new FakeSink();
+        var engine = CreateEngine(sink: sink, config: cfg.ToEngineConfig());
+        engine.AddSetups(cfg);
+        engine.SetActiveSessionId("NY");
+        engine.EnableTickMode();
+
+        int i = 0;
+        await foreach (var (ticker, bar) in PullbackSessionFixture.Session())
+            if (i++ < 48) await engine.ProcessBarAsync(bar, ticker);
+
+        var t = PullbackSessionFixture.Open;
+        var shallowDip = new Bar(t.AddMinutes(48), 18012m, 18013m, 18003m, 18008m, 500);
+        await engine.ProcessBarAsync(shallowDip, PullbackSessionFixture.Ticker);
+        var liveSkip = Assert.Single(sink.MinRrSkips);
+
+        // Force ORB replays the session's bars into the running engine.
+        var deepDip = new Bar(t.AddMinutes(47), 18012m, 18013m, 18000m, 18010m, 500);
+        await engine.WarmupBarAsync(deepDip, PullbackSessionFixture.Ticker);
+        await engine.WarmupBarAsync(shallowDip, PullbackSessionFixture.Ticker);
+
+        Assert.Equal(liveSkip.Describe(),
+            engine.GetSnapshot().Setups.Single(s => s.Id == "pullback-mnq").LastSkip);
+
+        await engine.ProcessPriceTickAsync(18008m, t.AddMinutes(49), PullbackSessionFixture.Ticker);
+
+        Assert.Single(sink.MinRrSkips);
+        Assert.Single(engine.GetSnapshot().RecentAlerts, a => a.Type == "SKIP");
+    }
+
     // ── A group runs on its root's bar size ──
 
     [Fact]

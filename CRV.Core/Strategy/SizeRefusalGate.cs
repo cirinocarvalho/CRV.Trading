@@ -59,4 +59,22 @@ public sealed class SizeRefusalGate
         _reportedSkips.Clear();
         LastMinRrSkip = null;
     }
+
+    /// <summary>What the gate has reported so far, for <see cref="Restore"/> to put back.</summary>
+    public State Capture() => new(_last, _reportedSkips.ToArray(), LastMinRrSkip);
+
+    /// <summary>Put back what was reported at <see cref="Capture"/>, dropping anything reported since.</summary>
+    public void Restore(State state)
+    {
+        _last = state.Last;
+        _reportedSkips.Clear();
+        _reportedSkips.UnionWith(state.ReportedSkips);
+        LastMinRrSkip = state.LastMinRrSkip;
+    }
+
+    /// <summary>The gate's reported signals at one moment; see <see cref="Capture"/>.</summary>
+    public sealed record State(
+        (bool IsLong, decimal Ep, decimal Sl)? Last,
+        IReadOnlyList<(bool IsLong, bool NoRewardOrRisk)> ReportedSkips,
+        SizeRefusal? LastMinRrSkip);
 }

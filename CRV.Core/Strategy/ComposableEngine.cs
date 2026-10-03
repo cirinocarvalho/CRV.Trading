@@ -160,13 +160,18 @@ public class ComposableEngine
         var groupKey = TickerGroup.GetGroupKey(ticker);
         if (!_groups.TryGetValue(groupKey, out var group)) return;
 
+        // A warmup can replay bars into a running engine (Force ORB), so a refusal it
+        // discards rolls back only what this bar reported, not what live already did.
+        var refusalsBefore = group.Strategies.ToDictionary(s => s, s => s.CaptureRefusals());
+
         await group.ProcessBarAsync(bar);
         // Warmup: collect and discard signals to prevent them from leaking
         if (bar.IsConfirmed)
         {
             SaveOrbCacheIfFormed(group);
             foreach (var sig in group.CollectAndClearSignals())
-                if (sig.Refusal != null) sig.Strategy.ForgetRefusals();
+                if (sig.Refusal != null && refusalsBefore[sig.Strategy] is { } state)
+                    sig.Strategy.RestoreRefusals(state);
         }
     }
 
