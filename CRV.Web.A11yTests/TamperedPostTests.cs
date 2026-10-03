@@ -42,4 +42,25 @@ public class TamperedPostTests(A11yAppFixture app)
         Assert.Equal(SetupValidation.RetiredEma21, stored.StrategyType);
         Assert.True(stored.Enabled);
     }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(99)]
+    public async Task StrategiesPage_AddOfATypeThatCantBeEdited_CreatesNothing(int type)
+    {
+        var before = (Config.BasketJson, Config.EmaBasketJson);
+        using var http = NewClient();
+        var token = await TokenFrom(http, "/setup/strategies");
+
+        await http.PostAsync("/setup/strategies?handler=Add", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token,
+            ["type"] = type.ToString(),
+            ["instrument"] = "MNQ",
+        }));
+
+        Assert.Equal(before.Item1, Config.BasketJson);
+        Assert.Equal(before.Item2, Config.EmaBasketJson);
+    }
 }

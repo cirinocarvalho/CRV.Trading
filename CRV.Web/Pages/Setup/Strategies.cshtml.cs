@@ -66,6 +66,8 @@ public class StrategiesModel : PageModel
 
     public IActionResult OnPostAdd(StrategyType type, string instrument)
     {
+        // A number that names no strategy fails binding and leaves type at its default, so check both.
+        if (ModelState["type"] is { Errors.Count: > 0 } || !StrategyModel.EditableTypes.Contains(type)) { TempData["strategies_err"] = "Choose a strategy this version can edit."; return RedirectToPage(); }
         var root = (instrument ?? "").Trim().ToUpperInvariant();
         if (root == "") { TempData["strategies_err"] = "Choose an instrument."; return RedirectToPage(); }
         var ticker = ContractRollCalendar.ActiveContract(root);
