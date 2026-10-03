@@ -38,4 +38,10 @@ public class CompositeEventSink : IStrategyEventSink
         foreach (var sink in _sinks)
             await sink.OnSizeRefusedAsync(refusal);
     }
+
+    public async Task OnMinRrSkippedAsync(SizeRefusal skip)
+    {
+        foreach (var sink in _sinks)
+            await sink.OnMinRrSkippedAsync(skip);
+    }
 }

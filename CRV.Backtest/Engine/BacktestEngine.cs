@@ -261,9 +261,10 @@ public class BacktestEngine
         if (lastBarTime != null)
             await handler.ExitAllAsync(t => buckets.TryGetValue(t, out var b) ? b.Close : 0m, lastBarTime);
 
-        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size.",
-            tfBarsOut, trades.Count, sink.Refusals.Count);
-        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals.Concat(sink.MinRrSkips).ToList());
+        _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size, {Skipped} skipped below the minimum R.",
+            tfBarsOut, trades.Count, sink.Refusals.Count, sink.MinRrSkips.Count);
+        return BacktestResultCalculator.Calculate(trades, _cfg, _btCfg, sink.Refusals.Concat(sink.MinRrSkips).ToList(),
+            recordRrGuard: true);
     }
 
     /// <summary>Emit a completed execution-TF bucket: fire OHLC ticks then process bar.</summary>

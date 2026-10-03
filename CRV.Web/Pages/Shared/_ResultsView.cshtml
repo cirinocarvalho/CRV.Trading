@@ -51,7 +51,7 @@
         }
         @if (m.RrGuard is { } g)
         {
-            <div class="c-kv"><span>Minimum reward / risk</span><span>@(g.Enforced ? $"{g.MinRr:0.##}R, {(g.Action == MinRrAction.Skip ? "skip" : "raise the target")}" : "Not enforced")</span></div>
+            <div class="c-kv"><span>Minimum reward / risk</span><span class="@(g.Enforced ? "" : "c-mut")">@(g.Enforced ? $"{g.MinRr:0.##}R, {(g.Action == MinRrAction.Skip ? "skip" : "raise the target")}" : "Not enforced")</span></div>
         }
         <div class="c-kv"><span>Avg win / loss</span><span><span class="c-up">@ViewFmt.Dollars(m.AvgWin)</span> / <span class="c-down">−@ViewFmt.Dollars(m.AvgLoss)</span></span></div>
         <div class="c-kv" title="(Win% × avg win) + (Loss% × avg loss)"><span>Expectancy</span><span class="@ViewFmt.Tone(m.Expectancy)">@ViewFmt.Money(m.Expectancy) / trade</span></div>

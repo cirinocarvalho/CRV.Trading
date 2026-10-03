@@ -85,7 +85,7 @@ public sealed record RrGuardState(bool Enforced, decimal MinRr, MinRrAction Acti
 public static class BacktestResultCalculator
 {
     public static BacktestResult Calculate(List<TradeRecord> trades, StrategyConfig cfg, BacktestConfig btCfg,
-        List<SizeRefusal>? refusals = null)
+        List<SizeRefusal>? refusals = null, bool recordRrGuard = false)
     {
         refusals ??= new();
         var sizeRefusals = refusals.Where(r => r.Reason == RefusalReason.Size).ToList();
@@ -97,7 +97,8 @@ public static class BacktestResultCalculator
 
         var refusedBySetup = sizeRefusals.GroupBy(r => r.SetupLabel).ToDictionary(g => g.Key, g => g.Count());
         var skippedBySetup = minRrSkips.GroupBy(r => r.SetupLabel).ToDictionary(g => g.Key, g => g.Count());
-        var guards = cfg.ToSetupConfigs().GroupBy(s => s.Id)
+        // Only a backtest knows the config its trades ran under; stored live and paper trades may have run under another.
+        var guards = !recordRrGuard ? new Dictionary<string, RrGuardState>() : cfg.ToSetupConfigs().GroupBy(s => s.Id)
             .ToDictionary(g => g.Key, g => new RrGuardState(g.First().EnforceMinRr, g.First().MinRr, g.First().MinRrAction));
 
         // A setup that was refused or skipped every time it fired has no trades and still needs a row.

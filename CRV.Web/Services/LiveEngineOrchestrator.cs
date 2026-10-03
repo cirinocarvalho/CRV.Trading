@@ -1832,6 +1832,7 @@ internal class SourceOverrideSink : IStrategyEventSink
 
     public Task OnEntryAsync(EntrySignal s)              => _inner.OnEntryAsync(s);
     public Task OnSizeRefusedAsync(SizeRefusal r)        => _inner.OnSizeRefusedAsync(r);
+    public Task OnMinRrSkippedAsync(SizeRefusal r)        => _inner.OnMinRrSkippedAsync(r);
 
     public Task OnSnapshotAsync(EngineSnapshot snap)
     {
@@ -1864,6 +1865,7 @@ internal class ReplayFilterSink : IStrategyEventSink
     public Task OnEntryAsync(EntrySignal s)          => _inner.OnEntryAsync(s);
     public Task OnSnapshotAsync(EngineSnapshot snap) => _inner.OnSnapshotAsync(snap);
     public Task OnSizeRefusedAsync(SizeRefusal r)    => _inner.OnSizeRefusedAsync(r);
+    public Task OnMinRrSkippedAsync(SizeRefusal r)    => _inner.OnMinRrSkippedAsync(r);
 
     public Task OnExitAsync(TradeRecord t)
     {
@@ -1888,6 +1890,7 @@ internal class SnapshotCachingSink : IStrategyEventSink
     public Task OnEntryAsync(EntrySignal s)              => _inner.OnEntryAsync(s);
     public Task OnExitAsync(TradeRecord t)               => _inner.OnExitAsync(t);
     public Task OnSizeRefusedAsync(SizeRefusal r)        => _inner.OnSizeRefusedAsync(r);
+    public Task OnMinRrSkippedAsync(SizeRefusal r)        => _inner.OnMinRrSkippedAsync(r);
 
     public async Task OnSnapshotAsync(EngineSnapshot snap)
     {

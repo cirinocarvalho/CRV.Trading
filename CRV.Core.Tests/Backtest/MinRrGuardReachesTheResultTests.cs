@@ -53,4 +53,15 @@ public class MinRrGuardReachesTheResultTests
         Assert.Equal(18030m, trade.Target);
         Assert.False(result.PerSetup["pullback-mnq"].RrGuard!.Enforced);
     }
+
+    [Fact]
+    public void Calculate_WithoutTheRunsConfig_LeavesTheGuardUnreported()
+    {
+        var cfg    = PullbackSessionFixture.Config(s => s.MinRr = 3m);
+        var trades = new List<TradeRecord> { new() { SetupLabel = "pullback-mnq" } };
+
+        var result = BacktestResultCalculator.Calculate(trades, cfg, PullbackSessionFixture.BtConfig());
+
+        Assert.Null(result.PerSetup["pullback-mnq"].RrGuard);
+    }
 }
