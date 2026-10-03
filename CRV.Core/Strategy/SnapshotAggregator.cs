@@ -122,7 +122,7 @@ public static class SnapshotAggregator
             TodayMaxDD     = inputs.Risk.TodayMaxDD,
             DailyLossLimit = inputs.DailyLossLimit,
             DailyLossUsed  = inputs.Risk.DailyLossUsed,
-            TradingHalted  = inputs.Risk.DdBreached,
+            TradingHalted  = inputs.Risk.DdBreached(),
 
             // Indicators
             Vwap = inputs.Indicators.Vwap,

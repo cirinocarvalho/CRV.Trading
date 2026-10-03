@@ -177,7 +177,7 @@ public class ComposableEngine
         if (_idle) return;
         if (!_tickModeEnabled) return;
         if (price <= 0) return;
-        if (Risk.DdBreached) return;
+        if (Risk.DdBreached()) return;
 
         var groupKey = TickerGroup.GetGroupKey(ticker);
         if (!_groups.TryGetValue(groupKey, out var group)) return;

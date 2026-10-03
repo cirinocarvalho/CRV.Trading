@@ -334,7 +334,7 @@ public class ComposableEngineTests
         engine.Risk.RecordTrade(-200m);
         engine.Risk.CanTrade(true, 100m); // triggers DdBreached
 
-        Assert.True(engine.Risk.DdBreached);
+        Assert.True(engine.Risk.DdBreached());
     }
 
     // ── ProcessBarAsync routes to correct TickerGroup ──
@@ -396,7 +396,7 @@ public class ComposableEngineTests
         engine.ResetDaily();
 
         Assert.Equal(0m, engine.Risk.TodayPnl);
-        Assert.False(engine.Risk.DdBreached);
+        Assert.False(engine.Risk.DdBreached());
     }
 
     // ── ForceExitAll exits all active setups ──
