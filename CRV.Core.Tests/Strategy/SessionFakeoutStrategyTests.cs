@@ -441,8 +441,11 @@ public class SessionFakeoutStrategyTests
         Assert.Equal(5210.50m, s.PendingEntry!.Tg2Price);
     }
 
-    [Fact]
-    public void MinRrSkip_IsReportedOncePerArmedEpisode_AndLastSkipSurvivesTheEpisode()
+    [Theory]
+    [InlineData("ForceExit")]
+    [InlineData("Disarm")]
+    [InlineData("SideSwitchedOff")]
+    public void MinRrSkip_IsReportedOncePerArmedEpisode_AndLastSkipSurvivesTheEpisode(string endsEpisode)
     {
         var cfg = DefaultConfig();
         cfg.MinRr = 99m;
@@ -453,14 +456,45 @@ public class SessionFakeoutStrategyTests
 
         s.ClearPendingSignals();
         s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
-        Assert.Null(s.PendingSizeRefusal);
+        Assert.Null(s.PendingSizeRefusal);       // same episode: already reported
 
-        s.ForceExit(5185m, new DateTime(2026, 3, 10, 16, 0, 0, DateTimeKind.Utc));
-        Assert.NotNull(s.GetSnapshot().LastSkip);
+        switch (endsEpisode)
+        {
+            case "ForceExit":
+                s.ForceExit(5185m, new DateTime(2026, 3, 10, 16, 0, 0, DateTimeKind.Utc));
+                break;
+            case "Disarm":
+                s.Disarm();
+                s.ResetCutoff();
+                break;
+            default:
+                cfg.AllowLong = false;
+                s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+                cfg.AllowLong = true;
+                break;
+        }
+        Assert.False(s.IsArmed);
+        Assert.NotNull(s.GetSnapshot().LastSkip); // outlives the episode
 
         s.ClearPendingSignals();
         s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
-        Assert.NotNull(s.PendingSizeRefusal);
+        Assert.NotNull(s.PendingSizeRefusal);    // second episode reports again
+    }
+
+    [Fact]
+    public void FailsBudgetAndMinimum_ReportsTheSizeRefusalNotAMinRrSkip()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 99m;
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk = 1m;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Null(s.PendingEntry);
+        Assert.Equal(RefusalReason.Size, s.PendingSizeRefusal!.Reason);
+        Assert.Null(s.GetSnapshot().LastSkip);
     }
 
     [Fact]

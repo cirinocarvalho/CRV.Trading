@@ -167,7 +167,7 @@ public class RetestStrategy : ISetupStrategy
 
     public void Disarm()
     {
-        if (!_inTrade) { _state = 0; _armEntry = 0; _pastCutoff = true; }
+        if (!_inTrade) { _state = 0; _armEntry = 0; _pastCutoff = true; _refusalGate.EndEpisode(); }
     }
 
     public void ResetCutoff() { _pastCutoff = false; }
@@ -238,6 +238,7 @@ public class RetestStrategy : ISetupStrategy
             (_state < 0 && bar.Close > orbMid))
         {
             _state = 0; _armEntry = 0; _retestLeftZone = false; _breakoutConfirmed = false; _retestCloseConfirmed = false;
+            _refusalGate.EndEpisode();
         }
 
         bool longReady  = _longCount  < _cfg.EffectiveMaxLong;
@@ -494,6 +495,7 @@ public class RetestStrategy : ISetupStrategy
     {
         _pendingEntry = null;
         _state = 0;
+        _refusalGate.EndEpisode();
     }
 
     // ── GetSnapshot ───────────────────────────────────────────────
@@ -515,6 +517,9 @@ public class RetestStrategy : ISetupStrategy
         Losses      = _losses,
         WinPnl      = _winPnl,
         LossPnl     = _lossPnl,
+        MinRrEnforced = _cfg.EnforceMinRr,
+        MinRr       = _cfg.MinRr,
+        LastSkip    = _refusalGate.LastMinRrSkip?.Describe(),
         Expectancy  = (_wins + _losses) > 0
             ? (_winPnl + _lossPnl) / (_wins + _losses) : 0m,
     };
@@ -525,12 +530,10 @@ public class RetestStrategy : ISetupStrategy
     {
         if (_inTrade) return;
 
-        // Calculate levels from ORIGINAL entry (before offset) so partial/target are based
-        // on the true signal price, not the artificially nudged entry.
-        var (sl, tp, pp, rr) = LevelCalculator.CalcLevelsB(ep, isLong,
-            _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.StopPct, _cfg.TickSize);
+        // OrbPct stop from the signal price; the tick offset below moves only the entry.
+        decimal sl = LevelCalculator.RangeStop(ep, isLong, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
-        // Apply entry tick offset to entry price only
+        // Apply entry tick offset to the entry; target and partial are measured from it after sizing.
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
         {
             decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
@@ -570,9 +573,6 @@ public class RetestStrategy : ISetupStrategy
             if ((isLong && sl >= ep) || (!isLong && sl <= ep)) sl = orbPctSl;
             // Cap: if BarHL would be wider than OrbPct, fall back to OrbPct
             else if (Math.Abs(ep - sl) > orbPctRisk) sl = orbPctSl;
-            decimal risk   = Math.Abs(ep - sl);
-            decimal reward = Math.Abs(tp - ep);
-            rr = risk > 0 ? reward / risk : 0;
         }
         // Vwap stop mode: stop at VWAP ± N ticks
         else if (_cfg.StopMode == "Vwap" && _lastVwap > 0)
@@ -584,12 +584,7 @@ public class RetestStrategy : ISetupStrategy
             if ((isLong && sl >= ep) || (!isLong && sl <= ep)) sl = orbPctSl;
             // Cap: if Vwap would be wider than OrbPct, fall back to OrbPct
             else if (Math.Abs(ep - sl) > orbPctRisk) sl = orbPctSl;
-            decimal risk   = Math.Abs(ep - sl);
-            decimal reward = Math.Abs(tp - ep);
-            rr = risk > 0 ? reward / risk : 0;
         }
-
-        if (rr < _cfg.MinRr) return;
 
         var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, _lastAtrRatio);
         if (contracts <= 0)
@@ -597,6 +592,15 @@ public class RetestStrategy : ISetupStrategy
             _pendingSizeRefusal = _refusalGate.Report(isLong, ep, sl, _cfg, time);
             return;
         }
+
+        // Target and partial come after sizing: a whole-position dollar target spreads over the count.
+        var levels = MinRrGuard.Apply(_cfg, LevelRequest.From(_cfg, ep, isLong, sl, contracts, orb.Range));
+        if (levels.Skip)
+        {
+            _pendingSizeRefusal = _refusalGate.ReportMinRr(isLong, ep, sl, levels.Rr, _cfg, time);
+            return;
+        }
+        decimal tp = levels.Target, pp = levels.Partial;
 
         _pendingEntry = new EntrySignal(
             _cfg.SetupId,
@@ -614,6 +618,7 @@ public class RetestStrategy : ISetupStrategy
         _tradeCount = _longCount + _shortCount;
         _state = 0;
         _signalBar = null;  // consumed — next trade sets its own signal bar
+        _refusalGate.EndEpisode();
     }
 
 }
