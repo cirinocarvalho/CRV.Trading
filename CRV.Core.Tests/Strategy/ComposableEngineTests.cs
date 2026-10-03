@@ -644,6 +644,16 @@ public class ComposableEngineTests
         return cfg;
     }
 
+    private static StrategyConfig RetiredOnlyBasket()
+    {
+        var cfg = DefaultStrategyConfig();
+        cfg.BasketJson = BasketCodec.Serialize(new[]
+        {
+            BasketEntryFor("ema21-mnq", SetupValidation.RetiredEma21, "/MNQZ26", 5),
+        });
+        return cfg;
+    }
+
     [Fact]
     public void AddSetups_SkipsEntriesThatCantTrade_AndRegistersTheRest()
     {
@@ -673,5 +683,20 @@ public class ComposableEngineTests
         Assert.Equal("retired EMA21 strategy", card.DisabledReason);
         Assert.Equal("MNQZ26", card.Ticker);
         Assert.Null(setups.Single(s => s.Id == "pullback-mnq").DisabledReason);
+    }
+
+    [Fact]
+    public async Task PublishSnapshotAsync_WhenEveryEntryIsDisabled_PublishesTheDisabledCardsWithoutAnyBar()
+    {
+        var sink = new FakeSink();
+        var engine = CreateEngine(sink: sink);
+        engine.AddSetups(RetiredOnlyBasket());
+
+        await engine.PublishSnapshotAsync();
+
+        var setups = Assert.Single(sink.Snapshots).Setups;
+        Assert.Empty(engine.Groups);
+        var card = setups.Single(s => s.Id == "ema21-mnq");
+        Assert.Equal("retired EMA21 strategy", card.DisabledReason);
     }
 }

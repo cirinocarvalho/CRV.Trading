@@ -710,6 +710,7 @@ public class LiveEngineOrchestrator : BackgroundService
             foreach (var d in newEngine.DisabledSetups)
                 _log.LogWarning("Strategies: {Label} ({Id}) not started. Disabled: {Reason}", d.Label, d.Id, d.Reason);
             lock (_lifecycleLock) { _engine = newEngine; _brokerHandler = brokerHandler; _groupExecutor = groupExecutor; }
+            await newEngine.PublishSnapshotAsync();
 
             // Wire trade completion: record P&L in RiskManager + persist via sink
             if (brokerHandler != null)
