@@ -23,7 +23,7 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
     private string _previousSessionId = "";
     private DateTime _lastSessionEndEmail = DateTime.MinValue;
     private string _lastSessionChangeKey = "";
-    private bool _dailyLossBreachSent;
+    private DateTime? _dailyLossBreachDay;
 
     public EmailNotificationService(
         IOptionsMonitor<SmtpSettings> smtpOpts,
@@ -75,7 +75,8 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
     public Task OnExitAsync(TradeRecord trade)
     {
         var cfg = _cfgSvc.Current;
-        _statsSvc.OnTradeClosed(trade, cfg);
+        // Replayed trades carry historical exit times; they never belong in today's live stats.
+        if (trade.Source != "replay") _statsSvc.OnTradeClosed(trade, cfg);
         if (!cfg.EmailEnabled || !cfg.EmailOnExit) return Task.CompletedTask;
 
         var label = !string.IsNullOrEmpty(trade.SetupLabel) ? trade.SetupLabel : trade.Setup.ToString();
@@ -174,11 +175,13 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         if (cfg.EmailOnDailyLossBreached)
         {
             var stats = _statsSvc.Get();
-            // The engine's halt also counts the open loss of positions held in from an earlier day.
-            bool breached = stats.DDBreached || snap.TradingHalted;
-            if (breached && !_dailyLossBreachSent)
+            var today = cfg.TradingDateOfUtc(snap.Time);
+            // The engine's halt also counts the open loss of positions held in from an earlier day;
+            // the stats' own breach flag only counts if those stats belong to today.
+            bool breached = (stats.DDBreached && stats.Date == today) || snap.TradingHalted;
+            if (breached && _dailyLossBreachDay != today)
             {
-                _dailyLossBreachSent = true;
+                _dailyLossBreachDay = today;
                 var alert = new AlertEvent
                 {
                     Time    = snap.Time,
@@ -187,10 +190,6 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
                     Color   = "red",
                 };
                 EnqueueOrSend(alert, cfg.EmailOnDailyLossBreachedMode);
-            }
-            else if (!breached)
-            {
-                _dailyLossBreachSent = false;
             }
         }
 
@@ -212,7 +211,7 @@ public class EmailNotificationService : IStrategyEventSink, IDisposable
         EnqueueOrSend(alert, cfg.EmailOnEngineStatusMode);
     }
 
-    private void EnqueueOrSend(AlertEvent alert, string mode)
+    protected virtual void EnqueueOrSend(AlertEvent alert, string mode)
     {
         if (mode == "batched")
         {

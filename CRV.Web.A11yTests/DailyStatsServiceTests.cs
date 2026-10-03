@@ -78,6 +78,89 @@ public class DailyStatsServiceTests
         Assert.Equal(-120m, stats.Get().TodayNetPnL);
     }
 
+    [Fact]
+    public async Task AReplayTrade_LeavesLiveStatsUntouched()
+    {
+        var stats = new DailyStatsService();
+        var (email, _) = BuildEmail(stats);
+        var liveExit = new DateTime(2026, 4, 15, 23, 0, 0, DateTimeKind.Utc);
+        await email.OnExitAsync(Closed(liveExit, -100m));
+
+        var replay = Closed(new DateTime(2026, 1, 5, 15, 0, 0, DateTimeKind.Utc), -900m);
+        replay.Source = "replay";
+        await email.OnExitAsync(replay);
+
+        var s = stats.Get();
+        Assert.Equal(new DateTime(2026, 4, 16), s.Date);
+        Assert.Equal(-100m, s.TodayNetPnL);
+        Assert.False(s.DDBreached);
+    }
+
+    [Fact]
+    public async Task ABreachedSnapshotRepeatedInOneTradingDay_SendsOneEmail()
+    {
+        var (email, sent) = BuildEmail(new DailyStatsService());
+
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 0, 0, DateTimeKind.Utc), halted: true));
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 1, 0, DateTimeKind.Utc), halted: true));
+
+        Assert.Single(sent);
+    }
+
+    [Fact]
+    public async Task ABreachThatClearsAndReturnsInOneTradingDay_SendsOneEmail()
+    {
+        var (email, sent) = BuildEmail(new DailyStatsService());
+
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 0, 0, DateTimeKind.Utc), halted: true));
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 1, 0, DateTimeKind.Utc), halted: false));
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 2, 0, DateTimeKind.Utc), halted: true));
+
+        Assert.Single(sent);
+    }
+
+    [Fact]
+    public async Task ABreachOnTheNextTradingDay_SendsAgain()
+    {
+        var (email, sent) = BuildEmail(new DailyStatsService());
+
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 0, 0, DateTimeKind.Utc), halted: true));
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 23, 0, 0, DateTimeKind.Utc), halted: true));   // 19:00 ET → the 17th
+
+        Assert.Equal(2, sent.Count);
+    }
+
+    [Fact]
+    public async Task YesterdaysBreachedStats_DoNotCountTowardToday()
+    {
+        var stats = new DailyStatsService();
+        stats.OnTradeClosed(Closed(new DateTime(2026, 4, 15, 15, 0, 0, DateTimeKind.Utc), -600m), Cfg);
+        var (email, sent) = BuildEmail(stats);
+
+        await email.OnSnapshotAsync(Snapshot(new DateTime(2026, 4, 16, 14, 0, 0, DateTimeKind.Utc), halted: false));
+
+        Assert.Empty(sent);
+    }
+
+    private static EngineSnapshot Snapshot(DateTime utc, bool halted) => new() { Time = utc, TradingHalted = halted };
+
+    private static (RecordingEmail Email, List<AlertEvent> Sent) BuildEmail(DailyStatsService stats)
+    {
+        var cfgSvc = new StrategyConfigService(new ServiceCollection().BuildServiceProvider(), NullLogger<StrategyConfigService>.Instance);
+        cfgSvc.Current.EmailEnabled = true;
+        cfgSvc.Current.EmailOnDailyLossBreached = true;
+        var email = new RecordingEmail(cfgSvc, stats);
+        return (email, email.Sent);
+    }
+
+    private sealed class RecordingEmail(StrategyConfigService cfgSvc, DailyStatsService stats) : EmailNotificationService(
+        new StaticOptionsMonitor(new SmtpSettings()), cfgSvc, stats,
+        new ServiceCollection().BuildServiceProvider(), NullLogger<EmailNotificationService>.Instance)
+    {
+        public List<AlertEvent> Sent { get; } = new();
+        protected override void EnqueueOrSend(AlertEvent alert, string mode) => Sent.Add(alert);
+    }
+
     private sealed class StaticOptionsMonitor(SmtpSettings value) : IOptionsMonitor<SmtpSettings>
     {
         public SmtpSettings CurrentValue => value;
