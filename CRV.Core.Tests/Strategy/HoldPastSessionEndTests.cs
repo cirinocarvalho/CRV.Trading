@@ -137,6 +137,20 @@ public class HoldPastSessionEndTests
         Assert.Equal(GroupOrderStatus.Canceled, pending.Status);
     }
 
+    [Theory]
+    [InlineData(GroupOrderStatus.Active,        "hold-mnq",  true)]
+    [InlineData(GroupOrderStatus.PartialFilled, "hold-mnq",  true)]
+    [InlineData(GroupOrderStatus.Pending,       "hold-mnq",  false)]
+    [InlineData(GroupOrderStatus.Active,        "close-mes", false)]
+    [InlineData(GroupOrderStatus.PartialFilled, "close-mes", false)]
+    public void HoldsPastSessionEnd_KeepsOnlyAFilledPositionOfAHoldingSetup(GroupOrderStatus status, string setupId, bool held)
+    {
+        var rig   = Build();
+        var group = new GroupOrder { GroupOrderId = "g", SetupId = setupId, Status = status };
+
+        Assert.Equal(held, ComposableEngine.HoldsPastSessionEnd(group, rig.Engine.GetStrategy(setupId)!));
+    }
+
     [Fact]
     public async Task SessionEnd_ClosesAManualTrade()
     {
