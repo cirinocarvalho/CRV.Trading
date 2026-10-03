@@ -121,6 +121,13 @@ public interface ISetupStrategy
     /// <summary>When true, this setup is exempt from the global chop-regime filter (entries fire even when chop is flagged).</summary>
     bool BypassChopFilter { get; }
 
+    /// <summary>
+    /// True: the open position is closed at the setup's cutoff, when its session slot is off,
+    /// and at session end. False: those only stop new entries; an open position is held into
+    /// the next session and leaves through its own stop, targets, trail or a manual exit.
+    /// </summary>
+    bool CloseAtRthClose { get; }
+
     /// <summary>Process a confirmed bar. May produce pending signals.</summary>
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
 

@@ -21,6 +21,7 @@ public class SnapshotAggregatorTests
         public TimeOnly OrbEnd   { get; init; } = new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter => false;
+        public bool CloseAtRthClose { get; set; } = true;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
         public bool InTrade { get; set; }

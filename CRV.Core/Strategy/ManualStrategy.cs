@@ -39,6 +39,7 @@ public class ManualStrategy : ISetupStrategy
     public TimeOnly OrbEnd   { get; set; } = new(10, 0);
     public bool    UseEmaFilter => false;
     public bool    BypassChopFilter => true;   // Manual trades are explicit user actions; never auto-blocked.
+    public bool    CloseAtRthClose => true;    // Manual trades close at session end like any closing setup.
 
     // No-op: manual trades don't process bars/ticks
     public void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules) { }
