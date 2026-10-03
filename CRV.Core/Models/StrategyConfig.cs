@@ -443,12 +443,11 @@ public class StrategyConfig
     ///   18:00 on Mar 9 → trading date Mar 10 (new session started)
     ///   09:30 on Mar 10 → trading date Mar 10
     /// </summary>
-    public DateTime TradingDate(DateTime localTime)
-    {
-        if (localTime.Hour >= SessionStartHour)
-            return localTime.Date.AddDays(1);
-        return localTime.Date;
-    }
+    public DateTime TradingDate(DateTime localTime) => TradingDay.Of(localTime, SessionStartHour);
+
+    /// <summary>The trading date of a UTC moment, read on this config's <see cref="Timezone"/> clock.</summary>
+    public DateTime TradingDateOfUtc(DateTime utc)
+        => TradingDay.OfUtc(utc, TimeZoneInfo.FindSystemTimeZoneById(Timezone), SessionStartHour);
 
     public StrategyConfig Clone() => (StrategyConfig)MemberwiseClone();
 
