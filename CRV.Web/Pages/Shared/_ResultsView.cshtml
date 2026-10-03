@@ -38,9 +38,9 @@
         <div class="c-tile"><small>Max drawdown</small><b class="@(m.MaxDrawdown > 0 ? "c-down" : "")">@(m.MaxDrawdown > 0 ? "−" : "")@ViewFmt.Dollars(m.MaxDrawdown)</b></div>
     }
 
-    void Details(PerformanceMetrics m)
+    // Signals the run did not take, and the guard that skipped them.
+    void Skips(PerformanceMetrics m)
     {
-        <div class="c-kv"><span>Trades</span><span>@m.TotalTrades (@m.Wins W / @m.Losses L)</span></div>
         @if (m.SizeRefusals > 0)
         {
             <div class="c-kv" title="Signals the risk budget could not carry at even one contract. Not trades, but this run measured a different sample from one that took them."><span>Refused for size</span><span class="c-acc">@m.SizeRefusals</span></div>
@@ -53,6 +53,12 @@
         {
             <div class="c-kv"><span>Minimum reward / risk</span><span class="@(g.Enforced ? "" : "c-mut")">@(g.Enforced ? $"{g.MinRr:0.##}R, {(g.Action == MinRrAction.Skip ? "skip" : "raise the target")}" : "Not enforced")</span></div>
         }
+    }
+
+    void Details(PerformanceMetrics m)
+    {
+        <div class="c-kv"><span>Trades</span><span>@m.TotalTrades (@m.Wins W / @m.Losses L)</span></div>
+        Skips(m);
         <div class="c-kv"><span>Avg win / loss</span><span><span class="c-up">@ViewFmt.Dollars(m.AvgWin)</span> / <span class="c-down">−@ViewFmt.Dollars(m.AvgLoss)</span></span></div>
         <div class="c-kv" title="(Win% × avg win) + (Loss% × avg loss)"><span>Expectancy</span><span class="@ViewFmt.Tone(m.Expectancy)">@ViewFmt.Money(m.Expectancy) / trade</span></div>
         <div class="c-kv"><span>Avg R</span><span class="@ViewFmt.Tone(m.AvgR)">@ViewFmt.R(m.AvgR)</span></div>
@@ -73,6 +79,28 @@
             <b>@Model.EmptyTitle</b>
             <span>@Model.EmptyText</span>
         </div>
+        @if (r.Total.SizeRefusals > 0 || r.Total.MinRrSkips > 0)
+        {
+            <section class="c-panel">
+                <div class="c-panel-h"><h2>Signals not taken</h2></div>
+                <div data-part="skips">
+                    <div class="c-panel-b">@{ Skips(r.Total); }</div>
+                    <div class="c-break">
+                        @foreach (var (label, m) in r.PerSetup.Where(kv => kv.Value.SizeRefusals > 0 || kv.Value.MinRrSkips > 0).OrderBy(kv => kv.Key))
+                        {
+                            <details>
+                                <summary>
+                                    <span class="s"></span>
+                                    <span><b>@label</b><small>@m.MinRrSkips skipped · @m.SizeRefusals refused</small></span>
+                                    <i class="bi bi-chevron-right chev"></i>
+                                </summary>
+                                <div class="c-panel-b">@{ Skips(m); }</div>
+                            </details>
+                        }
+                    </div>
+                </div>
+            </section>
+        }
     }
     else
     {
