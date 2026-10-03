@@ -14,7 +14,7 @@
     var inv = CultureInfo.InvariantCulture;
     string N(decimal v) => v.ToString("0.#####", inv);
     string P(decimal fraction) => (fraction * 100m).ToString("0.###", inv);
-    var orbTypes = new[] { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout };
+    var orbTypes = StrategyModel.EditableTypes;
 
     // Field helpers. data-types limits a field to strategy types; hidden fields still post their values.
     void Num(string name, string label, string value, string? help = null, string step = "any", string? types = null, string? unit = null)
@@ -43,8 +43,14 @@
         <a class="crumb c-mut small" href="/setup/strategies">Strategies</a>
         <h1>@(e.Label is { Length: > 0 } ? e.Label : e.Id)</h1>
     </div>
-    <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker@(Model.IsEma21 ? " · EMA21 list" : "")</span>
+    <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker</span>
+    @if (Model.DisabledReason != null) { <span class="c-badge bad">DISABLED</span> }
 </div>
+
+@if (Model.DisabledReason != null)
+{
+    <div class="c-note bad mb-3" id="st-disabled"><i class="bi bi-slash-circle" aria-hidden="true"></i><span>Disabled: @Model.DisabledReason</span></div>
+}
 
 @if (Model.Saved != null) { <div class="c-note mb-3"><i class="bi bi-check-circle"></i><span>@Model.Saved</span></div> }
 @if (Model.Warnings.Count > 0)
@@ -58,6 +64,29 @@
         <span>Not saved. @string.Join(" ", Model.Errors)</span></div>
 }
 
+@if (Model.ReadOnly)
+{
+    <div class="c-cols">
+        <div class="c-stack">
+            <section class="c-panel">
+                <div class="c-panel-h"><h2>Can't be edited</h2></div>
+                <div class="c-panel-b">
+                    <p class="mb-0">This strategy type no longer trades, so its settings can't be changed. It stays in your list, switched @(e.Enabled ? "on" : "off"), until you remove it.</p>
+                </div>
+            </section>
+        </div>
+        <div class="c-stack st-side">
+            <section class="c-panel">
+                <div class="c-panel-b d-grid gap-2">
+                    <a class="btn btn-outline-secondary" href="/setup/strategies">Back to strategies</a>
+                    <button type="submit" form="st-remove" class="btn btn-sm btn-outline-danger w-100">Remove this strategy</button>
+                </div>
+            </section>
+        </div>
+    </div>
+}
+else
+{
 <form method="post" asp-page-handler="Save" id="st-form" class="c-form" novalidate>
 <div class="c-cols">
     <div class="c-stack">
@@ -71,17 +100,9 @@
                 </div>
                 <div class="st-field">
                     <label class="form-label" for="st-type">Strategy</label>
-                    @if (Model.IsEma21)
-                    {
-                        <input type="hidden" name="Entry.StrategyType" value="@((int)e.StrategyType)" id="st-type" />
-                        <div class="form-control-plaintext">@StrategyText.TypeName(e.StrategyType)</div>
-                    }
-                    else
-                    {
-                        <select class="form-select" name="Entry.StrategyType" id="st-type">
-                            @foreach (var t in orbTypes) { <option value="@((int)t)" selected="@(t == e.StrategyType)">@StrategyText.TypeName(t)</option> }
-                        </select>
-                    }
+                    <select class="form-select" name="Entry.StrategyType" id="st-type">
+                        @foreach (var t in orbTypes) { <option value="@((int)t)" selected="@(t == e.StrategyType)">@StrategyText.TypeName(t)</option> }
+                    </select>
                 </div>
                 <div class="st-field">
                     <label class="form-label" for="st-instr">Instrument</label>
@@ -93,10 +114,11 @@
                 </div>
                 <div class="st-field">
                     <label class="form-label" for="Entry.ExecutionTFMinutes">Bar size</label>
-                    <select class="form-select" id="Entry.ExecutionTFMinutes" name="Entry.ExecutionTFMinutes">
+                    <select class="form-select" id="Entry.ExecutionTFMinutes" name="Entry.ExecutionTFMinutes" aria-describedby="st-bar-help">
                         <option value="" selected="@(e.ExecutionTFMinutes == null)">Same as the engine</option>
-                        @foreach (var m in new[] { 1, 2, 5, 10, 15, 20, 30, 60 }) { <option value="@m" selected="@(e.ExecutionTFMinutes == m)">@m minute@(m == 1 ? "" : "s")</option> }
+                        @foreach (var m in SetupValidation.BarSizes) { <option value="@m" selected="@(e.ExecutionTFMinutes == m)">@m minute@(m == 1 ? "" : "s")</option> }
                     </select>
+                    <div class="form-text" id="st-bar-help">Shared by every @Model.RootLabel strategy. Entries and exits run on these bars.</div>
                 </div>
             </div>
         </section>
@@ -158,11 +180,6 @@
                     </select>
                 </div>
                 @{ Check("Entry.Config.QuickReentry", "Quick re-entry after a stop-out", c.QuickReentry, "Skips the full retest cycle for the next entry on that side.", types: "Retest"); }
-                @{ Num("Entry.Config.SlopeLen", "Slope lookback", c.SlopeLen.ToString(inv), step: "1", types: "Ema21", unit: "bars"); }
-                @{ Num("Entry.Config.AtrTouchMult", "Touch zone", N(c.AtrTouchMult), types: "Ema21", unit: "× ATR"); }
-                @{ Num("Entry.Config.MinSlopePct", "Minimum slope", N(c.MinSlopePct), types: "Ema21", unit: "% of price"); }
-                @{ Num("Entry.Config.OpenTicksToEma", "Signal bar opens within", c.OpenTicksToEma.ToString(inv), step: "1", types: "Ema21", unit: "ticks of EMA"); }
-                @{ Check("Entry.Config.UseVolumeFilter", "Require above-average volume", c.UseVolumeFilter, types: "Ema21"); }
             </div>
         </section>
 
@@ -248,6 +265,7 @@
     </div>
 </div>
 </form>
+}
 
 <form method="post" asp-page-handler="Remove" id="st-remove"
       data-confirm-title="Remove @(e.Label is { Length: > 0 } ? e.Label : e.Id)?"
@@ -259,7 +277,9 @@
 (function () {
     // Show only the fields that apply to the chosen strategy (hidden ones still post their values).
     const type = document.getElementById('st-type');
-    const names = ['Pullback', 'Retest', 'OrbFakeout', 'SessionFakeout', 'Ema21'];
+    if (!type) return;   // a read-only strategy has no form
+    // Keyed by the number basket JSON stores; 4 is the retired EMA21 and has no fields.
+    const names = { 0: 'Pullback', 1: 'Retest', 2: 'OrbFakeout', 3: 'SessionFakeout' };
     function sync() {
         const t = names[parseInt(type.value, 10)];
         document.querySelectorAll('[data-types]').forEach(el => {

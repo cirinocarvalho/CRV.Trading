@@ -70,6 +70,7 @@ public class BasketEnabledDefaultTests
         var cfg = WithBasket(Omitted);
         cfg.MapBasketEntries(_ => { });
 
+        Assert.NotNull(cfg.BasketJson);
         Assert.Contains("\"Enabled\":false", cfg.BasketJson.Replace(" ", ""));
     }
 

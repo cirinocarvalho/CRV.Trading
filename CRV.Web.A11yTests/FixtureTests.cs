@@ -4,6 +4,7 @@ using CRV.Web.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Playwright;
 using Xunit;
 
 namespace CRV.Web.A11yTests;
@@ -35,7 +36,7 @@ public class FixtureTests(A11yAppFixture app)
 
     [Theory]
     [InlineData("/setup/strategies/" + A11ySeed.RetestId)]
-    [InlineData("/setup/strategies/" + A11ySeed.Ema21Id)]
+    [InlineData("/setup/strategies/" + A11ySeed.RetiredId)]
     public async Task SeededStrategyPage_ServesOk(string route)
     {
         using var http = new HttpClient { BaseAddress = app.BaseAddress };
@@ -62,5 +63,42 @@ public class FixtureTests(A11yAppFixture app)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
         Assert.Equal($"Data Source={Path.Combine(app.DataDir, "crv_trading.db")}", db.Database.GetConnectionString());
+    }
+
+    [Fact]
+    public async Task EngineBar_StartList_LeavesOutStrategiesThatCantTrade()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+
+        var setups = (await page.GetAttributeAsync("#crv-engine", "data-setups"))!.Split('\n');
+
+        Assert.Contains(A11ySeed.RetestId, setups);
+        Assert.DoesNotContain(A11ySeed.RetiredId, setups);
+    }
+
+    [Fact]
+    public async Task RetiredStrategyPage_IsReadOnly_AndSaysWhyItIsDisabled()
+    {
+        using var http = new HttpClient { BaseAddress = app.BaseAddress };
+
+        var html = await http.GetStringAsync("/setup/strategies/" + A11ySeed.RetiredId);
+
+        Assert.Contains("Disabled: retired EMA21 strategy", html);
+        Assert.Contains(">DISABLED<", html);
+        Assert.DoesNotContain("id=\"st-form\"", html);
+        Assert.Contains("form=\"st-remove\"", html);
+    }
+
+    [Fact]
+    public async Task StrategyPage_BarSize_SaysWhichStrategiesShareIt()
+    {
+        using var http = new HttpClient { BaseAddress = app.BaseAddress };
+
+        var html = await http.GetStringAsync("/setup/strategies/" + A11ySeed.RetestId);
+
+        Assert.Contains("Shared by every NQ / MNQ strategy", html);
+        Assert.DoesNotContain("Disabled:", html);
     }
 }

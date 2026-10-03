@@ -47,6 +47,10 @@ public class TickerGroup
     private decimal _orbAtrRatio;
     private bool _orbJustFormed;  // set when ORB forms this bar, cleared after read
 
+    /// <summary>Bar size (minutes) of this group's feed: its root's, fixed when the group is built.
+    /// A hot reload swaps <see cref="_cfg"/> for the engine-wide config, so it can't be read from there.</summary>
+    private readonly int _barMinutes;
+
     // ── Bar history (for dashboard chart) ──────────────────────
     private readonly BarRingBuffer _barBuffer = new(200);
     private Bar? _currentBar;  // latest bar (including unconfirmed) for live candle
@@ -78,15 +82,19 @@ public class TickerGroup
     /// <summary>Read-only view of registered strategies.</summary>
     public IReadOnlyList<ISetupStrategy> Strategies => _strategies;
 
+    /// <summary>Bar size (minutes) every ORB calculator and module in this group uses.</summary>
+    public int BarMinutes => _barMinutes;
+
     public TickerGroup(string tickerKey, StrategyConfig cfg, BrokerEventHandler? brokerHandler = null)
     {
         _tickerKey = tickerKey;
         _cfg = cfg;
         _brokerHandler = brokerHandler;
+        _barMinutes = Math.Max(1, cfg.ExecutionTFMinutes);
 
         _atr = new AtrIndicator(14);
         _vwap = new VwapIndicator();
-        _orb = new OrbCalculator(cfg.OrbStart, cfg.OrbEnd, cfg.Timezone, cfg.ExecutionTFMinutes);
+        _orb = new OrbCalculator(cfg.OrbStart, cfg.OrbEnd, cfg.Timezone, _barMinutes);
         _orbs[(cfg.OrbStart, cfg.OrbEnd)] = _orb;
         _tz = FindTimeZone(cfg.Timezone);
 
@@ -105,7 +113,7 @@ public class TickerGroup
             TrendDayThreshold = cfg.TrendDayThreshold,
             ShallowPullbackMax = cfg.ShallowPullbackMax,
             VwapDevPeriod = cfg.VwapDevPeriod,
-            ExecutionTFMinutes         = cfg.ExecutionTFMinutes,
+            ExecutionTFMinutes         = _barMinutes,
             FBMaxTimeOutsideMinutesOrb = cfg.FBMaxTimeOutsideMinutesOrb,
             FBMaxTimeOutsideMinutesSR  = cfg.FBMaxTimeOutsideMinutesSR,
             FBMaxPenetrationPctOrb     = cfg.FBMaxPenetrationPctOrb,
@@ -131,7 +139,7 @@ public class TickerGroup
         var key = (strategy.OrbStart, strategy.OrbEnd);
         _stratWindow[strategy.Id] = key;
         if (!_orbs.ContainsKey(key))
-            _orbs[key] = new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _cfg.ExecutionTFMinutes);
+            _orbs[key] = new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _barMinutes);
     }
 
     // ── Bar processing ───────────────────────────────────────────
@@ -809,7 +817,7 @@ public class TickerGroup
             {
                 newOrbs[key] = _orbs.TryGetValue(key, out var existing)
                     ? existing
-                    : new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _cfg.ExecutionTFMinutes);
+                    : new OrbCalculator(key.Item1, key.Item2, _cfg.Timezone, _barMinutes);
             }
         }
         _orbs.Clear();
@@ -835,6 +843,19 @@ public class TickerGroup
         if (t.StartsWith("BTC") || t.StartsWith("MBT")) return "BTC";
         return t;
     }
+
+    /// <summary>The mini and micro symbols that share a group's feed, for messages: "NQ" → "NQ / MNQ".</summary>
+    public static string GroupLabel(string groupKey) => groupKey switch
+    {
+        "NQ"  => "NQ / MNQ",
+        "ES"  => "ES / MES",
+        "GC"  => "GC / MGC",
+        "CL"  => "CL / MCL",
+        "YM"  => "YM / MYM",
+        "RTY" => "RTY / M2K",
+        "BTC" => "BTC / MBT",
+        _     => groupKey,
+    };
 
     // ── Private helpers ──────────────────────────────────────────
 

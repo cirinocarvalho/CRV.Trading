@@ -244,13 +244,11 @@ public class StrategyConfigTests
     }
 
     [Fact]
-    public void ToSetupConfigs_WithInvalidBasketJson_FallsBackToLegacy()
+    public void ToSetupConfigs_WithUnreadableBasketJson_ReturnsNoLegacySetups()
     {
         var cfg = ValidConfig();
         cfg.BasketJson = "invalid json {{{";
-        var setups = cfg.ToSetupConfigs();
 
-        Assert.Equal(4, setups.Count);
-        Assert.Equal("A", setups[0].Id);
+        Assert.Empty(cfg.ToSetupConfigs());
     }
 }

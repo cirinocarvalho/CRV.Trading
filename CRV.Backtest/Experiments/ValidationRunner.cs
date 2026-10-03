@@ -151,7 +151,7 @@ public sealed class ValidationRunner
     private async Task<BacktestResult> RunAsync(StrategyConfig cfg, BacktestConfig btCfg,
         CancellationToken ct)
     {
-        var tickers = cfg.ToSetupConfigs().Where(s => s.Enabled)
+        var tickers = cfg.ToSetupConfigsWithoutSkipped().Where(s => s.Enabled)
             .Select(s => s.Ticker).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var key = BarSnapshotStore.KeyFor(btCfg, tickers);

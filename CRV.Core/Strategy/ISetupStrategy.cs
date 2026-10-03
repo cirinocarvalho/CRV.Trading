@@ -5,7 +5,16 @@ using CRV.Core.Modules;
 namespace CRV.Core.Strategy;
 
 // ── Strategy type enum ──────────────────────────────────────────
-public enum StrategyType { Pullback, Retest, OrbFakeout, SessionFakeout, Ema21 }
+// Stored as numbers in basket JSON: never renumber.
+public enum StrategyType
+{
+    Pullback       = 0,
+    Retest         = 1,
+    OrbFakeout     = 2,
+    SessionFakeout = 3,
+    // 4 was Ema21; reserved so stored baskets and old backtest runs never reuse it.
+    Ema            = 5,
+}
 
 // ── Readonly state snapshots passed to strategies ───────────────
 public readonly record struct OrbState(

@@ -67,17 +67,7 @@ public class StrategySetupConfig
     /// <summary>(Setup D only) Which prior-session range to fade. Auto = default chain.</summary>
     public FakeoutSession FakeoutReferenceSession { get; set; } = FakeoutSession.Auto;
 
-    // ── EMA21 strategy parameters (ignored by ORB strategies) ─────
-    /// <summary>Lookback bars for EMA slope calculation. Default 5.</summary>
-    public int SlopeLen { get; set; } = 5;
-    /// <summary>ATR multiplier for EMA touch detection zone. Default 0.5.</summary>
-    public decimal AtrTouchMult { get; set; } = 0.5m;
-    /// <summary>Minimum slope as % of EMA price to filter flat EMA noise. Default 0.05.</summary>
-    public decimal MinSlopePct { get; set; } = 0.05m;
-    /// <summary>Max ticks the signal bar open may be from EMA. Default 4.</summary>
-    public int OpenTicksToEma { get; set; } = 4;
-    /// <summary>Require volume > 20-bar SMA on signal bar. Default false.</summary>
-    public bool UseVolumeFilter { get; set; }
+    // ── ATR targets (ignored by ORB strategies) ───────────────────
     /// <summary>ATR multiplier for partial target (TP1). Default 1.0.</summary>
     public decimal AtrTp1Mult { get; set; } = 1.0m;
     /// <summary>ATR multiplier for full target (TP2). Default 2.0.</summary>

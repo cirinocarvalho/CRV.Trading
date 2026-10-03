@@ -4,8 +4,7 @@ namespace CRV.Core.Models;
 
 /// <summary>
 /// Reads and writes basket JSON with the same options <see cref="StrategyConfig.ToSetupConfigs"/>
-/// parses it with. A basket that fails to parse makes the engine fall back to the legacy A–D
-/// setups without any error, so every writer goes through here.
+/// parses it with. A basket that fails to parse trades nothing, so every writer goes through here.
 /// </summary>
 public static class BasketCodec
 {

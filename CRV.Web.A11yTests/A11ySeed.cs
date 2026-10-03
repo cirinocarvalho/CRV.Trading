@@ -16,7 +16,8 @@ namespace CRV.Web.A11yTests;
 public static class A11ySeed
 {
     public const string RetestId = "a11y-retest";
-    public const string Ema21Id  = "a11y-ema21";
+    /// <summary>A stored entry of the retired EMA21 type (4), switched on, as old live configs hold it.</summary>
+    public const string RetiredId = "a11y-ema21";
 
     public static string OrbBasketJson { get; } = BasketCodec.Serialize(new[]
     {
@@ -26,9 +27,9 @@ public static class A11ySeed
         Entry("a11y-sessionfakeout", StrategyType.SessionFakeout, "Session fakeout [MES]"),
     });
 
-    private static readonly string Ema21BasketJson = BasketCodec.Serialize(new[]
+    private static readonly string RetiredBasketJson = BasketCodec.Serialize(new[]
     {
-        Entry(Ema21Id, StrategyType.Ema21, "EMA21 [MNQ]"),
+        Entry(RetiredId, SetupValidation.RetiredEma21, "EMA21 [MNQ]"),
     });
 
     public static void Apply(IServiceProvider services)
@@ -38,7 +39,7 @@ public static class A11ySeed
         cfg.Broker          = "Mock";
         cfg.ExecBroker      = null;
         cfg.BasketJson      = OrbBasketJson;
-        cfg.Ema21BasketJson = Ema21BasketJson;
+        cfg.EmaBasketJson = RetiredBasketJson;
         configs.Update(cfg);
 
         using var scope = services.CreateScope();

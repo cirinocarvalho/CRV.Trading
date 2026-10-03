@@ -45,6 +45,9 @@ public static class SnapshotAggregator
         // ── BrokerEventHandler (for active trade views) ──────────
         public BrokerEventHandler? BrokerHandler { get; init; }
 
+        // ── Switched-on entries the engine didn't start ─────────
+        public IReadOnlyList<DisabledSetup> DisabledSetups { get; init; } = Array.Empty<DisabledSetup>();
+
         // ── Config values ───────────────────────────────────────
         public decimal DailyLossLimit { get; init; }
 
@@ -286,6 +289,20 @@ public static class SnapshotAggregator
                 OrbBearClose = hasPerSetupOrb && perSetupOrb.BearClose,
                 OrbAtrRatio  = hasPerSetupOrb ? perSetupOrb.AtrRatio : 0,
                 OrbFormed    = hasPerSetupOrb && perSetupOrb.IsSet,
+            });
+        }
+
+        // A card for each switched-on entry that isn't trading, saying why
+        foreach (var d in inputs.DisabledSetups)
+        {
+            snap.Setups.Add(new SetupSnapshot
+            {
+                Id             = d.Id,
+                Label          = d.Label,
+                StrategyType   = Enum.IsDefined(d.Type) ? d.Type.ToString() : "",
+                Ticker         = d.Ticker.TrimStart('/'),
+                Enabled        = false,
+                DisabledReason = d.Reason,
             });
         }
 

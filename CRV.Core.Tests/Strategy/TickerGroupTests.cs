@@ -169,6 +169,14 @@ public class TickerGroupTests
         Assert.Equal(expected, TickerGroup.GetGroupKey(ticker));
     }
 
+    [Theory]
+    [InlineData("NQ", "NQ / MNQ")]
+    [InlineData("ES", "ES / MES")]
+    [InlineData("RTY", "RTY / M2K")]
+    [InlineData("6E", "6E")]
+    public void GroupLabel_NamesTheMiniAndMicroThatShareAFeed(string groupKey, string expected)
+        => Assert.Equal(expected, TickerGroup.GroupLabel(groupKey));
+
     // ── AddStrategy ───────────────────────────────────────────────
 
     [Fact]

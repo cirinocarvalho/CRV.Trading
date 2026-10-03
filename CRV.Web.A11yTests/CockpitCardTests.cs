@@ -62,4 +62,30 @@ public class CockpitCardTests(A11yAppFixture app)
             ["target"]  = (await card.Locator($"#{setup.Id}-target").TextContentAsync())!.Trim(),
         };
     }
+
+    [Fact]
+    public async Task DisabledSetup_ShowsReasonAndFixLink_AndKeepsThemThroughUpdates()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+        var json = CockpitSnapshot.Json([CockpitSnapshot.Disabled(A11ySeed.RetiredId, "EMA21 [MNQ]", "retired EMA21 strategy")]);
+
+        // Two snapshots: the first draws the card, the second runs the per-update repaint over it.
+        for (var i = 0; i < 2; i++)
+            await page.EvaluateAsync("""
+                json => {
+                    CRV.engine.status('Live');
+                    document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+                }
+                """, json);
+
+        var card = page.Locator($"#card-{A11ySeed.RetiredId}");
+        await card.WaitForAsync();
+        Assert.Equal("DISABLED", (await card.Locator($"#status-{A11ySeed.RetiredId}").TextContentAsync())!.Trim());
+        Assert.Contains("Disabled: retired EMA21 strategy", await card.InnerTextAsync());
+        Assert.Equal("/setup/strategies/" + A11ySeed.RetiredId,
+            await card.GetByRole(AriaRole.Link, new() { Name = "Fix in Setup" }).GetAttributeAsync("href"));
+        Assert.Equal("", await card.EvaluateAsync<string>("c => c.style.opacity"));
+    }
 }

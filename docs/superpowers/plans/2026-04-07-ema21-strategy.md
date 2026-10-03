@@ -1,5 +1,7 @@
 # EMA21 Strategy Implementation Plan
 
+> **Superseded** by [EMA21 Removal Design](../specs/2026-10-02-ema21-removal-design.md): the EMA21 strategy is retired; type 4 is reserved.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a self-contained EMA21 cross/touch strategy that integrates with the existing ComposableEngine pipeline, using ATR-based targets and EMA-at-entry as stop.

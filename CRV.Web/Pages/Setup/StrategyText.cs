@@ -12,7 +12,8 @@ public static class StrategyText
         StrategyType.Retest         => "Retest",
         StrategyType.OrbFakeout     => "Opening-range fakeout",
         StrategyType.SessionFakeout => "Session fakeout",
-        StrategyType.Ema21          => "EMA21 pullback",
+        StrategyType.Ema            => "EMA",
+        SetupValidation.RetiredEma21 => "EMA21 (retired)",
         _                           => t.ToString(),
     };
 
@@ -34,7 +35,6 @@ public static class StrategyText
             StrategyType.Retest         => $"After a break of the opening range, enters on a retest of the range edge within {Pct(c.RetestPct)} of the range",
             StrategyType.OrbFakeout     => "Fades a false break of the opening range",
             StrategyType.SessionFakeout => $"Fades a false break of the previous session's range ({(c.FakeoutReferenceSession == FakeoutSession.Auto ? "whichever session just ended" : c.FakeoutReferenceSession.ToString())})",
-            StrategyType.Ema21          => $"Trades pullbacks to the 21-period EMA when it slopes at least {c.MinSlopePct}%",
             _                           => "Trades the setup",
         };
         var mode = c.Mode switch

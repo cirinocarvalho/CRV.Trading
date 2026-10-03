@@ -307,7 +307,7 @@ public class LiveEngineOrchestrator : BackgroundService
             if (orbStartLocal > nowLocal) orbStartLocal = orbStartLocal.AddDays(-1);
 
             // Collect all distinct tickers from basket (or fallback to global)
-            var setupConfigs = cfg.ToSetupConfigs();
+            var setupConfigs = cfg.ToSetupConfigsWithoutSkipped();
             var allTickers = setupConfigs
                 .Select(s => s.Ticker)
                 .Where(t => !string.IsNullOrEmpty(t))
@@ -525,7 +525,7 @@ public class LiveEngineOrchestrator : BackgroundService
             cfg.Ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);
 
             // Compute distinct tickers across all enabled setups (broker-format)
-            var setupConfigs = cfg.ToSetupConfigs().Where(s => s.Enabled).ToList();
+            var setupConfigs = cfg.ToSetupConfigsWithoutSkipped().Where(s => s.Enabled).ToList();
             var distinctTickers = setupConfigs
                 .Select(s => FuturesSymbol.ForBroker(s.Ticker, cfg.Broker))
                 .Where(t => !string.IsNullOrEmpty(t))
@@ -702,14 +702,16 @@ public class LiveEngineOrchestrator : BackgroundService
             }
 
             // ── Run ─────────────────────────────────────────────────
+            foreach (var problem in SetupValidation.BasketErrors(cfg))
+                _log.LogError("Strategies: {Problem}", problem);
             var engineConfig = cfg.ToEngineConfig();
             var newEngine = new ComposableEngine(executor, wrappedSink, prices, engineConfig, brokerHandler);
-            foreach (var setupCfg in cfg.ToSetupConfigs())
-            {
-                if (setupCfg.Enabled)
-                    newEngine.AddSetup(setupCfg);
-            }
+            newEngine.AddSetups(cfg);
+            foreach (var d in newEngine.DisabledSetups)
+                _log.LogWarning("Strategies: {Label} ({Id}) not started. Disabled: {Reason}", d.Label, d.Id, d.Reason);
             lock (_lifecycleLock) { _engine = newEngine; _brokerHandler = brokerHandler; _groupExecutor = groupExecutor; }
+            try { await newEngine.PublishCurrentStateAsync(); }
+            catch (Exception ex) { _log.LogWarning(ex, "Strategies: initial snapshot could not be published"); }
 
             // Wire trade completion: record P&L in RiskManager + persist via sink
             if (brokerHandler != null)
@@ -1478,8 +1480,8 @@ public class LiveEngineOrchestrator : BackgroundService
         var (basketJson, basketRw) = TickerAutoRoller.RewriteBasket(cfg.BasketJson, "Basket");
         if (basketRw.Count > 0) { cfg.BasketJson = basketJson; rewrites.AddRange(basketRw); }
 
-        var (ema21Json, ema21Rw) = TickerAutoRoller.RewriteBasket(cfg.Ema21BasketJson, "Ema21Basket");
-        if (ema21Rw.Count > 0) { cfg.Ema21BasketJson = ema21Json; rewrites.AddRange(ema21Rw); }
+        var (emaJson, emaRw) = TickerAutoRoller.RewriteBasket(cfg.EmaBasketJson, "EmaBasket");
+        if (emaRw.Count > 0) { cfg.EmaBasketJson = emaJson; rewrites.AddRange(emaRw); }
 
         if (rewrites.Count == 0) return;
 

@@ -14,18 +14,27 @@ public class StrategyModel : PageModel
     public static readonly string[] FractionFields = { "StopPct", "NearPct", "PullbackPct", "RetestPct", "MaxEntrySlippage" };
     public static readonly string[] SessionNames = { "Asia", "London", "NY" };
 
+    /// <summary>Types this page can edit. Any other (the retired EMA21, or one this version can't run) is shown read-only.</summary>
+    public static readonly StrategyType[] EditableTypes =
+        { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout };
+
     private readonly StrategyBasketService _basket;
+    private readonly StrategyConfigService _cfgSvc;
     private readonly LiveEngineOrchestrator _engine;
 
-    public StrategyModel(StrategyBasketService basket, LiveEngineOrchestrator engine)
+    public StrategyModel(StrategyBasketService basket, StrategyConfigService cfgSvc, LiveEngineOrchestrator engine)
     {
-        _basket = basket; _engine = engine;
+        _basket = basket; _cfgSvc = cfgSvc; _engine = engine;
     }
 
     [BindProperty(SupportsGet = true)] public string Id { get; set; } = "";
 
     public BasketEntry Entry { get; private set; } = new();
-    public bool IsEma21 { get; private set; }
+    public bool ReadOnly => !EditableTypes.Contains(Entry.StrategyType);
+    /// <summary>Why the saved entry doesn't trade ("retired EMA21 strategy"); null when it trades or is simply off.</summary>
+    public string? DisabledReason { get; private set; }
+    /// <summary>"NQ / MNQ": the strategies that share this one's bar size.</summary>
+    public string RootLabel => TickerGroup.GroupLabel(TickerGroup.GetGroupKey(Entry.Ticker));
     public bool EngineRunning => _engine.IsRunning;
     public List<string> Errors { get; } = new();
     public List<string> Warnings { get; } = new();
@@ -44,6 +53,7 @@ public class StrategyModel : PageModel
     public async Task<IActionResult> OnPostSaveAsync()
     {
         if (!Load()) return NotFound();
+        if (ReadOnly) return RedirectToPage(new { id = Id });
         var before = Entry;
 
         // Bind onto a copy of the saved entry: anything the form doesn't post keeps its value.
@@ -123,7 +133,7 @@ public class StrategyModel : PageModel
         var item = _basket.Find(Id);
         if (item == null) return false;
         Entry = item.Entry;
-        IsEma21 = item.IsEma21;
+        DisabledReason = SetupValidation.DisabledReason(Entry, _cfgSvc.Current);
         return true;
     }
 

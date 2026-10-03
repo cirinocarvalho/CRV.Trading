@@ -23,6 +23,14 @@ public class ComposableEngine
     private readonly Dictionary<string, ISetupStrategy> _strategies = new();
     private readonly Dictionary<string, string> _setupToGroupKey = new();
 
+    /// <summary>Groups by key ("NQ", "ES", …). For tests.</summary>
+    internal IReadOnlyDictionary<string, TickerGroup> Groups => _groups;
+
+    private readonly List<DisabledSetup> _disabledSetups = new();
+
+    /// <summary>Switched-on entries <see cref="AddSetups"/> skipped, with the reason.</summary>
+    public IReadOnlyList<DisabledSetup> DisabledSetups => _disabledSetups;
+
     private bool _idle;
     private bool _tickModeEnabled;
     private string _activeSessionId = "";
@@ -79,8 +87,10 @@ public class ComposableEngine
 
         if (!_groups.TryGetValue(groupKey, out var group))
         {
-            // Create a StrategyConfig for TickerGroup construction
+            // Create a StrategyConfig for TickerGroup construction. The group runs on its root's
+            // bar size; validation keeps every setup on one root to one bar size.
             var stratCfg = BuildStrategyConfigFromEngine(_config);
+            stratCfg.ExecutionTFMinutes = config.ExecutionTFMinutes;
             group = new TickerGroup(groupKey, stratCfg, _brokerHandler);
             _groups[groupKey] = group;
         }
@@ -88,6 +98,24 @@ public class ComposableEngine
         group.AddStrategy(strategy);
         _strategies[config.Id] = strategy;
         _setupToGroupKey[config.Id] = groupKey;
+    }
+
+    /// <summary>
+    /// Registers every switched-on setup in <paramref name="cfg"/>. An entry that
+    /// <see cref="SetupValidation.DisabledSetups"/> rejects is skipped and kept in
+    /// <see cref="DisabledSetups"/>, so the cockpit can say why; the rest trade.
+    /// </summary>
+    public void AddSetups(StrategyConfig cfg)
+    {
+        var disabled = SetupValidation.DisabledSetups(cfg);
+        _disabledSetups.AddRange(disabled);
+        var skip = disabled.Select(d => d.Id).ToHashSet();
+
+        foreach (var setupCfg in cfg.ToSetupConfigs())
+        {
+            if (setupCfg.Enabled && !skip.Contains(setupCfg.Id))
+                AddSetup(setupCfg);
+        }
     }
 
     // ── Bar/Tick processing ─────────────────────────────────────────
@@ -472,6 +500,7 @@ public class ComposableEngine
         var inputs = new SnapshotAggregator.Inputs
         {
             Strategies = allStrategies,
+            DisabledSetups = _disabledSetups,
             Risk = Risk,
             Prices = _prices,
             BrokerHandler = _brokerHandler,
@@ -629,7 +658,8 @@ public class ComposableEngine
 
     /// <summary>
     /// Publishes the current engine state to the event sink.
-    /// Call after backfill so the dashboard shows warmed-up indicator values.
+    /// Call after backfill so the dashboard shows warmed-up indicator values, and after
+    /// setups are registered so disabled setups show even when no ticker group receives bars.
     /// </summary>
     public async Task PublishCurrentStateAsync()
     {

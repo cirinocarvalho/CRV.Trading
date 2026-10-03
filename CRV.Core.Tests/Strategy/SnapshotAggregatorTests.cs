@@ -565,4 +565,26 @@ public class SnapshotAggregatorTests
         Assert.Equal(-1, b.State);
         Assert.True(b.PastCutoff);
     }
+
+    [Fact]
+    public void DisabledSetups_BecomeCardsWithTheirReason()
+    {
+        var inputs = new SnapshotAggregator.Inputs
+        {
+            Strategies = new ISetupStrategy[] { MakeStub(SetupId.A) },
+            Risk = new RiskManager(),
+            BarTime = new DateTime(2026, 3, 20, 14, 30, 0),
+            Ticker = "MESM6",
+            IsLive = true,
+            LastPrice = 5000m,
+            DisabledSetups = new[] { new DisabledSetup("ema21-mnq", "EMA21 [MNQ]", SetupValidation.RetiredEma21, "/MNQZ26", "retired EMA21 strategy") },
+        };
+
+        var snap = SnapshotAggregator.Build(inputs);
+
+        Assert.Null(FindSetup(snap, "A").DisabledReason);
+        var card = FindSetup(snap, "ema21-mnq");
+        Assert.Equal(("EMA21 [MNQ]", "", "MNQZ26", false, "retired EMA21 strategy"),
+            (card.Label, card.StrategyType, card.Ticker, card.Enabled, card.DisabledReason));
+    }
 }

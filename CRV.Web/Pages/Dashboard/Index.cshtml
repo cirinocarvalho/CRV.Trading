@@ -642,7 +642,7 @@ async function _lwcLoadGroup(groupKey) {
         });
         _lwcVolSeries.setData(volData);
 
-        // Volume SMA(20) — matches EMA21 strategy's VolSmaPeriod
+        // Volume SMA(20)
         var maLen = 20;
         var maData = [];
         for (var i = 0; i < bars.length; i++) {
@@ -1034,6 +1034,7 @@ function createSetupCard(setup) {
     var id = _cardId(setup.id);
     var typeLabels = { Pullback: "\u25B2", Retest: "\u27F3", OrbFakeout: "\u2194", SessionFakeout: "\u21A9" };
     var typeChar = typeLabels[setup.strategyType] || "\u25CF";
+    if (setup.disabledReason) return createDisabledCard(setup, id, typeChar);
     var row = (label, key, extra) => `<div class="ck-cell"><span>${label}</span><b id="${id}-${key}" ${extra || ''}>\u2014</b></div>`;
 
     var card = document.createElement("article");
@@ -1067,6 +1068,23 @@ function createSetupCard(setup) {
             ${row("Expectancy", "expectancy", 'title="(Win% \u00D7 avg win) \u2212 (Loss% \u00D7 avg loss)"')}
             ${row("Unrealized", "unreal")}
         </div>
+    `;
+    return card;
+}
+
+// A switched-on strategy the engine didn't start: why, and where to fix it. Drawn once; updates leave it alone.
+function createDisabledCard(setup, id, typeChar) {
+    var card = document.createElement("article");
+    card.className = "c-panel ck-setup";
+    card.id = "card-" + id;
+    card.innerHTML = `
+        <header class="ck-setup-h">
+            <span class="ck-type" title="${_esc(setup.strategyType)}">${typeChar}</span>
+            <b class="ck-name">${_esc(setup.label)}</b>
+            <span class="c-badge bad" id="status-${id}">DISABLED</span>
+        </header>
+        <p class="ck-why">Disabled: ${_esc(setup.disabledReason)}</p>
+        <a class="ck-fix" href="/setup/strategies/${encodeURIComponent(setup.id)}">Fix in Setup</a>
     `;
     return card;
 }
@@ -1198,14 +1216,15 @@ function updateDashboard(d) {
     // ── Session state badge ──────────────────────────────────
     const sessBadge = document.getElementById("dash-session-badge");
     if (sessBadge) {
-        var allCutoff = d.setups && d.setups.length > 0 && d.setups.every(s => s.pastCutoff);
-        var someCutoff = d.setups && d.setups.some(s => s.pastCutoff);
+        var trading = (d.setups || []).filter(s => !s.disabledReason);
+        var allCutoff = trading.length > 0 && trading.every(s => s.pastCutoff);
+        var someCutoff = trading.some(s => s.pastCutoff);
         if (!engineRunning())                      { sessBadge.textContent = "ENGINE STOPPED"; sessBadge.className = "badge bg-secondary"; }
         else if (d.sessionEnded)                   { sessBadge.textContent = "SESSION ENDED"; sessBadge.className = "badge badge-halted"; }
         else if (allCutoff)
                                                    { sessBadge.textContent = "CUTOFF";        sessBadge.className = "badge setup-armed"; }
         else if (someCutoff) {
-            var cutoffs = d.setups.filter(s => s.pastCutoff).map(s => s.id);
+            var cutoffs = trading.filter(s => s.pastCutoff).map(s => s.id);
             sessBadge.textContent = "CUTOFF (" + cutoffs.join(",") + ")";
             sessBadge.className = "badge setup-armed";
         }
@@ -1441,6 +1460,7 @@ function _setupBadge(state, strategyType) {
 // pastCutoff / sessionEnded = booleans to override badge when time has passed
 function updateSetup(id, setup, sessionEnded) {
     if (!setup) return;
+    if (setup.disabledReason) return;   // its card says why it isn't trading; nothing on it changes
     var trade = setup.trade;
     var state = setup.state;
     var enabled = setup.enabled !== false;

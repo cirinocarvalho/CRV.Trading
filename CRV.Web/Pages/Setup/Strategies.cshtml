@@ -70,7 +70,7 @@
                 <div>
                     <label class="form-label" for="st-add-type">Strategy</label>
                     <select class="form-select" id="st-add-type" name="type">
-                        @foreach (var t in new[] { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout, StrategyType.Ema21 })
+                        @foreach (var t in new[] { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout })
                         { <option value="@t">@StrategyText.TypeName(t)</option> }
                     </select>
                 </div>
