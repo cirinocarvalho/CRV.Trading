@@ -120,6 +120,31 @@ public static class LevelCalculator
         => tickSize > 0 ? Math.Floor(price / tickSize) * tickSize : price;
 }
 
+/// <summary>A trade's target and partial once the reward / risk guard has looked at it.</summary>
+public sealed record GuardedLevels(decimal Target, decimal Partial, decimal Rr, bool Skip);
+
+/// <summary>
+/// The per-trade minimum reward / risk rule. A trade with no reward or no risk is always
+/// skipped: its target would sit on the entry. Otherwise, with the guard on, a trade below
+/// MinRr is skipped or has its target raised to MinRr; with it off, it is taken as it is.
+/// </summary>
+public static class MinRrGuard
+{
+    public static GuardedLevels Apply(StrategySetupConfig cfg, LevelRequest r)
+    {
+        var (target, partial, rr) = LevelCalculator.Targets(r);
+        if (rr <= 0) return new(target, partial, rr, Skip: true);
+        if (!cfg.EnforceMinRr || rr >= cfg.MinRr) return new(target, partial, rr, Skip: false);
+        if (cfg.MinRrAction == MinRrAction.Skip) return new(target, partial, rr, Skip: true);
+
+        // Only a trade below the minimum is raised: the raised target is built from MinRr x risk
+        // alone, so applying it to a trade already above would pull its target in.
+        var (raised, raisedPartial) = LevelCalculator.RaiseToMinRr(r, cfg.MinRr);
+        decimal risk = Math.Abs(r.Entry - r.Stop);
+        return new(raised, raisedPartial, Math.Abs(raised - r.Entry) / risk, Skip: false);
+    }
+}
+
 /// <summary>Result of one bar's exit processing.</summary>
 public record ExitResult(
     bool    HitTarget,
