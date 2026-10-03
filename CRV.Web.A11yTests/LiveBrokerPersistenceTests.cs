@@ -50,7 +50,7 @@ public class LiveBrokerPersistenceTests : IDisposable
         var rows = await db.StrategyLogs.ToListAsync();
         Assert.Single(rows);
         Assert.True(rows[0].IsCompleted);
-        Assert.Empty(StrategyLogRecovery.Recoverable(db.StrategyLogs, DateTime.UtcNow));
+        Assert.Empty(StrategyLogRecovery.Recoverable(db.StrategyLogs));
     }
 
     [Fact]

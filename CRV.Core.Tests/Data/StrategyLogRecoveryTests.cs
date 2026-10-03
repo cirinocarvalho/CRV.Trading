@@ -32,19 +32,20 @@ public class StrategyLogRecoveryTests : IDisposable
     };
 
     [Fact]
-    public void Recoverable_IncludesAnOpenPositionHeldOverTheWeekend()
+    public void Recoverable_IncludesEveryUnfinishedPositionHoweverOld()
     {
         var monday = new DateTime(2026, 4, 20, 14, 0, 0, DateTimeKind.Utc);
         _db.StrategyLogs.AddRange(
             Log("1001", monday.AddHours(-1), completed: false),                                     // this morning
             Log("1002", new DateTime(2026, 4, 17, 19, 0, 0, DateTimeKind.Utc), completed: false),   // Friday, held
             Log("1003", new DateTime(2026, 4, 17, 15, 0, 0, DateTimeKind.Utc), completed: true),    // Friday, closed
-            Log("1004", monday.AddDays(-30), completed: false));                                    // long gone
+            Log("1004", monday.AddDays(-30), completed: false),                                     // held for a month
+            Log("1005", monday.AddDays(-30), completed: true));                                     // closed a month ago
         _db.SaveChanges();
 
-        var ids = StrategyLogRecovery.Recoverable(_db.StrategyLogs, monday)
+        var ids = StrategyLogRecovery.Recoverable(_db.StrategyLogs)
             .Select(s => s.BrokerStrategyId).OrderBy(s => s).ToList();
 
-        Assert.Equal(new[] { "1001", "1002" }, ids);
+        Assert.Equal(new[] { "1001", "1002", "1004" }, ids);
     }
 }
