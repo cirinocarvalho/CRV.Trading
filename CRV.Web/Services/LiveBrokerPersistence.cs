@@ -88,10 +88,8 @@ public class LiveBrokerPersistence : IBrokerPersistence
             using var scope = _sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-            // Find uncompleted strategies from today
-            var today = DateTime.UtcNow.Date;
-            var logs = await db.StrategyLogs
-                .Where(s => !s.IsCompleted && s.CreatedAt >= today)
+            // Uncompleted strategies recent enough to still be open, including positions held overnight
+            var logs = await StrategyLogRecovery.Recoverable(db.StrategyLogs, DateTime.UtcNow)
                 .ToListAsync(ct);
 
             _log?.LogInformation("[RECOVER] Found {N} uncompleted strategies in StrategyLog", logs.Count);
