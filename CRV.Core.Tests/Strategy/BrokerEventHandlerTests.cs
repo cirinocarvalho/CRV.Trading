@@ -752,4 +752,29 @@ public class BrokerEventHandlerTests
         public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty) => Task.FromResult(0m);
         public Task<decimal?> GetOrderFillPriceAsync(string orderId) => Task.FromResult<decimal?>(null);
     }
+
+    [Fact]
+    public async Task ExitAll_LeavesTheGroupsTheFilterKeeps()
+    {
+        var exec = new FakeGroupExecutor();
+        var handler = new BrokerEventHandler(exec);
+
+        var held = MakeGroup("hold");
+        held.Status = GroupOrderStatus.Active;
+        held.EntryPrice = 20000m;
+        handler.RegisterGroup(held, new FakeSetup { Id = "hold" });
+
+        var closed = new GroupOrder
+        {
+            GroupOrderId = "grp-002", SetupId = "close", Ticker = "/NQH2026", Direction = Direction.Long,
+            TotalContracts = 2, PointValue = 20m, EntryPrice = 20000m, Status = GroupOrderStatus.Active, Broker = "Mock",
+        };
+        handler.RegisterGroup(closed, new FakeSetup { Id = "close", SetupId = SetupId.B });
+
+        await handler.ExitAllAsync(_ => 20010m, keep: (g, s) => s.Id == "hold");
+
+        Assert.NotNull(handler.GetActiveGroup("hold"));
+        Assert.Null(handler.GetActiveGroup("close"));
+        Assert.Single(exec.MarketCloses);
+    }
 }

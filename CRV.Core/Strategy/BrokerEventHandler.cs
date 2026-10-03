@@ -574,14 +574,18 @@ public class BrokerEventHandler
         }
     }
 
-    /// <summary>Force-close all active groups (session boundary).</summary>
+    /// <summary>Force-close active groups at a session boundary, except those <paramref name="keep"/> returns true for.</summary>
     /// <param name="priceResolver">Resolves current price for a ticker. Null = no trade records.</param>
     /// <param name="exitTime">Simulated time for backtest; null = DateTime.UtcNow.</param>
-    public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null, DateTime? exitTime = null)
+    /// <param name="keep">Groups to leave open (a held position); null closes every group.</param>
+    public async Task ExitAllAsync(Func<string, decimal>? priceResolver = null, DateTime? exitTime = null,
+        Func<GroupOrder, ISetupStrategy, bool>? keep = null)
     {
         List<(string Id, string Ticker)> setupInfo;
         lock (_lock)
-            setupInfo = _active.Select(kv => (kv.Key, kv.Value.Group.Ticker)).ToList();
+            setupInfo = _active
+                .Where(kv => keep == null || !keep(kv.Value.Group, kv.Value.Strategy))
+                .Select(kv => (kv.Key, kv.Value.Group.Ticker)).ToList();
 
         foreach (var (id, ticker) in setupInfo)
         {

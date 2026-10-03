@@ -425,15 +425,27 @@ public class ComposableEngine
         await PublishSnapshotInternal();
     }
 
-    /// <summary>Force-exit all active trades.</summary>
+    /// <summary>
+    /// Session-end exit: closes every active group except the filled positions of strategies
+    /// that hold past the session, then resets session state. Resets keep InTrade, so a held
+    /// position stays tracked into the next session.
+    /// </summary>
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         if (_brokerHandler != null)
-            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker), utcTime);
+            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker), utcTime, HoldsPastSessionEnd);
 
         foreach (var (_, strategy) in _strategies)
             strategy.ResetSession();
     }
+
+    /// <summary>
+    /// A filled position whose strategy holds past the session
+    /// (<see cref="ISetupStrategy.CloseAtRthClose"/> false). An unfilled entry is never held.
+    /// </summary>
+    internal static bool HoldsPastSessionEnd(GroupOrder group, ISetupStrategy strategy)
+        => !strategy.CloseAtRthClose
+           && group.Status is GroupOrderStatus.Active or GroupOrderStatus.PartialFilled;
 
     // ── State ───────────────────────────────────────────────────────
 
