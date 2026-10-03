@@ -71,6 +71,7 @@ public class ComposableEngine
         _sink = sink;
         _prices = prices;
         _config = config;
+        ApplyDailyLossLimit();
         _brokerHandler = brokerHandler;
     }
 
@@ -177,7 +178,7 @@ public class ComposableEngine
         if (_idle) return;
         if (!_tickModeEnabled) return;
         if (price <= 0) return;
-        if (Risk.DdBreached) return;
+        if (Risk.DdBreached(HeldOpenLoss(utcTime))) return;
 
         var groupKey = TickerGroup.GetGroupKey(ticker);
         if (!_groups.TryGetValue(groupKey, out var group)) return;
@@ -219,8 +220,13 @@ public class ComposableEngine
             if (!string.IsNullOrEmpty(_activeSessionId))
                 esig = esig with { SessionId = _activeSessionId };
 
-            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode))
+            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode, HeldOpenLoss(esig.Time)))
+            {
+                // Held open loss is marked to market, so the breach can clear again;
+                // the refused signal must not cost the setup its trade slot.
+                sig.Strategy.RevertEntry();
                 continue;
+            }
 
             // Concurrent exposure ceiling. The per-trade cap and the daily loss limit
             // say nothing about how much is committed right now across every setup,
@@ -290,14 +296,13 @@ public class ComposableEngine
     {
         foreach (var strategy in _strategies.Values)
         {
-            // Silently clear any active trades from warmup — those entries were
-            // discarded (no broker order placed), so the strategy must not think
-            // it has a real position. Disarm() resets _state to 0 (idle) without
-            // producing exit signals or recording phantom trades.
+            // Warmup entries are discarded before any order is placed, so a strategy
+            // in a trade here holds a real position recovered from the broker.
+            // ResetSession clears its arm state and counters and keeps InTrade.
             if (strategy.IsActive)
             {
                 strategy.ClearPendingSignals();
-                strategy.ResetSession();  // full reset: clears entry/stop/target/state
+                strategy.ResetSession();
             }
             else
             {
@@ -320,6 +325,7 @@ public class ComposableEngine
     public void Reconfigure(StrategyConfig cfg, SessionId sessionId)
     {
         _config = cfg.ToEngineConfig();
+        ApplyDailyLossLimit();
         _activeSessionId = sessionId.ToString();
 
         // Push each strategy's config first so its OrbStart/OrbEnd reflects the new
@@ -359,6 +365,7 @@ public class ComposableEngine
     public void ApplyRuntimeSettings(StrategyConfig cfg)
     {
         _config = cfg.ToEngineConfig();
+        ApplyDailyLossLimit();
 
         // Push per-setup config to each registered strategy
         var newSetupConfigs = cfg.ToSetupConfigs();
@@ -381,6 +388,7 @@ public class ComposableEngine
     public void Reconfigure(EngineConfig globalConfig, List<StrategySetupConfig> setupConfigs)
     {
         _config = globalConfig;
+        ApplyDailyLossLimit();
 
         // Reconfigure existing strategies
         foreach (var setupCfg in setupConfigs)
@@ -426,14 +434,78 @@ public class ComposableEngine
         await PublishSnapshotInternal();
     }
 
-    /// <summary>Force-exit all active trades.</summary>
+    /// <summary>
+    /// Session-end exit: closes every active group except the filled positions of strategies
+    /// that hold past the session, then resets session state. Resets keep InTrade, so a held
+    /// position stays tracked into the next session.
+    /// </summary>
     public async Task ForceExitAllAsync(DateTime? utcTime = null)
     {
         if (_brokerHandler != null)
-            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker), utcTime);
+            await _brokerHandler.ExitAllAsync(ticker => _prices.GetLastPrice(ticker), utcTime, HoldsPastSessionEnd);
 
         foreach (var (_, strategy) in _strategies)
             strategy.ResetSession();
+    }
+
+    /// <summary>
+    /// A filled position whose strategy holds past the session
+    /// (<see cref="ISetupStrategy.CloseAtRthClose"/> false). An unfilled entry is never held.
+    /// </summary>
+    internal static bool HoldsPastSessionEnd(GroupOrder group, ISetupStrategy strategy)
+        => !strategy.CloseAtRthClose
+           && group.Status is GroupOrderStatus.Active or GroupOrderStatus.PartialFilled;
+
+    private void ApplyDailyLossLimit()
+        => Risk.ApplyLimit(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode);
+
+    private TimeZoneInfo? _zone;
+    private string? _zoneId;
+
+    private TimeZoneInfo Zone
+    {
+        get
+        {
+            if (_zone == null || _zoneId != _config.Timezone)
+            {
+                _zone   = TimeZoneInfo.FindSystemTimeZoneById(_config.Timezone);
+                _zoneId = _config.Timezone;
+            }
+            return _zone;
+        }
+    }
+
+    /// <summary>
+    /// Open loss (≤ 0) of positions opened on an earlier trading day, marked at the last price.
+    /// It counts against today's daily loss limit. A position in profit counts as zero, so a held
+    /// winner never hides a realized loss. One with no price yet (0 after a restart) also counts
+    /// as zero rather than as a loss of its whole notional. Only the contracts still open are
+    /// marked: a partial booked on an earlier day is not today's P&amp;L and must not offset the
+    /// open loss of the remaining leg.
+    /// </summary>
+    internal decimal HeldOpenLoss(DateTime utcNow)
+    {
+        if (!_config.UseDailyLossLimit || _brokerHandler == null) return 0m;
+
+        var today = TradingDay.OfUtc(utcNow, Zone, _config.SessionStartHour);
+        decimal loss = 0m;
+        foreach (var g in _brokerHandler.GetAllActiveGroups())
+        {
+            if (g.EntryPrice is null || g.Status is not (GroupOrderStatus.Active or GroupOrderStatus.PartialFilled)) continue;
+            if (TradingDay.OfUtc(g.CreatedAt, Zone, _config.SessionStartHour) >= today) continue;
+            var price = _prices.GetLastPrice(g.Ticker);
+            if (price <= 0) continue;
+            loss += Math.Min(0m, OpenContractsPnl(g, price));
+        }
+        return loss;
+    }
+
+    /// <summary>Mark-to-market of the contracts still open in <paramref name="g"/>, excluding booked partials.</summary>
+    private static decimal OpenContractsPnl(GroupOrder g, decimal price)
+    {
+        var open = g.Status == GroupOrderStatus.PartialFilled ? g.RemainingContracts : g.TotalContracts;
+        var points = g.Direction == Direction.Long ? price - g.EntryPrice!.Value : g.EntryPrice!.Value - price;
+        return points * g.PointValue * open;
     }
 
     // ── State ───────────────────────────────────────────────────────
@@ -518,6 +590,7 @@ public class ComposableEngine
             OrbWindowStart = _config.OrbStart.ToString("HH:mm"),
             OrbWindowEnd = _config.OrbEnd.ToString("HH:mm"),
             DailyLossLimit = _config.MaxDailyLoss,
+            HeldOpenLoss = HeldOpenLoss(DateTime.UtcNow),
             CurrentSession = modState.CurrentSession.ToString(),
             SessionHigh = modState.SessionHigh,
             SessionLow = modState.SessionLow,

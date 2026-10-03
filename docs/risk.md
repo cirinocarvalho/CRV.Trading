@@ -6,7 +6,7 @@ Three gates, where there used to be two.
 |---|---|---|
 | Per-trade cap | One entry | `MaxTradeRisk` + `AutoSizeByRisk`, per basket entry |
 | **Portfolio ceiling** | **Everything open at once** | **`MaxPortfolioRisk`, global. 0 disables** |
-| Daily loss limit | One session's realised P&L | `MaxDailyLoss`, `DailyLossMode` |
+| Daily loss limit | Today's realised P&L plus the open loss of positions held in from an earlier day | `MaxDailyLoss`, `DailyLossMode` |
 
 ## Portfolio ceiling
 
@@ -25,12 +25,32 @@ Two decisions worth knowing:
   orders all fill on one move and breach a ceiling that was never checked against them
   — exactly the correlated case this exists to catch.
 - **A refused signal calls `RevertEntry()`**, so it does not consume the setup's trade
-  slot. A portfolio block is temporary — it lifts when a position closes — unlike a
-  daily-loss breach, which stops the engine outright.
+  slot. A portfolio block is temporary — it lifts when a position closes. A daily-loss
+  refusal reverts too, since held open loss is marked to market and the breach can clear.
+  A daily-loss breach stops new entries; open (and held) positions keep their stops and
+  targets.
 
 Exposure is read from the live group orders, never from a ledger kept alongside them.
 A parallel ledger drifts: an entry that never fills leaves risk booked forever and
 quietly stops the book trading.
+
+## Held positions and the daily limit
+
+A setup with **Close at the end of the session** off holds an open trade past its cutoff and
+into the next session. That trade's loss belongs to no earlier day that is still being
+checked, so the daily limit counts it:
+
+- realised P&L today, plus
+- the open loss of every position opened on an **earlier trading day** (18:00 ET roll),
+  marked at the last price.
+
+A held position in profit counts as zero, so it cannot hide a realised loss. One with no
+price yet (just after a restart) also counts as zero until the first tick. Positions opened
+today are not counted while open, as before. When the limit trips, new entries stop; held
+positions are not closed by it and keep their own stops. The dashboard's HALTED state
+includes held loss; the loss gauge stays realised.
+
+Pinned by `HeldLossDailyLimitTests` and `RiskManagerTests`.
 
 ## Position sizing across instruments
 

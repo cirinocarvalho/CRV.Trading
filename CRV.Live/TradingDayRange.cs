@@ -1,3 +1,5 @@
+using CRV.Core.Models;
+
 namespace CRV.Live;
 
 /// <summary>
@@ -19,7 +21,6 @@ public static class TradingDayRange
     /// <summary>The trading day a UTC instant belongs to.</summary>
     public static DateOnly Of(DateTime utc, int sessionStartHour, TimeZoneInfo et)
     {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), et);
-        return DateOnly.FromDateTime(local.Hour >= sessionStartHour ? local.Date.AddDays(1) : local.Date);
+        return DateOnly.FromDateTime(TradingDay.OfUtc(utc, et, sessionStartHour));
     }
 }

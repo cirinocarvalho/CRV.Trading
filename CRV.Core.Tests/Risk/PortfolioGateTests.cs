@@ -53,6 +53,7 @@ public class PortfolioGateTests
         public TimeOnly OrbEnd => new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter => false;
+        public bool CloseAtRthClose { get; set; } = true;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
         public void OnBar(Bar b, OrbState o, IndicatorState i, ModuleState m) { }
@@ -80,15 +81,16 @@ public class PortfolioGateTests
             PartialContracts: 0, PointValue: 2m, UsePartial: false, UseBe: false);
 
     private static (ComposableEngine engine, BrokerEventHandler handler, RecordingExecutor exec)
-        Build(decimal maxPortfolioRisk)
+        Build(decimal maxPortfolioRisk, decimal maxDailyLoss = 0m)
     {
         var exec    = new RecordingExecutor();
         var handler = new BrokerEventHandler(exec) { IsBacktest = true };
         var cfg     = new StrategyConfig
         {
             Ticker = "MNQM26", PointValue = 2m, TickSize = 0.25m,
-            UseDailyLossLimit = false,
-            MaxPortfolioRisk = maxPortfolioRisk,
+            UseDailyLossLimit = maxDailyLoss > 0m,
+            MaxDailyLoss      = maxDailyLoss,
+            MaxPortfolioRisk  = maxPortfolioRisk,
         }.ToEngineConfig();
 
         var engine = new ComposableEngine(
@@ -145,13 +147,27 @@ public class PortfolioGateTests
     public async Task ARefusedSignalDoesNotConsumeTheSetupsTradeSlot()
     {
         // A portfolio block is temporary — it lifts when a position closes — so the
-        // strategy has to be able to re-arm. That is not true of a daily-loss breach,
-        // which stops the engine outright.
+        // strategy has to be able to re-arm.
         var (engine, _, _) = Build(maxPortfolioRisk: 100m);
         var strategy = new StubStrategy();
 
         await Route(engine, strategy, Signal(18020m, 18000m, 10));
 
+        Assert.True(strategy.Reverted);
+    }
+
+    [Fact]
+    public async Task ASignalRefusedByTheDailyLossLimitDoesNotConsumeTheSetupsTradeSlot()
+    {
+        // Held open loss is marked to market, so a breach can clear again within the
+        // session; the setup must still be able to take its trade when it does.
+        var (engine, _, exec) = Build(maxPortfolioRisk: 0m, maxDailyLoss: 100m);
+        var strategy = new StubStrategy();
+        engine.Risk.RecordTrade(-200m);
+
+        await Route(engine, strategy, Signal(18020m, 18000m, 1));
+
+        Assert.Empty(exec.Placed);
         Assert.True(strategy.Reverted);
     }
 

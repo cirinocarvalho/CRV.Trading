@@ -78,6 +78,7 @@ public class ChopFilterIntegrationTests
         public TimeOnly OrbEnd   { get; set; } = new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter { get; set; } = false;
+        public bool CloseAtRthClose { get; set; } = true;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }

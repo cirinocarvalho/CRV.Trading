@@ -561,6 +561,11 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         _log.LogInformation("[TV-RECOVER] Recovering strategy {S} for {Ticker} {Dir}", strategyId, ticker, direction);
 
         var disc = await DiscoverBracketLegsAsync(strategyId, symbol, entryAction, exitAction, usePartial);
+
+        // A failed lookup is not "no legs": the caller must keep tracking the strategy and retry.
+        if (disc.Failed)
+            throw new InvalidOperationException($"Tradovate leg discovery failed for strategy {strategyId}");
+
         if (disc.Entry is null && disc.Tg1 is null && disc.Stop is null)
         {
             _log.LogError("[TV-RECOVER] No legs found for strategy {S}", strategyId);
@@ -1625,11 +1630,13 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
 
     /// <summary>Result of bracket leg discovery — includes full order info for REST-based state sync.
     /// Targets and Stops are indexed by bracket position (0 = first bracket).
-    /// For 1..2 bracket backcompat, Tg1/Tg2/Stop/Stop2 properties map to Targets[0..1] / Stops[0..1].</summary>
+    /// For 1..2 bracket backcompat, Tg1/Tg2/Stop/Stop2 properties map to Targets[0..1] / Stops[0..1].
+    /// Failed: a REST request failed, so the empty legs say nothing about the strategy.</summary>
     private record BracketDiscovery(
         DiscoveredLeg? Entry,
         IReadOnlyList<DiscoveredLeg?> Targets,
-        IReadOnlyList<DiscoveredLeg?> Stops)
+        IReadOnlyList<DiscoveredLeg?> Stops,
+        bool Failed = false)
     {
         public DiscoveredLeg? Tg1   => Targets.Count > 0 ? Targets[0] : null;
         public DiscoveredLeg? Tg2   => Targets.Count > 1 ? Targets[1] : null;
@@ -1809,6 +1816,7 @@ public class TradovateExecutor : IOrderExecutor, IGroupOrderExecutor
         catch (Exception ex)
         {
             _log.LogError(ex, "[TV] DiscoverBracketLegsAsync failed");
+            return new BracketDiscovery(null, Array.Empty<DiscoveredLeg?>(), Array.Empty<DiscoveredLeg?>(), Failed: true);
         }
 
         return new BracketDiscovery(null, Array.Empty<DiscoveredLeg?>(), Array.Empty<DiscoveredLeg?>());

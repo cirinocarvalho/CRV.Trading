@@ -57,6 +57,7 @@ public class ComposableEngineTests
         public TimeOnly OrbEnd   { get; set; } = new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter => false;
+        public bool CloseAtRthClose { get; set; } = true;
         public bool IsActive { get; set; }
         public bool IsArmed { get; set; }
         public bool InTrade { get; set; }
@@ -333,7 +334,7 @@ public class ComposableEngineTests
         engine.Risk.RecordTrade(-200m);
         engine.Risk.CanTrade(true, 100m); // triggers DdBreached
 
-        Assert.True(engine.Risk.DdBreached);
+        Assert.True(engine.Risk.DdBreached());
     }
 
     // ── ProcessBarAsync routes to correct TickerGroup ──
@@ -395,7 +396,7 @@ public class ComposableEngineTests
         engine.ResetDaily();
 
         Assert.Equal(0m, engine.Risk.TodayPnl);
-        Assert.False(engine.Risk.DdBreached);
+        Assert.False(engine.Risk.DdBreached());
     }
 
     // ── ForceExitAll exits all active setups ──

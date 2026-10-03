@@ -21,6 +21,7 @@ public class SnapshotAggregatorTests
         public TimeOnly OrbEnd   { get; init; } = new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter => false;
+        public bool CloseAtRthClose { get; set; } = true;
         public bool IsActive { get; init; }
         public bool IsArmed { get; init; }
         public bool InTrade { get; set; }
@@ -57,6 +58,18 @@ public class SnapshotAggregatorTests
         var stub = new StubStrategy { Id = id.ToString(), SetupId = id };
         if (ss != null) stub.SetSnapshot(ss);
         return stub;
+    }
+
+    [Fact]
+    public void SetupSnapshot_SaysWhetherTheSetupHolds()
+    {
+        var holds  = new StubStrategy { Id = "H", SetupId = SetupId.F, CloseAtRthClose = false };
+        var closes = new StubStrategy { Id = "C", SetupId = SetupId.F };
+
+        var snap = SnapshotAggregator.Build(DefaultInputs(holds, closes));
+
+        Assert.False(FindSetup(snap, "H").CloseAtRthClose);
+        Assert.True(FindSetup(snap, "C").CloseAtRthClose);
     }
 
     private static SnapshotAggregator.Inputs DefaultInputs(params ISetupStrategy[] strategies) => new()
@@ -586,5 +599,21 @@ public class SnapshotAggregatorTests
         var card = FindSetup(snap, "ema21-mnq");
         Assert.Equal(("EMA21 [MNQ]", "", "MNQZ26", false, "retired EMA21 strategy"),
             (card.Label, card.StrategyType, card.Ticker, card.Enabled, card.DisabledReason));
+    }
+
+    [Fact]
+    public void TradingHalted_CountsHeldOpenLoss()
+    {
+        var risk = new RiskManager();
+        risk.RecordTrade(-200m);
+        risk.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
+
+        var snap = SnapshotAggregator.Build(new SnapshotAggregator.Inputs
+        {
+            Strategies = Array.Empty<ISetupStrategy>(), Risk = risk, LastPrice = 5000m, HeldOpenLoss = -300m,
+        });
+
+        Assert.True(snap.TradingHalted);
+        Assert.Equal(200m, snap.DailyLossUsed);   // the gauge stays realized
     }
 }

@@ -34,6 +34,9 @@ public class LiveBrokerPersistence : IBrokerPersistence
             using var scope = _sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
+            // Recovery re-registers a surviving group, which reports it as placed again
+            if (await db.StrategyLogs.AnyAsync(s => s.BrokerStrategyId == group.BrokerStrategyId)) return;
+
             db.StrategyLogs.Add(new StrategyLog
             {
                 BrokerStrategyId = group.BrokerStrategyId,
@@ -65,11 +68,12 @@ public class LiveBrokerPersistence : IBrokerPersistence
             using var scope = _sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-            var log = await db.StrategyLogs
-                .FirstOrDefaultAsync(s => s.BrokerStrategyId == group.BrokerStrategyId);
-            if (log != null)
+            var logs = await db.StrategyLogs
+                .Where(s => s.BrokerStrategyId == group.BrokerStrategyId)
+                .ToListAsync();
+            if (logs.Count > 0)
             {
-                log.IsCompleted = true;
+                foreach (var log in logs) log.IsCompleted = true;
                 await db.SaveChangesAsync();
                 _log?.LogDebug("[PERSIST] StrategyLog completed: {S}", group.BrokerStrategyId);
             }
@@ -88,10 +92,8 @@ public class LiveBrokerPersistence : IBrokerPersistence
             using var scope = _sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-            // Find uncompleted strategies from today
-            var today = DateTime.UtcNow.Date;
-            var logs = await db.StrategyLogs
-                .Where(s => !s.IsCompleted && s.CreatedAt >= today)
+            // Every uncompleted strategy, including positions held over any number of days
+            var logs = await StrategyLogRecovery.Recoverable(db.StrategyLogs)
                 .ToListAsync(ct);
 
             _log?.LogInformation("[RECOVER] Found {N} uncompleted strategies in StrategyLog", logs.Count);

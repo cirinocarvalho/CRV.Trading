@@ -39,6 +39,28 @@ public class CockpitCardTests(A11yAppFixture app)
         Assert.Equal("21260.00 | $180 | 60.00 pts", cells["target"]);
     }
 
+    [Fact]
+    public async Task Footer_SaysWhetherTheSetupClosesOrHolds()
+    {
+        await using var context = await app.Browser.NewContextAsync();
+        var page = await context.NewPageAsync();
+        await page.GotoAsync(new Uri(app.BaseAddress, "/dashboard").ToString(), new() { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("""
+            json => {
+                CRV.engine.status('Live');
+                document.dispatchEvent(new CustomEvent('crv:update', { detail: JSON.parse(json) }));
+            }
+            """, CockpitSnapshot.Json([
+                CockpitSnapshot.Setup("a11y-closes", "Pullback [MNQ]", "Pullback", state: 0),
+                CockpitSnapshot.Setup("a11y-holds", "Retest [MNQ]", "Retest", state: 0, closeAtRthClose: false),
+            ]));
+
+        var closes = page.Locator("#a11y-closes-hold");
+        await closes.WaitForAsync();
+        Assert.Equal("closes at session end", (await closes.TextContentAsync())!.Trim());
+        Assert.Equal("holds past cutoff", (await page.Locator("#a11y-holds-hold").TextContentAsync())!.Trim());
+    }
+
     private static SetupSnapshot Trade(string id, ActiveTradeView trade) =>
         CockpitSnapshot.Setup(id, "ORB fakeout [MES]", "OrbFakeout", state: 0, trade: trade);
 

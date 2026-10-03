@@ -135,6 +135,7 @@ public class BacktestEngine
         var tz           = TimeZoneInfo.FindSystemTimeZoneById(_cfg.Timezone);
         DateTime lastDailyReset = DateTime.MinValue;
         bool betweenSessions = true;  // Start in gap; first SessionStarted will clear it
+        var openedThisSession = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // tickers past their session open
 
         int runTfFallback = Math.Max(1, _btCfg.ExecutionTFMinutes);
         // Per-ticker TF: basket override wins, else the backtest run TF.
@@ -153,8 +154,11 @@ public class BacktestEngine
         var buckets = new Dictionary<string, BucketState>(StringComparer.OrdinalIgnoreCase);
         int tfBarsOut = 0;   // completed TF bars emitted (global warmup counter)
 
+        DateTime? lastBarTime = null;
+
         await foreach (var (ticker, bar) in taggedBars.WithCancellation(ct))
         {
+            lastBarTime = bar.Time;
             var local     = TimeZoneInfo.ConvertTimeFromUtc(bar.Time, tz);
             var localTime = TimeOnly.FromDateTime(local);
             var tradingDate = _cfg.TradingDate(local);
@@ -181,7 +185,7 @@ public class BacktestEngine
             if (newBkt && bkt.BucketKey != null)
             {
                 // ── Emit the completed TF bucket for this ticker ─────
-                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, ct);
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, openedThisSession, ct);
                 tfBarsOut++;
 
                 // Start new bucket
@@ -210,6 +214,8 @@ public class BacktestEngine
             {
                 case TransitionType.SessionStarted:
                     engine.Reconfigure(session!.ToLegacyConfig(_cfg), session.SessionId);
+                    // A session that directly follows another opens without a break.
+                    if (betweenSessions) openedThisSession.Clear();
                     betweenSessions = false;
                     break;
                 case TransitionType.SessionEnded:
@@ -223,7 +229,7 @@ public class BacktestEngine
                         if (flushBkt.BucketKey != null && flushBkt.Pending.Count > 0)
                         {
                             await EmitBucket(engine, prices, flushBkt, flushTicker,
-                                tfBarsOut, false, groupExec, ct);
+                                tfBarsOut, false, groupExec, openedThisSession, ct);
                             tfBarsOut++;
                             flushBkt.Pending.Clear();
                             flushBkt.BucketKey = null;
@@ -245,10 +251,15 @@ public class BacktestEngine
         {
             if (bkt.BucketKey != null)
             {
-                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, ct);
+                await EmitBucket(engine, prices, bkt, ticker, tfBarsOut, betweenSessions, groupExec, openedThisSession, ct);
                 tfBarsOut++;
             }
         }
+
+        // A position still open when the data ends is closed at the last bar's close so the
+        // result includes it.
+        if (lastBarTime != null)
+            await handler.ExitAllAsync(t => buckets.TryGetValue(t, out var b) ? b.Close : 0m, lastBarTime);
 
         _log.LogInformation("Backtest complete. {TfBars} TF bars processed, {Trades} trades, {Refused} signals refused for size.",
             tfBarsOut, trades.Count, sink.Refusals.Count);
@@ -261,6 +272,7 @@ public class BacktestEngine
         BucketState bkt, string ticker,
         int tfBarsOut, bool betweenSessions,
         BacktestGroupOrderExecutor groupExec,
+        HashSet<string> openedThisSession,
         CancellationToken ct)
     {
         var tfBar    = new Bar(bkt.BucketKey!.Value, bkt.Open, bkt.High, bkt.Low, bkt.Close, bkt.Volume);
@@ -271,36 +283,32 @@ public class BacktestEngine
             if (betweenSessions) engine.ClearIdle();
             await engine.WarmupBarAsync(tfBar, ticker, ct);
             if (betweenSessions) engine.SetIdle();
+
+            // Orders stay working at the broker between sessions, so a position held past
+            // session end can still hit its stop or target overnight. Session end cancels
+            // everything else, so this finds nothing to fill unless a position is held.
+            // Out of session each bar's open may follow a halt or weekend, so a stop it
+            // gapped through fills at the open.
+            if (!isWarmup)
+            {
+                foreach (var p in bkt.Pending)
+                foreach (var (price, time) in TickPath(p.O, p.H, p.L, p.C, p.T))
+                {
+                    prices.UpdatePrice(ticker, price);
+                    await groupExec.EvaluateFillsAsync(price, time, ticker, afterBreak: time == p.T);
+                }
+            }
         }
         else
         {
             // 1. Fire accumulated 1-min OHLC ticks for entry/exit evaluation.
-            foreach (var (o, h, l, c, t) in bkt.Pending)
+            //    The session's first tick for a ticker is its open after the break.
+            foreach (var p in bkt.Pending)
+            foreach (var (price, time) in TickPath(p.O, p.H, p.L, p.C, p.T))
             {
-                prices.UpdatePrice(ticker, o);
-                await engine.ProcessPriceTickAsync(o, t, ticker);
-                await groupExec.EvaluateFillsAsync(o, t, ticker);
-                if (c >= o)
-                {   // Bullish: O → L → H → C
-                    prices.UpdatePrice(ticker, l);
-                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(15), ticker);
-                    prices.UpdatePrice(ticker, h);
-                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(30), ticker);
-                }
-                else
-                {   // Bearish: O → H → L → C
-                    prices.UpdatePrice(ticker, h);
-                    await engine.ProcessPriceTickAsync(h, t.AddSeconds(15), ticker);
-                    await groupExec.EvaluateFillsAsync(h, t.AddSeconds(15), ticker);
-                    prices.UpdatePrice(ticker, l);
-                    await engine.ProcessPriceTickAsync(l, t.AddSeconds(30), ticker);
-                    await groupExec.EvaluateFillsAsync(l, t.AddSeconds(30), ticker);
-                }
-                prices.UpdatePrice(ticker, c);
-                await engine.ProcessPriceTickAsync(c, t.AddSeconds(45), ticker);
-                await groupExec.EvaluateFillsAsync(c, t.AddSeconds(45), ticker);
+                prices.UpdatePrice(ticker, price);
+                await engine.ProcessPriceTickAsync(price, time, ticker);
+                await groupExec.EvaluateFillsAsync(price, time, ticker, afterBreak: openedThisSession.Add(ticker));
             }
             // 2. Process the completed TF bar to update indicators and arm state.
             //    Strategies armed by the bar will enter on the NEXT bucket's first
@@ -310,6 +318,26 @@ public class BacktestEngine
             await engine.ProcessBarAsync(tfBar, ticker, ct);
 
         }
+    }
+
+    /// <summary>
+    /// The four prices a one-minute bar is replayed as, 15 s apart:
+    /// bullish O → L → H → C, bearish O → H → L → C.
+    /// </summary>
+    private static IEnumerable<(decimal Price, DateTime Time)> TickPath(decimal o, decimal h, decimal l, decimal c, DateTime t)
+    {
+        yield return (o, t);
+        if (c >= o)
+        {
+            yield return (l, t.AddSeconds(15));
+            yield return (h, t.AddSeconds(30));
+        }
+        else
+        {
+            yield return (h, t.AddSeconds(15));
+            yield return (l, t.AddSeconds(30));
+        }
+        yield return (c, t.AddSeconds(45));
     }
 
     /// <summary>Returns the start DateTime of the N-minute execution-TF bucket containing <paramref name="t"/>.</summary>
@@ -534,8 +562,13 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
         return Task.FromResult(0m); // No-op in backtest
     }
 
-    /// <summary>Evaluate fills for WORKING orders on the given ticker against current price.</summary>
-    public async Task EvaluateFillsAsync(decimal price, DateTime utcNow, string ticker)
+    /// <summary>
+    /// Evaluate fills for WORKING orders on the given ticker against current price.
+    /// <paramref name="afterBreak"/>: the price is the first after a pause in trading (a session
+    /// open, or a bar between sessions), so a stop it is already through fills at the price,
+    /// not at the stop level.
+    /// </summary>
+    public async Task EvaluateFillsAsync(decimal price, DateTime utcNow, string ticker, bool afterBreak = false)
     {
         if (price <= 0) return;
 
@@ -580,8 +613,13 @@ internal class BacktestGroupOrderExecutor : IGroupOrderExecutor
                 leg.Status = "FILLED";
                 // Fill at the order level rather than the tick that triggered it, then
                 // charge the stop its slippage: a touched stop is a market order.
+                // After a break a stop can open already through its level; it then
+                // fills at the open, the first price there was to trade at.
+                bool isStop    = leg.StopPrice.HasValue && !leg.LimitPrice.HasValue;
                 var orderLevel = leg.LimitPrice ?? leg.StopPrice ?? price;
-                var fillPrice  = leg.StopPrice.HasValue && !leg.LimitPrice.HasValue
+                if (isStop && afterBreak)
+                    orderLevel = leg.Action == "BUY" ? Math.Max(orderLevel, price) : Math.Min(orderLevel, price);
+                var fillPrice  = isStop
                     ? _exec.ExitFill(leg.LegType, leg.Action == "BUY", orderLevel, ticker)
                     : orderLevel;
 

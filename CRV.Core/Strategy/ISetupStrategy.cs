@@ -121,6 +121,13 @@ public interface ISetupStrategy
     /// <summary>When true, this setup is exempt from the global chop-regime filter (entries fire even when chop is flagged).</summary>
     bool BypassChopFilter { get; }
 
+    /// <summary>
+    /// True: the open position is closed at the setup's cutoff, when its session slot is off,
+    /// and at session end. False: those only stop new entries; an open position is held into
+    /// the next session and leaves through its own stop, targets, trail or a manual exit.
+    /// </summary>
+    bool CloseAtRthClose { get; }
+
     /// <summary>Process a confirmed bar. May produce pending signals.</summary>
     void OnBar(Bar bar, OrbState orb, IndicatorState indicators, ModuleState modules);
 
@@ -130,13 +137,17 @@ public interface ISetupStrategy
     /// <summary>Reconfigure for new session or settings change.</summary>
     void Reconfigure(StrategySetupConfig config);
 
-    /// <summary>Reset all state for new trading day (clears trade counts, P&amp;L stats).</summary>
+    /// <summary>
+    /// Reset all state for new trading day (clears trade counts, P&amp;L stats).
+    /// Never clears <see cref="InTrade"/>: a position held into the new day stays tracked.
+    /// </summary>
     void Reset();
 
     /// <summary>
     /// Reset for intra-day session transition.
     /// Clears trade state (arm, entry, stops) and per-session counters (trade count,
     /// direction-traded flags) but preserves daily P&amp;L stats (wins, losses, winPnl, lossPnl).
+    /// Never clears <see cref="InTrade"/>; only the broker event handler's completion does.
     /// </summary>
     void ResetSession();
 

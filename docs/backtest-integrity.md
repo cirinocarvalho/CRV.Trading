@@ -97,8 +97,11 @@ Stated so it is not mistaken for solved:
   conservative for longs on up bars, optimistic on down bars.
 - **Resting limits always fill.** A limit the backtest fills at its price may never
   have been reached live.
-- **No queue position, no partial-fill risk, no gap-through-stop beyond the fixed
-  tick charge.**
+- **No queue position, no partial-fill risk.**
+- **Gap-through-stop only after a break.** A stop that a session open, or a bar's open
+  between sessions (a held position overnight), is already through fills at that open.
+  Within a session a stop fills at its level plus the fixed tick charge, however far
+  the bar opened past it.
 - **No out-of-sample split and no walk-forward.** Reproducibility is a precondition
   for those, not a substitute. (Since added — see [validation.md](validation.md).)
 

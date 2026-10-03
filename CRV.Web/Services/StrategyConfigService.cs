@@ -68,6 +68,20 @@ public class StrategyConfigService
         _log.LogDebug("StrategyConfig force-reloaded from DB.");
     }
 
+    /// <summary>
+    /// Sets CloseAtRthClose on setups A–D in every session of sessions.json, run on the startup
+    /// that applies the DefaultCloseAtRthClose migration so the file agrees with the DB.
+    /// </summary>
+    public void CloseLegacySetupsAtRthCloseInSessions()
+    {
+        List<SessionConfig>? sessions;
+        lock (_lock) { sessions = _current.Sessions; }
+        if (sessions == null || !SessionConfig.CloseLegacySetupsAtRthClose(sessions)) return;
+
+        SaveSessions(sessions);
+        _log.LogInformation("sessions.json: setups A–D set to close at the session end.");
+    }
+
     // ── Private helpers ───────────────────────────────────────
 
     private StrategyConfig LoadFromDb()

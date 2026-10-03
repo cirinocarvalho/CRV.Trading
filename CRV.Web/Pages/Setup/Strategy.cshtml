@@ -202,7 +202,7 @@ else
                 @{ Num("Entry.Config.PartialCts", "Contracts at first target", c.PartialCts.ToString(inv), "0 = half.", "1", unit: "cts"); }
                 @{ Check("Entry.Config.UseBe", "Move stop to break-even after the first target", c.UseBe); }
                 @{ Check("Entry.Config.AllowRearmAfterBe", "Allow a new entry after a break-even exit", c.AllowRearmAfterBe); }
-                @{ Check("Entry.Config.CloseAtRthClose", "Close at the end of the session", c.CloseAtRthClose); }
+                @{ Check("Entry.Config.CloseAtRthClose", "Close at the end of the session", c.CloseAtRthClose, "Off: the cutoff only stops new entries, and an open trade is held into the next session."); }
                 @{ Check("Entry.AutoTrail.Enabled", "Trail the stop automatically", e.AutoTrail?.Enabled == true); }
                 @{ Num("Entry.AutoTrail.StopLoss", "Trail distance", N(e.AutoTrail?.StopLoss ?? 0), unit: "× range"); }
                 @{ Num("Entry.AutoTrail.Trigger", "Start trailing after", e.AutoTrail?.Trigger is decimal tg ? N(tg) : "", "Blank = from entry.", unit: "× range"); }

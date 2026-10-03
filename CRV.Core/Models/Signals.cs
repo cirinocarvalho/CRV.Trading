@@ -126,6 +126,8 @@ public class EngineSnapshot
     public DateTime   Time           { get; set; }
     public string     Ticker         { get; set; } = "";
     public bool       IsLive         { get; set; }
+    /// <summary>Who produced the snapshot ("replay" for a replay run); empty for the live engine.</summary>
+    public string     Source         { get; set; } = "";
 
     // Daily P&L stats
     public decimal    TodayPnl        { get; set; }
@@ -265,6 +267,8 @@ public class SetupSnapshot
     public bool     Enabled        { get; set; }
     public int      State          { get; set; }          // state machine value
     public bool     PastCutoff     { get; set; }
+    /// <summary>True: closes at session end. False: holds an open trade past the cutoff.</summary>
+    public bool     CloseAtRthClose { get; set; } = true;
     /// <summary>Why a switched-on strategy isn't trading (e.g. "retired EMA21 strategy"); null while it trades.</summary>
     public string?  DisabledReason { get; set; }
 

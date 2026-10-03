@@ -109,7 +109,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
 
         Assert.False(result);
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 300m);
 
         Assert.False(result);
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 200m, DailyLossMode.Peak);
 
         Assert.False(result);
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 200m, DailyLossMode.Floor);
 
         Assert.True(result);
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
     }
 
     // ──────────────────────────────────────────────
@@ -164,7 +164,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
 
         Assert.True(result);
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
     }
 
     // ──────────────────────────────────────────────
@@ -180,7 +180,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: false, maxDailyLoss: 0m);
 
         Assert.True(result);
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class RiskManagerTests
         var result = rm.CanTrade(useDailyLossLimit: false, maxDailyLoss: 0m);
 
         Assert.True(result);
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
     }
 
     // ──────────────────────────────────────────────
@@ -208,12 +208,12 @@ public class RiskManagerTests
         rm.RecordTrade(-500m);  // Peak=0, PnL=-500, DD=500
         rm.CanTrade(true, 500m, DailyLossMode.Peak);
 
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
 
         rm.RecordTrade(1_000m); // PnL=+500, Peak=500, DD=0
 
         // New peak resets DD to 0 → breach clears
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
         var result = rm.CanTrade(true, 500m, DailyLossMode.Peak);
         Assert.True(result);
     }
@@ -225,11 +225,11 @@ public class RiskManagerTests
         rm.RecordTrade(-500m);  // PnL=-500
         rm.CanTrade(true, 500m, DailyLossMode.Floor);
 
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
 
         rm.RecordTrade(100m);   // PnL=-400, above -500 floor
 
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
         var result = rm.CanTrade(true, 500m, DailyLossMode.Floor);
         Assert.True(result);
     }
@@ -241,11 +241,11 @@ public class RiskManagerTests
         rm.RecordTrade(-500m);  // Peak=0, PnL=-500, DD=500
         rm.CanTrade(true, 200m, DailyLossMode.Peak);
 
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
 
         rm.RecordTrade(250m);   // PnL=-250, Peak=0, DD=250 — still >= 200
 
-        Assert.True(rm.DdBreached);
+        Assert.True(rm.DdBreached());
         var result = rm.CanTrade(true, 200m, DailyLossMode.Peak);
         Assert.False(result);
     }
@@ -290,7 +290,7 @@ public class RiskManagerTests
         Assert.Equal(0m,    rm.TodayPnl);
         Assert.Equal(0m,    rm.TodayPeak);
         Assert.Equal(0m,    rm.TodayMaxDD);
-        Assert.False(rm.DdBreached);
+        Assert.False(rm.DdBreached());
         Assert.Equal(0,     rm.TodayWins);
         Assert.Equal(0,     rm.TodayLosses);
         Assert.Equal(0m,    rm.TodayWinPnl);
@@ -343,5 +343,57 @@ public class RiskManagerTests
         Assert.Equal(60m,  rm.TodayPnl);
         Assert.Equal(150m, rm.TodayPeak);
         Assert.Equal(90m,  rm.TodayMaxDD);
+    }
+
+    // ──────────────────────────────────────────────
+    // Held positions: their open loss counts, their open profit does not
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void DdBreached_FloorMode_CountsHeldOpenLoss()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(-200m);
+        Assert.True(rm.CanTrade(true, 500m));
+
+        Assert.True(rm.DdBreached(heldUnrealized: -300m));    // -200 - 300 = -500
+        Assert.False(rm.DdBreached(heldUnrealized: -299m));
+    }
+
+    [Fact]
+    public void CanTrade_HeldWinner_DoesNotHideARealizedLoss()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(-600m);
+
+        Assert.False(rm.CanTrade(true, 500m, DailyLossMode.Floor, heldUnrealized: 900m));
+    }
+
+    [Fact]
+    public void DdBreached_PeakMode_CountsHeldOpenLossFromThePeak()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(300m);                                  // peak 300
+        Assert.True(rm.CanTrade(true, 200m, DailyLossMode.Peak));
+
+        Assert.True(rm.DdBreached(heldUnrealized: -200m));     // 300 - (300 - 200) = 200
+    }
+
+    [Fact]
+    public void CanTrade_LimitOff_IgnoresHeldLoss()
+    {
+        var rm = new RiskManager();
+        Assert.True(rm.CanTrade(false, 0m, DailyLossMode.Floor, heldUnrealized: -10_000m));
+    }
+
+    [Fact]
+    public void HeldLoss_LeavesTheRealizedFiguresAlone()
+    {
+        var rm = new RiskManager();
+        rm.RecordTrade(-100m);
+        rm.CanTrade(true, 500m, DailyLossMode.Floor, heldUnrealized: -450m);
+
+        Assert.Equal(-100m, rm.TodayPnl);
+        Assert.Equal(100m, rm.DailyLossUsed);
     }
 }

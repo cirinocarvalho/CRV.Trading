@@ -242,7 +242,15 @@ using (var scope = app.Services.CreateScope())
     }
     catch { /* Fresh DB with no tables yet — Migrate() below will create everything. */ }
 
+    // sessions.json overrides legacy setups A–D on every session transition, so it has to get
+    // the same CloseAtRthClose default the migration gives the DB.
+    var closeAtRthCloseMigrationPending = db.Database.GetPendingMigrations()
+        .Any(m => m.EndsWith("_" + nameof(CRV.Core.Migrations.DefaultCloseAtRthClose)));
+
     db.Database.Migrate();
+
+    if (closeAtRthCloseMigrationPending)
+        app.Services.GetRequiredService<StrategyConfigService>().CloseLegacySetupsAtRthCloseInSessions();
 
     // Post-migration repair: NOT NULL columns that older rows might have as NULL
     // (caused silent save failures on UPDATE with the "Configs.EmailRecipients"

@@ -61,6 +61,7 @@ public class BrokerEventHandlerTests
         public TimeOnly OrbEnd   => new(10, 0);
         public bool UseEmaFilter => false;
         public bool BypassChopFilter => false;
+        public bool CloseAtRthClose { get; set; } = true;
         public (int, int) GetCutoffForSession(string s) => (16, 0);
         public bool IsEnabledForSession(string s) => true;
         public void OnBar(Bar b, OrbState o, IndicatorState i, ModuleState m) { }
@@ -750,5 +751,30 @@ public class BrokerEventHandlerTests
         public Task CancelOrderAsync(string orderId) => Task.CompletedTask;
         public Task<decimal> PlaceMarketCloseAsync(string ticker, Direction direction, int qty) => Task.FromResult(0m);
         public Task<decimal?> GetOrderFillPriceAsync(string orderId) => Task.FromResult<decimal?>(null);
+    }
+
+    [Fact]
+    public async Task ExitAll_LeavesTheGroupsTheFilterKeeps()
+    {
+        var exec = new FakeGroupExecutor();
+        var handler = new BrokerEventHandler(exec);
+
+        var held = MakeGroup("hold");
+        held.Status = GroupOrderStatus.Active;
+        held.EntryPrice = 20000m;
+        handler.RegisterGroup(held, new FakeSetup { Id = "hold" });
+
+        var closed = new GroupOrder
+        {
+            GroupOrderId = "grp-002", SetupId = "close", Ticker = "/NQH2026", Direction = Direction.Long,
+            TotalContracts = 2, PointValue = 20m, EntryPrice = 20000m, Status = GroupOrderStatus.Active, Broker = "Mock",
+        };
+        handler.RegisterGroup(closed, new FakeSetup { Id = "close", SetupId = SetupId.B });
+
+        await handler.ExitAllAsync(_ => 20010m, keep: (g, s) => s.Id == "hold");
+
+        Assert.NotNull(handler.GetActiveGroup("hold"));
+        Assert.Null(handler.GetActiveGroup("close"));
+        Assert.Single(exec.MarketCloses);
     }
 }

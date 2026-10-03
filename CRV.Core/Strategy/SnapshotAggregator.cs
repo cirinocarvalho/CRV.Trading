@@ -51,6 +51,9 @@ public static class SnapshotAggregator
         // ── Config values ───────────────────────────────────────
         public decimal DailyLossLimit { get; init; }
 
+        /// <summary>Open loss (≤ 0) of positions held in from an earlier trading day; counts toward TradingHalted.</summary>
+        public decimal HeldOpenLoss { get; init; }
+
         // ── FalseBreakout module state ──────────────────────────
         public bool FBOrbBreakoutActive { get; init; }
         public bool FBSessionBreakoutActive { get; init; }
@@ -122,7 +125,7 @@ public static class SnapshotAggregator
             TodayMaxDD     = inputs.Risk.TodayMaxDD,
             DailyLossLimit = inputs.DailyLossLimit,
             DailyLossUsed  = inputs.Risk.DailyLossUsed,
-            TradingHalted  = inputs.Risk.DdBreached,
+            TradingHalted  = inputs.Risk.DdBreached(inputs.HeldOpenLoss),
 
             // Indicators
             Vwap = inputs.Indicators.Vwap,
@@ -271,6 +274,7 @@ public static class SnapshotAggregator
                 Enabled      = ss.Enabled,
                 State        = ss.State,
                 PastCutoff   = ss.PastCutoff,
+                CloseAtRthClose = strategy.CloseAtRthClose,
                 Trade        = trade,
                 TradeCount   = ss.TradeCount,
                 MaxTrades    = ss.MaxTrades,

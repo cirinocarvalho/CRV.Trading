@@ -16,6 +16,7 @@ namespace CRV.Core.Tests.Data;
 public class EmaBasketColumnRenameTests : IDisposable
 {
     private const string MigrationBefore = "20261002194726_RelabelLoneTargetTrades";
+    private const string MigrationUnderTest = "20261002215534_RenameEmaBasketColumn";
 
     private readonly SqliteConnection _conn;
     private readonly TradingDbContext _db;
@@ -66,7 +67,7 @@ public class EmaBasketColumnRenameTests : IDisposable
             original.OrderBy(c => c, StringComparer.Ordinal));
         Assert.Equal(ema, Text($"SELECT \"{RenameEmaBasketColumn.OldName}\" FROM \"Configs\" WHERE \"Id\" = 1"));
 
-        migrator.Migrate();
+        migrator.Migrate(MigrationUnderTest);
 
         _db.ChangeTracker.Clear();
         var cfg = _db.Configs.AsNoTracking().Single(c => c.Id == 1);

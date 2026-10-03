@@ -17,22 +17,29 @@ public class RiskManager
     public decimal TodayWinPnl   { get; private set; }
     public decimal TodayLossPnl  { get; private set; }
 
-    // Cached limit config for the DdBreached property
+    // Limit settings read by DdBreached
     private bool          _useDailyLossLimit;
     private decimal       _maxDailyLoss;
     private DailyLossMode _mode = DailyLossMode.Floor;
 
     /// <summary>
-    /// True when the daily loss limit is breached.
-    /// Floor mode: TodayPnl &lt;= -MaxDailyLoss (absolute floor).
-    /// Peak mode:  (TodayPeak - TodayPnl) &gt;= MaxDailyLoss (drawdown from high-water mark).
+    /// True when the daily loss limit is breached, counting realized P&amp;L plus the open loss of
+    /// positions held in from an earlier trading day (<paramref name="heldUnrealized"/>). Only a loss
+    /// counts: a held winner never offsets a realized loss.
+    /// Floor mode: TodayPnl + held loss &lt;= -MaxDailyLoss (absolute floor).
+    /// Peak mode:  (TodayPeak - (TodayPnl + held loss)) &gt;= MaxDailyLoss (drawdown from high-water mark).
     /// Dynamic in both modes: recovers when PnL improves.
     /// </summary>
-    public bool DdBreached => _useDailyLossLimit && _mode switch
+    public bool DdBreached(decimal heldUnrealized = 0m)
     {
-        DailyLossMode.Peak  => (TodayPeak - TodayPnl) >= _maxDailyLoss,
-        _                   => TodayPnl <= -_maxDailyLoss,
-    };
+        if (!_useDailyLossLimit) return false;
+        var pnl = TodayPnl + Math.Min(0m, heldUnrealized);
+        return _mode switch
+        {
+            DailyLossMode.Peak => (TodayPeak - pnl) >= _maxDailyLoss,
+            _                  => pnl <= -_maxDailyLoss,
+        };
+    }
 
     /// <summary>
     /// How much of the daily loss limit has been "used".
@@ -69,19 +76,24 @@ public class RiskManager
             TodayMaxDD = dd;
     }
 
+    /// <summary>Sets the limit that <see cref="DdBreached"/> checks, so it holds before any entry is attempted.</summary>
+    public void ApplyLimit(bool useDailyLossLimit, decimal maxDailyLoss, DailyLossMode mode = DailyLossMode.Floor)
+    {
+        _useDailyLossLimit = useDailyLossLimit;
+        _maxDailyLoss = maxDailyLoss;
+        _mode = mode;
+    }
+
     /// <summary>
     /// Returns true when a new trade is allowed.
     /// Dynamic: if PnL recovers above -maxDailyLoss, trading resumes.
     /// </summary>
     public bool CanTrade(bool useDailyLossLimit, decimal maxDailyLoss,
-                         DailyLossMode mode = DailyLossMode.Floor)
+                         DailyLossMode mode = DailyLossMode.Floor, decimal heldUnrealized = 0m)
     {
-        // Cache for DdBreached property (used by ProcessPriceTickAsync)
-        _useDailyLossLimit = useDailyLossLimit;
-        _maxDailyLoss = maxDailyLoss;
-        _mode = mode;
+        ApplyLimit(useDailyLossLimit, maxDailyLoss, mode);
 
-        return !DdBreached;
+        return !DdBreached(heldUnrealized);
     }
 
     /// <summary>Resets all daily state (call at the start of each trading day).</summary>
