@@ -105,6 +105,13 @@ public interface IStrategyEventSink
     /// declined to take listen here. Default: ignore.
     /// </summary>
     Task OnSizeRefusedAsync(SizeRefusal refusal) => Task.CompletedTask;
+
+    /// <summary>
+    /// A signal skipped because its reward / risk was below the strategy's minimum.
+    /// Kept apart from <see cref="OnSizeRefusedAsync"/> so budget-refusal counts keep
+    /// their meaning. Default: ignore.
+    /// </summary>
+    Task OnMinRrSkippedAsync(SizeRefusal skip) => Task.CompletedTask;
 }
 
 public interface ILastPriceProvider

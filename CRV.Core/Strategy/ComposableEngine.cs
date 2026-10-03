@@ -213,6 +213,7 @@ public class ComposableEngine
                 // A reward / risk skip is not a budget refusal: it must not reach the size-refusal counts.
                 AddAlert("SKIP", sig.Strategy.SetupId, skip.Describe(),
                     "orange", sig.Strategy.Id, skip.Ticker);
+                await _sink.OnMinRrSkippedAsync(skip);
             }
 
             if (sig.Entry is not { } esig) continue;
