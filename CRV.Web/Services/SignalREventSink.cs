@@ -112,4 +112,12 @@ public class SignalREventSink : IStrategyEventSink, IDisposable
         _log.LogWarning("[RISK] {Setup} {Ticker} {Message}", r.SetupLabel, r.Ticker, r.Describe());
         return Task.CompletedTask;
     }
+
+    // The cockpit card and the alert feed show a min-R skip while the session runs. The log
+    // line is for afterwards: a day where the guard skipped every signal should say why.
+    public Task OnMinRrSkippedAsync(SizeRefusal skip)
+    {
+        _log.LogWarning("[SKIP] {Setup} {Ticker} {Message}", skip.SetupLabel, skip.Ticker, skip.Describe());
+        return Task.CompletedTask;
+    }
 }
