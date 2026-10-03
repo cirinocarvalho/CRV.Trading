@@ -17,9 +17,9 @@
     var orbTypes = StrategyModel.EditableTypes;
 
     // Field helpers. data-types limits a field to strategy types; hidden fields still post their values.
-    void Num(string name, string label, string value, string? help = null, string step = "any", string? types = null, string? unit = null)
+    void Num(string name, string label, string value, string? help = null, string step = "any", string? types = null, string? unit = null, string? mode = null)
     {
-        <div class="st-field" data-types="@types">
+        <div class="st-field" data-types="@types" data-target-mode="@mode">
             <label class="form-label" for="@name">@label</label>
             <div class="st-input">
                 <input class="form-control num" id="@name" name="@name" type="number" step="@step" inputmode="decimal" value="@value" />
@@ -44,6 +44,7 @@
         <h1>@(e.Label is { Length: > 0 } ? e.Label : e.Id)</h1>
     </div>
     <span class="c-sub">@StrategyText.TypeName(e.StrategyType) · @e.Ticker</span>
+    <span class="c-badge st-rr-off @(e.Enabled ? "warn" : "")" id="st-rr-badge" title="Minimum reward / risk is not enforced for this strategy" hidden="@c.EnforceMinRr"><i class="bi bi-exclamation-triangle"></i>R:R not enforced</span>
     @if (Model.DisabledReason != null) { <span class="c-badge bad">DISABLED</span> }
 </div>
 
@@ -169,7 +170,6 @@ else
                 @{ Num("pct.PullbackPct", "Pullback depth", P(c.PullbackPct), "How far back into the range to enter.", types: "Pullback", unit: "% of range"); }
                 @{ Num("pct.RetestPct", "Retest tolerance", P(c.RetestPct), "How close to the range edge counts as a retest.", types: "Retest", unit: "% of range"); }
                 @{ Num("pct.NearPct", "Near the edge", P(c.NearPct), "How close to the range edge counts as a break.", types: "Pullback Retest", unit: "% of range"); }
-                @{ Num("Entry.Config.MinRr", "Minimum reward / risk", N(c.MinRr), unit: "R"); }
                 @{ Num("Entry.Config.EntryTickOffset", "Entry offset", c.EntryTickOffset.ToString(inv), "Ticks added to the entry price.", "1", unit: "ticks"); }
                 @{ Num("pct.MaxEntrySlippage", "Most slippage allowed", P(c.MaxEntrySlippage), "0 = no limit.", unit: "% of range"); }
                 <div class="st-field" data-types="SessionFakeout">
@@ -196,7 +196,59 @@ else
                 </div>
                 @{ Num("pct.StopPct", "Stop distance", P(c.StopPct), "Also the most a bar or VWAP stop can risk.", unit: "% of range"); }
                 @{ Num("Entry.Config.StopVwapTicks", "VWAP buffer", c.StopVwapTicks.ToString(inv), step: "1", unit: "ticks"); }
-                @{ Num("Entry.Config.TargetPct", "Target", c.TargetPct.ToString(inv), step: "1", unit: "% of range"); }
+                <div class="st-field st-wide">
+                    <span class="form-label" id="st-tmode-l">Targets measured in</span>
+                    <div><div class="c-seg" role="radiogroup" aria-labelledby="st-tmode-l">
+                        @foreach (var (v, label) in new[] { (TargetMode.RangePct, "% of range"), (TargetMode.Dollars, "Dollars ($)") })
+                        {
+                            <input type="radio" class="btn-check" name="Entry.Config.TargetMode" id="st-tmode-@v" value="@v" checked="@(c.TargetMode == v)" />
+                            <label class="btn btn-sm" for="st-tmode-@v">@label</label>
+                        }
+                    </div></div>
+                </div>
+                @{ Num("Entry.Config.TargetPct", "Target", c.TargetPct.ToString(inv), step: "1", unit: "% of range", mode: "RangePct"); }
+                <div class="st-field" data-target-mode="Dollars">
+                    <label class="form-label" for="Entry.Config.TargetDollars">Target</label>
+                    <div class="st-input"><span class="c-mut">$</span><input class="form-control num" id="Entry.Config.TargetDollars" name="Entry.Config.TargetDollars" type="number" step="any" min="0" inputmode="decimal" value="@N(c.TargetDollars)" /></div>
+                </div>
+                <div class="st-field" data-target-mode="Dollars">
+                    <span class="form-label" id="st-basis-l">Dollars are</span>
+                    <div class="c-seg c-seg-fill" role="radiogroup" aria-labelledby="st-basis-l">
+                        @foreach (var (v, label) in new[] { (TargetDollarsBasis.PerContract, "Per contract"), (TargetDollarsBasis.WholePosition, "Whole position") })
+                        {
+                            <input type="radio" class="btn-check" name="Entry.Config.TargetDollarsBasis" id="st-basis-@v" value="@v" checked="@(c.TargetDollarsBasis == v)" />
+                            <label class="btn btn-sm" for="st-basis-@v">@label</label>
+                        }
+                    </div>
+                </div>
+                <div class="st-field" data-target-mode="Dollars">
+                    <label class="form-label" for="st-preview-cts">Example: contracts after sizing</label>
+                    <input class="form-control num" id="st-preview-cts" type="number" step="1" min="1" inputmode="numeric" value="@Math.Max(1, c.Contracts)" />
+                    <div class="form-text">Only for the preview below. Size by risk picks the real number per trade.</div>
+                </div>
+                <div class="st-field" data-target-mode="Dollars">
+                    <span class="form-label">Typical stop for this strategy</span>
+                    <div class="form-control-plaintext num">@(Model.TypicalStopPoints is decimal ts
+                        ? $"{N(ts)} pts · ${(ts * e.PointValue).ToString("N0", inv)} a contract" + (Model.TypicalPositionPoints is decimal tp ? $" · ${(tp * e.PointValue).ToString("N0", inv)} a typical position" : "")
+                        : "No backtest yet")</div>
+                    <div class="form-text">@(Model.TypicalStopPoints is null ? MinRrSaveCheck.NoHistory : $"Median of its last {Model.TypicalStopTrades} backtest trades. Used to check the target when you save.")</div>
+                </div>
+                <div class="st-field st-wide" data-target-mode="Dollars">
+                    <div class="st-usd" aria-live="polite">
+                        <div class="c-kv"><span>Target distance</span><span id="st-u-dist"></span></div>
+                        <div class="c-kv"><span>Partial</span><span id="st-u-part"></span></div>
+                        <div class="c-kv"><span>All contracts at target</span><span id="st-u-all"></span></div>
+                        <div class="c-kv"><span>Partial, then the rest at target</span><span id="st-u-mix"></span></div>
+                    </div>
+                </div>
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.MinRrAction">If one trade's stop is wider than usual</label>
+                    <select class="form-select" id="Entry.Config.MinRrAction" name="Entry.Config.MinRrAction" aria-describedby="st-rr-action-help" disabled="@(!c.EnforceMinRr)">
+                        <option value="Skip" selected="@(c.MinRrAction == MinRrAction.Skip)">Skip the trade</option>
+                        <option value="RaiseTarget" selected="@(c.MinRrAction == MinRrAction.RaiseTarget)">Raise the target to the minimum R</option>
+                    </select>
+                    <div class="form-text" id="st-rr-action-help" data-skip="@StrategyModel.ActionSkipHelp" data-raise="@StrategyModel.ActionRaiseHelp" data-off="@StrategyModel.ActionOffHelp">@StrategyModel.ActionHelp(c)</div>
+                </div>
                 @{ Check("Entry.Config.UsePartial", "Take a partial at a first target", c.UsePartial); }
                 @{ Num("Entry.Config.PartialPct", "First target", c.PartialPct.ToString(inv), step: "1", unit: "% of the way"); }
                 @{ Num("Entry.Config.PartialCts", "Contracts at first target", c.PartialCts.ToString(inv), "0 = half.", "1", unit: "cts"); }
@@ -221,6 +273,19 @@ else
                 @{ Num("Entry.Config.MaxTrades", "Trades per session", c.MaxTrades.ToString(inv), step: "1"); }
                 @{ Num("Entry.Config.MaxLongTrades", "Most longs", c.MaxLongTrades.ToString(inv), "0 = same as trades per session.", "1"); }
                 @{ Num("Entry.Config.MaxShortTrades", "Most shorts", c.MaxShortTrades.ToString(inv), "0 = same as trades per session.", "1"); }
+                <label class="c-switch">
+                    <span>Enforce minimum reward / risk<small class="d-block c-mut" id="st-rr-help" data-on="@StrategyModel.GuardOnHelp" data-off="@StrategyModel.GuardOffHelp">@(c.EnforceMinRr ? StrategyModel.GuardOnHelp : StrategyModel.GuardOffHelp)</small></span>
+                    <input class="form-check-input" type="checkbox" role="switch" name="Entry.Config.EnforceMinRr" value="true" @(c.EnforceMinRr ? "checked" : "") />
+                    <input type="hidden" name="Entry.Config.EnforceMinRr" value="false" />
+                </label>
+                <div class="st-field">
+                    <label class="form-label" for="Entry.Config.MinRr">Minimum reward / risk</label>
+                    <div class="st-input">
+                        <input class="form-control num" id="Entry.Config.MinRr" name="Entry.Config.MinRr" type="number" step="any" inputmode="decimal" value="@N(c.MinRr)" disabled="@(!c.EnforceMinRr)" />
+                        <span class="c-mut">R</span>
+                        <span class="c-badge st-rr-off" hidden="@c.EnforceMinRr">Not enforced</span>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -308,6 +373,65 @@ else
         document.getElementById('st-tick').value = i.tickSize;
         document.getElementById('st-instr-note').textContent = `${t} · $${i.pointValue}/pt · tick ${i.tickSize}`;
     });
+})();
+(function () {
+    // Target mode fields, the dollar preview and the reward / risk guard, kept in step with the form.
+    const form = document.getElementById('st-form');
+    if (!form) return;   // a read-only strategy has no form
+    const $ = id => document.getElementById(id);
+    const picked = name => (form.querySelector(`input[name="${name}"]:checked`) || {}).value;
+    const box = name => form.querySelector(`input[type=checkbox][name="${name}"]`);
+    const num = id => parseFloat($(id).value) || 0;
+    const money = v => '$' + Math.round(v).toLocaleString('en-US');
+    const pts = v => v.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' pts';
+
+    function preview() {
+        const mode = picked('Entry.Config.TargetMode');
+        form.querySelectorAll('[data-target-mode]').forEach(el => {
+            if (el.dataset.targetMode) el.hidden = el.dataset.targetMode !== mode;
+        });
+        const pv = num('st-pv'), tick = num('st-tick') || 0.25;
+        if (mode !== 'Dollars' || pv <= 0) return;
+        const perContract = picked('Entry.Config.TargetDollarsBasis') !== 'WholePosition';
+        const dollars = num('Entry.Config.TargetDollars');
+        const cts = Math.max(1, Math.floor(num('st-preview-cts')));
+        const toTick = v => Math.round(v / tick) * tick;
+        const dist = toTick(perContract ? dollars / pv : dollars / (pv * cts));
+        const pDist = toTick(dist * num('Entry.Config.PartialPct') / 100);
+        const usePartial = box('Entry.Config.UsePartial').checked;
+        const pc = num('Entry.Config.PartialCts');
+        // Same split as sizing and the bracket builder: runner-only with size-by-risk, else the set count, else half.
+        const partCts = !usePartial || cts < 2 ? 0
+            : box('Entry.Config.AutoSizeByRisk').checked && pc > 0 ? cts - 1
+            : pc > 0 ? Math.min(pc, cts - 1)
+            : Math.floor(cts / 2);
+        $('st-u-dist').textContent = pts(dist) + ' · ' + money(dollars) +
+            (perContract ? ' a contract' : ' over ' + cts + ' contract' + (cts === 1 ? '' : 's'));
+        $('st-u-part').textContent = pts(pDist) + ' · ' + money(pDist * pv) + ' a contract';
+        $('st-u-all').textContent = money(dist * pv * cts);
+        $('st-u-mix').textContent = !usePartial ? 'No partial: taking a partial is off'
+            : partCts > 0 ? money(pDist * pv * partCts + dist * pv * (cts - partCts)) + ' (' + partCts + ' at partial, ' + (cts - partCts) + ' at target)'
+            : 'No partial with 1 contract';
+    }
+
+    function guard() {
+        const on = box('Entry.Config.EnforceMinRr').checked;
+        const r = $('Entry.Config.MinRr').value || '0';
+        $('Entry.Config.MinRr').disabled = !on;
+        $('Entry.Config.MinRrAction').disabled = !on;
+        document.querySelectorAll('.st-rr-off').forEach(b => b.hidden = on);
+        $('st-rr-badge').classList.toggle('warn', box('Entry.Enabled').checked);
+        const help = $('st-rr-help');
+        help.textContent = on ? help.dataset.on : help.dataset.off;
+        const act = $('st-rr-action-help');
+        act.textContent = (!on ? act.dataset.off
+            : $('Entry.Config.MinRrAction').value === 'RaiseTarget' ? act.dataset.raise : act.dataset.skip).replaceAll('{r}', r);
+    }
+
+    const sync = () => { preview(); guard(); };
+    form.addEventListener('input', sync);
+    form.addEventListener('change', sync);
+    sync();
 })();
 </script>
 }

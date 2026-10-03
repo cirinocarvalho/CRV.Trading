@@ -1,4 +1,5 @@
 using System.Globalization;
+using CRV.Core.Data;
 using CRV.Core.Models;
 using CRV.Core.Strategy;
 using CRV.Web.Services;
@@ -18,13 +19,27 @@ public class StrategyModel : PageModel
     public static readonly StrategyType[] EditableTypes =
         { StrategyType.Pullback, StrategyType.Retest, StrategyType.OrbFakeout, StrategyType.SessionFakeout };
 
+    /// <summary>How many recent backtest runs the typical stop is read from.</summary>
+    private const int RunsScanned = 20;
+
+    public const string GuardOnHelp     = "Checks the target when you save, and every trade before it's sent.";
+    public const string GuardOffHelp    = "Off: no check on save, and trades are taken whatever their reward / risk. Your minimum R and what to do below it are kept for when you turn it back on.";
+    public const string ActionSkipHelp  = "Each trade is still checked: if its stop makes the target less than {r}R, the trade is skipped.";
+    public const string ActionRaiseHelp = "Each trade is still checked: if its stop makes the target less than {r}R, the target moves out to {r}R for that trade.";
+    public const string ActionOffHelp   = "Not enforced: turn on “Enforce minimum reward / risk” under Size and limits.";
+
+    public static string ActionHelp(StrategySetupConfig c) =>
+        (!c.EnforceMinRr ? ActionOffHelp : c.MinRrAction == MinRrAction.RaiseTarget ? ActionRaiseHelp : ActionSkipHelp)
+        .Replace("{r}", c.MinRr.ToString("0.##", CultureInfo.InvariantCulture));
+
     private readonly StrategyBasketService _basket;
     private readonly StrategyConfigService _cfgSvc;
     private readonly LiveEngineOrchestrator _engine;
+    private readonly TradingDbContext _db;
 
-    public StrategyModel(StrategyBasketService basket, StrategyConfigService cfgSvc, LiveEngineOrchestrator engine)
+    public StrategyModel(StrategyBasketService basket, StrategyConfigService cfgSvc, LiveEngineOrchestrator engine, TradingDbContext db)
     {
-        _basket = basket; _cfgSvc = cfgSvc; _engine = engine;
+        _basket = basket; _cfgSvc = cfgSvc; _engine = engine; _db = db;
     }
 
     [BindProperty(SupportsGet = true)] public string Id { get; set; } = "";
@@ -40,10 +55,16 @@ public class StrategyModel : PageModel
     public List<string> Warnings { get; } = new();
     public string? Saved { get; private set; }
     public string? RemoveError { get; private set; }
+    /// <summary>Median stop of the last 30 backtest trades, in points; null without a backtest.</summary>
+    public decimal? TypicalStopPoints { get; private set; }
+    /// <summary>Median of contracts × stop over the same trades, in points.</summary>
+    public decimal? TypicalPositionPoints { get; private set; }
+    public int TypicalStopTrades { get; private set; }
 
     public IActionResult OnGet()
     {
         if (!Load()) return NotFound();
+        LoadTypicalStop();
         Saved = TempData["strategy_saved"] as string;
         RemoveError = TempData["strategy_error"] as string;
         if (TempData["strategy_warnings"] is string w) Warnings.AddRange(w.Split('\n', StringSplitOptions.RemoveEmptyEntries));
@@ -100,6 +121,9 @@ public class StrategyModel : PageModel
         if (!hadTrail && edited.AutoTrail is { Enabled: false }) edited.AutoTrail = null;
 
         Validate(edited);
+        LoadTypicalStop();
+        var rr = MinRrSaveCheck.Check(edited.Config, edited.PointValue, TypicalStopPoints, TypicalPositionPoints);
+        if (rr.Error != null) Errors.Add(rr.Error);
         if (Errors.Count > 0)
         {
             Entry = edited;
@@ -110,7 +134,8 @@ public class StrategyModel : PageModel
         if (!change.Ok) { Errors.Add(change.Error!); Entry = edited; return Page(); }
 
         TempData["strategy_saved"] = RestartNote(before, edited);
-        if (change.Warnings.Count > 0) TempData["strategy_warnings"] = string.Join("\n", change.Warnings);
+        var warnings = rr.Warning is { } guardWarning ? change.Warnings.Append(guardWarning).ToList() : change.Warnings.ToList();
+        if (warnings.Count > 0) TempData["strategy_warnings"] = string.Join("\n", warnings);
         return RedirectToPage(new { id = Id });
     }
 
@@ -137,6 +162,18 @@ public class StrategyModel : PageModel
         return true;
     }
 
+    private void LoadTypicalStop()
+    {
+        // Streamed newest first, not loaded into a list: FromRuns stops reading once it has 30 trades,
+        // so older runs' result JSON is never pulled from the database.
+        var runs = _db.BacktestRuns.OrderByDescending(r => r.RunAt).Take(RunsScanned)
+            .Select(r => r.ResultJson).AsEnumerable();
+        var trades = TypicalStop.FromRuns(runs, Id);
+        TypicalStopTrades     = TypicalStop.Recent(trades).Count;
+        TypicalStopPoints     = TypicalStop.Median(trades);
+        TypicalPositionPoints = TypicalStop.MedianPosition(trades);
+    }
+
     private void Validate(BasketEntry e)
     {
         var c = e.Config;
@@ -144,7 +181,7 @@ public class StrategyModel : PageModel
         if (c.Contracts < 1) Errors.Add("Contracts must be at least 1.");
         if (c.AutoSizeByRisk && c.MaxContracts < c.Contracts) Errors.Add("Most contracts can't be fewer than the starting contracts.");
         if (c.StopMode == "OrbPct" && c.StopPct <= 0) Errors.Add("Stop must be more than 0% of the range.");
-        if (c.TargetPct <= 0) Errors.Add("Target must be more than 0% of the range.");
+        if (c.TargetMode == TargetMode.RangePct && c.TargetPct <= 0) Errors.Add("Target must be more than 0% of the range.");
         if (c.UsePartial && (c.PartialPct <= 0 || c.PartialPct >= 100)) Errors.Add("The first target must be between 1% and 99% of the way to the target.");
         if (c.UsePartial && c.PartialCts >= c.Contracts && c.PartialCts > 0) Errors.Add("Contracts at the first target must be fewer than the total.");
         if (c.MaxTrades < 0 || c.MaxLongTrades < 0 || c.MaxShortTrades < 0) Errors.Add("Trade limits can't be negative.");

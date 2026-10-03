@@ -37,6 +37,8 @@ public class FixtureTests(A11yAppFixture app)
     [Theory]
     [InlineData("/setup/strategies/" + A11ySeed.RetestId)]
     [InlineData("/setup/strategies/" + A11ySeed.RetiredId)]
+    [InlineData("/setup/strategies/" + A11ySeed.DollarsId)]
+    [InlineData("/setup/strategies/" + A11ySeed.GuardOffId)]
     public async Task SeededStrategyPage_ServesOk(string route)
     {
         using var http = new HttpClient { BaseAddress = app.BaseAddress };
