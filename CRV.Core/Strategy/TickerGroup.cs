@@ -282,14 +282,7 @@ public class TickerGroup
                 // Don't Disarm() — just skip evaluation so dashboard shows IDLE, not CUTOFF.
                 if (!IsEnabledForCurrentSession(strategy))
                 {
-                    // A holding strategy keeps its open position when its session slot is off.
-                    if (strategy.IsActive && strategy.CloseAtRthClose)
-                    {
-                        var px = bar.Close > 0 ? bar.Close : _lastBarClose;
-                        strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
-                        if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
-                    }
+                    await ExitOrCancelAsync(strategy, bar.Close > 0 ? bar.Close : _lastBarClose, DateTime.UtcNow, null, bar.Time);
                     continue;
                 }
 
@@ -297,25 +290,8 @@ public class TickerGroup
                 // (matches OrbStrategyEngine behavior: no new arms/entries past cutoff)
                 if (IsPastCutoff(strategy, localTime))
                 {
-                    // Force-exit active trades past cutoff (CloseAtRthClose behavior).
-                    // A holding strategy keeps its position; Disarm() below still stops new entries.
-                    if (strategy.IsActive)
-                    {
-                        if (strategy.CloseAtRthClose)
-                        {
-                            var px = bar.Close > 0 ? bar.Close : _lastBarClose;
-                            strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
-                            if (_brokerHandler != null)
-                                await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
-                        }
-                    }
-                    // Cancel pending entries that haven't filled yet
-                    else if (_brokerHandler != null)
-                    {
-                        var pendingGroup = _brokerHandler.GetGroupState(strategy.Id);
-                        if (pendingGroup?.Status == GroupOrderStatus.Pending)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, 0, ExitReason.SessionEnd, bar.Time);
-                    }
+                    // Disarm() below still stops new entries for a strategy that holds its position.
+                    await ExitOrCancelAsync(strategy, bar.Close > 0 ? bar.Close : _lastBarClose, DateTime.UtcNow, null, bar.Time);
                     // Disarm stale armed/waiting states so dashboard shows IDLE
                     strategy.Disarm();
                     continue;
@@ -404,23 +380,13 @@ public class TickerGroup
             {
                 if (!IsEnabledForCurrentSession(strategy))
                 {
-                    if (strategy.IsActive && strategy.CloseAtRthClose)
-                    {
-                        strategy.ForceExit(price, utc, ExitReason.SessionEnd);
-                        if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd, utc);
-                    }
+                    await ExitOrCancelAsync(strategy, price, utc, utc, utc);
                     continue;
                 }
 
                 if (IsPastCutoff(strategy, tickLocalTime))
                 {
-                    if (strategy.IsActive && strategy.CloseAtRthClose)
-                    {
-                        strategy.ForceExit(price, utc, ExitReason.SessionEnd);
-                        if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd, utc);
-                    }
+                    await ExitOrCancelAsync(strategy, price, utc, utc, utc);
                     strategy.Disarm();
                     continue;
                 }
@@ -931,6 +897,27 @@ public class TickerGroup
     /// hardcoded clock (which would otherwise block 06:00 NY ORBs until 09:30).
     /// </summary>
     public void SetActiveSessionId(string sessionId) => _activeSessionId = sessionId ?? "";
+
+    /// <summary>
+    /// Session end for one strategy (past its cutoff or its session slot is off): a strategy that
+    /// closes at session end flattens its open position; a holding strategy keeps it. An entry that
+    /// has not filled is always cancelled.
+    /// </summary>
+    private async Task ExitOrCancelAsync(ISetupStrategy strategy, decimal price, DateTime forceExitTime,
+        DateTime? exitTime, DateTime cancelTime)
+    {
+        if (strategy.IsActive)
+        {
+            if (!strategy.CloseAtRthClose) return;
+            strategy.ForceExit(price, forceExitTime, ExitReason.SessionEnd);
+            if (_brokerHandler != null)
+                await _brokerHandler.ExitGroupAsync(strategy.Id, price, ExitReason.SessionEnd, exitTime);
+        }
+        else if (_brokerHandler?.GetGroupState(strategy.Id)?.Status == GroupOrderStatus.Pending)
+        {
+            await _brokerHandler.ExitGroupAsync(strategy.Id, 0, ExitReason.SessionEnd, cancelTime);
+        }
+    }
 
     private bool IsEnabledForCurrentSession(ISetupStrategy strategy)
     {

@@ -663,4 +663,31 @@ public class TickerGroupTests
 
         Assert.Equal(kept, handler.HasActiveGroup("A"));
     }
+
+    [Fact]
+    public async Task PastCutoffTick_HoldingSetup_StillCancelsAnUnfilledEntry()
+    {
+        var (group, handler) = WithGroup(CutoffAt1430(close: false), filled: false);
+
+        await group.ProcessTickAsync(20010m, PastCutoffUtc);
+
+        Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Theory]
+    [InlineData(true,  true)]
+    [InlineData(true,  false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task SessionSlotOff_CancelsAnUnfilledEntry(bool close, bool viaTick)
+    {
+        var s = new SessionGatedFakeStrategy { Id = "A", AllowedSession = "London", CloseAtRthClose = close };
+        var (group, handler) = WithGroup(s, filled: false);
+        group.SetActiveSessionId("NY");
+
+        if (viaTick) await group.ProcessTickAsync(20010m, MorningUtc);
+        else await group.ProcessBarAsync(MakeBar(MorningUtc, 20010m, 20012m, 20008m, 20010m));
+
+        Assert.False(handler.HasActiveGroup("A"));
+    }
 }
