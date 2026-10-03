@@ -165,7 +165,8 @@ public class ComposableEngine
         if (bar.IsConfirmed)
         {
             SaveOrbCacheIfFormed(group);
-            group.CollectAndClearSignals();
+            foreach (var sig in group.CollectAndClearSignals())
+                if (sig.Refusal != null) sig.Strategy.ForgetRefusals();
         }
     }
 

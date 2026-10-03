@@ -121,6 +121,8 @@ public class RetestStrategy : ISetupStrategy
         _pendingSizeRefusal = null;
     }
 
+    public void ForgetRefusals() => _refusalGate.Reset();
+
     public void Reconfigure(StrategySetupConfig config)
     {
         _cfg = config;
