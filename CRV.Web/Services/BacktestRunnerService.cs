@@ -52,7 +52,7 @@ public class BacktestRunnerService
             using var scope = _sp.CreateScope();
 
             // Collect distinct tickers from enabled setup configs
-            var setupTickers = cfg.ToSetupConfigs()
+            var setupTickers = cfg.ToSetupConfigsWithoutSkipped()
                 .Where(s => s.Enabled)
                 .Select(s => s.Ticker)
                 .Distinct(StringComparer.OrdinalIgnoreCase)

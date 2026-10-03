@@ -551,6 +551,17 @@ public class StrategyConfig
         return configs;
     }
 
+    /// <summary>
+    /// <see cref="ToSetupConfigs"/> without the switched-on entries <see cref="SetupValidation.DisabledSetups"/>
+    /// skips. Feeds and bar snapshots are built from this, so a skipped entry never subscribes a ticker or
+    /// pushes bars into the group of a sibling on the same root.
+    /// </summary>
+    public List<StrategySetupConfig> ToSetupConfigsWithoutSkipped()
+    {
+        var skipped = SetupValidation.DisabledSetups(this).Select(d => d.Id).ToHashSet();
+        return ToSetupConfigs().Where(s => !skipped.Contains(s.Id)).ToList();
+    }
+
     private List<StrategySetupConfig> LegacySetupConfigs() =>
         new() { BuildSetupConfigA(), BuildSetupConfigB(), BuildSetupConfigC(), BuildSetupConfigD() };
 

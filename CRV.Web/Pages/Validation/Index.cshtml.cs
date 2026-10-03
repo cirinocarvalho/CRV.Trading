@@ -60,7 +60,7 @@ public class IndexModel : PageModel
         var cfg   = _cfgSvc.Current;
         var btCfg = BuildBtConfig();
 
-        var tickers = cfg.ToSetupConfigs().Where(s => s.Enabled)
+        var tickers = cfg.ToSetupConfigsWithoutSkipped().Where(s => s.Enabled)
             .Select(s => s.Ticker).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         EnabledSetups = tickers.Count;

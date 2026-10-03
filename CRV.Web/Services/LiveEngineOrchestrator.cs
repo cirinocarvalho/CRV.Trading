@@ -307,7 +307,7 @@ public class LiveEngineOrchestrator : BackgroundService
             if (orbStartLocal > nowLocal) orbStartLocal = orbStartLocal.AddDays(-1);
 
             // Collect all distinct tickers from basket (or fallback to global)
-            var setupConfigs = cfg.ToSetupConfigs();
+            var setupConfigs = cfg.ToSetupConfigsWithoutSkipped();
             var allTickers = setupConfigs
                 .Select(s => s.Ticker)
                 .Where(t => !string.IsNullOrEmpty(t))
@@ -525,7 +525,7 @@ public class LiveEngineOrchestrator : BackgroundService
             cfg.Ticker = FuturesSymbol.ForBroker(cfg.Ticker, cfg.Broker);
 
             // Compute distinct tickers across all enabled setups (broker-format)
-            var setupConfigs = cfg.ToSetupConfigs().Where(s => s.Enabled).ToList();
+            var setupConfigs = cfg.ToSetupConfigsWithoutSkipped().Where(s => s.Enabled).ToList();
             var distinctTickers = setupConfigs
                 .Select(s => FuturesSymbol.ForBroker(s.Ticker, cfg.Broker))
                 .Where(t => !string.IsNullOrEmpty(t))

@@ -107,4 +107,25 @@ public class BasketConfigTests
 
         Assert.Equal(10, cfg.TfMinutesFor("/MNQZ26", 10));
     }
+
+    // ── ToSetupConfigsWithoutSkipped ────────────────────────────
+
+    [Fact]
+    public void ToSetupConfigsWithoutSkipped_LeavesOutSwitchedOnEntriesTheEngineSkips()
+    {
+        var cfg = new StrategyConfig
+        {
+            ExecutionTFMinutes = 1,
+            BasketJson = Basket(
+                Entry("pullback-mnq", StrategyType.Pullback, "/MNQZ26", 15),
+                Entry("retest-nq", StrategyType.Retest, "/NQZ26", 5),
+                Entry("off-es", StrategyType.Pullback, "/ESZ26", 1, enabled: false)),
+            EmaBasketJson = Basket(Entry("ema21-mes", SetupValidation.RetiredEma21, "/MESZ26", 1)),
+        };
+
+        var setups = cfg.ToSetupConfigsWithoutSkipped();
+
+        Assert.Equal(new[] { "pullback-mnq", "off-es" }, setups.Select(s => s.Id));
+        Assert.Equal(new[] { "/MNQZ26" }, setups.Where(s => s.Enabled).Select(s => s.Ticker));
+    }
 }
