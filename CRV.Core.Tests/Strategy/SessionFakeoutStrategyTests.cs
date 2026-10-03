@@ -406,4 +406,92 @@ public class SessionFakeoutStrategyTests
         Assert.Null(s.PendingEntry);
         Assert.False(s.IsArmed);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Targets after sizing, and the reward / risk guard
+    // ═════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void TickOffset_RewardRiskIsMeasuredFromTheFill()
+    {
+        // Fill 5170.50, stop 5166, target 5210.50: 40 / 4.5 = 8.89R. From the signal price: 10R.
+        var cfg = DefaultConfig();
+        cfg.EntryTickOffset = 2;
+        cfg.MinRr = 9m;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Null(s.PendingEntry);
+        var skip = s.PendingSizeRefusal!;
+        Assert.Equal(RefusalReason.MinRr, skip.Reason);
+        Assert.Equal(40m / 4.5m, skip.Rr);
+        Assert.Equal(skip.Describe(), s.GetSnapshot().LastSkip);
+    }
+
+    [Fact]
+    public void TickOffset_TargetIsMeasuredFromTheFill()
+    {
+        var cfg = DefaultConfig();
+        cfg.EntryTickOffset = 2;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Equal(5210.50m, s.PendingEntry!.Tg2Price);
+    }
+
+    [Fact]
+    public void MinRrSkip_IsReportedOncePerArmedEpisode_AndLastSkipSurvivesTheEpisode()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 99m;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.NotNull(s.PendingSizeRefusal);
+
+        s.ClearPendingSignals();
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.Null(s.PendingSizeRefusal);
+
+        s.ForceExit(5185m, new DateTime(2026, 3, 10, 16, 0, 0, DateTimeKind.Utc));
+        Assert.NotNull(s.GetSnapshot().LastSkip);
+
+        s.ClearPendingSignals();
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.NotNull(s.PendingSizeRefusal);
+    }
+
+    [Fact]
+    public void WholePositionDollars_TargetIsSpreadOverTheSizedContracts()
+    {
+        // Stop 4 pts x $20 = $80 a contract; $160 budget = 2 contracts; $400 / ($20 x 2) = 10 pts.
+        var cfg = DefaultConfig();
+        cfg.AutoSizeByRisk = true;
+        cfg.MaxTradeRisk = 160m;
+        cfg.TargetMode = TargetMode.Dollars;
+        cfg.TargetDollars = 400m;
+        cfg.TargetDollarsBasis = TargetDollarsBasis.WholePosition;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Equal(2, s.PendingEntry!.TotalContracts);
+        Assert.Equal(5180m, s.PendingEntry.Tg2Price);
+    }
+
+    [Fact]
+    public void BelowMinimum_RaiseTarget_EntersAtTheMinimum()
+    {
+        var cfg = DefaultConfig();
+        cfg.MinRr = 12m;
+        cfg.MinRrAction = MinRrAction.RaiseTarget;
+        var s = new SessionFakeoutStrategy(cfg);
+
+        s.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+
+        Assert.Equal(5218m, s.PendingEntry!.Tg2Price);   // 12 x 4 pts
+        Assert.Equal(5194m, s.PendingEntry.Tg1Price);
+    }
 }

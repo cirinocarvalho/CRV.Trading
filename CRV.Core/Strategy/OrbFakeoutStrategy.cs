@@ -128,7 +128,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
 
     public void Disarm()
     {
-        if (!_inTrade) { _state = 0; _armEntry = 0; _pastCutoff = true; }
+        if (!_inTrade) { _state = 0; _armEntry = 0; _pastCutoff = true; _refusalGate.EndEpisode(); }
     }
 
     public void ResetCutoff() { _pastCutoff = false; }
@@ -228,6 +228,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
     {
         _pendingEntry = null;
         _state = 0;
+        _refusalGate.EndEpisode();
     }
 
     // ── GetSnapshot ───────────────────────────────────────────────
@@ -249,6 +250,9 @@ public class OrbFakeoutStrategy : ISetupStrategy
         Losses      = _losses,
         WinPnl      = _winPnl,
         LossPnl     = _lossPnl,
+        MinRrEnforced = _cfg.EnforceMinRr,
+        MinRr       = _cfg.MinRr,
+        LastSkip    = _refusalGate.LastMinRrSkip?.Describe(),
         Expectancy  = (_wins + _losses) > 0
             ? (_winPnl + _lossPnl) / (_wins + _losses) : 0m,
     };
@@ -260,13 +264,12 @@ public class OrbFakeoutStrategy : ISetupStrategy
         if (_inTrade) return; // already in trade
         // A side switched off while armed (a settings change after a rejected entry, or a revert)
         // disarms instead of entering.
-        if ((isLong ? _cfg.EffectiveMaxLong : _cfg.EffectiveMaxShort) <= 0) { _state = 0; _armEntry = 0; return; }
+        if ((isLong ? _cfg.EffectiveMaxLong : _cfg.EffectiveMaxShort) <= 0) { _state = 0; _armEntry = 0; _refusalGate.EndEpisode(); return; }
 
-        // Calculate levels from ORIGINAL entry (offset applied to entry only, below)
-        var (sl, tp, pp, _) = LevelCalculator.CalcLevels(ep, isLong,
-            _cfg.StopPct, _cfg.TargetPct, _cfg.PartialPct, orb.Range, _cfg.TickSize);
+        // OrbPct stop from the signal price; the tick offset below moves only the entry.
+        decimal sl = LevelCalculator.RangeStop(ep, isLong, orb.Range, _cfg.StopPct, _cfg.TickSize);
 
-        // Apply entry tick offset to entry price only (levels already computed from true signal price)
+        // Apply entry tick offset to the entry; target and partial are measured from it after sizing.
         if (_cfg.EntryTickOffset != 0 && _cfg.TickSize > 0)
         {
             decimal offset = _cfg.EntryTickOffset * _cfg.TickSize;
@@ -310,17 +313,21 @@ public class OrbFakeoutStrategy : ISetupStrategy
             else if (Math.Abs(ep - sl) > orbPctRisk) sl = orbPctSl;
         }
 
-        decimal risk   = Math.Abs(ep - sl);
-        decimal reward = Math.Abs(tp - ep);
-        decimal rr     = risk > 0 ? reward / risk : 0;
-        if (rr < _cfg.MinRr) return;
-
         var (contracts, scaledPartial) = AutoSizeByRiskCalculator.Calc(ep, sl, _cfg, _lastAtrRatio);
         if (contracts <= 0)
         {
             _pendingSizeRefusal = _refusalGate.Report(isLong, ep, sl, _cfg, time);
             return;
         }
+
+        // Target and partial come after sizing: a whole-position dollar target spreads over the count.
+        var levels = MinRrGuard.Apply(_cfg, LevelRequest.From(_cfg, ep, isLong, sl, contracts, orb.Range));
+        if (levels.Skip)
+        {
+            _pendingSizeRefusal = _refusalGate.ReportMinRr(isLong, ep, sl, levels.Rr, _cfg, time);
+            return;
+        }
+        decimal tp = levels.Target, pp = levels.Partial;
 
         _pendingEntry = new EntrySignal(
             _cfg.SetupId,
@@ -336,6 +343,7 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _tradeCount++;
         if (isLong) _bullTraded = true; else _bearTraded = true;
         _state = 0;
+        _refusalGate.EndEpisode();
     }
 
 }
