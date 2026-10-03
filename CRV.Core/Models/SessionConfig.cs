@@ -123,6 +123,28 @@ public class SessionConfig
     public SetupConfigD SetupD        { get; set; } = new();
     public SetupConfigF SetupF        { get; set; } = new();
 
+    // ── CloseLegacySetupsAtRthClose ────────────────────────────────────────
+    /// <summary>
+    /// Sets CloseAtRthClose on setups A–D in every session, the sessions.json counterpart of the
+    /// DefaultCloseAtRthClose migration: session transitions copy these values over the DB's, so
+    /// without it a stored false would start holding positions past the session.
+    /// Returns whether any value changed.
+    /// </summary>
+    public static bool CloseLegacySetupsAtRthClose(IEnumerable<SessionConfig> sessions)
+    {
+        var changed = false;
+        foreach (var s in sessions)
+        {
+            foreach (var setup in new SetupConfigBase[] { s.SetupA, s.SetupB, s.SetupC, s.SetupD })
+            {
+                if (setup.CloseAtRthClose) continue;
+                setup.CloseAtRthClose = true;
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     // ── ToLegacyConfig ─────────────────────────────────────────────────────
     /// <summary>
     /// Produces a flat <see cref="StrategyConfig"/> for this session by cloning

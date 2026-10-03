@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CRV.Core.Models;
 using Xunit;
 
@@ -206,5 +207,55 @@ public class SessionConfigTests
         Assert.Equal(global.OrbEnd,   ny.OrbEnd);
         Assert.Equal(global.RthStart, ny.RthStart);
         Assert.Equal(global.RthEnd,   ny.RthEnd);
+    }
+
+    // ── CloseLegacySetupsAtRthClose ────────────────────────────────────────
+
+    /// <summary>Sessions as sessions.json holds them, with A–D set to hold past the session.</summary>
+    private static string HoldingSessionsJson()
+    {
+        var sessions = SessionConfig.CreateDefaults(BaseGlobal());
+        foreach (var s in sessions)
+        {
+            s.SetupA.CloseAtRthClose = false;
+            s.SetupB.CloseAtRthClose = false;
+            s.SetupC.CloseAtRthClose = false;
+            s.SetupD.CloseAtRthClose = false;
+        }
+        sessions[2].SetupD.CloseAtRthClose = true;
+        return JsonSerializer.Serialize(sessions);
+    }
+
+    [Fact]
+    public void CloseLegacySetupsAtRthClose_SetsAToDInEverySessionAndNothingElse()
+    {
+        var json = HoldingSessionsJson();
+        var sessions = JsonSerializer.Deserialize<List<SessionConfig>>(json)!;
+        var expected = JsonSerializer.Deserialize<List<SessionConfig>>(json)!;
+        foreach (var s in expected)
+        {
+            s.SetupA.CloseAtRthClose = true;
+            s.SetupB.CloseAtRthClose = true;
+            s.SetupC.CloseAtRthClose = true;
+            s.SetupD.CloseAtRthClose = true;
+        }
+
+        var changed = SessionConfig.CloseLegacySetupsAtRthClose(sessions);
+
+        Assert.True(changed);
+        Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(sessions));
+    }
+
+    [Fact]
+    public void CloseLegacySetupsAtRthClose_RunAgain_ChangesNothing()
+    {
+        var sessions = JsonSerializer.Deserialize<List<SessionConfig>>(HoldingSessionsJson())!;
+        SessionConfig.CloseLegacySetupsAtRthClose(sessions);
+        var once = JsonSerializer.Serialize(sessions);
+
+        var changed = SessionConfig.CloseLegacySetupsAtRthClose(sessions);
+
+        Assert.False(changed);
+        Assert.Equal(once, JsonSerializer.Serialize(sessions));
     }
 }
