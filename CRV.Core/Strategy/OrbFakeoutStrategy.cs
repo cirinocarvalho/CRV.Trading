@@ -92,7 +92,8 @@ public class OrbFakeoutStrategy : ISetupStrategy
         _pendingSizeRefusal = null;
     }
 
-    public void ForgetRefusals() => _refusalGate.Reset();
+    public SizeRefusalGate.State CaptureRefusals() => _refusalGate.Capture();
+    public void RestoreRefusals(SizeRefusalGate.State state) => _refusalGate.Restore(state);
 
     public void Reconfigure(StrategySetupConfig config)
     {
