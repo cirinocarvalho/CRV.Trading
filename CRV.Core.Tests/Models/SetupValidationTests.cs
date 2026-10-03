@@ -91,6 +91,77 @@ public class SetupValidationTests
         Assert.Contains("its opening range ends before it starts", SetupValidation.Entry(e, Config([])));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-50)]
+    public void Entry_DollarsTargetNotAboveZero_IsReported(decimal dollars)
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetMode = TargetMode.Dollars;
+        e.Config.TargetDollars = dollars;
+
+        Assert.Contains("dollars target must be above 0", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_ZeroDollarsWhileTargetIsAShareOfTheRange_HasNoProblems()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetMode = TargetMode.RangePct;
+        e.Config.TargetDollars = 0;
+
+        Assert.Empty(SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_DollarsTargetAboveZero_HasNoProblems()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetMode = TargetMode.Dollars;
+        e.Config.TargetDollars = 400m;
+
+        Assert.Empty(SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_NegativeTargetPct_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetPct = -10;
+
+        Assert.Contains("target can't be a negative share of the range", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_NegativeFirstTargetMultiple_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.AtrTp1Mult = -1m;
+
+        Assert.Contains("first target multiple can't be negative", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_NegativeSecondTargetMultiple_IsReported()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.AtrTp2Mult = -2m;
+
+        Assert.Contains("second target multiple can't be negative", SetupValidation.Entry(e, Config([])));
+    }
+
+    [Fact]
+    public void Entry_ZeroTargetPctAndMultiples_AreNotNegative()
+    {
+        var e = Entry("p", StrategyType.Pullback, "/MNQZ26");
+        e.Config.TargetMode = TargetMode.RiskMultiple;
+        e.Config.TargetPct = 0;
+        e.Config.AtrTp1Mult = 0m;
+        e.Config.AtrTp2Mult = 0m;
+
+        Assert.Empty(SetupValidation.Entry(e, Config([])));
+    }
+
     // ── RootBarSizes ────────────────────────────────────────────
 
     [Fact]
