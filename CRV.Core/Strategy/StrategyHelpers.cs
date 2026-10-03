@@ -1,6 +1,27 @@
+using CRV.Core.Models;
+
 namespace CRV.Core.Strategy;
 
-/// <summary>Port of Pine f_calcLevels() — Setup A (pct-based stop)</summary>
+/// <summary>
+/// What a strategy knows when it sets its target: the fill, the final stop, the sized
+/// contract count and the target settings. <see cref="RangeOrAtr"/> is the range for
+/// RangePct and the ATR for Atr.
+/// </summary>
+public record LevelRequest(
+    decimal Entry, bool IsLong, decimal Stop, int Contracts,
+    TargetMode Mode, decimal RangeOrAtr, decimal TargetPct,
+    decimal TargetDollars, TargetDollarsBasis Basis, decimal PointValue,
+    decimal PartialPct, decimal TickSize,
+    decimal Tp1Mult = 0, decimal Tp2Mult = 0)
+{
+    public static LevelRequest From(StrategySetupConfig cfg, decimal entry, bool isLong, decimal stop,
+        int contracts, decimal rangeOrAtr) => new(
+        entry, isLong, stop, contracts, cfg.TargetMode, rangeOrAtr, cfg.TargetPct,
+        cfg.TargetDollars, cfg.TargetDollarsBasis, cfg.PointValue, cfg.PartialPct, cfg.TickSize,
+        cfg.AtrTp1Mult, cfg.AtrTp2Mult);
+}
+
+/// <summary>Port of Pine f_calcLevels(), extended to every target mode.</summary>
 public static class LevelCalculator
 {
     /// <summary>
@@ -10,27 +31,48 @@ public static class LevelCalculator
     public static decimal RoundToTick(decimal price, decimal tickSize)
         => tickSize > 0 ? Math.Round(price / tickSize, MidpointRounding.AwayFromZero) * tickSize : price;
 
+    /// <summary>The OrbPct stop: <paramref name="stopPct"/> of the range from <paramref name="entry"/>, on the tick.</summary>
+    public static decimal RangeStop(decimal entry, bool isLong, decimal range, decimal stopPct, decimal tickSize = 0m)
+        => RoundToTick(isLong ? entry - range * stopPct : entry + range * stopPct, tickSize);
+
+    /// <summary>
+    /// Target and partial on the tick, measured from <see cref="LevelRequest.Entry"/>, and the
+    /// reward / risk they give against <see cref="LevelRequest.Stop"/> (0 when there is no risk).
+    /// </summary>
+    public static (decimal Target, decimal Partial, decimal Rr) Targets(LevelRequest r)
+    {
+        decimal risk        = Math.Abs(r.Entry - r.Stop);
+        decimal dist        = TargetDistance(r, risk);
+        decimal partialDist = PartialDistance(r, risk, dist);
+
+        decimal target  = RoundToTick(r.IsLong ? r.Entry + dist : r.Entry - dist, r.TickSize);
+        decimal partial = PartialPrice(r, partialDist);
+
+        decimal reward = Math.Abs(target - r.Entry);
+        return (target, partial, risk > 0 ? reward / risk : 0m);
+    }
+
+    /// <summary>
+    /// The target moved out to <paramref name="minRr"/> × the risk, rounded away from the entry so
+    /// the trade is never below the minimum, and the partial at PartialPct of the new distance.
+    /// </summary>
+    public static (decimal Target, decimal Partial) RaiseToMinRr(LevelRequest r, decimal minRr)
+    {
+        decimal dist   = Math.Abs(r.Entry - r.Stop) * minRr;
+        decimal target = r.IsLong ? CeilToTick(r.Entry + dist, r.TickSize) : FloorToTick(r.Entry - dist, r.TickSize);
+
+        return (target, PartialPrice(r, Math.Abs(target - r.Entry) * (r.PartialPct / 100m)));
+    }
+
+    /// <summary>Setup A levels: OrbPct stop and a RangePct target, both from <paramref name="entry"/>.</summary>
     public static (decimal stop, decimal target, decimal partial, decimal rr)
         CalcLevels(decimal entry, bool isLong, decimal stopPct,
                    int targetPct, int partialPct, decimal orbRange,
                    decimal tickSize = 0m)
     {
-        decimal stopDist    = orbRange * stopPct;
-        decimal targetDist  = orbRange * (targetPct  / 100m);
-        decimal partialDist = targetDist * (partialPct / 100m);
-
-        decimal stop, target, partial;
-        if (isLong) { stop = entry - stopDist; target = entry + targetDist; partial = entry + partialDist; }
-        else        { stop = entry + stopDist; target = entry - targetDist; partial = entry - partialDist; }
-
-        // Snap to nearest valid tick (no-op when tickSize == 0)
-        stop    = RoundToTick(stop,    tickSize);
-        target  = RoundToTick(target,  tickSize);
-        partial = RoundToTick(partial, tickSize);
-
-        decimal risk   = Math.Abs(entry - stop);
-        decimal reward = Math.Abs(target - entry);
-        decimal rr     = risk > 0 ? reward / risk : 0;
+        decimal stop = RangeStop(entry, isLong, orbRange, stopPct, tickSize);
+        var (target, partial, rr) = Targets(new LevelRequest(entry, isLong, stop, 1, TargetMode.RangePct,
+            orbRange, targetPct, 0m, TargetDollarsBasis.PerContract, 0m, partialPct, tickSize));
         return (stop, target, partial, rr);
     }
 
@@ -42,20 +84,40 @@ public static class LevelCalculator
         CalcLevelsB(decimal entry, bool isLong, int targetPct,
                     int partialPct, decimal orbRange, decimal stopPct,
                     decimal tickSize = 0m)
+        => CalcLevels(entry, isLong, stopPct, targetPct, partialPct, orbRange, tickSize);
+
+    private static decimal TargetDistance(LevelRequest r, decimal risk) => r.Mode switch
     {
-        decimal stopDist    = orbRange * stopPct;
-        decimal targetDist  = orbRange * (targetPct  / 100m);
-        decimal partialDist = targetDist * (partialPct / 100m);
+        TargetMode.RangePct     => r.RangeOrAtr * (r.TargetPct / 100m),
+        TargetMode.Dollars      => DollarDistance(r),
+        TargetMode.Atr          => r.RangeOrAtr * r.Tp2Mult,
+        TargetMode.RiskMultiple => risk * r.Tp2Mult,
+        _                       => 0m,
+    };
 
-        decimal stop    = RoundToTick(isLong ? entry - stopDist  : entry + stopDist,  tickSize);
-        decimal target  = RoundToTick(isLong ? entry + targetDist : entry - targetDist, tickSize);
-        decimal partial = RoundToTick(isLong ? entry + partialDist : entry - partialDist, tickSize);
-
-        decimal risk   = Math.Abs(entry - stop);
-        decimal reward = Math.Abs(target - entry);
-        decimal rr     = risk > 0 ? reward / risk : 0;
-        return (stop, target, partial, rr);
+    /// <summary>Per contract: dollars / point value. Whole position: also spread over the contracts.</summary>
+    private static decimal DollarDistance(LevelRequest r)
+    {
+        decimal perPoint = r.Basis == TargetDollarsBasis.WholePosition ? r.PointValue * r.Contracts : r.PointValue;
+        return perPoint > 0 ? r.TargetDollars / perPoint : 0m;
     }
+
+    private static decimal PartialDistance(LevelRequest r, decimal risk, decimal dist) => r.Mode switch
+    {
+        TargetMode.Atr          when r.Tp1Mult > 0 => r.RangeOrAtr * r.Tp1Mult,
+        TargetMode.RiskMultiple when r.Tp1Mult > 0 => risk * r.Tp1Mult,
+        _                                          => dist * (r.PartialPct / 100m),
+    };
+
+    /// <summary>The partial price <paramref name="partialDist"/> from the entry, on the tick. Every level goes through this rule.</summary>
+    private static decimal PartialPrice(LevelRequest r, decimal partialDist)
+        => RoundToTick(r.IsLong ? r.Entry + partialDist : r.Entry - partialDist, r.TickSize);
+
+    private static decimal CeilToTick(decimal price, decimal tickSize)
+        => tickSize > 0 ? Math.Ceiling(price / tickSize) * tickSize : price;
+
+    private static decimal FloorToTick(decimal price, decimal tickSize)
+        => tickSize > 0 ? Math.Floor(price / tickSize) * tickSize : price;
 }
 
 /// <summary>Result of one bar's exit processing.</summary>
