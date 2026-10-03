@@ -1,4 +1,5 @@
 using CRV.Core.Indicators;
+using CRV.Core.Interfaces;
 using CRV.Core.Models;
 using CRV.Core.Modules;
 using CRV.Core.Strategy;
@@ -555,5 +556,111 @@ public class TickerGroupTests
         var utc2 = new DateTime(2026, 4, 28, 10, 31, 0, DateTimeKind.Utc);
         await group.ProcessBarAsync(MakeBar(utc2, 100m, 101m, 99m, 100m));
         Assert.Equal(1, strat.OnBarCallCount); // unchanged — still blocked by module clock
+    }
+
+    // ── Hold vs close at the cutoff and when the session slot is off ──
+
+    private static GroupOrder Group(string setupId, bool filled)
+    {
+        var id = "g-" + setupId;
+        var g = new GroupOrder
+        {
+            GroupOrderId = id, SetupId = setupId, Ticker = "/NQH2026", Direction = Direction.Long,
+            TotalContracts = 1, PointValue = 20m, InitialStopPrice = 19950m,
+            EntryPrice = filled ? 20000m : null,
+            Status = filled ? GroupOrderStatus.Active : GroupOrderStatus.Pending,
+        };
+        g.Legs.Add(new OrderLeg { GroupOrderId = id, OrderId = id + "-e", LegType = LegType.Entry, Price = 20000m, Quantity = 1,
+            Status = filled ? OrderLegStatus.Filled : OrderLegStatus.Working });
+        g.Legs.Add(new OrderLeg { GroupOrderId = id, OrderId = id + "-s", LegType = LegType.Stop, Price = 19950m, Quantity = 1 });
+        return g;
+    }
+
+    private static (TickerGroup Group, BrokerEventHandler Handler) WithGroup(FakeStrategy s, bool filled = true)
+    {
+        var handler = new BrokerEventHandler(new SimulatedGroupExec());
+        var group = new TickerGroup("NQ", DefaultConfig(), handler);
+        group.AddStrategy(s);
+        handler.RegisterGroup(Group(s.Id, filled), s);
+        s.IsActive = filled;
+        s.InTrade = filled;
+        return (group, handler);
+    }
+
+    // 2026-03-20 is in EDT: 18:45 UTC is 14:45 ET, past a 14:30 cutoff; 14:00 UTC is 10:00 ET.
+    private static readonly DateTime PastCutoffUtc = new(2026, 3, 20, 18, 45, 0, DateTimeKind.Utc);
+    private static readonly DateTime MorningUtc    = new(2026, 3, 20, 14, 0, 0, DateTimeKind.Utc);
+
+    private static FakeStrategy CutoffAt1430(bool close) =>
+        new() { Id = "A", CutoffHour = 14, CutoffMinute = 30, CloseAtRthClose = close };
+
+    [Fact]
+    public async Task PastCutoff_ClosingSetup_FlattensItsPosition()
+    {
+        var (group, handler) = WithGroup(CutoffAt1430(close: true));
+
+        await group.ProcessBarAsync(MakeBar(PastCutoffUtc, 20010m, 20012m, 20008m, 20010m));
+
+        Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Fact]
+    public async Task PastCutoff_HoldingSetup_KeepsItsPosition_AndTakesNoNewEntry()
+    {
+        var s = CutoffAt1430(close: false);
+        var (group, handler) = WithGroup(s);
+
+        await group.ProcessBarAsync(MakeBar(PastCutoffUtc, 20010m, 20012m, 20008m, 20010m));
+
+        Assert.True(handler.HasActiveGroup("A"));
+        Assert.True(s.InTrade);
+        Assert.Equal(0, s.OnBarCallCount);   // not evaluated past its cutoff, so it cannot arm or enter
+    }
+
+    [Fact]
+    public async Task PastCutoffTick_ClosingSetup_FlattensItsPosition()
+    {
+        var (group, handler) = WithGroup(CutoffAt1430(close: true));
+
+        await group.ProcessTickAsync(20010m, PastCutoffUtc);
+
+        Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Fact]
+    public async Task PastCutoffTick_HoldingSetup_KeepsItsPosition()
+    {
+        var s = CutoffAt1430(close: false);
+        var (group, handler) = WithGroup(s);
+
+        await group.ProcessTickAsync(20010m, PastCutoffUtc);
+
+        Assert.True(handler.HasActiveGroup("A"));
+        Assert.Equal(0, s.OnTickCallCount);
+    }
+
+    [Fact]
+    public async Task PastCutoff_HoldingSetup_StillCancelsAnUnfilledEntry()
+    {
+        var (group, handler) = WithGroup(CutoffAt1430(close: false), filled: false);
+
+        await group.ProcessBarAsync(MakeBar(PastCutoffUtc, 20010m, 20012m, 20008m, 20010m));
+
+        Assert.False(handler.HasActiveGroup("A"));
+    }
+
+    [Theory]
+    [InlineData(true,  false)]
+    [InlineData(false, true)]
+    public async Task SessionSlotOff_ClosingSetupFlattens_HoldingSetupKeeps(bool close, bool kept)
+    {
+        var s = new SessionGatedFakeStrategy { Id = "A", AllowedSession = "London", CloseAtRthClose = close };
+        var (group, handler) = WithGroup(s);
+        group.SetActiveSessionId("NY");
+
+        await group.ProcessBarAsync(MakeBar(MorningUtc, 20010m, 20012m, 20008m, 20010m));
+        await group.ProcessTickAsync(20010m, MorningUtc.AddSeconds(30));
+
+        Assert.Equal(kept, handler.HasActiveGroup("A"));
     }
 }

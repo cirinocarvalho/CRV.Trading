@@ -282,7 +282,8 @@ public class TickerGroup
                 // Don't Disarm() — just skip evaluation so dashboard shows IDLE, not CUTOFF.
                 if (!IsEnabledForCurrentSession(strategy))
                 {
-                    if (strategy.IsActive)
+                    // A holding strategy keeps its open position when its session slot is off.
+                    if (strategy.IsActive && strategy.CloseAtRthClose)
                     {
                         var px = bar.Close > 0 ? bar.Close : _lastBarClose;
                         strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
@@ -296,13 +297,17 @@ public class TickerGroup
                 // (matches OrbStrategyEngine behavior: no new arms/entries past cutoff)
                 if (IsPastCutoff(strategy, localTime))
                 {
-                    // Force-exit active trades past cutoff (CloseAtRthClose behavior)
+                    // Force-exit active trades past cutoff (CloseAtRthClose behavior).
+                    // A holding strategy keeps its position; Disarm() below still stops new entries.
                     if (strategy.IsActive)
                     {
-                        var px = bar.Close > 0 ? bar.Close : _lastBarClose;
-                        strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
-                        if (_brokerHandler != null)
-                            await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
+                        if (strategy.CloseAtRthClose)
+                        {
+                            var px = bar.Close > 0 ? bar.Close : _lastBarClose;
+                            strategy.ForceExit(px, DateTime.UtcNow, ExitReason.SessionEnd);
+                            if (_brokerHandler != null)
+                                await _brokerHandler.ExitGroupAsync(strategy.Id, px, ExitReason.SessionEnd);
+                        }
                     }
                     // Cancel pending entries that haven't filled yet
                     else if (_brokerHandler != null)
@@ -399,7 +404,7 @@ public class TickerGroup
             {
                 if (!IsEnabledForCurrentSession(strategy))
                 {
-                    if (strategy.IsActive)
+                    if (strategy.IsActive && strategy.CloseAtRthClose)
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
@@ -410,7 +415,7 @@ public class TickerGroup
 
                 if (IsPastCutoff(strategy, tickLocalTime))
                 {
-                    if (strategy.IsActive)
+                    if (strategy.IsActive && strategy.CloseAtRthClose)
                     {
                         strategy.ForceExit(price, utc, ExitReason.SessionEnd);
                         if (_brokerHandler != null)
