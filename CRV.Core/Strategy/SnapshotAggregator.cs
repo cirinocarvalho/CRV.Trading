@@ -274,6 +274,7 @@ public static class SnapshotAggregator
                 Enabled      = ss.Enabled,
                 State        = ss.State,
                 PastCutoff   = ss.PastCutoff,
+                CloseAtRthClose = strategy.CloseAtRthClose,
                 Trade        = trade,
                 TradeCount   = ss.TradeCount,
                 MaxTrades    = ss.MaxTrades,

@@ -51,7 +51,7 @@ public static class CockpitSnapshot
                 RemainingContracts = 1, PartialFilled = true, LastPrice = 21236.25m, UnrealizedPnl = 72.5m,
                 EnteredAt = now.AddMinutes(-20), Ticker = "/MESZ26", PointValue = 2m, GroupStatus = "PartialFilled",
             }),
-            Setup("a11y-short", "Session fakeout [MES]", "SessionFakeout", state: 0, trade: new ActiveTradeView
+            Setup("a11y-short", "Session fakeout [MES]", "SessionFakeout", state: 0, closeAtRthClose: false, trade: new ActiveTradeView
             {
                 Setup = SetupId.F, Direction = Direction.Short, Entry = 21250m, InitialStop = 21270m,
                 CurrentStop = 21270m, Target = 21210m, Contracts = 1, RemainingContracts = 1,
@@ -63,12 +63,13 @@ public static class CockpitSnapshot
     }
 
     public static SetupSnapshot Setup(string id, string label, string type, int state,
-        bool pastCutoff = false, int tradeCount = 0, ActiveTradeView? trade = null) => new()
+        bool pastCutoff = false, int tradeCount = 0, ActiveTradeView? trade = null, bool closeAtRthClose = true) => new()
     {
         Id = id, Label = label, StrategyType = type, Ticker = "/MNQZ26", PointValue = 2m, LastPrice = 21236.25m,
         Enabled = true, State = state, PastCutoff = pastCutoff, Trade = trade, TradeCount = trade == null ? tradeCount : 1,
         MaxTrades = 2, Wins = 1, Losses = 1, WinPnl = 140m, LossPnl = -40m, Expectancy = 50m,
         OrbHigh = 21250m, OrbLow = 21180m, OrbMid = 21215m, OrbRange = 70m, OrbFormed = true,
+        CloseAtRthClose = closeAtRthClose,
     };
 
     /// <summary>A switched-on strategy the engine didn't start, as the snapshot carries it.</summary>

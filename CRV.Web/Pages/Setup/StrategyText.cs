@@ -56,7 +56,9 @@ public static class StrategyText
             ? $"Sizes {c.Contracts}–{c.MaxContracts} contracts to risk up to ${c.MaxTradeRisk:N0}."
             : $"Trades {c.Contracts} contract{(c.Contracts == 1 ? "" : "s")}{(c.MaxTradeRisk > 0 ? $", skipping trades that risk more than ${c.MaxTradeRisk:N0}" : "")}.";
 
+        var close = c.CloseAtRthClose ? "Closes at the end of the session." : "Holds an open trade past the cutoff.";
+
         return $"{what} on {e.Ticker}, and {mode}. Stop is {stop}; target is {c.TargetPct}% of the range. {exits} {size} " +
-               $"Up to {c.MaxTrades} trade{(c.MaxTrades == 1 ? "" : "s")} per session, in {Sessions(e)}.";
+               $"Up to {c.MaxTrades} trade{(c.MaxTrades == 1 ? "" : "s")} per session, in {Sessions(e)}. {close}";
     }
 }

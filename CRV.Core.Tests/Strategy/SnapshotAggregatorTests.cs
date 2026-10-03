@@ -60,6 +60,18 @@ public class SnapshotAggregatorTests
         return stub;
     }
 
+    [Fact]
+    public void SetupSnapshot_SaysWhetherTheSetupHolds()
+    {
+        var holds  = new StubStrategy { Id = "H", SetupId = SetupId.F, CloseAtRthClose = false };
+        var closes = new StubStrategy { Id = "C", SetupId = SetupId.F };
+
+        var snap = SnapshotAggregator.Build(DefaultInputs(holds, closes));
+
+        Assert.False(FindSetup(snap, "H").CloseAtRthClose);
+        Assert.True(FindSetup(snap, "C").CloseAtRthClose);
+    }
+
     private static SnapshotAggregator.Inputs DefaultInputs(params ISetupStrategy[] strategies) => new()
     {
         Strategies = strategies,

@@ -1030,6 +1030,9 @@ function toggleChopDetails() {
 // ── Dynamic setup card creation ───────────────────────────────
 var _cardsCreated = false;
 
+// What happens to an open trade at the cutoff and session end.
+function _holdText(setup) { return setup.closeAtRthClose === false ? "holds past cutoff" : "closes at session end"; }
+
 function createSetupCard(setup) {
     var id = _cardId(setup.id);
     var typeLabels = { Pullback: "\u25B2", Retest: "\u27F3", OrbFakeout: "\u2194", SessionFakeout: "\u21A9" };
@@ -1068,6 +1071,7 @@ function createSetupCard(setup) {
             ${row("Expectancy", "expectancy", 'title="(Win% \u00D7 avg win) \u2212 (Loss% \u00D7 avg loss)"')}
             ${row("Unrealized", "unreal")}
         </div>
+        <footer class="ck-setup-f c-mut small" id="${id}-hold">${_holdText(setup)}</footer>
     `;
     return card;
 }
@@ -1484,6 +1488,7 @@ function updateSetup(id, setup, sessionEnded) {
         setText(id + "-price", "—", "num");
     }
     setText(id + "-ticker", ticker || "");
+    setText(id + "-hold", _holdText(setup));
 
     // ON / OFF badge
     if (enabledEl) {

@@ -170,6 +170,7 @@ form.is-busy .c-idle { display: none; }
 .ck-cell { display: flex; justify-content: space-between; gap: .5rem; padding: .32rem 0; border-top: 1px solid var(--c-line); font-size: .82rem; min-width: 0; }
 .ck-cell > span { color: var(--c-muted); flex: none; }
 .ck-cell > b { font: 500 .82rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.ck-setup-f { padding: 0 .9rem .6rem; }
 @media (max-width: 420px) { .ck-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .ck-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; }
