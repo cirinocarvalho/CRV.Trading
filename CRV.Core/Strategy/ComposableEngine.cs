@@ -177,7 +177,7 @@ public class ComposableEngine
         if (_idle) return;
         if (!_tickModeEnabled) return;
         if (price <= 0) return;
-        if (Risk.DdBreached()) return;
+        if (Risk.DdBreached(HeldOpenLoss(utcTime))) return;
 
         var groupKey = TickerGroup.GetGroupKey(ticker);
         if (!_groups.TryGetValue(groupKey, out var group)) return;
@@ -219,7 +219,7 @@ public class ComposableEngine
             if (!string.IsNullOrEmpty(_activeSessionId))
                 esig = esig with { SessionId = _activeSessionId };
 
-            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode))
+            if (!Risk.CanTrade(_config.UseDailyLossLimit, _config.MaxDailyLoss, _config.DailyLossMode, HeldOpenLoss(esig.Time)))
                 continue;
 
             // Concurrent exposure ceiling. The per-trade cap and the daily loss limit
@@ -447,6 +447,45 @@ public class ComposableEngine
         => !strategy.CloseAtRthClose
            && group.Status is GroupOrderStatus.Active or GroupOrderStatus.PartialFilled;
 
+    private TimeZoneInfo? _zone;
+    private string? _zoneId;
+
+    private TimeZoneInfo Zone
+    {
+        get
+        {
+            if (_zone == null || _zoneId != _config.Timezone)
+            {
+                _zone   = TimeZoneInfo.FindSystemTimeZoneById(_config.Timezone);
+                _zoneId = _config.Timezone;
+            }
+            return _zone;
+        }
+    }
+
+    /// <summary>
+    /// Open loss (≤ 0) of positions opened on an earlier trading day, marked at the last price.
+    /// It counts against today's daily loss limit. A position in profit counts as zero, so a held
+    /// winner never hides a realized loss. One with no price yet (0 after a restart) also counts
+    /// as zero rather than as a loss of its whole notional.
+    /// </summary>
+    internal decimal HeldOpenLoss(DateTime utcNow)
+    {
+        if (!_config.UseDailyLossLimit || _brokerHandler == null) return 0m;
+
+        var today = TradingDay.OfUtc(utcNow, Zone, _config.SessionStartHour);
+        decimal loss = 0m;
+        foreach (var g in _brokerHandler.GetAllActiveGroups())
+        {
+            if (g.EntryPrice is null || g.Status is not (GroupOrderStatus.Active or GroupOrderStatus.PartialFilled)) continue;
+            if (TradingDay.OfUtc(g.CreatedAt, Zone, _config.SessionStartHour) >= today) continue;
+            var price = _prices.GetLastPrice(g.Ticker);
+            if (price <= 0) continue;
+            loss += Math.Min(0m, _brokerHandler.GetUnrealizedPnl(g.SetupId, price));
+        }
+        return loss;
+    }
+
     // ── State ───────────────────────────────────────────────────────
 
     /// <summary>Build and return the current engine snapshot.</summary>
@@ -529,6 +568,7 @@ public class ComposableEngine
             OrbWindowStart = _config.OrbStart.ToString("HH:mm"),
             OrbWindowEnd = _config.OrbEnd.ToString("HH:mm"),
             DailyLossLimit = _config.MaxDailyLoss,
+            HeldOpenLoss = HeldOpenLoss(DateTime.UtcNow),
             CurrentSession = modState.CurrentSession.ToString(),
             SessionHigh = modState.SessionHigh,
             SessionLow = modState.SessionLow,

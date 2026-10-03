@@ -588,4 +588,20 @@ public class SnapshotAggregatorTests
         Assert.Equal(("EMA21 [MNQ]", "", "MNQZ26", false, "retired EMA21 strategy"),
             (card.Label, card.StrategyType, card.Ticker, card.Enabled, card.DisabledReason));
     }
+
+    [Fact]
+    public void TradingHalted_CountsHeldOpenLoss()
+    {
+        var risk = new RiskManager();
+        risk.RecordTrade(-200m);
+        risk.CanTrade(useDailyLossLimit: true, maxDailyLoss: 500m);
+
+        var snap = SnapshotAggregator.Build(new SnapshotAggregator.Inputs
+        {
+            Strategies = Array.Empty<ISetupStrategy>(), Risk = risk, LastPrice = 5000m, HeldOpenLoss = -300m,
+        });
+
+        Assert.True(snap.TradingHalted);
+        Assert.Equal(200m, snap.DailyLossUsed);   // the gauge stays realized
+    }
 }
