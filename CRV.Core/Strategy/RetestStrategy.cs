@@ -317,7 +317,10 @@ public class RetestStrategy : ISetupStrategy
             else if (shortReady && _state == -2 && bar.Open < orbLow)
                 TryEntry(bar.Open, false, orb, bar.Time);
             else if (_state == 2 || _state == -2)
+            {
                 _state = 0; // entry window expired — missed bar N+1
+                _refusalGate.EndEpisode();
+            }
 
             // Promote ±1 → ±2 (will enter on next ProcessArm call, i.e. next bar)
             // Snapshot this (signal) bar so next-bar BarHL stop references it, not bar N+1.
@@ -325,8 +328,11 @@ public class RetestStrategy : ISetupStrategy
             if (_state == -1) { _state = -2; _signalBar = bar; }
 
             // De-arm if price crosses ORB mid (setup invalidated)
-            if (_state == 2  && bar.Close < orbMid)  _state = 0;
-            if (_state == -2 && bar.Close > orbMid) _state = 0;
+            if ((_state == 2 && bar.Close < orbMid) || (_state == -2 && bar.Close > orbMid))
+            {
+                _state = 0;
+                _refusalGate.EndEpisode();
+            }
         }
         else
         {
@@ -431,8 +437,11 @@ public class RetestStrategy : ISetupStrategy
             }
 
             // De-arm if price crosses OrbMid (retest failed)
-            if (_state == 2  && bar.Close < orbMid) _state = 0;
-            if (_state == -2 && bar.Close > orbMid) _state = 0;
+            if ((_state == 2 && bar.Close < orbMid) || (_state == -2 && bar.Close > orbMid))
+            {
+                _state = 0;
+                _refusalGate.EndEpisode();
+            }
         }
     }
 

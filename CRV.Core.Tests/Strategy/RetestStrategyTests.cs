@@ -652,4 +652,30 @@ public class RetestStrategyTests
         EnterLong(s);
         Assert.NotNull(s.PendingSizeRefusal);            // second episode reports again
     }
+
+    [Fact]
+    public void SmartAggressive_MinRrSkip_IsReportedAgainAfterTheEntryWindowExpires()
+    {
+        var cfg = DefaultConfig();
+        cfg.Mode = "SmartAggressive";
+        cfg.MinRr = 99m;
+        cfg.UseOrbClose = true;
+        var s = new RetestStrategy(cfg);
+        var orb = MakeOrb();
+
+        void Feed(Bar b) => s.OnBar(b, orb, MakeIndicators(), EmptyModules());
+
+        Feed(MakeBar(5198m, 5204m, 5198m, 5203m));                   // bar N: closes above the ORB high, arms
+        Feed(MakeBar(5203m, 5206m, 5202m, 5205m));                   // bar N+1: opens past the edge, skipped
+        Assert.NotNull(s.PendingSizeRefusal);
+        s.ClearPendingSignals();
+
+        Feed(MakeBar(5198m, 5199m, 5196m, 5197m));                   // bar N+2 opens inside the range: window over
+        Assert.False(s.IsArmed);
+        Assert.NotNull(s.GetSnapshot().LastSkip);
+
+        Feed(MakeBar(5198m, 5204m, 5198m, 5203m));                   // arms again
+        Feed(MakeBar(5203m, 5206m, 5202m, 5205m));                   // second skip, same direction
+        Assert.NotNull(s.PendingSizeRefusal);
+    }
 }
