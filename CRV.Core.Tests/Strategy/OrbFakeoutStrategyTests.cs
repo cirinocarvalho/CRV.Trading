@@ -533,6 +533,13 @@ public class OrbFakeoutStrategyTests
         Assert.Equal(5204m, e.Tg2Price);         // 12 x 2 pts
         Assert.Equal(5192m, e.Tg1Price);         // 50% of 24 pts
         Assert.Null(s.PendingSizeRefusal);
+
+        var unraised = DefaultConfig();
+        unraised.MinRr = 1m;
+        var baseline = new OrbFakeoutStrategy(unraised);
+        baseline.OnBar(MakeBar(5178m, 5182m, 5175m, 5179m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.Equal(baseline.PendingEntry!.Stop, e.Stop);
+        Assert.Equal(baseline.PendingEntry.TotalContracts, e.TotalContracts);
     }
 
     [Fact]

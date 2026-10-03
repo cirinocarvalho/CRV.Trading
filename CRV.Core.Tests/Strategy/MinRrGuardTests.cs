@@ -58,6 +58,21 @@ public class MinRrGuardTests
     }
 
     [Fact]
+    public void BelowMinimum_RaiseTarget_LeavesTheStopAndTheContractCountAlone()
+    {
+        var cfg = Cfg(100m, action: MinRrAction.RaiseTarget);
+        var request = Request(cfg);
+
+        var g = MinRrGuard.Apply(cfg, request);
+
+        // The raise reads the stop and the count; it hands back only target, partial and R.
+        Assert.Equal(request, Request(cfg));
+        Assert.Equal(1.5m, Math.Abs(g.Target - request.Entry) / Math.Abs(request.Entry - request.Stop));
+        Assert.Equal(new[] { "Partial", "Rr", "Skip", "Target" },
+            typeof(GuardedLevels).GetProperties().Select(p => p.Name).Order().ToArray());
+    }
+
+    [Fact]
     public void GuardOff_TakesBelowMinimum()
     {
         var cfg = Cfg(100m, enforce: false);

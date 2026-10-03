@@ -527,5 +527,12 @@ public class SessionFakeoutStrategyTests
 
         Assert.Equal(5218m, s.PendingEntry!.Tg2Price);   // 12 x 4 pts
         Assert.Equal(5194m, s.PendingEntry.Tg1Price);
+
+        var unraised = DefaultConfig();
+        unraised.MinRr = 1m;
+        var baseline = new SessionFakeoutStrategy(unraised);
+        baseline.OnBar(MakeBar(5168m, 5172m, 5165m, 5169m), MakeOrb(), MakeIndicators(), FakeoutBearModules());
+        Assert.Equal(baseline.PendingEntry!.Stop, s.PendingEntry.Stop);
+        Assert.Equal(baseline.PendingEntry.TotalContracts, s.PendingEntry.TotalContracts);
     }
 }

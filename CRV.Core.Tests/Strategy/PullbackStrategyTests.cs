@@ -374,6 +374,12 @@ public class PullbackStrategyTests
 
         Assert.Equal(5214m, s.PendingEntry!.Tg2Price);   // 12 x 2 pts
         Assert.Equal(5202m, s.PendingEntry.Tg1Price);
+
+        var unraised = DefaultConfig();
+        unraised.MinRr = 1m;
+        var baseline = EnterLongAt5190(unraised);
+        Assert.Equal(baseline.PendingEntry!.Stop, s.PendingEntry.Stop);
+        Assert.Equal(baseline.PendingEntry.TotalContracts, s.PendingEntry.TotalContracts);
     }
 
     [Fact]

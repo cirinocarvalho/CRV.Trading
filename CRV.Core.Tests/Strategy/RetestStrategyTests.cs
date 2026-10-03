@@ -580,6 +580,13 @@ public class RetestStrategyTests
 
         Assert.Equal(5230m, s.PendingEntry!.Tg2Price);   // 3 x 10 pts
         Assert.Equal(5215m, s.PendingEntry.Tg1Price);
+
+        var unraised = DefaultConfig();
+        unraised.MinRr = 1m;
+        var baseline = new RetestStrategy(unraised);
+        EnterLong(baseline);
+        Assert.Equal(baseline.PendingEntry!.Stop, s.PendingEntry.Stop);
+        Assert.Equal(baseline.PendingEntry.TotalContracts, s.PendingEntry.TotalContracts);
     }
 
     [Fact]
