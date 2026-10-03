@@ -40,6 +40,9 @@ public static class SetupValidation
         else if (!Tradable.Contains(entry.StrategyType))
             problems.Add($"unknown strategy type {(int)entry.StrategyType}");
 
+        if (string.IsNullOrWhiteSpace(entry.Ticker))
+            problems.Add("it has no instrument");
+
         if (entry.ExecutionTFMinutes is int tf && tf > 0 && !BarSizes.Contains(tf))
             problems.Add($"bar size {tf} min isn't one of {string.Join(", ", BarSizes)} min");
         if (entry.Config.UseCustomOrbWindow && entry.Config.OrbEnd <= entry.Config.OrbStart)

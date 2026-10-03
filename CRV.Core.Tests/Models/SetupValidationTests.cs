@@ -35,6 +35,25 @@ public class SetupValidationTests
             SetupValidation.Entry(Entry("x", (StrategyType)9, "/MNQZ26"), Config([])));
 
     [Fact]
+    public void Entry_NoTicker_IsReportedAsHavingNoInstrument()
+        => Assert.Contains("it has no instrument",
+            SetupValidation.Entry(Entry("pullback-x", StrategyType.Pullback, null!), Config([])));
+
+    [Fact]
+    public void EnabledEntryWithNoTicker_IsDisabledAndDoesntBreakTheRootChecks()
+    {
+        var cfg = Config([Entry("pullback-x", StrategyType.Pullback, null!),
+                          Entry("pullback-mnq", StrategyType.Pullback, "/MNQZ26", 5)]);
+
+        var disabled = SetupValidation.DisabledSetups(cfg);
+
+        Assert.Equal("it has no instrument", Assert.Single(disabled).Reason);
+        Assert.Empty(SetupValidation.RootBarSizes(cfg));
+        Assert.Equal(5, cfg.TfMinutesFor("/MNQZ26"));
+        Assert.Equal(new[] { "it has no instrument" }, SetupValidation.SaveErrors(Entry("pullback-x", StrategyType.Pullback, null!), cfg));
+    }
+
+    [Fact]
     public void Entry_EmaType_CantRunYet()
         => Assert.Contains("the EMA strategy can't run in this version",
             SetupValidation.Entry(Entry("ema-mnq", StrategyType.Ema, "/MNQZ26"), Config([])));
