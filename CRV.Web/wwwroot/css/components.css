@@ -316,6 +316,7 @@ form.is-busy .c-idle { display: none; }
 .st-cutoff input { width: 8rem; }
 .st-wide { grid-column: 1 / -1; }
 .st-usd { border: 1px solid var(--c-line); border-radius: var(--radius-sm); padding: .1rem .75rem; background: var(--c-raise); }
+.st-usd-out { border-top: 1px solid var(--c-line); }
 .st-side { position: sticky; top: 4.5rem; }
 @media (max-width: 1199.98px) { .st-side { position: static; } }
 

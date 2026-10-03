@@ -167,9 +167,12 @@ public class StrategyPageTests(A11yAppFixture app)
             await using var ctx = await app.Browser.NewContextAsync();
             var page = await Open(ctx, A11ySeed.GuardOffId);
 
+            await ById(page, "Entry.Config.TargetDollars").FillAsync("450");
             await Save(page);
 
+            Assert.Equal(0, await page.Locator(".c-note.bad[role=alert]").CountAsync());
             var cfg = app.Services.GetRequiredService<StrategyBasketService>().Find(A11ySeed.GuardOffId)!.Entry.Config;
+            Assert.Equal(450m, cfg.TargetDollars);
             Assert.False(cfg.EnforceMinRr);
             Assert.Equal(2.5m, cfg.MinRr);
             Assert.Equal(MinRrAction.RaiseTarget, cfg.MinRrAction);
